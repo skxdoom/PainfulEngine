@@ -1,0 +1,139 @@
+#include "TextureCache.h"
+#include "../Core/Common.h"
+#include "../Core/Log.h"
+
+#include <bimg/decode.h>
+#include <bx/allocator.h>
+
+#include <algorithm>
+#include <filesystem>
+
+namespace fs = std::filesystem;
+
+namespace painful {
+
+// Shared with the texdump diagnostic in main.cpp.
+bx::DefaultAllocator g_allocator;
+
+namespace {
+
+std::string Lower(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return s;
+}
+
+std::string StripExtension(const std::string& path) {
+    size_t dot = path.find_last_of('.');
+    size_t slash = path.find_last_of('/');
+    if (dot == std::string::npos) return path;
+    if (slash != std::string::npos && dot < slash) return path;
+    return path.substr(0, dot);
+}
+
+} // namespace
+
+bool TextureCache::Init(const std::string& texturesRoot, bool createWhite) {
+    if (createWhite) {
+        // A 1x1 white texture stands in for anything unresolved, so a missing
+        // file shows up as untextured geometry rather than a crash.
+        const uint32_t whitePixel = 0xffffffff;
+        white_ = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::BGRA8,
+                                       BGFX_SAMPLER_NONE, bgfx::copy(&whitePixel, 4));
+        const uint32_t clearPixel = 0x00000000;
+        transparent_ = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::BGRA8,
+                                             BGFX_SAMPLER_NONE, bgfx::copy(&clearPixel, 4));
+    }
+
+    std::error_code ec;
+    if (!fs::exists(texturesRoot, ec)) {
+        LogWarn("textures root not found: %s", texturesRoot.c_str());
+        return false;
+    }
+    for (const auto& entry : fs::recursive_directory_iterator(texturesRoot, ec)) {
+        if (!entry.is_regular_file()) continue;
+        std::string ext = Lower(entry.path().extension().string());
+        if (ext != ".dds" && ext != ".tga" && ext != ".bmp") continue;
+
+        std::string rel = Lower(fs::relative(entry.path(), texturesRoot, ec).generic_string());
+        std::string noExt = StripExtension(rel);
+        std::string base = Lower(entry.path().stem().string());
+        std::string full = entry.path().string();
+
+        // .dds wins when several formats share a name - it is what shipped.
+        if (ext == ".dds" || index_.find(noExt) == index_.end()) index_[noExt] = full;
+        if (ext == ".dds" || index_.find(base) == index_.end()) index_[base] = full;
+    }
+    return true;
+}
+
+void TextureCache::Shutdown() {
+    for (auto& kv : cache_) {
+        if (bgfx::isValid(kv.second)) bgfx::destroy(kv.second);
+    }
+    cache_.clear();
+    if (bgfx::isValid(white_)) { bgfx::destroy(white_); white_ = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(transparent_)) { bgfx::destroy(transparent_); transparent_ = BGFX_INVALID_HANDLE; }
+}
+
+std::string TextureCache::Resolve(const std::string& reference,
+                                  const std::string& levelHint) const {
+    std::string key = StripExtension(Lower(reference));
+    // Normalise Windows separators. The backslash is written by code point so
+    // this line carries no escape sequence.
+    const char kBackslash = static_cast<char>(92);
+    std::replace(key.begin(), key.end(), kBackslash, '/');
+
+    if (!levelHint.empty()) {
+        auto it = index_.find("levels/" + Lower(levelHint) + "/" + key);
+        if (it != index_.end()) return it->second;
+    }
+    auto it = index_.find(key);
+    if (it != index_.end()) return it->second;
+
+    size_t slash = key.find_last_of('/');
+    if (slash != std::string::npos) {
+        auto b = index_.find(key.substr(slash + 1));
+        if (b != index_.end()) return b->second;
+    }
+    return {};
+}
+
+bgfx::TextureHandle TextureCache::Get(const std::string& reference,
+                                      const std::string& levelHint) {
+    if (reference.empty()) return white_;
+
+    std::string cacheKey = Lower(reference) + "|" + Lower(levelHint);
+    auto cached = cache_.find(cacheKey);
+    if (cached != cache_.end()) return cached->second;
+
+    bgfx::TextureHandle handle = white_;
+    std::string path = Resolve(reference, levelHint);
+    std::vector<uint8_t> data;
+    if (!path.empty() && ReadFile(path, data) && !data.empty()) {
+        // bimg understands DDS (including the BC formats the game ships), so the
+        // compressed blocks go straight to the GPU with no CPU-side decode.
+        bimg::ImageContainer* image =
+            bimg::imageParse(&g_allocator, data.data(), static_cast<uint32_t>(data.size()));
+        if (image) {
+            const bgfx::Memory* mem = bgfx::copy(image->m_data, image->m_size);
+            handle = bgfx::createTexture2D(
+                uint16_t(image->m_width), uint16_t(image->m_height),
+                image->m_numMips > 1, image->m_numLayers,
+                bgfx::TextureFormat::Enum(image->m_format),
+                BGFX_SAMPLER_NONE, mem);
+            bimg::imageFree(image);
+            if (bgfx::isValid(handle)) ++loaded_;
+            else handle = white_;
+        }
+    }
+    if (handle.idx == white_.idx) {
+        ++missing_;
+        LogWarn("texture fell back to white: %s%s", reference.c_str(),
+                path.empty() ? "  (unresolved)" : ("  (decode failed: " + path + ")").c_str());
+    }
+    cache_[cacheKey] = handle;
+    return handle;
+}
+
+} // namespace painful
