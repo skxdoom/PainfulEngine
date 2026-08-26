@@ -18,6 +18,10 @@ struct MaterialState {
     float alphaRef = -1.f;
     // 1 for "modulate", 2 for "modulate2x" - the lightmap overbright factor.
     float lightScale = 1.f;
+    // UV scroll in units per second for stages 0 and 1 (pan[N] in the
+    // scripts - conveyor belts, waterfalls). Zero when static.
+    float pan0[2] = {0, 0};
+    float pan1[2] = {0, 0};
 
     // Builds the state from a resolved pass. Unknown values fall back to the
     // most common defaults and are reported through *warning when given.

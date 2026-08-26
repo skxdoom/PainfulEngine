@@ -95,6 +95,14 @@ MaterialState MaterialState::FromPass(const ShaderPass& pass, std::string* warni
         const std::string op = pass.Get("texop[" + std::to_string(i) + "]");
         if (op.find("modulate2x") != std::string::npos) out.lightScale = 2.f;
     }
+
+    // UV scrolling: "pan[N] = u v" in units per second (conveyors etc.).
+    auto readPan = [&](const char* key, float pan[2]) {
+        std::istringstream in(pass.Get(key));
+        in >> pan[0] >> pan[1];
+    };
+    readPan("pan[0]", out.pan0);
+    readPan("pan[1]", out.pan1);
     return out;
 }
 

@@ -28,12 +28,11 @@ public:
     // levelHint is the map name, used to find per-level textures.
     // shaders may be null; material state then falls back to built-in defaults.
     void Upload(const MapMesh& map, TextureCache& textures, const std::string& levelHint,
-                float worldScale = 1.f, ShaderLibrary* shaders = nullptr,
-                bool overbright = false);
+                const LevelInfo& info, ShaderLibrary* shaders = nullptr);
 
     // ambient/fogColor are 0-255 as stored in the level file.
     void Draw(bgfx::ViewId view, const Camera& camera, int width, int height,
-              const LevelInfo& info);
+              const LevelInfo& info, float timeSeconds);
 
     size_t drawCalls() const { return drawCalls_; }
     size_t zonesVisible() const { return zonesVisible_; }
@@ -51,7 +50,19 @@ private:
         uint32_t indexCount = 0;
         bgfx::TextureHandle diffuse = BGFX_INVALID_HANDLE;
         bgfx::TextureHandle lightmap = BGFX_INVALID_HANDLE;
+        // Terrain blending: a material with all four slots filled mixes two
+        // TILED terrain textures through a mask. Which slots are which is not
+        // guesswork - the tiled pair carry large scale factors (Enclave's
+        // ground is 30x30 and 20x20) while the lightmap and mask are 1x1 and
+        // map once across the surface.
+        bgfx::TextureHandle blend2 = BGFX_INVALID_HANDLE;
+        bgfx::TextureHandle mask = BGFX_INVALID_HANDLE;
+        bool blended = false;
         bool hasLightmap = false;
+        // Per-slot UV transform from the .mpk material (offsetU/V, scaleU/V).
+        // Stored as the shader wants it: scale in xy, offset in zw.
+        float uvDiffuse[4] = {1, 1, 0, 0};
+        float uvBlend[4] = {1, 1, 0, 0};
     };
     struct Chunk {                       // one MPK object
         bgfx::VertexBufferHandle vbo = BGFX_INVALID_HANDLE;
@@ -72,6 +83,16 @@ private:
     bgfx::UniformHandle uAmbient_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle uFogColor_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle uFog_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle uUvAnim_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle uDetail_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle sDetail_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle sBlend2_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle sMask_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle uUv0_ = BGFX_INVALID_HANDLE;   // diffuse slot xform
+    bgfx::UniformHandle uUv1_ = BGFX_INVALID_HANDLE;   // blend slot xform
+    bgfx::TextureHandle detailTex_ = BGFX_INVALID_HANDLE;
+    float detailTile_[2] = {8.2f, 7.1f};
+    bool detailOn_ = false;
     size_t drawCalls_ = 0, triangles_ = 0, zonesVisible_ = 0;
     ZoneGraph zoneGraph_;
     float worldScale_ = 1.f;

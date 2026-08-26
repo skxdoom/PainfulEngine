@@ -24,6 +24,9 @@ bool Level::LoadSettings(const std::string& levelDir) {
     // default is 0.3, NOT 1 - levels that omit the key rely on it.
     info_.scale = static_cast<float>(p.Number("Scale", 0.3));
     info_.overbright = p.Bool("Overbright", false);
+    info_.detailTex = p.String("DetailMap.Tex", "special/detail");
+    info_.detailTileU = static_cast<float>(p.Number("DetailMap.TileU", 8.2));
+    info_.detailTileV = static_cast<float>(p.Number("DetailMap.TileV", 7.1));
     info_.fogDensity = static_cast<float>(p.Number("Fog.Density"));
     info_.fogStart = static_cast<float>(p.Number("Fog.Start"));
     info_.fogMode = static_cast<int>(p.Number("Fog.Mode"));

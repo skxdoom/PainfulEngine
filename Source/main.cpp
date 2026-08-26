@@ -166,8 +166,7 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
         if (world->Init(shaderDir) && level->mapLoaded()) {
             world->Upload(level->map(), textures,
                           MapNameWithoutExtension(level->info().mapFile),
-                          level->info().scale, &shaderScripts,
-                          level->info().overbright);
+                          level->info(), &shaderScripts);
         }
 
         entities = std::make_unique<EntityRenderer>();
@@ -247,10 +246,12 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
         const LevelInfo& info = level->info();
         if (sky) sky->Draw(Renderer::kSkyView, camera, window.width(), window.height(), elapsed);
         if (world && !skyOnly) {
-            world->Draw(Renderer::kWorldView, camera, window.width(), window.height(), info);
+            world->Draw(Renderer::kWorldView, camera, window.width(), window.height(), info,
+                        elapsed);
         }
         if (entities && !skyOnly) {
-            entities->Draw(Renderer::kWorldView, camera, window.width(), window.height(), info);
+            entities->Draw(Renderer::kWorldView, camera, window.width(), window.height(), info,
+                           elapsed);
         }
 
         renderer.DebugText(1, "PainfulEngine  -  %s  -  %.1f fps",
@@ -277,8 +278,12 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
 
         if (!shotPath.empty()) {
             ++frame;
-            if (frame == 30) renderer.RequestScreenshot(shotPath);
-            if (frame >= 34) break;
+            // PAINFUL_SHOT_FRAME delays the capture - useful for verifying
+            // time-driven effects like UV animation.
+            int shotFrame = 30;
+            if (const char* e = getenv("PAINFUL_SHOT_FRAME")) shotFrame = std::atoi(e);
+            if (frame == shotFrame) renderer.RequestScreenshot(shotPath);
+            if (frame >= shotFrame + 4) break;
         }
     }
     return 0;
@@ -606,6 +611,12 @@ static int SkyDumpCmd(const char* path) {
             LogInfo("        slot0=%-26s slot1=%-26s slot2=%-16s slot3=%s",
                     mat.slots[0].name.c_str(), mat.slots[1].name.c_str(),
                     mat.slots[2].name.c_str(), mat.slots[3].name.c_str());
+            for (int s = 0; s < 4; ++s) {
+                const TextureSlot& t = mat.slots[s];
+                if (t.empty()) continue;
+                LogInfo("          xform[%d] offset(%.3f %.3f) scale(%.3f %.3f)  %s",
+                        s, t.offsetU, t.offsetV, t.scaleU, t.scaleV, t.name.c_str());
+            }
         }
     }
     return 0;

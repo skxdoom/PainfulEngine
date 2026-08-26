@@ -83,14 +83,29 @@ void ReadRotation(const Properties& props, float out[9]) {
     out[6] = sy * cx;                 out[7] = -sx;      out[8] = cy * cx;
 }
 
+// Quiet lookup for per-object material overrides (a script named exactly
+// after the mesh, like skin.shader's "polySurfaceShape847" or lm.shader's
+// "tasmashape" conveyor). Most meshes have none; that is not an error.
+const ShaderDef* FindByName(ShaderLibrary* lib, const std::string& name) {
+    if (!lib || name.empty()) return nullptr;
+    const ShaderDef* def = lib->Find(name);
+    return (def && !def->passes.empty()) ? def : nullptr;
+}
+
 // Looks the material up in the game's shader scripts; falls back to plain
 // opaque state with the given winding when the library is missing.
-MaterialState LookupMaterial(ShaderLibrary* lib, const std::string& name, bool cwFallback) {
+MaterialState LookupMaterial(ShaderLibrary* lib, const std::string& name, bool cwFallback,
+                             const std::string& overrideName = "") {
     if (lib) {
-        if (const ShaderDef* def = lib->Find(name); def && !def->passes.empty()) {
+        const ShaderDef* def = FindByName(lib, overrideName);
+        if (!def) {
+            def = lib->Find(name);
+            if (def && def->passes.empty()) def = nullptr;
+        }
+        if (def) {
             std::string warn;
             MaterialState m = MaterialState::FromPass(def->passes.front(), &warn);
-            if (!warn.empty()) LogWarn("material %s: %s", name.c_str(), warn.c_str());
+            if (!warn.empty()) LogWarn("material %s: %s", def->name.c_str(), warn.c_str());
             return m;
         }
         LogWarn("material not found: %s", name.c_str());
@@ -121,6 +136,11 @@ bool EntityRenderer::Init(const std::string& shaderDir) {
     uAmbient_  = bgfx::createUniform("u_ambient",  bgfx::UniformType::Vec4);
     uFogColor_ = bgfx::createUniform("u_fogColor", bgfx::UniformType::Vec4);
     uFog_      = bgfx::createUniform("u_fog",      bgfx::UniformType::Vec4);
+    uUvAnim_   = bgfx::createUniform("u_uvanim",   bgfx::UniformType::Vec4);
+    uDetail_   = bgfx::createUniform("u_detail",   bgfx::UniformType::Vec4);
+    sDetail_   = bgfx::createUniform("s_detail",   bgfx::UniformType::Sampler);
+    uUv0_      = bgfx::createUniform("u_uv0",      bgfx::UniformType::Vec4);
+    uUv1_      = bgfx::createUniform("u_uv1",      bgfx::UniformType::Vec4);
     return true;
 }
 
@@ -140,6 +160,11 @@ void EntityRenderer::Shutdown() {
     if (bgfx::isValid(uAmbient_))  { bgfx::destroy(uAmbient_);  uAmbient_  = BGFX_INVALID_HANDLE; }
     if (bgfx::isValid(uFogColor_)) { bgfx::destroy(uFogColor_); uFogColor_ = BGFX_INVALID_HANDLE; }
     if (bgfx::isValid(uFog_))      { bgfx::destroy(uFog_);      uFog_      = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(uUvAnim_))   { bgfx::destroy(uUvAnim_);   uUvAnim_   = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(uDetail_))   { bgfx::destroy(uDetail_);   uDetail_   = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(sDetail_))   { bgfx::destroy(sDetail_);   sDetail_   = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(uUv0_))      { bgfx::destroy(uUv0_);      uUv0_      = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(uUv1_))      { bgfx::destroy(uUv1_);      uUv1_      = BGFX_INVALID_HANDLE; }
 }
 
 bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textures,
@@ -195,7 +220,7 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
     }
     if (gpu.parts.empty()) return false;
 
-    gpu.material = LookupMaterial(shaders_, "palskinned", true);
+    gpu.material = LookupMaterial(shaders_, "palskinned", true, modelName);
     outIndex = models_.size();
     // Bind-pose extent, used to interpret o.Scale as a real-world size.
     float extent = 0.f;
@@ -249,7 +274,7 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
             if (isTrans) shaderName += "trans";
             else if (o.nameHas("atest")) shaderName += "atest";
             if (o.nameHas("2sided")) shaderName += "2sided";
-            gpu.material = LookupMaterial(shaders_, shaderName, false);
+            gpu.material = LookupMaterial(shaders_, shaderName, false, o.name);
             materialSet = true;
         }
 
@@ -431,7 +456,7 @@ void EntityRenderer::SetScaleMultiplier(float k) {
 }
 
 void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int height,
-                          const LevelInfo& info) {
+                          const LevelInfo& info, float timeSeconds) {
     const float* ambient = info.ambient;
     drawCalls_ = 0;
     if (!bgfx::isValid(program_) || instances_.empty()) return;
@@ -463,6 +488,15 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
         const float ambientValue[4] = {ambient[0] / 255.f, ambient[1] / 255.f,
                                        ambient[2] / 255.f, model.material.lightScale};
         const float params[4] = {0.f, model.material.alphaRef, 0.f, 0.f};
+        // Animated materials (conveyor pack meshes, swamp water models) pan
+        // their diffuse UVs; entities have no detail maps.
+        const float uvAnim[4] = {model.material.pan0[0] * timeSeconds,
+                                 model.material.pan0[1] * timeSeconds,
+                                 model.material.pan1[0] * timeSeconds,
+                                 model.material.pan1[1] * timeSeconds};
+        const float detail[4] = {1.f, 1.f, 0.f, 0.f};
+        // Identity UV transform: entity meshes carry no per-slot xform.
+        const float identityUv[4] = {1.f, 1.f, 0.f, 0.f};
 
         uint64_t state = model.material.state | BGFX_STATE_MSAA;
         // Diagnostic override: --ecull none strips culling, cw/ccw force it.
@@ -474,11 +508,16 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
             bgfx::setUniform(uAmbient_, ambientValue);
             bgfx::setUniform(uFogColor_, fogValue);
             bgfx::setUniform(uParams_, params);
+            bgfx::setUniform(uUvAnim_, uvAnim);
+            bgfx::setUniform(uDetail_, detail);
+            bgfx::setUniform(uUv0_, identityUv);
+            bgfx::setUniform(uUv1_, identityUv);
             bgfx::setTransform(instance.transform.m);
             bgfx::setVertexBuffer(0, part.vbo);
             bgfx::setIndexBuffer(part.ibo, 0, part.indexCount);
             bgfx::setTexture(0, sDiffuse_, part.diffuse, model.material.sampler[0]);
             bgfx::setTexture(1, sLightmap_, white_);
+            bgfx::setTexture(2, sDetail_, white_);
             bgfx::setState(state);
             bgfx::submit(view, program_);
             ++drawCalls_;

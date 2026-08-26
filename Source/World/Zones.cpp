@@ -110,7 +110,8 @@ void ZoneGraph::ZonesForBox(const float lo[3], const float hi[3],
 }
 
 void ZoneGraph::VisibleZones(const Frustum& frustum, const std::vector<int>& startZones,
-                             float worldScale, std::vector<bool>& visible) const {
+                             float worldScale, const float cameraPos[3], float nearRadius,
+                             std::vector<bool>& visible) const {
     visible.assign(zones_.size(), false);
     // A camera outside every zone sees the open world; from there any zone
     // could be visible, so only the frustum culls.
@@ -139,7 +140,15 @@ void ZoneGraph::VisibleZones(const Frustum& frustum, const std::vector<int>& sta
                                  p.box.lo[2] * worldScale};
             const float hi[3] = {p.box.hi[0] * worldScale, p.box.hi[1] * worldScale,
                                  p.box.hi[2] * worldScale};
-            if (!frustum.VisibleAabb(lo, hi)) continue;
+            // Standing in the doorway: the flat quad can be behind the near
+            // plane even though the room beyond is plainly in view.
+            bool nearCamera = true;
+            for (int a = 0; a < 3 && nearCamera; ++a) {
+                if (cameraPos[a] < lo[a] - nearRadius || cameraPos[a] > hi[a] + nearRadius) {
+                    nearCamera = false;
+                }
+            }
+            if (!nearCamera && !frustum.VisibleAabb(lo, hi)) continue;
             // A visible portal opens every zone it touches.
             for (int other : p.zones) {
                 if (other == zone || visible[other]) continue;

@@ -44,8 +44,14 @@ public:
     // quad passes the frustum test (portal boxes are pre-scaled by worldScale
     // to match the rendered space). An empty start set marks everything
     // visible - never guess and over-cull the playable area.
+    //
+    // cameraPos is in RENDERED space. A portal quad is flat, so while walking
+    // through a doorway it can fall entirely behind the near plane and fail
+    // the frustum test, closing the far room for a frame. Portals within
+    // nearRadius of the camera are therefore always open.
     void VisibleZones(const Frustum& frustum, const std::vector<int>& startZones,
-                      float worldScale, std::vector<bool>& visible) const;
+                      float worldScale, const float cameraPos[3], float nearRadius,
+                      std::vector<bool>& visible) const;
 
 private:
     struct Box {

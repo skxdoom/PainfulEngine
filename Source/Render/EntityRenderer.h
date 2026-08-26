@@ -30,7 +30,7 @@ public:
                const std::string& dataRoot, ShaderLibrary* shaders = nullptr);
 
     void Draw(bgfx::ViewId view, const Camera& camera, int width, int height,
-              const LevelInfo& info);
+              const LevelInfo& info, float timeSeconds);
 
     // Disables frustum culling (the --novis flag).
     void SetVisibilityCulling(bool on) { visCulling_ = on; }
@@ -102,6 +102,14 @@ private:
     bgfx::UniformHandle uAmbient_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle uFogColor_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle uFog_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle uUvAnim_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle uDetail_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle sDetail_ = BGFX_INVALID_HANDLE;
+    // Entities have no per-slot UV transform, but the fragment shader is
+    // shared with the world pass, so these must be set to identity every draw
+    // or the last world chunk's tiling (up to 30x) leaks onto models.
+    bgfx::UniformHandle uUv0_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle uUv1_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle white_ = BGFX_INVALID_HANDLE;
     size_t unresolved_ = 0, packed_ = 0, hidden_ = 0, drawCalls_ = 0;
     // Models wind the OPPOSITE way to world meshes: .pkmdl comes from the Maya

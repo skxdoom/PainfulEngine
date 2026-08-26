@@ -40,6 +40,13 @@ bool WorldRenderer::Init(const std::string& shaderDir) {
     uAmbient_  = bgfx::createUniform("u_ambient",  bgfx::UniformType::Vec4);
     uFogColor_ = bgfx::createUniform("u_fogColor", bgfx::UniformType::Vec4);
     uFog_      = bgfx::createUniform("u_fog",      bgfx::UniformType::Vec4);
+    uUvAnim_   = bgfx::createUniform("u_uvanim",   bgfx::UniformType::Vec4);
+    uDetail_   = bgfx::createUniform("u_detail",   bgfx::UniformType::Vec4);
+    sDetail_   = bgfx::createUniform("s_detail",   bgfx::UniformType::Sampler);
+    sBlend2_   = bgfx::createUniform("s_blend2",   bgfx::UniformType::Sampler);
+    sMask_     = bgfx::createUniform("s_mask2",    bgfx::UniformType::Sampler);
+    uUv0_      = bgfx::createUniform("u_uv0",      bgfx::UniformType::Vec4);
+    uUv1_      = bgfx::createUniform("u_uv1",      bgfx::UniformType::Vec4);
     return true;
 }
 
@@ -56,15 +63,34 @@ void WorldRenderer::Shutdown() {
     if (bgfx::isValid(uAmbient_))  { bgfx::destroy(uAmbient_);  uAmbient_  = BGFX_INVALID_HANDLE; }
     if (bgfx::isValid(uFogColor_)) { bgfx::destroy(uFogColor_); uFogColor_ = BGFX_INVALID_HANDLE; }
     if (bgfx::isValid(uFog_))      { bgfx::destroy(uFog_);      uFog_      = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(uUvAnim_))   { bgfx::destroy(uUvAnim_);   uUvAnim_   = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(uDetail_))   { bgfx::destroy(uDetail_);   uDetail_   = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(sDetail_))   { bgfx::destroy(sDetail_);   sDetail_   = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(sBlend2_))   { bgfx::destroy(sBlend2_);   sBlend2_   = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(sMask_))     { bgfx::destroy(sMask_);     sMask_     = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(uUv0_))      { bgfx::destroy(uUv0_);      uUv0_      = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(uUv1_))      { bgfx::destroy(uUv1_);      uUv1_      = BGFX_INVALID_HANDLE; }
 }
 
 void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
-                           const std::string& levelHint, float worldScale,
-                           ShaderLibrary* shaders, bool overbright) {
+                           const std::string& levelHint, const LevelInfo& info,
+                           ShaderLibrary* shaders) {
+    const float worldScale = info.scale;
+    const bool overbright = info.overbright;
     chunks_.reserve(map.objects.size());
     worldScale_ = worldScale;
     // The zone/portal helper geometry drives visibility culling.
     zoneGraph_.Build(map, worldScale);
+
+    // The level-wide detail map, applied to world geometry the way
+    // MESH.SetDefaultDetailMaps does (addsigned grain, heavy tiling).
+    detailOn_ = false;
+    if (!info.detailTex.empty() && !textures.Resolve(info.detailTex, "").empty()) {
+        detailTex_ = textures.Get(info.detailTex, "");
+        detailTile_[0] = info.detailTileU;
+        detailTile_[1] = info.detailTileV;
+        detailOn_ = true;
+    }
 
     for (const MapObject& o : map.objects) {
         const size_t vertexCount = o.vertexCount();
@@ -122,11 +148,13 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
                 chunk.aabbHi[a] = std::max(chunk.aabbHi[a], w[a]);
             }
         }
-        // Material selection works the way the engine's own scripts are named:
-        // lightmapped objects use the defaultTU2 family (the x2 set when the
-        // level is Overbright), plain ones defaultNTU, and the trans / atest /
-        // 2sided object-name substrings pick the variant. All render state
-        // then comes from the resolved .shader definition.
+        // Material selection works the way the engine's own scripts are named.
+        // A script can define a material for a SPECIFIC object - lm.shader has
+        // "shader tasmashape copy defaultTU2 { pan[0] = -2.22 0 }" for the
+        // Factory conveyor belts - so the object's own name is tried first.
+        // Otherwise lightmapped objects use the defaultTU2 family (the x2 set
+        // when the level is Overbright), plain ones defaultNTU, and the
+        // trans / atest / 2sided name substrings pick the variant.
         const bool trans = o.nameHas("trans") || o.nameHas("decal");
         std::string shaderName = (o.uvChannels == 2)
             ? (overbright ? "defaultTU2x2" : "defaultTU2") : "defaultNTU";
@@ -134,7 +162,12 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
         else if (o.nameHas("atest")) shaderName += "atest";
         if (o.nameHas("2sided")) shaderName += "2sided";
 
-        const ShaderDef* def = shaders ? shaders->Find(shaderName) : nullptr;
+        const ShaderDef* def = shaders ? shaders->Find(o.name) : nullptr;
+        if (def) {
+            LogInfo("material by object name: %s", o.name.c_str());
+        } else if (shaders) {
+            def = shaders->Find(shaderName);
+        }
         if (def && !def->passes.empty()) {
             std::string warn;
             chunk.material = MaterialState::FromPass(def->passes.front(), &warn);
@@ -170,6 +203,37 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
                 b.indexCount = uint32_t(m.triangleCount) * 3;
                 if (b.indexCount == 0) continue;
                 b.diffuse = textures.Get(m.diffuse(), levelHint);
+                // Every slot carries its own UV transform, and honouring it is
+                // not optional: Enclave's terrain tiles its ground textures
+                // 30x and 20x, so sampling at 1x shows one magnified texel
+                // patch instead of the surface.
+                auto slotUv = [](const TextureSlot& s, float out[4]) {
+                    out[0] = s.scaleU; out[1] = s.scaleV;
+                    out[2] = s.offsetU; out[3] = s.offsetV;
+                };
+                slotUv(m.slots[0], b.uvDiffuse);
+
+                // All four slots filled = a terrain blend: two TILED textures
+                // mixed by a mask. The tiled pair (large scale) are the
+                // terrains; the 1x1 pair are the lightmap and the mask.
+                if (o.uvChannels == 2 && !m.slots[0].empty() && !m.slots[1].empty() &&
+                    !m.slots[2].empty() && !m.slots[3].empty()) {
+                    const bool s1Tiled = m.slots[1].scaleU > 1.5f;
+                    const bool s2Tiled = m.slots[2].scaleU > 1.5f;
+                    const int blendSlot = s2Tiled ? 2 : (s1Tiled ? 1 : -1);
+                    if (blendSlot > 0) {
+                        const int maskSlot = blendSlot == 2 ? 3 : 2;
+                        const int lightSlot = blendSlot == 2 ? 1 : 3;
+                        b.blended = true;
+                        b.blend2 = textures.Get(m.slots[blendSlot].name, levelHint);
+                        b.mask = textures.Get(m.slots[maskSlot].name, levelHint);
+                        b.lightmap = textures.Get(m.slots[lightSlot].name, levelHint);
+                        b.hasLightmap = true;
+                        slotUv(m.slots[blendSlot], b.uvBlend);
+                        chunk.batches.push_back(b);
+                        continue;
+                    }
+                }
                 // A lightmap is only usable when the object actually carries a
                 // second UV set. Some materials name one on single-UV objects;
                 // sampling it with the tiling diffuse UVs smears the lightmap
@@ -187,7 +251,7 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
 }
 
 void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int height,
-                         const LevelInfo& info) {
+                         const LevelInfo& info, float timeSeconds) {
     const float* ambient = info.ambient;
     drawCalls_ = 0;
     if (!bgfx::isValid(program_)) return;
@@ -227,7 +291,11 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
         // visibility starts from all of them. Outside every zone the graph
         // stays permissive and the frustum alone culls.
         zoneGraph_.ZonesAt(raw, cameraZones_);
-        zoneGraph_.VisibleZones(frustum, cameraZones_, worldScale_, zoneVisible_);
+        // Portals closer than a few near-plane widths stay open, so walking
+        // through a doorway never blinks the far room out for a frame.
+        const float nearRadius = camera.nearPlane * 4.f;
+        zoneGraph_.VisibleZones(frustum, cameraZones_, worldScale_, camera.pos, nearRadius,
+                                zoneVisible_);
         zonesVisible_ = size_t(std::count(zoneVisible_.begin(), zoneVisible_.end(), true));
     }
 
@@ -257,16 +325,35 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
             state = (state & ~BGFX_STATE_CULL_MASK) | BGFX_STATE_CULL_CW;
         }
 
+        // pan animation offsets for this chunk's material.
+        const float uvAnim[4] = {c.material.pan0[0] * timeSeconds,
+                                 c.material.pan0[1] * timeSeconds,
+                                 c.material.pan1[0] * timeSeconds,
+                                 c.material.pan1[1] * timeSeconds};
+        const float detail[4] = {detailTile_[0], detailTile_[1],
+                                 detailOn_ ? 1.f : 0.f, 0.f};
         for (const Batch& b : c.batches) {
             const float params[4] = {b.hasLightmap ? 1.f : 0.f,
                                      c.material.alphaRef,
-                                     0.f, 0.f};
+                                     b.blended ? 1.f : 0.f, 0.f};
             bgfx::setUniform(uAmbient_, ambientValue);
             bgfx::setUniform(uParams_, params);
+            bgfx::setUniform(uUvAnim_, uvAnim);
+            bgfx::setUniform(uDetail_, detail);
+            bgfx::setUniform(uUv0_, b.uvDiffuse);
+            bgfx::setUniform(uUv1_, b.uvBlend);
+            bgfx::setTexture(2, sDetail_, detailOn_ ? detailTex_ : b.diffuse,
+                             BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC);
+            bgfx::setTexture(3, sBlend2_, b.blended ? b.blend2 : b.diffuse);
+            bgfx::setTexture(4, sMask_, b.blended ? b.mask : b.diffuse);
             bgfx::setTransform(c.transform.m);
             bgfx::setVertexBuffer(0, c.vbo);
             bgfx::setIndexBuffer(c.ibo, b.firstIndex, b.indexCount);
-            bgfx::setTexture(0, sDiffuse_, b.diffuse, c.material.sampler[0]);
+            // Anisotropic filtering keeps the diffuse and detail grain alive
+            // at the glancing angles terrain is mostly seen at.
+            bgfx::setTexture(0, sDiffuse_, b.diffuse,
+                             c.material.sampler[0] | BGFX_SAMPLER_MIN_ANISOTROPIC |
+                                 BGFX_SAMPLER_MAG_ANISOTROPIC);
             bgfx::setTexture(1, sLightmap_, b.lightmap, c.material.sampler[1]);
             bgfx::setState(state);
             bgfx::submit(view, program_);

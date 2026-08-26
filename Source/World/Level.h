@@ -42,6 +42,8 @@ struct LevelInfo {
     std::string waypointsFile;   // o.WayPointsMap
     float scale = 0.3f;          // o.Scale - multiplies the WORLD MESH, not entities
     bool overbright = false;     // o.Overbright - selects the x2 lightmap material set
+    std::string detailTex = "special/detail";   // DetailMap.Tex
+    float detailTileU = 8.2f, detailTileV = 7.1f;
     float ambient[3] = {0, 0, 0};
     float fogColor[3] = {0, 0, 0};
     float fogDensity = 0.f, fogStart = 0.f;
