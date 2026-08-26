@@ -1,0 +1,27 @@
+#pragma once
+#include "../Assets/ShaderScript.h"
+#include <cstdint>
+
+namespace painful {
+
+// A resolved .shader pass translated into bgfx terms. Only state expressible
+// through the fixed pipeline lives here; the texop combines and GPU programs
+// are realised by our own shaders.
+struct MaterialState {
+    // Write/depth/blend/cull bits, without MSAA (the caller owns that).
+    uint64_t state = 0;
+    // Per-stage sampler flags from texenv[N] (wrap/clamp, filter).
+    uint32_t sampler[4] = {0, 0, 0, 0};
+    // Alpha-test reference for "alphafunc greater", 0..1; negative = disabled.
+    // Modern APIs dropped fixed-function alpha test, so the fragment shader
+    // discards below this value.
+    float alphaRef = -1.f;
+    // 1 for "modulate", 2 for "modulate2x" - the lightmap overbright factor.
+    float lightScale = 1.f;
+
+    // Builds the state from a resolved pass. Unknown values fall back to the
+    // most common defaults and are reported through *warning when given.
+    static MaterialState FromPass(const ShaderPass& pass, std::string* warning = nullptr);
+};
+
+} // namespace painful

@@ -1,6 +1,8 @@
 #pragma once
 #include "../Assets/Dat.h"
 #include "../Assets/Pkmdl.h"
+#include "../Assets/ShaderScript.h"
+#include "MaterialState.h"
 #include "../World/Level.h"
 #include "../World/Templates.h"
 #include "Camera.h"
@@ -25,7 +27,7 @@ public:
     void Shutdown();
 
     void Build(const Level& level, TemplateCache& templates, TextureCache& textures,
-               const std::string& dataRoot);
+               const std::string& dataRoot, ShaderLibrary* shaders = nullptr);
 
     void Draw(bgfx::ViewId view, const float ambient[3], const float fogColor[3],
               float fogDensity, float fogStart);
@@ -57,9 +59,10 @@ private:
         std::vector<Part> parts;
         // Largest bind-pose dimension, in the model file's own units.
         float extent = 1.f;
-        // Pack meshes come from the world exporter and wind like .mpk world
-        // geometry (CCW); .pkmdl models wind the other way (CW).
-        bool ccw = false;
+        // From the game's .shader scripts: models use the palskinned family
+        // (cull cw - the Maya exporter's winding is authored, not guessed),
+        // pack meshes the defaultNTU family (cull ccw, like world geometry).
+        MaterialState material;
     };
     struct Instance {
         size_t model = 0;
@@ -78,6 +81,7 @@ private:
     bool GetPack(const std::string& packName, const std::string& meshName,
                  TextureCache& textures, const std::string& itemsRoot, size_t& outIndex);
 
+    ShaderLibrary* shaders_ = nullptr;           // material scripts, set by Build
     std::map<std::string, size_t> modelIndex_;   // model name -> models_ slot
     std::vector<GpuModel> models_;
     std::vector<Instance> instances_;

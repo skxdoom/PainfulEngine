@@ -6,8 +6,8 @@ Requires your own copy of the game's data. **No original assets or binaries are
 distributed with this project.**
 
 The formats it reads were reverse-engineered from the shipped game; the notes
-are in [`../RE/FINDINGS.md`](../RE/FINDINGS.md) and the plan in
-[`../RE/SOURCE_PORT.md`](../RE/SOURCE_PORT.md).
+are in the merged
+[`Docs/Source_Port.md`](Docs/Source_Port.md).
 
 ## Why this is tractable
 

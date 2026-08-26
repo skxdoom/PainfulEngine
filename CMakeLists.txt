@@ -44,6 +44,7 @@ target_include_directories(painful_core PUBLIC Source)
 add_library(painful_assets STATIC
   Source/Assets/Mpk.cpp
   Source/Assets/Dat.cpp
+  Source/Assets/ShaderScript.cpp
   Source/Assets/Pkmdl.cpp
   Source/Assets/Ani.cpp
   Source/Assets/Skeleton.cpp
@@ -63,6 +64,7 @@ add_library(painful_render STATIC
   Source/Render/TextureCache.cpp
   Source/Render/WorldRenderer.cpp
   Source/Render/EntityRenderer.cpp
+  Source/Render/MaterialState.cpp
   Source/Render/SkyRenderer.cpp
 )
 # bimg_decode provides imageParse (DDS/PNG/etc); bimg alone is just the core.

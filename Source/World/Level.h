@@ -41,6 +41,7 @@ struct LevelInfo {
     std::string mapFile;         // o.Map, e.g. "1x01_Chaos.mpk"
     std::string waypointsFile;   // o.WayPointsMap
     float scale = 0.3f;          // o.Scale - multiplies the WORLD MESH, not entities
+    bool overbright = false;     // o.Overbright - selects the x2 lightmap material set
     float ambient[3] = {0, 0, 0};
     float fogColor[3] = {0, 0, 0};
     float fogDensity = 0.f, fogStart = 0.f;

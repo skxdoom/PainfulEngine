@@ -1,0 +1,790 @@
+Print	1841	Console / demo recording
+random	641	Lua stdlib: math
+getn	272	Lua stdlib: table
+AddMessage	244	Console / demo recording
+GetJointIndex	242	Ragdoll / joints
+SetAnim	242	Ragdoll / joints
+Add	239	Waypoints / AI paths
+PO_Create	234	World mesh / collision
+Create	198	unidentified
+GetJointPos	194	Ragdoll / joints
+Release	193	World mesh / collision
+Stop	190	Sound instance
+sin	181	Lua stdlib: math
+cos	181	Lua stdlib: math
+sub	176	Lua stdlib: string
+SetVelocity	165	World mesh / collision
+GetPosition	160	World mesh / collision
+SetPosition	148	World mesh / collision
+PrintXY	141	HUD drawing
+SetMeshVisibility	141	Ragdoll / joints
+EnableCollisions	137	World mesh / collision
+TransformPointByJoint	132	Ragdoll / joints
+RegisterChild	131	World mesh / collision
+format	130	Lua stdlib: string
+DoFile	123	Registered individually (direct RegisterFunction call sites)
+PlaySound	121	Menu / GUI
+PO_Enable	119	World mesh / collision
+RGB	119	Render / debug draw
+EnableRagdoll	116	Ragdoll / joints
+type	109	Lua stdlib: base
+SetRagdollLinearDamping	105	Ragdoll / joints
+abs	103	Lua stdlib: math
+Log	103	Registered individually (direct RegisterFunction call sites)
+EnableDraw	102	World mesh / collision
+SetRagdollAngularDamping	101	Ragdoll / joints
+LineTraceFixedGeom	98	World / level
+atan2	95	Lua stdlib: math
+insert	95	Lua stdlib: table
+PO_SetCollisionGroup	94	World mesh / collision
+Tick	93	World mesh / collision
+GetTextWidth	93	HUD drawing
+Explosion2	92	World / level
+PO_EnableGravity	91	World mesh / collision
+next	87	Lua stdlib: base
+RGBA	83	Render / debug draw
+Key	77	Input / timing
+RemoveFromIntersectionSolver	72	World mesh / collision
+MsgBox	72	Registered individually (direct RegisterFunction call sites)
+PO_SetMovedByExplosions	72	World mesh / collision
+ToNumber	72	Registered individually (direct RegisterFunction call sites)
+Die	69	unidentified
+GetVelocity	68	World mesh / collision
+Delete	68	unidentified
+AddEntity	65	World / level
+find	64	Lua stdlib: string
+UnregisterAllChildren	58	World mesh / collision
+Update	58	Scoreboard
+Play2D	55	Sound system
+setconstant	55	Lua stdlib: table
+write	54	Lua stdlib: io
+setmetatable	51	Lua stdlib: base
+PO_SetPinned	50	World mesh / collision
+LineTrace	50	Ragdoll / joints
+SetVolume	49	Sound instance
+SetLoopCount	49	Sound instance
+ScreenSize	49	Render / debug draw
+SetRagdollCollisionGroup	47	Ragdoll / joints
+len	46	Lua stdlib: string
+SetAnimTimeScale	45	Ragdoll / joints
+Play3D	44	Sound system
+mod	44	Lua stdlib: math
+EnableNetworkSynchronization	44	World mesh / collision
+Replace	44	unidentified
+sqrt	43	Lua stdlib: math
+Play	43	Sound instance
+SetPinnedJoint	40	Ragdoll / joints
+floor	40	Lua stdlib: math
+IsPlaying	39	Sound instance
+GetPtrByIndex	37	World mesh / collision
+SetParentOffset	36	unidentified
+SpawnDecal	36	World mesh / collision
+PO_GetPawnHeadPos	36	World mesh / collision
+SetTimeToDie	36	World mesh / collision
+getfenv	35	Lua stdlib: base
+AddToIntersectionSolver	34	World mesh / collision
+GetTime	33	Input / timing
+SetTexture	33	Ragdoll / joints
+Init	32	World / level
+PO_IsActionState	32	World mesh / collision
+Action	32	Input / timing
+SetAngularVelocity	32	World mesh / collision
+gsub	31	Lua stdlib: string
+GetClientID	31	Network
+FindFiles	30	Filesystem (FS)
+VectorRotate	30	Registered individually (direct RegisterFunction call sites)
+SetItemVisibility	29	Menu / GUI
+PO_Hit	29	World mesh / collision
+GetOrientation	29	World mesh / collision
+PO_MaintainVelocity	29	World mesh / collision
+AttachTrailToBones	29	World mesh / collision
+SetItemText	28	Menu / GUI
+SetSynchroString	26	World mesh / collision
+EnableCollisionsToRagdoll	25	World mesh / collision
+Reset	25	Input / timing
+IsFinalBuild	25	Registered individually (direct RegisterFunction call sites)
+Size	25	unidentified
+unpack	25	Lua stdlib: base
+PO_SetFlying	24	World mesh / collision
+Activate	23	Console / demo recording
+SetItemPosition	23	Menu / GUI
+GetJointName	22	Ragdoll / joints
+SetFont	21	Console / demo recording
+GetJointFromHavokBody	21	Ragdoll / joints
+PO_MaintainLinearMovement	21	World mesh / collision
+KillAllChildrenByName	21	World mesh / collision
+DrawQuadRGBA	20	HUD drawing
+SetPinned	19	Ragdoll / joints
+ApplyRotationToJoint	19	Ragdoll / joints
+remove	19	Lua stdlib: os
+SetPos	19	Transform / orientation
+HitPhysicObject	18	World / level
+foreachi	18	Lua stdlib: table
+GetWorldPosition	18	World mesh / collision
+StreamPause	18	Sound system
+RB	18	Mouse
+SetAng	17	Transform / orientation
+StreamSetVolume	17	Sound system
+upper	17	Lua stdlib: string
+PO_SetLinearDamping	17	World mesh / collision
+LoadingProgress	17	Menu / GUI
+DrawQuad	17	HUD drawing
+Lock	17	Mouse
+LB	17	Mouse
+lower	17	Lua stdlib: string
+PO_SetAngularDamping	16	World mesh / collision
+SetOrientation	16	World mesh / collision
+GetForwardVector	16	Transform / orientation
+SetItemAction	16	Menu / GUI
+IsWater	16	World mesh / collision
+PO_Exist	16	World mesh / collision
+ApplyVelocitiesToJoint	16	Ragdoll / joints
+ComputeChildMatrix	16	World mesh / collision
+SetCameraFOV	16	Render / debug draw
+tostring	16	Lua stdlib: base
+Exit	16	Registered individually (direct RegisterFunction call sites)
+PO_Move	15	World mesh / collision
+StopSound	15	Menu / GUI
+SetItemColors	15	Menu / GUI
+DoString	14	Registered individually (direct RegisterFunction call sites)
+CheckStartGlass	14	World / level
+open	14	Lua stdlib: io
+SetItemFonts	14	Menu / GUI
+close	14	Lua stdlib: io
+LineTraceHitPlayerBalls	14	World / level
+ApplyVelocitiesToAllJoints	14	Ragdoll / joints
+GetPos	14	Transform / orientation
+GetHavokBodyInfo	14	Havok bodies / mesh groups
+PO_MaintainPosition	14	World mesh / collision
+SetItemFontsTex	14	Menu / GUI
+IsPKInstalled	13	Registered individually (direct RegisterFunction call sites)
+AddRagdollToIntersectionSolver	13	World mesh / collision
+sort	13	Lua stdlib: table
+SetHearingDistance	13	Sound instance
+SetCollisionGroupMeshGroup	13	World / level
+RemoveRagdollFromIntersectionSolver	13	World mesh / collision
+GetTextHeight	13	HUD drawing
+GetTimeMultiplier	12	Input / timing
+PO_IsOnFloor	12	World mesh / collision
+GetAnimLength	12	Ragdoll / joints
+Clear	12	Menu / GUI
+GetType	12	World mesh / collision
+StopServerList	12	Menu / GUI
+PO_EnableSpeedDamping	12	World mesh / collision
+GetAnimTimeScale	12	Ragdoll / joints
+rawget	11	Lua stdlib: base
+SetWorldSpeed	11	World / level
+EnableDrawMeshGroup	11	World / level
+IsMPDemo	11	Registered individually (direct RegisterFunction call sites)
+Load	11	Waypoints / AI paths
+collectgarbage	11	Lua stdlib: base
+IsDedicatedServer	11	Registered individually (direct RegisterFunction call sites)
+IsBitFlag	11	Registered individually (direct RegisterFunction call sites)
+PlayMovie	11	Menu / GUI
+JoinServer	11	Menu / GUI
+StreamLoad	11	Sound system
+SetMaterial	11	Ragdoll / joints
+RagdollSelfExplosion	11	Ragdoll / joints
+PO_SetPlayerFlying	11	World mesh / collision
+Disconnect	11	Network
+SetBorderColumn	10	Menu / GUI
+PO_Remove	10	World mesh / collision
+ActiveMeshGroupStaticMeshEnable	10	Havok bodies / mesh groups
+UIAction	10	Input / timing
+PO_SetFreedomOfRotation	10	World mesh / collision
+Forget	10	Sound instance
+GetSliderValue	10	Menu / GUI
+PO_SetMissile	10	World mesh / collision
+RemoveEntity	10	World / level
+File_Write	10	Filesystem (FS)
+PO_SetMass	10	World mesh / collision
+DrawBorder	10	HUD drawing
+Show	10	Scoreboard
+ExplodeItem	10	World mesh / collision
+EnableDeathZoneTest	10	World mesh / collision
+PO_SetPlayerShocked	10	World mesh / collision
+IsFixedMesh	10	World mesh / collision
+SwitchToMap	10	Menu / GUI
+PO_IsEnabled	10	World mesh / collision
+SetFalloff	10	unidentified
+PO_SetFriction	10	World mesh / collision
+PO_GetCollisionGroup	10	World mesh / collision
+CreateDirectory	9	Filesystem (FS)
+LookAt	9	Transform / orientation
+StreamResume	9	Sound system
+SetTimeToDeleteMeshGroup	9	World / level
+IsDrawEnabled	9	World mesh / collision
+GetAnimTime	9	Ragdoll / joints
+SetBorderSize	9	Menu / GUI
+GetAng	9	Transform / orientation
+ActiveMeshGroupSetActivationParams	9	Havok bodies / mesh groups
+GetName	9	World mesh / collision
+ActiveMeshGroupEnable	9	Havok bodies / mesh groups
+RenderBox	9	Render / debug draw
+StreamGetVolume	9	Sound system
+RemoveRagdoll	9	World mesh / collision
+GetVelocitiesFromJoint	9	Ragdoll / joints
+SetRotationDisplacement	9	Transform / orientation
+Setup	9	unidentified
+DisableItem	8	Menu / GUI
+IsLocked	8	Mouse
+SeesEntity	8	World mesh / collision
+PO_GetPawnFloorPos	8	World mesh / collision
+ShowCredits	8	Menu / GUI
+PrepareString	8	HUD drawing
+ActivateLoadingScreen	8	Menu / GUI
+PO_Activate	8	World mesh / collision
+ApplyPositionToJoint	8	Ragdoll / joints
+GetTimeFromTimerReset	8	Input / timing
+GetRagdollJointRotation	8	Ragdoll / joints
+AddBitFlag	8	Registered individually (direct RegisterFunction call sites)
+SetPositionDisplacement	8	Transform / orientation
+GetIndex	8	World mesh / collision
+DemoPlay	8	Console / demo recording
+EnableNormalMaps	7	Ragdoll / joints
+IsFireSwitched	7	Input / timing
+ResetTimer	7	Input / timing
+StreamPlay	7	Sound system
+DrawSprite1DOF	7	Render / debug draw
+TransformLocalPointToWorld	7	World mesh / collision
+Hide	7	Scoreboard
+LoadMapOnServer	7	Network
+GetRightVector	7	Transform / orientation
+KillAllChildren	7	World mesh / collision
+SetBunnyHopAcceleration	7	Havok bodies / mesh groups
+ApplyJointRotation	7	Ragdoll / joints
+Pause	7	Sound instance
+SetSensitivity	7	Mouse
+GetSound3DPtr	7	unidentified
+getmetatable	7	Lua stdlib: base
+GetLastExplodedEntities	7	World / level
+CreateShadowMap	7	Ragdoll / joints
+EnableDemonic	7	World mesh / collision
+SetItemAlign	7	Menu / GUI
+ApplyVelocitiesToJointLinked	6	Ragdoll / joints
+ReplaceBitFlag	6	Registered individually (direct RegisterFunction call sites)
+IsNewNetcode	6	Registered individually (direct RegisterFunction call sites)
+SetRoomType	6	Sound system
+AddStaticText	6	Menu / GUI
+GetClosestJoint	6	Ragdoll / joints
+isconstant	6	Lua stdlib: table
+Active	6	Menu / GUI
+SetScrollerHeight	6	Menu / GUI
+RefreshServerList	6	Menu / GUI
+GetAnimMovement	6	Ragdoll / joints
+GetTextEditValue	6	Menu / GUI
+AddSaveGameToList	6	Menu / GUI
+JointsLinked	6	Ragdoll / joints
+setn	6	Lua stdlib: table
+clock	6	Lua stdlib: os
+SetVelocityScaleFactor	6	unidentified
+GetListSeparatorPos	6	Menu / GUI
+GetDimensions	6	World mesh / collision
+VectorToScreen	6	Render / debug draw
+getinfo	6	Lua stdlib: debug
+RemoveHavokBodyFromIS	6	Havok bodies / mesh groups
+AmbientColor	6	World / level
+SetListMaxHeight	5	Menu / GUI
+GetSelectedSGSlot	5	Menu / GUI
+sethook	5	Lua stdlib: debug
+GetAngRad	5	Transform / orientation
+SetTimeLeft	5	Scoreboard
+UpdateMapTable	5	Menu / GUI
+loadstring	5	Lua stdlib: base
+GetClosest	5	Waypoints / AI paths
+rep	5	Lua stdlib: string
+AddItemToList	5	Menu / GUI
+MapSetCurrLevel	5	Menu / GUI
+SetIntensity	5	unidentified
+SwitchToMenu	5	Menu / GUI
+SetPlayerSpeed	5	Registered individually (direct RegisterFunction call sites)
+PO_Impulse	5	World mesh / collision
+RemoveAction	5	Input / timing
+SetBlendAlpha	5	Ragdoll / joints
+SetPosAndRotRelativeToCamera	5	World mesh / collision
+SwitchToState	5	World / level
+ResumeSounds	5	Menu / GUI
+EnableAntiPortal	5	World / level
+SetStaticTextRect	5	Menu / GUI
+SetHeadTrackRot	5	Ragdoll / joints
+SetMeshLighting	5	Ragdoll / joints
+IsBooHInstalled	5	Registered individually (direct RegisterFunction call sites)
+ChangeTextButtonExValue	5	Menu / GUI
+date	5	Lua stdlib: os
+EnableJoint	5	Ragdoll / joints
+rawset	5	Lua stdlib: base
+SetDynamicFlag	5	unidentified
+SetItemDesc	5	Menu / GUI
+PO_IsFlying	4	World mesh / collision
+GetRagdollJointPos	4	Ragdoll / joints
+Draw	4	Scoreboard
+DisconnectClient	4	Network
+PO_SetMonsterMovementConst	4	World mesh / collision
+MakeGib	4	Ragdoll / joints
+ApplySoundSettings	4	Sound system
+SaveGame	4	World / level
+ClosePAK	4	Filesystem (FS)
+SetCheckboxValue	4	Menu / GUI
+SetRagdollMovedByExplosions	4	Ragdoll / joints
+RenderLine	4	Render / debug draw
+IsSpectator	4	Network
+ShowMenu	4	Menu / GUI
+SetRagdollHardDeactivator	4	Ragdoll / joints
+SetScale	4	World mesh / collision
+SetLighting	4	Materials / textures
+DemoIsPlaying	4	Console / demo recording
+SetNormalMap	4	Materials / textures
+SetServerInfo	4	unidentified
+ApplyVideoSettings	4	Render / debug draw
+PO_SetEntitySteered	4	World mesh / collision
+SetHavokBodyPosition	4	Havok bodies / mesh groups
+DistToLine2D	4	Render / debug draw
+FlipZ	4	Waypoints / AI paths
+PO_SetGrenade	4	World mesh / collision
+IsItemChecked	4	Menu / GUI
+IsRagdoll	4	Ragdoll / joints
+UseSwitchZones	4	World / level
+SetEvolve	4	unidentified
+SetHavokBodyVelocity	4	Havok bodies / mesh groups
+SetDetailMap	4	Materials / textures
+GetJointRotation	4	Ragdoll / joints
+SetGameVisible	4	World / level
+SetTransparency	4	HUD drawing
+SetAmbient	4	World mesh / collision
+SetCubeMap	4	Materials / textures
+SetLoadingScreenOverall	4	Menu / GUI
+UpdateAllEntities	4	World / level
+GetChildByName	4	World mesh / collision
+AddLight	4	World mesh / collision
+GetListItems	3	Menu / GUI
+ApplyPointImpulseToRagdoll	3	Ragdoll / joints
+IsFinished	3	unidentified
+File_Close	3	Filesystem (FS)
+GetCenter	3	World mesh / collision
+PO_IsPinned	3	World mesh / collision
+MsgReadVar	3	Network
+flush	3	Lua stdlib: io
+GetMapsOnServer	3	Menu / GUI
+DeleteFiles	3	Filesystem (FS)
+File_Open	3	Filesystem (FS)
+IsPlayingRecording	3	Network
+PO_SetRestitution	3	World mesh / collision
+CreatePlayer	3	Registered individually (direct RegisterFunction call sites)
+GetRagdollCollisionGroup	3	Ragdoll / joints
+VectorRotateByQuat	3	Registered individually (direct RegisterFunction call sites)
+DemoRecordPlayer	3	Console / demo recording
+SetDirLight	3	World / level
+AddLevelToMap	3	Menu / GUI
+Setup3D	3	unidentified
+MoveListItemUp	3	Menu / GUI
+SetSoundSpeed	3	unidentified
+Select	3	Waypoints / AI paths
+AddList	3	Menu / GUI
+LoadMap	3	World / level
+RemoveDirectory	3	Filesystem (FS)
+SetListSeparatorPos	3	Menu / GUI
+SetupFog	3	World / level
+AddPoint	3	unidentified
+SetMeshGroup	3	Materials / textures
+SetRenderTarget	3	World / level
+SetRotationQ	3	World mesh / collision
+PinHavokBody	3	Havok bodies / mesh groups
+Reinit	3	Input / timing
+MoveListItemDown	3	Menu / GUI
+GetFileName	3	World mesh / collision
+AddMapTable	3	Menu / GUI
+PO_ScaleInertiaTensor	3	World mesh / collision
+IsActive	3	Console / demo recording
+gfind	3	Lua stdlib: string
+MsgWriteVar	3	Network
+GetKeyNameByEngName	3	Input / timing
+UnregisterPack	3	Filesystem (FS)
+LateVBsBegin	3	World / level
+AddSimpleKeyConf	3	Menu / GUI
+SetGravity	3	Havok bodies / mesh groups
+AddWeaponList	3	Menu / GUI
+DemoStop	3	Console / demo recording
+SetWaterQuality	3	Render / debug draw
+SetBorderColCount	3	Menu / GUI
+byte	3	Lua stdlib: string
+SetSpectator	3	Network
+AddLoadSave	3	Menu / GUI
+AddServerList	3	Menu / GUI
+GetSelectedServerIP	3	Menu / GUI
+DemoRecord	3	Console / demo recording
+ExplosionUp	3	World / level
+GetRotationQ	3	World mesh / collision
+DistToLine	3	Render / debug draw
+MapNextLevel	3	Menu / GUI
+EnablePortal	3	World / level
+SetUseDInput	3	Input / timing
+GetSelectedServerPort	3	Menu / GUI
+GetPlayerSpeed	3	Registered individually (direct RegisterFunction call sites)
+LateVBsEnd	3	World / level
+SetTimeLimit	3	Scoreboard
+GetGCCount	3	Registered individually (direct RegisterFunction call sites)
+GetFPS	2	Render / debug draw
+GetCurrent3DSoundProviderName	2	Sound system
+SetSmooth	2	Mouse
+GetCameraFOV	2	Render / debug draw
+SetEnemyPredictionInterpolation	2	Network
+SpawnOrientedDecal	2	World mesh / collision
+SetRagdollFriction	2	Ragdoll / joints
+SetMaterialRefractFresnel	2	Ragdoll / joints
+GetRandomPoint	2	Materials / textures
+SetupSkyLayer	2	World / level
+PO_GetMass	2	World mesh / collision
+SetAllowSave	2	Menu / GUI
+LoadBindings	2	Input / timing
+UpdateViewport	2	Transform / orientation
+BanClient	2	Network
+SetItemSounds	2	Menu / GUI
+StreamDelete	2	Sound system
+SetDefaultMaterial	2	Materials / textures
+SetBorderHeader	2	Menu / GUI
+PO_SetSightParams	2	World mesh / collision
+PO_SetAction	2	World mesh / collision
+ReturnToGame	2	Menu / GUI
+EnableInterpolation	2	Transform / orientation
+SetJointPositionLowLevel	2	Ragdoll / joints
+ResetFrame	2	Ragdoll / joints
+SetRagdollBreakablesThreshold	2	Ragdoll / joints
+GetTimeDelta	2	Input / timing
+SetItemApplyRequired	2	Menu / GUI
+KeepDecals	2	Render / debug draw
+StripColorInfo	2	HUD drawing
+DistToCamera	2	Render / debug draw
+SetStatsShow	2	Network
+PO_LineTrace	2	World mesh / collision
+AddKeyControl	2	Menu / GUI
+SetWheelSensitivity	2	Mouse
+PO_SetHardDeactivator	2	World mesh / collision
+SetProjector	2	unidentified
+EnableCollisionsToAll	2	World mesh / collision
+atan	2	Lua stdlib: math
+AddBorder	2	Menu / GUI
+MB	2	Mouse
+ResetMaterialSpecular	2	Ragdoll / joints
+PO_GetType	2	World mesh / collision
+SetMaxFPS	2	World / level
+SetKillByParent	2	World mesh / collision
+AddCard	2	unidentified
+ColorSubstr	2	HUD drawing
+ClientPingReset	2	Network
+GetDistanceFromPoint	2	Player / bot actions
+SetListBorderWidth	2	Menu / GUI
+Exist	2	World mesh / collision
+SetCurrentText	2	Console / demo recording
+EnableDemonFX	2	World / level
+LoadSky	2	World / level
+CreateEnabledAntiPortalFromClosedConvexMesh	2	World / level
+IsBlackEdition	2	Registered individually (direct RegisterFunction call sites)
+ceil	2	Lua stdlib: math
+SetDefaultDetailMaps	2	Materials / textures
+EnableGunPass	2	World mesh / collision
+RemoveBitFlag	2	Registered individually (direct RegisterFunction call sites)
+min	2	Lua stdlib: math
+Restart	2	unidentified
+SetItemWidth	2	Menu / GUI
+Set3DSoundProvider	2	Sound system
+AddMapToServer	2	Menu / GUI
+SetAdditionalRotation	2	Transform / orientation
+RemoveUIAction	2	Input / timing
+SetMovieLoop	2	Menu / GUI
+EnableItem	2	Menu / GUI
+EulerToQuat	2	Registered individually (direct RegisterFunction call sites)
+GetHavokBodyPosition	2	Havok bodies / mesh groups
+read	2	Lua stdlib: io
+GetUpVector	2	Transform / orientation
+ShowMouse	2	Menu / GUI
+GetHavokBodyVelocity	2	Havok bodies / mesh groups
+StartServer	2	Menu / GUI
+PO_GetPhysicsBody	2	World mesh / collision
+SetInLoadingScreen	2	World / level
+EnableShadows	2	Render / debug draw
+GetClientPacketLoss	2	Network
+SetSliderFullWidth	2	Menu / GUI
+GetTransparency	2	HUD drawing
+SetLitParentFlag	2	unidentified
+AddTextButton	2	Menu / GUI
+DrawQuadRotated	2	HUD drawing
+SetFarClipDist	2	World / level
+DisableRandomize	2	Sound instance
+ClearScreen	2	Menu / GUI
+LoadGame	2	World / level
+SetItemExitMovie	2	Menu / GUI
+GetDelta	2	Mouse
+IsPinned	2	Ragdoll / joints
+PauseSounds	2	Menu / GUI
+SetMaterialSpecular	2	Ragdoll / joints
+UpdatePart	2	World mesh / collision
+GetLoadingScreenOverall	2	Menu / GUI
+SetImmortal	2	unidentified
+ApplyTweaks	2	World / level
+DeleteAntiPortal	2	World / level
+SetKeyItemIndex	2	Menu / GUI
+IsCardInSlot	2	unidentified
+FindEntityByName	2	World / level
+FloorCheck	2	Player / bot actions
+SetCashCheat	2	unidentified
+ExecMultiPlayerAction	2	Player / bot actions
+SetShowItemsFrame	2	Menu / GUI
+SetTimeMultiplier	2	Input / timing
+File_Exist	2	Filesystem (FS)
+SetupGameSpyVariable	1	Network
+ComputeLocalPoint	1	World mesh / collision
+SetItemsDrawShadow	1	Menu / GUI
+SetPlayerInfo	1	unidentified
+SwitchToBoard	1	Menu / GUI
+PO_SetPawnHeadPos	1	World mesh / collision
+SetItemsFadeLength	1	Menu / GUI
+IsFullscreen	1	Render / debug draw
+LoadLowQualitySky	1	World / level
+tan	1	Lua stdlib: math
+luaProfiler_LOGIC5	1	Registered individually (direct RegisterFunction call sites)
+luaProfiler_LOGIC3c	1	Registered individually (direct RegisterFunction call sites)
+GetTextColor	1	Menu / GUI
+DeleteDelayedEntities	1	World / level
+EnableDisableSet	1	Waypoints / AI paths
+ScreenTo3D	1	Render / debug draw
+luaProfiler_LOGIC3b	1	Registered individually (direct RegisterFunction call sites)
+GetHavokBodyActiveGroup	1	Havok bodies / mesh groups
+Pick	1	World mesh / collision
+GetAmbientColor	1	World / level
+DrawSprite	1	Render / debug draw
+AddSpecularLight	1	Materials / textures
+SetItemWarning	1	Menu / GUI
+lines	1	Lua stdlib: io
+LoadAnim	1	Ragdoll / joints
+StaticMeshEnable	1	Havok bodies / mesh groups
+AddSlider	1	Menu / GUI
+GetSimpleKey	1	Menu / GUI
+GetRawRotation	1	Transform / orientation
+SetServerFramerate	1	Network
+AddColorPicker	1	Menu / GUI
+SetLMSLives	1	Scoreboard
+SetFakeSpecularFlag	1	unidentified
+ResetReflectList	1	unidentified
+randomseed	1	Lua stdlib: math
+GetShortest	1	unidentified
+AddServerToList	1	Menu / GUI
+AddEmitter	1	unidentified
+MsgSend	1	Network
+NormalYToQuat	1	Registered individually (direct RegisterFunction call sites)
+AddImageToButtonEx	1	Menu / GUI
+luaProfiler_LOGIC2a	1	Registered individually (direct RegisterFunction call sites)
+GetNumRangeValue	1	Menu / GUI
+GetUseDInput	1	Input / timing
+SetFragLimit	1	Scoreboard
+AddNumRange	1	Menu / GUI
+AddTextButtonEx	1	Menu / GUI
+MoveAllJoints	1	Ragdoll / joints
+luaProfiler_LOGIC2b	1	Registered individually (direct RegisterFunction call sites)
+GetPrimaryKey	1	Menu / GUI
+SetupWater	1	World / level
+GetHavokBodyBarrierInfo	1	Havok bodies / mesh groups
+RecalculateSelected	1	Waypoints / AI paths
+SetDefaultCubeMaps	1	Materials / textures
+AddImageButton	1	Menu / GUI
+ActivateMap	1	Menu / GUI
+GetRotation	1	World mesh / collision
+SaveGame_ResumeSounds	1	Sound system
+GetCameraFix	1	Player / bot actions
+SelectFloors	1	Waypoints / AI paths
+CreatePAK	1	Filesystem (FS)
+GetShortNameByEngName	1	Input / timing
+EnableDeathZone	1	World / level
+RegisterPack	1	Filesystem (FS)
+GetImageButtonExValue	1	Menu / GUI
+SetRegistryBonus2	1	Menu / GUI
+SetSoundProperties	1	Sound system
+PO_AccumulateRotation	1	World mesh / collision
+GetEngineVersionString	1	Registered individually (direct RegisterFunction call sites)
+GetAlternateKey	1	Menu / GUI
+GetBezierPoint	1	unidentified
+RecordMovement	1	Player / bot actions
+File_GetSize	1	Filesystem (FS)
+luaProfiler_LOGIC2c	1	Registered individually (direct RegisterFunction call sites)
+SwitchToLevelSel	1	Menu / GUI
+GetCDKey	1	Menu / GUI
+MapGetCurrLevelCardCondition	1	Menu / GUI
+GetNumOfProviders	1	Sound system
+PO_HideFromPrediction	1	World mesh / collision
+ExplosionParabolic	1	World / level
+DeleteDyingEntities	1	World / level
+SetProgressIcon	1	Menu / GUI
+SetTexFiltering	1	Render / debug draw
+SetDefaultNormalMaps	1	Materials / textures
+SetCaptureLimit	1	Scoreboard
+AddCheckbox	1	Menu / GUI
+luaProfiler_LOGIC3a	1	Registered individually (direct RegisterFunction call sites)
+Set3DSoundFalloff	1	Sound system
+LabelOk	1	Registered individually (direct RegisterFunction call sites)
+SetLocalBBox	1	World mesh / collision
+IsPinnedJoint	1	Ragdoll / joints
+SetClientBandwidth	1	Network
+GetCDLetter	1	Registered individually (direct RegisterFunction call sites)
+SetHeadTrackCurve	1	Ragdoll / joints
+GetNextPoint	1	unidentified
+GetDriveLetter	1	Registered individually (direct RegisterFunction call sites)
+WarmUp	1	Havok bodies / mesh groups
+SendVariable	1	Network
+DrawRect	1	HUD drawing
+SetupEmitter	1	unidentified
+SetStatsNrToAvg	1	Network
+GlobalSetLowPass	1	Sound system
+UpdateWaterImpact	1	Ragdoll / joints
+DemonFXParams	1	World / level
+BindKeyCommand	1	Input / timing
+GetLastFrameLatency	1	Network
+AddKeyList	1	Menu / GUI
+ClosestPointOnLine	1	Render / debug draw
+SeesPoint	1	World mesh / collision
+ResetLights	1	World mesh / collision
+NormalZToQuat	1	Registered individually (direct RegisterFunction call sites)
+AddTextEdit	1	Menu / GUI
+SetWaitTime	1	Menu / GUI
+SetObstructed	1	Sound instance
+VectorInverseRotateByQuat	1	Registered individually (direct RegisterFunction call sites)
+loadfile	1	Lua stdlib: base
+SetScrollerForBorder	1	Menu / GUI
+PO_IsOnLadder	1	World mesh / collision
+PO_Rotate	1	World mesh / collision
+GetTextures	1	Materials / textures
+SetBorderScroller	1	Menu / GUI
+GetMPByte	1	Player / bot actions
+SetDrawDynLights	1	World / level
+FindEnvironmentAtPoint	1	World / level
+AddImageButtonEx	1	Menu / GUI
+SetDynamicSpecular	1	World / level
+SetLowPass	1	Sound instance
+MapReset	1	Menu / GUI
+SetTransform	1	Transform / orientation
+EnableBloom	1	Render / debug draw
+DrawBossHealth	1	HUD drawing
+GetActionStatus	1	Input / timing
+GetTeamsScore	1	Scoreboard
+Spr_Render	1	Render / debug draw
+AddPassword	1	Menu / GUI
+InitSky	1	World / level
+CopyMatrixFromJointToJoint	1	Ragdoll / joints
+PreloadFile	1	Sound system
+max	1	Lua stdlib: math
+SetWater	1	unidentified
+QuatToEuler	1	Registered individually (direct RegisterFunction call sites)
+MsgCreate	1	Network
+SetMPMsgFont	1	Console / demo recording
+GetAvailableResolutions	1	Render / debug draw
+RotateQuatByAxisAngle	1	Registered individually (direct RegisterFunction call sites)
+ReloadDecalSystem	1	World mesh / collision
+MapGetCurrLevelCardIndex	1	Menu / GUI
+EnableItemBG	1	Menu / GUI
+GetClientBandwidth	1	Network
+UnregisterChild	1	World mesh / collision
+luaProfiler_LOGIC4a	1	Registered individually (direct RegisterFunction call sites)
+GetSynchroString	1	World mesh / collision
+Spr_AddPoint	1	Render / debug draw
+DrawDirLight	1	Render / debug draw
+BloomFXParams	1	World / level
+EnableCollisionsToMesh	1	World mesh / collision
+RemoveLights	1	unidentified
+JoinPKTV	1	Menu / GUI
+SetAnimTime	1	Ragdoll / joints
+AddPlayerModel	1	Menu / GUI
+PO_SetGravity	1	World mesh / collision
+SetGameSpyVariable	1	Network
+IsSliderFloat	1	Menu / GUI
+ClearZBuffer	1	Render / debug draw
+GetRegistryBonus1	1	Menu / GUI
+SetSlotPosition	1	unidentified
+AddScroller	1	Menu / GUI
+AddImageToSlider	1	Menu / GUI
+rename	1	Lua stdlib: os
+SetTeamsScore	1	Scoreboard
+SetRegistryBonus3	1	Menu / GUI
+ClearList	1	Menu / GUI
+IsGamePaused	1	World / level
+IsHavokBodyPinned	1	Havok bodies / mesh groups
+AdvanceFrameCounter	1	World / level
+RemoveAllPlayers	1	unidentified
+RecreateRagdollIfNone	1	World mesh / collision
+GetRegistryBonus2	1	Menu / GUI
+SetPlayerGameTime	1	Scoreboard
+IsRagdollActive	1	Ragdoll / joints
+GetCubeMap	1	Materials / textures
+DetachFromUnderBody	1	Player / bot actions
+GetLightMap	1	Materials / textures
+SetImportant	1	unidentified
+GetAnim	1	Ragdoll / joints
+DemonFXWarp	1	World / level
+MapGetCurrLevelName	1	Menu / GUI
+FastPickCurrentSet	1	Waypoints / AI paths
+CanConnectNewClient	1	Network
+GetNormalMap	1	Materials / textures
+EnableTick	1	World mesh / collision
+SetInverse	1	Mouse
+luaProfiler_LOGIC1	1	Registered individually (direct RegisterFunction call sites)
+SetGameMode	1	unidentified
+PO_AddAction	1	World mesh / collision
+EnableWarpEffects	1	Render / debug draw
+Spr_Create	1	Render / debug draw
+GetDetailMap	1	Materials / textures
+SetStatsUpdateDelay	1	Network
+pow	1	Lua stdlib: math
+SetPlayerOrientation	1	Sound system
+IsHavokBodyInWorld	1	Havok bodies / mesh groups
+MultiplayerExplosion	1	World / level
+SetFixedTransform	1	unidentified
+RemovePlayer	1	Scoreboard
+SetSoundSpeedRandomizer	1	Sound system
+GetPitch	1	Player / bot actions
+ClearAll	1	Scoreboard
+GetBaseObjInfo	1	Filesystem (FS)
+SetMPByte	1	Player / bot actions
+Get3DSoundProviderName	1	Sound system
+SetAngRad	1	Transform / orientation
+PO_JumpedInLastAction	1	World mesh / collision
+SetSpecular	1	Materials / textures
+AddNumEdit	1	Menu / GUI
+PO_GetMaxSphereRay	1	World mesh / collision
+GetClientPing	1	Network
+AddReflectMesh	1	unidentified
+SetTopPosition	1	Menu / GUI
+PO_IsFixed	1	World mesh / collision
+SetWaterImpact	1	Ragdoll / joints
+AddSliderImage	1	Menu / GUI
+MoveSelected	1	Waypoints / AI paths
+TakeScreenshot	1	Input / timing
+SetDIDeltaScale	1	Input / timing
+GetDIDeltaScale	1	Input / timing
+PlayAndForget	1	Sound instance
+LaunchURL	1	Menu / GUI
+SetBackground	1	Menu / GUI
+SaveCDKey	1	Menu / GUI
+PO_SetMonsterType	1	World mesh / collision
+SetMenuWidth	1	Menu / GUI
+GetCDLabel	1	Registered individually (direct RegisterFunction call sites)
+SetFog	1	unidentified
+GetSelectedMap	1	Menu / GUI
+GetRegistryBonus3	1	Menu / GUI
+RenderBBox	1	World mesh / collision
+ResetSpecularLights	1	Materials / textures
+SetupSlots	1	unidentified
+GetEngNameByShortName	1	Input / timing
+TestMovement	1	Player / bot actions
+SetMPMsgColor	1	Console / demo recording
+ExecAction	1	Player / bot actions
+UnselectAll	1	Waypoints / AI paths
+AddTabGroup	1	Menu / GUI
+SetRegistryBonus1	1	Menu / GUI
+EnableOcclude	1	World / level
+SetContrastGammaAndBrightness	1	Render / debug draw
+RemoveAllMapsFromServer	1	Menu / GUI
+FloorCheckMP	1	Player / bot actions
+MakeUnderwater	1	World / level
+SetPlayerPos	1	Sound system
+GetHWClass	1	Render / debug draw
+SetMPMsgPosition	1	Console / demo recording
+AddCharPicker	1	Menu / GUI
+NormalXToQuat	1	Registered individually (direct RegisterFunction call sites)
+DamageItem	1	World mesh / collision

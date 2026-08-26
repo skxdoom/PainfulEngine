@@ -23,6 +23,7 @@ bool Level::LoadSettings(const std::string& levelDir) {
     // (CLevel.lua: WORLD.LoadMap(..., self.Scale, ...)). The CLevel class
     // default is 0.3, NOT 1 - levels that omit the key rely on it.
     info_.scale = static_cast<float>(p.Number("Scale", 0.3));
+    info_.overbright = p.Bool("Overbright", false);
     info_.fogDensity = static_cast<float>(p.Number("Fog.Density"));
     info_.fogStart = static_cast<float>(p.Number("Fog.Start"));
     info_.fogMode = static_cast<int>(p.Number("Fog.Mode"));

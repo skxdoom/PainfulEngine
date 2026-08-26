@@ -80,6 +80,25 @@ void ReadRotation(const Properties& props, float out[9]) {
     out[6] = sy * cx;                 out[7] = -sx;      out[8] = cy * cx;
 }
 
+// Looks the material up in the game's shader scripts; falls back to plain
+// opaque state with the given winding when the library is missing.
+MaterialState LookupMaterial(ShaderLibrary* lib, const std::string& name, bool cwFallback) {
+    if (lib) {
+        if (const ShaderDef* def = lib->Find(name); def && !def->passes.empty()) {
+            std::string warn;
+            MaterialState m = MaterialState::FromPass(def->passes.front(), &warn);
+            if (!warn.empty()) LogWarn("material %s: %s", name.c_str(), warn.c_str());
+            return m;
+        }
+        LogWarn("material not found: %s", name.c_str());
+    }
+    MaterialState m;
+    m.state = BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z |
+              BGFX_STATE_DEPTH_TEST_LESS |
+              (cwFallback ? BGFX_STATE_CULL_CW : BGFX_STATE_CULL_CCW);
+    return m;
+}
+
 } // namespace
 
 bool EntityRenderer::Init(const std::string& shaderDir) {
@@ -171,6 +190,7 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
     }
     if (gpu.parts.empty()) return false;
 
+    gpu.material = LookupMaterial(shaders_, "palskinned", true);
     outIndex = models_.size();
     // Bind-pose extent, used to interpret o.Scale as a real-world size.
     float extent = 0.f;
@@ -203,13 +223,25 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
     }
 
     GpuModel gpu;
-    gpu.ccw = true;                     // pack meshes wind like world geometry
+    bool materialSet = false;
     for (const MapObject& o : pack.objects) {
         // o.Mesh selects one object; when it matches nothing (or is empty),
         // every object is drawn - DEAD packs hold loose fragments.
         if (!meshName.empty() && o.name != meshName && pack.objects.size() > 1) continue;
         const size_t vertexCount = o.vertexCount();
         if (vertexCount == 0 || o.indices.empty()) continue;
+
+        // Pack meshes are WorldMesh objects, so the world material families
+        // apply: defaultNTU (1-UV) plus the usual name-substring variants.
+        if (!materialSet) {
+            std::string shaderName = "defaultNTU";
+            const bool isTrans = o.nameHas("trans") || o.nameHas("decal");
+            if (isTrans) shaderName += "trans";
+            else if (o.nameHas("atest")) shaderName += "atest";
+            if (o.nameHas("2sided")) shaderName += "2sided";
+            gpu.material = LookupMaterial(shaders_, shaderName, false);
+            materialSet = true;
+        }
 
         std::vector<MeshVertex> verts(vertexCount);
         for (size_t i = 0; i < vertexCount; ++i) {
@@ -264,7 +296,9 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
 }
 
 void EntityRenderer::Build(const Level& level, TemplateCache& templates,
-                           TextureCache& textures, const std::string& dataRoot) {
+                           TextureCache& textures, const std::string& dataRoot,
+                           ShaderLibrary* shaders) {
+    shaders_ = shaders;
     const std::string modelsRoot = dataRoot + "/Models";
     const std::string itemsRoot = dataRoot + "/Items";
     white_ = textures.White();
@@ -365,13 +399,22 @@ void EntityRenderer::Draw(bgfx::ViewId view, const float ambient[3], const float
     drawCalls_ = 0;
     if (!bgfx::isValid(program_) || instances_.empty()) return;
 
-    const float ambientValue[4] = {ambient[0] / 255.f, ambient[1] / 255.f, ambient[2] / 255.f, 1.f};
     const float fogValue[4] = {fogColor[0] / 255.f, fogColor[1] / 255.f, fogColor[2] / 255.f, 1.f};
-    // No lightmap on models, and no alpha test for now.
-    const float params[4] = {0.f, 0.f, fogDensity, fogStart};
 
     for (const Instance& instance : instances_) {
         const GpuModel& model = models_[instance.model];
+        // No lightmaps on entities, so u_ambient.w (the lightmap scale) is
+        // never sampled; alpha test comes from the material scripts.
+        const float ambientValue[4] = {ambient[0] / 255.f, ambient[1] / 255.f,
+                                       ambient[2] / 255.f, model.material.lightScale};
+        const float params[4] = {0.f, model.material.alphaRef, fogDensity, fogStart};
+
+        uint64_t state = model.material.state | BGFX_STATE_MSAA;
+        // Diagnostic override: --ecull none strips culling, cw/ccw force it.
+        if (cullMode_ == 2) {
+            state &= ~BGFX_STATE_CULL_MASK;
+        }
+
         for (const Part& part : model.parts) {
             bgfx::setUniform(uAmbient_, ambientValue);
             bgfx::setUniform(uFogColor_, fogValue);
@@ -379,16 +422,8 @@ void EntityRenderer::Draw(bgfx::ViewId view, const float ambient[3], const float
             bgfx::setTransform(instance.transform.m);
             bgfx::setVertexBuffer(0, part.vbo);
             bgfx::setIndexBuffer(part.ibo, 0, part.indexCount);
-            bgfx::setTexture(0, sDiffuse_, part.diffuse);
+            bgfx::setTexture(0, sDiffuse_, part.diffuse, model.material.sampler[0]);
             bgfx::setTexture(1, sLightmap_, white_);
-            uint64_t state = BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z |
-                             BGFX_STATE_DEPTH_TEST_LESS | BGFX_STATE_MSAA;
-            // Pack meshes wind like world geometry (CCW); .pkmdl models wind
-            // the other way. cullMode_ 2 disables culling entirely.
-            if (cullMode_ != 2) {
-                const bool ccw = model.ccw ? cullMode_ != 0 : cullMode_ == 0;
-                state |= ccw ? BGFX_STATE_CULL_CCW : BGFX_STATE_CULL_CW;
-            }
             bgfx::setState(state);
             bgfx::submit(view, program_);
             ++drawCalls_;

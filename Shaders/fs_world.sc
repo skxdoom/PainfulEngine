@@ -7,24 +7,26 @@ $input v_texcoord0, v_texcoord1, v_normal, v_viewdist
 SAMPLER2D(s_diffuse,  0);
 SAMPLER2D(s_lightmap, 1);
 
-uniform vec4 u_params;    // x: has lightmap, y: alpha-test, z: fog density, w: fog start
-uniform vec4 u_ambient;   // rgb: level ambient
+uniform vec4 u_params;    // x: has lightmap, y: alpha-test ref (<0 off), z: fog density, w: fog start
+uniform vec4 u_ambient;   // rgb: level ambient, w: lightmap scale (2 when Overbright)
 uniform vec4 u_fogColor;  // rgb: level fog colour
 
 void main()
 {
 	vec4 base = texture2D(s_diffuse, v_texcoord0);
 
-	if (u_params.y > 0.5 && base.a < 0.5)
+	// Fixed-function alpha test ("alphafunc greater" in the material scripts).
+	if (u_params.y >= 0.0 && base.a <= u_params.y)
 	{
 		discard;
 	}
 
-	// Lightmaps are stored at half intensity, hence the x2 on decode.
+	// The material scripts modulate by the lightmap either x1 (defaultTU2) or
+	// x2 (defaultTU2x2, chosen when the level sets Overbright).
 	vec3 light = vec3_splat(1.0);
 	if (u_params.x > 0.5)
 	{
-		light = texture2D(s_lightmap, v_texcoord1).rgb * 2.0;
+		light = texture2D(s_lightmap, v_texcoord1).rgb * u_ambient.w;
 	}
 
 	vec3 color = base.rgb * (light + u_ambient.rgb);

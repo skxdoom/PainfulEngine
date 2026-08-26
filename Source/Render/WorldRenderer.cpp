@@ -56,7 +56,8 @@ void WorldRenderer::Shutdown() {
 }
 
 void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
-                           const std::string& levelHint, float worldScale) {
+                           const std::string& levelHint, float worldScale,
+                           ShaderLibrary* shaders, bool overbright) {
     chunks_.reserve(map.objects.size());
 
     for (const MapObject& o : map.objects) {
@@ -96,22 +97,46 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
         for (int r = 0; r < 4; ++r) {
             for (int c = 0; c < 3; ++c) chunk.transform.m[r * 4 + c] *= worldScale;
         }
-        chunk.twoSided = o.nameHas("2sided") || o.nameHas("trans");
-        // "trans" marks translucent geometry such as glass and grates. It has to
-        // alpha-blend and must not write depth, or it hides what is behind it.
-        chunk.translucent = o.nameHas("trans") || o.nameHas("decal");
+        // Material selection works the way the engine's own scripts are named:
+        // lightmapped objects use the defaultTU2 family (the x2 set when the
+        // level is Overbright), plain ones defaultNTU, and the trans / atest /
+        // 2sided object-name substrings pick the variant. All render state
+        // then comes from the resolved .shader definition.
+        const bool trans = o.nameHas("trans") || o.nameHas("decal");
+        std::string shaderName = (o.uvChannels == 2)
+            ? (overbright ? "defaultTU2x2" : "defaultTU2") : "defaultNTU";
+        if (trans) shaderName += "trans";
+        else if (o.nameHas("atest")) shaderName += "atest";
+        if (o.nameHas("2sided")) shaderName += "2sided";
+
+        const ShaderDef* def = shaders ? shaders->Find(shaderName) : nullptr;
+        if (def && !def->passes.empty()) {
+            std::string warn;
+            chunk.material = MaterialState::FromPass(def->passes.front(), &warn);
+            if (!warn.empty()) {
+                LogWarn("material %s: %s", shaderName.c_str(), warn.c_str());
+            }
+        } else {
+            if (shaders) LogWarn("material not found: %s", shaderName.c_str());
+            // Built-in stand-in matching the script defaults.
+            MaterialState& m = chunk.material;
+            m.state = BGFX_STATE_WRITE_RGB | BGFX_STATE_DEPTH_TEST_LESS;
+            if (trans) m.state |= BGFX_STATE_BLEND_ALPHA;
+            else m.state |= BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z;
+            if (!trans && !o.nameHas("2sided")) m.state |= BGFX_STATE_CULL_CCW;
+            if (o.nameHas("atest")) m.alphaRef = 0.5f;
+            m.lightScale = overbright ? 2.f : 1.f;
+        }
         chunk.vbo = bgfx::createVertexBuffer(
             bgfx::copy(verts.data(), uint32_t(verts.size() * sizeof(MeshVertex))), layout_);
         chunk.ibo = bgfx::createIndexBuffer(
             bgfx::copy(o.indices.data(), uint32_t(o.indices.size() * sizeof(uint16_t))));
 
-        const bool alphaTest = o.nameHas("atest");
         if (o.materials.empty()) {
             Batch b;
             b.indexCount = uint32_t(o.indices.size());
             b.diffuse = textures.White();
             b.lightmap = textures.White();
-            b.alphaTest = alphaTest;
             chunk.batches.push_back(b);
         } else {
             for (const Material& m : o.materials) {
@@ -127,7 +152,6 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
                 b.hasLightmap = (o.uvChannels == 2) && !m.lightmap().empty();
                 b.lightmap = b.hasLightmap ? textures.Get(m.lightmap(), levelHint)
                                            : textures.White();
-                b.alphaTest = alphaTest;
                 chunk.batches.push_back(b);
             }
         }
@@ -159,32 +183,34 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
                 bx::Handedness::Right);
     bgfx::setViewTransform(view, viewMtx, projMtx);
 
-    const float ambientValue[4] = {ambient[0] / 255.f, ambient[1] / 255.f, ambient[2] / 255.f, 1.f};
     const float fogValue[4] = {fogColor[0] / 255.f, fogColor[1] / 255.f, fogColor[2] / 255.f, 1.f};
-    bgfx::setUniform(uAmbient_, ambientValue);
     bgfx::setUniform(uFogColor_, fogValue);
 
     for (const Chunk& c : chunks_) {
-        for (const Batch& b : c.batches) {
-            uint64_t state = BGFX_STATE_WRITE_RGB | BGFX_STATE_MSAA;
-            if (!c.translucent) state |= BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z;
-            state |= BGFX_STATE_DEPTH_TEST_LESS;
-            if (c.translucent) state |= BGFX_STATE_BLEND_ALPHA;
-            // Right-handed rendering reverses winding relative to the screen.
-            if (!c.twoSided) {
-                if (cullMode_ == 0)      state |= BGFX_STATE_CULL_CCW;
-                else if (cullMode_ == 1) state |= BGFX_STATE_CULL_CW;
-            }
+        // Ambient carries the chunk's lightmap scale in w (1, or 2 for the
+        // Overbright material set).
+        const float ambientValue[4] = {ambient[0] / 255.f, ambient[1] / 255.f,
+                                       ambient[2] / 255.f, c.material.lightScale};
 
+        uint64_t state = c.material.state | BGFX_STATE_MSAA;
+        // Diagnostic override: --cull none strips culling, --cull cw flips it.
+        if (cullMode_ == 2) {
+            state &= ~BGFX_STATE_CULL_MASK;
+        } else if (cullMode_ == 1 && (state & BGFX_STATE_CULL_MASK)) {
+            state = (state & ~BGFX_STATE_CULL_MASK) | BGFX_STATE_CULL_CW;
+        }
+
+        for (const Batch& b : c.batches) {
             const float params[4] = {b.hasLightmap ? 1.f : 0.f,
-                                     b.alphaTest ? 1.f : 0.f,
+                                     c.material.alphaRef,
                                      fogDensity, fogStart};
+            bgfx::setUniform(uAmbient_, ambientValue);
             bgfx::setUniform(uParams_, params);
             bgfx::setTransform(c.transform.m);
             bgfx::setVertexBuffer(0, c.vbo);
             bgfx::setIndexBuffer(c.ibo, b.firstIndex, b.indexCount);
-            bgfx::setTexture(0, sDiffuse_, b.diffuse);
-            bgfx::setTexture(1, sLightmap_, b.lightmap);
+            bgfx::setTexture(0, sDiffuse_, b.diffuse, c.material.sampler[0]);
+            bgfx::setTexture(1, sLightmap_, b.lightmap, c.material.sampler[1]);
             bgfx::setState(state);
             bgfx::submit(view, program_);
             ++drawCalls_;

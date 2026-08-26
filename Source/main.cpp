@@ -1,9 +1,10 @@
 // PainfulEngine - an open reimplementation of PainEngine (Painkiller, 2004).
 //
 // Requires your own copy of the game's data; no original assets are distributed.
-// Formats are documented in RE/FINDINGS.md, the plan in RE/SOURCE_PORT.md.
+// Formats and the porting plan are documented in Docs/Source_Port.md.
 
 #include "Assets/Dat.h"
+#include "Assets/ShaderScript.h"
 #include "Assets/Ani.h"
 #include "Assets/Mpk.h"
 #include "Assets/Pkmdl.h"
@@ -127,6 +128,11 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
     textures.Init(root + "/Textures");
     TemplateCache templates;
     templates.Init(root + "/LScripts/Templates");
+    ShaderLibrary shaderScripts;
+    if (!shaderScripts.LoadDirectory(root + "/Shaders/Scripts")) {
+        for (const std::string& e : shaderScripts.errors()) LogWarn("%s", e.c_str());
+    }
+    LogInfo("%zu material definitions", shaderScripts.size());
 
     float liveScale = entityScale;
     std::unique_ptr<Level> level;
@@ -157,14 +163,15 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
         if (world->Init(shaderDir) && level->mapLoaded()) {
             world->Upload(level->map(), textures,
                           MapNameWithoutExtension(level->info().mapFile),
-                          level->info().scale);
+                          level->info().scale, &shaderScripts,
+                          level->info().overbright);
         }
 
         entities = std::make_unique<EntityRenderer>();
         entities->SetCullMode(entityCull);
         entities->SetScaleMultiplier(liveScale);
         if (entities->Init(shaderDir)) {
-            entities->Build(*level, templates, textures, root);
+            entities->Build(*level, templates, textures, root, &shaderScripts);
         }
 
         sky = std::make_unique<SkyRenderer>();
@@ -481,6 +488,49 @@ static int DatCmd(const char* path) {
                 o.bboxMin[1], o.bboxMax[1], o.bboxMin[0], o.bboxMax[0],
                 o.bboxMin[2], o.bboxMax[2]);
     }
+    return 0;
+}
+
+// Diagnostic: parse the game's material scripts and dump what they define.
+static int ShadersCmd(const char* dataRoot, const char* single) {
+    ShaderLibrary lib;
+    if (!lib.LoadDirectory(std::string(dataRoot) + "/Shaders/Scripts")) {
+        for (const std::string& e : lib.errors()) LogInfo("  error: %s", e.c_str());
+        if (lib.size() == 0) return 2;
+    }
+    LogInfo("%zu shader definitions parsed", lib.size());
+    for (const std::string& e : lib.errors()) LogInfo("  error: %s", e.c_str());
+
+    if (single && single[0]) {
+        const ShaderDef* def = lib.Find(single);
+        if (!def) { LogInfo("'%s' not found", single); return 2; }
+        LogInfo("shader %s  variant=%s  (%s)", def->name.c_str(),
+                def->variant.empty() ? "any" : def->variant.c_str(),
+                def->sourceFile.c_str());
+        for (size_t p = 0; p < def->passes.size(); ++p) {
+            LogInfo("  pass %zu:", p);
+            for (const auto& kv : def->passes[p].keys) {
+                LogInfo("    %-14s %s", kv.first.c_str(), kv.second.c_str());
+            }
+        }
+        return 0;
+    }
+
+    // Summary: names per variant, and every distinct vshader/fshader/fx used.
+    std::map<std::string, int> variants;
+    std::map<std::string, int> programs;
+    for (const ShaderDef& d : lib.all()) {
+        ++variants[d.variant.empty() ? "any" : d.variant];
+        for (const ShaderPass& p : d.passes) {
+            for (const char* key : {"vshader", "fshader", "fx"}) {
+                std::string v = p.Get(key);
+                if (!v.empty()) ++programs[std::string(key) + " " + v];
+            }
+        }
+    }
+    for (const auto& kv : variants) LogInfo("  %-6s %d", kv.first.c_str(), kv.second);
+    LogInfo("programs referenced:");
+    for (const auto& kv : programs) LogInfo("  %3dx  %s", kv.second, kv.first.c_str());
     return 0;
 }
 
@@ -988,6 +1038,7 @@ int main(int argc, char** argv) {
     if (cmd == "scale" && argc >= 4) return ScaleCmd(argv[2], argv[3]);
     if (cmd == "ground" && argc >= 8) return GroundCmd(argv[2], argv[3], float(atof(argv[4])), float(atof(argv[5])), float(atof(argv[6])), float(atof(argv[7])));
     if (cmd == "skydump") return SkyDumpCmd(argv[2]);
+    if (cmd == "shaders") return ShadersCmd(argv[2], argc >= 4 ? argv[3] : "");
     if (cmd == "dat") return DatCmd(argv[2]);
     if (cmd == "textures" && argc >= 5) return TexturesCmd(argv[2], argv[3], argv[4]);
     if (cmd == "model") return ModelCmd(argv[2]);

@@ -1,5 +1,7 @@
 #pragma once
 #include "../Assets/Mpk.h"
+#include "../Assets/ShaderScript.h"
+#include "MaterialState.h"
 #include "Camera.h"
 #include "TextureCache.h"
 #include <bgfx/bgfx.h>
@@ -21,8 +23,10 @@ public:
     void Shutdown();
 
     // levelHint is the map name, used to find per-level textures.
+    // shaders may be null; material state then falls back to built-in defaults.
     void Upload(const MapMesh& map, TextureCache& textures, const std::string& levelHint,
-                float worldScale = 1.f);
+                float worldScale = 1.f, ShaderLibrary* shaders = nullptr,
+                bool overbright = false);
 
     // ambient/fogColor are 0-255 as stored in the level file.
     void Draw(bgfx::ViewId view, const Camera& camera, int width, int height,
@@ -41,15 +45,13 @@ private:
         bgfx::TextureHandle diffuse = BGFX_INVALID_HANDLE;
         bgfx::TextureHandle lightmap = BGFX_INVALID_HANDLE;
         bool hasLightmap = false;
-        bool alphaTest = false;
     };
     struct Chunk {                       // one MPK object
         bgfx::VertexBufferHandle vbo = BGFX_INVALID_HANDLE;
         bgfx::IndexBufferHandle ibo = BGFX_INVALID_HANDLE;
         std::vector<Batch> batches;
         Mat4 transform;
-        bool twoSided = false;
-        bool translucent = false;
+        MaterialState material;          // from the game's .shader scripts
     };
 
     std::vector<Chunk> chunks_;
