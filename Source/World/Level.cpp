@@ -27,6 +27,8 @@ bool Level::LoadSettings(const std::string& levelDir) {
     info_.fogDensity = static_cast<float>(p.Number("Fog.Density"));
     info_.fogStart = static_cast<float>(p.Number("Fog.Start"));
     info_.fogMode = static_cast<int>(p.Number("Fog.Mode"));
+    info_.fogEnd = static_cast<float>(p.Number("Fog.End", 90.0));
+    info_.farClip = static_cast<float>(p.Number("FarClipDist", 1024.0));
     info_.meshFriction = static_cast<float>(p.Number("Physics.DefaultMeshFriction", 0.7));
     p.Vector3("Ambient", info_.ambient);
     p.Vector3("Fog.Color", info_.fogColor);

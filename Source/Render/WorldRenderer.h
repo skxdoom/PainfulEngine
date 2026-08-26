@@ -1,6 +1,9 @@
 #pragma once
 #include "../Assets/Mpk.h"
 #include "../Assets/ShaderScript.h"
+#include "../World/Level.h"
+#include "../World/Zones.h"
+#include "Frustum.h"
 #include "MaterialState.h"
 #include "Camera.h"
 #include "TextureCache.h"
@@ -30,9 +33,13 @@ public:
 
     // ambient/fogColor are 0-255 as stored in the level file.
     void Draw(bgfx::ViewId view, const Camera& camera, int width, int height,
-              const float ambient[3], const float fogColor[3], float fogDensity, float fogStart);
+              const LevelInfo& info);
 
     size_t drawCalls() const { return drawCalls_; }
+    size_t zonesVisible() const { return zonesVisible_; }
+    size_t zoneCount() const { return zoneGraph_.zoneCount(); }
+    // Disables zone and frustum culling (the --novis flag).
+    void SetVisibilityCulling(bool on) { visCulling_ = on; }
 
     // Diagnostic: 0 = CCW, 1 = CW, 2 = none.
     void SetCullMode(int mode) { cullMode_ = mode; }
@@ -52,6 +59,8 @@ private:
         std::vector<Batch> batches;
         Mat4 transform;
         MaterialState material;          // from the game's .shader scripts
+        float aabbLo[3], aabbHi[3];      // world-space bounds, for culling
+        std::vector<uint16_t> zones;     // every zone the chunk overlaps; empty = always drawn
     };
 
     std::vector<Chunk> chunks_;
@@ -62,7 +71,13 @@ private:
     bgfx::UniformHandle uParams_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle uAmbient_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle uFogColor_ = BGFX_INVALID_HANDLE;
-    size_t drawCalls_ = 0, triangles_ = 0;
+    bgfx::UniformHandle uFog_ = BGFX_INVALID_HANDLE;
+    size_t drawCalls_ = 0, triangles_ = 0, zonesVisible_ = 0;
+    ZoneGraph zoneGraph_;
+    float worldScale_ = 1.f;
+    bool visCulling_ = true;
+    std::vector<int> cameraZones_;       // scratch, reused every frame
+    std::vector<bool> zoneVisible_;      // scratch, reused every frame
     int cullMode_ = 0;
 };
 

@@ -36,6 +36,7 @@ bool Renderer::Init(Window& window) {
     bgfx::setDebug(BGFX_DEBUG_TEXT);
     // View 0 draws the sky and owns the clear; view 1 draws the world on top.
     bgfx::setViewClear(kSkyView, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x1a1a20ff, 1.0f, 0);
+    // (SetClearColor overrides this per level.)| BGFX_CLEAR_DEPTH, 0x1a1a20ff, 1.0f, 0);
     bgfx::setViewClear(kWorldView, BGFX_CLEAR_NONE);
     // Sky layers must composite in order, so stop bgfx sorting that view.
     bgfx::setViewMode(kSkyView, bgfx::ViewMode::Sequential);
@@ -88,6 +89,12 @@ void Renderer::RequestScreenshot(const std::string& path) {
 std::string Renderer::BackendName() const {
     if (!initialised_) return "none";
     return bgfx::getRendererName(bgfx::getRendererType());
+}
+
+void Renderer::SetClearColor(float r, float g, float b) {
+    const uint32_t rgba = (uint32_t(r * 255.f) << 24) | (uint32_t(g * 255.f) << 16) |
+                          (uint32_t(b * 255.f) << 8) | 0xff;
+    bgfx::setViewClear(kSkyView, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, rgba, 1.0f, 0);
 }
 
 } // namespace painful

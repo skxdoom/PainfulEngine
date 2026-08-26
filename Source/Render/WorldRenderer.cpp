@@ -3,6 +3,7 @@
 #include "../Core/Log.h"
 #include "MeshVertex.h"
 
+#include <algorithm>
 #include <bx/math.h>
 #include <filesystem>
 
@@ -38,6 +39,7 @@ bool WorldRenderer::Init(const std::string& shaderDir) {
     uParams_   = bgfx::createUniform("u_params",   bgfx::UniformType::Vec4);
     uAmbient_  = bgfx::createUniform("u_ambient",  bgfx::UniformType::Vec4);
     uFogColor_ = bgfx::createUniform("u_fogColor", bgfx::UniformType::Vec4);
+    uFog_      = bgfx::createUniform("u_fog",      bgfx::UniformType::Vec4);
     return true;
 }
 
@@ -53,12 +55,16 @@ void WorldRenderer::Shutdown() {
     if (bgfx::isValid(uParams_))   { bgfx::destroy(uParams_);   uParams_   = BGFX_INVALID_HANDLE; }
     if (bgfx::isValid(uAmbient_))  { bgfx::destroy(uAmbient_);  uAmbient_  = BGFX_INVALID_HANDLE; }
     if (bgfx::isValid(uFogColor_)) { bgfx::destroy(uFogColor_); uFogColor_ = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(uFog_))      { bgfx::destroy(uFog_);      uFog_      = BGFX_INVALID_HANDLE; }
 }
 
 void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
                            const std::string& levelHint, float worldScale,
                            ShaderLibrary* shaders, bool overbright) {
     chunks_.reserve(map.objects.size());
+    worldScale_ = worldScale;
+    // The zone/portal helper geometry drives visibility culling.
+    zoneGraph_.Build(map, worldScale);
 
     for (const MapObject& o : map.objects) {
         const size_t vertexCount = o.vertexCount();
@@ -96,6 +102,25 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
         // space already, so only the world mesh gets this factor.
         for (int r = 0; r < 4; ++r) {
             for (int c = 0; c < 3; ++c) chunk.transform.m[r * 4 + c] *= worldScale;
+        }
+
+        // Culling data: zones are matched in raw mesh space (the graph's
+        // space), the AABB is kept in world space for the frustum test.
+        std::vector<int> overlapping;
+        zoneGraph_.ZonesForBox(o.bboxMin, o.bboxMax, overlapping);
+        for (int z : overlapping) chunk.zones.push_back(uint16_t(z));
+        chunk.aabbLo[0] = chunk.aabbLo[1] = chunk.aabbLo[2] = 1e30f;
+        chunk.aabbHi[0] = chunk.aabbHi[1] = chunk.aabbHi[2] = -1e30f;
+        for (int corner = 0; corner < 8; ++corner) {
+            const float raw[3] = {corner & 1 ? o.bboxMax[0] : o.bboxMin[0],
+                                  corner & 2 ? o.bboxMax[1] : o.bboxMin[1],
+                                  corner & 4 ? o.bboxMax[2] : o.bboxMin[2]};
+            float w[3];
+            chunk.transform.TransformPoint(raw[0], raw[1], raw[2], w);
+            for (int a = 0; a < 3; ++a) {
+                chunk.aabbLo[a] = std::min(chunk.aabbLo[a], w[a]);
+                chunk.aabbHi[a] = std::max(chunk.aabbHi[a], w[a]);
+            }
         }
         // Material selection works the way the engine's own scripts are named:
         // lightmapped objects use the defaultTU2 family (the x2 set when the
@@ -162,8 +187,8 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
 }
 
 void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int height,
-                         const float ambient[3], const float fogColor[3],
-                         float fogDensity, float fogStart) {
+                         const LevelInfo& info) {
+    const float* ambient = info.ambient;
     drawCalls_ = 0;
     if (!bgfx::isValid(program_)) return;
 
@@ -183,10 +208,42 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
                 bx::Handedness::Right);
     bgfx::setViewTransform(view, viewMtx, projMtx);
 
-    const float fogValue[4] = {fogColor[0] / 255.f, fogColor[1] / 255.f, fogColor[2] / 255.f, 1.f};
+    const float fogValue[4] = {info.fogColor[0] / 255.f, info.fogColor[1] / 255.f,
+                               info.fogColor[2] / 255.f, 1.f};
     bgfx::setUniform(uFogColor_, fogValue);
+    // Fog per CLevel.lua: mode 0 none, 1 exp, 2 exp2, 3 linear.
+    const float fogParams[4] = {float(info.fogMode), info.fogStart, info.fogEnd,
+                                info.fogDensity};
+    bgfx::setUniform(uFog_, fogParams);
+
+    // Visibility: frustum-cull every chunk, and walk the zone graph so only
+    // rooms reachable through in-view portals draw at all.
+    const Frustum frustum = Frustum::FromViewProj(viewMtx, projMtx);
+    zonesVisible_ = zoneGraph_.zoneCount();
+    if (visCulling_ && !zoneGraph_.empty()) {
+        const float raw[3] = {camera.pos[0] / worldScale_, camera.pos[1] / worldScale_,
+                              camera.pos[2] / worldScale_};
+        // Zone volumes overlap, so the camera can stand in several at once;
+        // visibility starts from all of them. Outside every zone the graph
+        // stays permissive and the frustum alone culls.
+        zoneGraph_.ZonesAt(raw, cameraZones_);
+        zoneGraph_.VisibleZones(frustum, cameraZones_, worldScale_, zoneVisible_);
+        zonesVisible_ = size_t(std::count(zoneVisible_.begin(), zoneVisible_.end(), true));
+    }
 
     for (const Chunk& c : chunks_) {
+        if (visCulling_) {
+            // A chunk is culled by the graph only when it overlaps at least
+            // one zone and none of them are visible.
+            if (!c.zones.empty() && !zoneVisible_.empty()) {
+                bool anyVisible = false;
+                for (uint16_t z : c.zones) {
+                    if (z < zoneVisible_.size() && zoneVisible_[z]) { anyVisible = true; break; }
+                }
+                if (!anyVisible) continue;
+            }
+            if (!frustum.VisibleAabb(c.aabbLo, c.aabbHi)) continue;
+        }
         // Ambient carries the chunk's lightmap scale in w (1, or 2 for the
         // Overbright material set).
         const float ambientValue[4] = {ambient[0] / 255.f, ambient[1] / 255.f,
@@ -203,7 +260,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
         for (const Batch& b : c.batches) {
             const float params[4] = {b.hasLightmap ? 1.f : 0.f,
                                      c.material.alphaRef,
-                                     fogDensity, fogStart};
+                                     0.f, 0.f};
             bgfx::setUniform(uAmbient_, ambientValue);
             bgfx::setUniform(uParams_, params);
             bgfx::setTransform(c.transform.m);

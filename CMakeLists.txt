@@ -55,6 +55,7 @@ target_link_libraries(painful_assets PUBLIC painful_core)
 add_library(painful_world STATIC
   Source/World/Level.cpp
   Source/World/Templates.cpp
+  Source/World/Zones.cpp
 )
 target_link_libraries(painful_world PUBLIC painful_assets)
 
@@ -105,3 +106,17 @@ add_shader(fs_sky   f s_5_0)
 
 add_custom_target(shaders ALL DEPENDS ${SHADER_BINS})
 add_dependencies(shaders PainfulEngine)
+
+# Optional local deployment: when PAINFUL_DEPLOY_DIR is set (a local cache
+# variable - never commit a machine path), every build copies the executable
+# and shaders there, e.g. the game's Bin folder next to Painkiller.exe.
+set(PAINFUL_DEPLOY_DIR "" CACHE PATH "Copy PainfulEngine.exe and Shaders/ here after each build")
+if(PAINFUL_DEPLOY_DIR)
+  add_custom_command(TARGET PainfulEngine POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:PainfulEngine>
+            ${PAINFUL_DEPLOY_DIR}/PainfulEngine.exe
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${SHADER_OUT_DIR}
+            ${PAINFUL_DEPLOY_DIR}/Shaders
+    COMMENT "deploy -> ${PAINFUL_DEPLOY_DIR}"
+  )
+endif()

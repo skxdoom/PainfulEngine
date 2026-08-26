@@ -23,6 +23,10 @@ public:
     // Called when the window size changes.
     void Resize(int width, int height);
 
+    // Background colour behind the sky - the level's fog colour, so the void
+    // past the far clip reads as fog exactly like the original.
+    void SetClearColor(float r, float g, float b);
+
     void BeginFrame();
     void EndFrame();
 

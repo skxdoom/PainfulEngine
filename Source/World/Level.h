@@ -45,7 +45,12 @@ struct LevelInfo {
     float ambient[3] = {0, 0, 0};
     float fogColor[3] = {0, 0, 0};
     float fogDensity = 0.f, fogStart = 0.f;
-    int   fogMode = 0;
+    float fogEnd = 90.f;             // Fog.End, class default 90
+    int   fogMode = 0;               // 0=none, 1=exp, 2=exp2, 3=linear (CLevel.lua)
+    // o.FarClipDist x (Cfg.ClipPlane+100)/200; ClipPlane defaults to 100, so
+    // the factor is 1. The original hard-clips the world here and lets the
+    // fog ramp hide the cut.
+    float farClip = 1024.f;
     float meshFriction = 0.7f;   // o.Physics.DefaultMeshFriction
     float startPos[3] = {0, 0, 0};
     float angles[3] = {0, 0, 0};    // o.Ang, degrees

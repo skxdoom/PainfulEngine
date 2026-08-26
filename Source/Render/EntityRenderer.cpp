@@ -1,8 +1,11 @@
 #include "EntityRenderer.h"
 #include "../Core/Common.h"
 #include "../Core/Log.h"
+#include "Frustum.h"
 #include "MeshVertex.h"
 
+#include <algorithm>
+#include <bx/math.h>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -117,6 +120,7 @@ bool EntityRenderer::Init(const std::string& shaderDir) {
     uParams_   = bgfx::createUniform("u_params",   bgfx::UniformType::Vec4);
     uAmbient_  = bgfx::createUniform("u_ambient",  bgfx::UniformType::Vec4);
     uFogColor_ = bgfx::createUniform("u_fogColor", bgfx::UniformType::Vec4);
+    uFog_      = bgfx::createUniform("u_fog",      bgfx::UniformType::Vec4);
     return true;
 }
 
@@ -135,6 +139,7 @@ void EntityRenderer::Shutdown() {
     if (bgfx::isValid(uParams_))   { bgfx::destroy(uParams_);   uParams_   = BGFX_INVALID_HANDLE; }
     if (bgfx::isValid(uAmbient_))  { bgfx::destroy(uAmbient_);  uAmbient_  = BGFX_INVALID_HANDLE; }
     if (bgfx::isValid(uFogColor_)) { bgfx::destroy(uFogColor_); uFogColor_ = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(uFog_))      { bgfx::destroy(uFog_);      uFog_      = BGFX_INVALID_HANDLE; }
 }
 
 bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textures,
@@ -194,7 +199,11 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
     outIndex = models_.size();
     // Bind-pose extent, used to interpret o.Scale as a real-world size.
     float extent = 0.f;
-    for (int a = 0; a < 3; ++a) extent = std::max(extent, hi[a] - lo[a]);
+    for (int a = 0; a < 3; ++a) {
+        extent = std::max(extent, hi[a] - lo[a]);
+        gpu.bboxLo[a] = lo[a];
+        gpu.bboxHi[a] = hi[a];
+    }
     gpu.extent = extent > 1e-4f ? extent : 1.f;
     models_.push_back(std::move(gpu));
     modelIndex_[modelName] = outIndex;
@@ -224,6 +233,7 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
 
     GpuModel gpu;
     bool materialSet = false;
+    float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
     for (const MapObject& o : pack.objects) {
         // o.Mesh selects one object; when it matches nothing (or is empty),
         // every object is drawn - DEAD packs hold loose fragments.
@@ -254,6 +264,10 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
             v.nx = n[0]; v.ny = n[1]; v.nz = n[2];
             v.u0 = v.u1 = uv[0];
             v.v0 = v.v1 = uv[1];
+        }
+        for (int a = 0; a < 3; ++a) {
+            lo[a] = std::min(lo[a], o.bboxMin[a]);
+            hi[a] = std::max(hi[a], o.bboxMax[a]);
         }
         const bgfx::VertexBufferHandle vbo = bgfx::createVertexBuffer(
             bgfx::copy(verts.data(), uint32_t(verts.size() * sizeof(MeshVertex))), layout_);
@@ -289,6 +303,10 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
     }
     if (gpu.parts.empty()) return false;
 
+    for (int a = 0; a < 3; ++a) {
+        gpu.bboxLo[a] = lo[a];
+        gpu.bboxHi[a] = hi[a];
+    }
     outIndex = models_.size();
     models_.push_back(std::move(gpu));
     modelIndex_[key] = outIndex;
@@ -375,7 +393,24 @@ void EntityRenderer::Build(const Level& level, TemplateCache& templates,
                                     instance.pos[2] * scaleMultiplier_};
         instance.transform = MakeTransform(scaledPos, instance.rot,
                                            finalScale * scaleMultiplier_);
+        UpdateBounds(instance, models_[modelSlot]);
         instances_.push_back(instance);
+    }
+}
+
+void EntityRenderer::UpdateBounds(Instance& instance, const GpuModel& model) const {
+    instance.aabbLo[0] = instance.aabbLo[1] = instance.aabbLo[2] = 1e30f;
+    instance.aabbHi[0] = instance.aabbHi[1] = instance.aabbHi[2] = -1e30f;
+    for (int corner = 0; corner < 8; ++corner) {
+        const float local[3] = {corner & 1 ? model.bboxHi[0] : model.bboxLo[0],
+                                corner & 2 ? model.bboxHi[1] : model.bboxLo[1],
+                                corner & 4 ? model.bboxHi[2] : model.bboxLo[2]};
+        float w[3];
+        instance.transform.TransformPoint(local[0], local[1], local[2], w);
+        for (int a = 0; a < 3; ++a) {
+            instance.aabbLo[a] = std::min(instance.aabbLo[a], w[a]);
+            instance.aabbHi[a] = std::max(instance.aabbHi[a], w[a]);
+        }
     }
 }
 
@@ -391,23 +426,43 @@ void EntityRenderer::SetScaleMultiplier(float k) {
                               instance.pos[2] * k};
         instance.transform = MakeTransform(pos, instance.rot,
                                            instance.scale * k);
+        UpdateBounds(instance, models_[instance.model]);
     }
 }
 
-void EntityRenderer::Draw(bgfx::ViewId view, const float ambient[3], const float fogColor[3],
-                          float fogDensity, float fogStart) {
+void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int height,
+                          const LevelInfo& info) {
+    const float* ambient = info.ambient;
     drawCalls_ = 0;
     if (!bgfx::isValid(program_) || instances_.empty()) return;
 
-    const float fogValue[4] = {fogColor[0] / 255.f, fogColor[1] / 255.f, fogColor[2] / 255.f, 1.f};
+    // Same view setup as the world pass, rebuilt here for the frustum.
+    float forward[3];
+    camera.Forward(forward);
+    const bx::Vec3 eye = {camera.pos[0], camera.pos[1], camera.pos[2]};
+    const bx::Vec3 at = {camera.pos[0] + forward[0], camera.pos[1] + forward[1],
+                         camera.pos[2] + forward[2]};
+    float viewMtx[16], projMtx[16];
+    bx::mtxLookAt(viewMtx, eye, at, {0.0f, 1.0f, 0.0f}, bx::Handedness::Right);
+    bx::mtxProj(projMtx, camera.fovDegrees, float(width) / float(height),
+                camera.nearPlane, camera.farPlane, bgfx::getCaps()->homogeneousDepth,
+                bx::Handedness::Right);
+    const Frustum frustum = Frustum::FromViewProj(viewMtx, projMtx);
+
+    const float fogValue[4] = {info.fogColor[0] / 255.f, info.fogColor[1] / 255.f,
+                               info.fogColor[2] / 255.f, 1.f};
+    const float fogParams[4] = {float(info.fogMode), info.fogStart, info.fogEnd,
+                                info.fogDensity};
+    bgfx::setUniform(uFog_, fogParams);
 
     for (const Instance& instance : instances_) {
+        if (visCulling_ && !frustum.VisibleAabb(instance.aabbLo, instance.aabbHi)) continue;
         const GpuModel& model = models_[instance.model];
         // No lightmaps on entities, so u_ambient.w (the lightmap scale) is
         // never sampled; alpha test comes from the material scripts.
         const float ambientValue[4] = {ambient[0] / 255.f, ambient[1] / 255.f,
                                        ambient[2] / 255.f, model.material.lightScale};
-        const float params[4] = {0.f, model.material.alphaRef, fogDensity, fogStart};
+        const float params[4] = {0.f, model.material.alphaRef, 0.f, 0.f};
 
         uint64_t state = model.material.state | BGFX_STATE_MSAA;
         // Diagnostic override: --ecull none strips culling, cw/ccw force it.

@@ -22,6 +22,7 @@ namespace painful { extern bx::DefaultAllocator g_allocator; }
 #include "Render/Window.h"
 #include "World/Level.h"
 #include "World/Templates.h"
+#include "World/Zones.h"
 #include "Assets/Skeleton.h"
 
 #include <chrono>
@@ -87,7 +88,8 @@ static std::string MapNameWithoutExtension(const std::string& mapFile) {
 static int RunCmd(const char* levelDir, const char* dataRoot,
                   const std::string& shotPath, const char* exePath,
                   const float* startPos, const float* startAngles,
-                  int cullMode, int entityCull, float entityScale, bool skyOnly) {
+                  int cullMode, int entityCull, float entityScale, bool skyOnly,
+                  bool novis) {
     const std::string root = dataRoot;
     const std::string shaderDir = ShaderDirFor(exePath);
 
@@ -160,6 +162,7 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
 
         world = std::make_unique<WorldRenderer>();
         world->SetCullMode(cullMode);
+        world->SetVisibilityCulling(!novis);
         if (world->Init(shaderDir) && level->mapLoaded()) {
             world->Upload(level->map(), textures,
                           MapNameWithoutExtension(level->info().mapFile),
@@ -169,6 +172,7 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
 
         entities = std::make_unique<EntityRenderer>();
         entities->SetCullMode(entityCull);
+        entities->SetVisibilityCulling(!novis);
         entities->SetScaleMultiplier(liveScale);
         if (entities->Init(shaderDir)) {
             entities->Build(*level, templates, textures, root, &shaderScripts);
@@ -182,6 +186,16 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
         camera.pos[0] = level->info().startPos[0];
         camera.pos[1] = level->info().startPos[1];
         camera.pos[2] = level->info().startPos[2];
+
+        // The original hard-clips the world at FarClipDist (Cfg.ClipPlane 100
+        // makes the factor exactly 1) and paints the void in the fog colour.
+        // --novis lifts the clip for free-flying level surveys.
+        camera.farPlane = novis ? 5000.f : level->info().farClip;
+        if (level->info().fogMode != 0) {
+            renderer.SetClearColor(level->info().fogColor[0] / 255.f,
+                                   level->info().fogColor[1] / 255.f,
+                                   level->info().fogColor[2] / 255.f);
+        }
 
         LogInfo("[%d/%zu] %s  map %s  %zu tris  %zu entities",
                 current + 1, levelDirs.size(), level->name().c_str(),
@@ -233,25 +247,28 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
         const LevelInfo& info = level->info();
         if (sky) sky->Draw(Renderer::kSkyView, camera, window.width(), window.height(), elapsed);
         if (world && !skyOnly) {
-            world->Draw(Renderer::kWorldView, camera, window.width(), window.height(),
-                        info.ambient, info.fogColor, info.fogDensity, info.fogStart);
+            world->Draw(Renderer::kWorldView, camera, window.width(), window.height(), info);
         }
         if (entities && !skyOnly) {
-            entities->Draw(Renderer::kWorldView, info.ambient, info.fogColor,
-                           info.fogDensity, info.fogStart);
+            entities->Draw(Renderer::kWorldView, camera, window.width(), window.height(), info);
         }
 
         renderer.DebugText(1, "PainfulEngine  -  %s  -  %.1f fps",
                            renderer.BackendName().c_str(), dt > 0.f ? 1.f / dt : 0.f);
         renderer.DebugText(2, "[%d/%zu] %s   map %s", current + 1, levelDirs.size(),
                            level->name().c_str(), info.mapFile.c_str());
-        renderer.DebugText(3, "%zu tris, %zu world draws, %zu entity draws, %zu placed models",
+        renderer.DebugText(3, "%zu tris, %zu world draws, %zu entity draws, %zu placed models, zones %zu/%zu",
                            world ? world->trianglesUploaded() : 0,
                            world ? world->drawCalls() : 0,
                            entities ? entities->drawCalls() : 0,
-                           entities ? entities->placed() : 0);
-        renderer.DebugText(4, "pos %.1f %.1f %.1f   sky %s",
+                           entities ? entities->placed() : 0,
+                           world ? world->zonesVisible() : 0,
+                           world ? world->zoneCount() : 0);
+        // rot prints in the exact form --look takes, so a HUD screenshot can
+        // be reproduced verbatim: --pos <pos> --look <rot>.
+        renderer.DebugText(4, "pos %.1f %.1f %.1f   rot %.2f %.2f   sky %s",
                            camera.pos[0], camera.pos[1], camera.pos[2],
+                           camera.yaw, camera.pitch,
                            (sky && sky->loaded())
                                ? (sky->layered() ? "layered" : "lowquality") : "none");
         renderer.DebugText(6, "%s - WASD move, shift fast, space/ctrl up-down, [ ] change level, esc release",
@@ -598,6 +615,30 @@ static int SkyDumpCmd(const char* path) {
 // The level start position is the player spawn, so the drop from it to the
 // geometry directly below gives a real-world anchor for the unit scale.
 // Diagnostic: the highest world vertex below a point, within a radius.
+// Diagnostic: dump the zone/portal graph, and which zones contain a point.
+static int ZonesCmd(const char* levelDir, const char* dataRoot,
+                    const float* pos) {
+    Level level;
+    if (!level.Load(levelDir, dataRoot)) { LogInfo("failed"); return 2; }
+    const float ws = level.info().scale;
+    ZoneGraph graph;
+    graph.Build(level.map(), ws);
+    LogInfo("%zu zones, %zu portals (world scale %.2f)", graph.zoneCount(),
+            graph.portalCount(), ws);
+    graph.Dump(ws);
+    if (pos) {
+        const float raw[3] = {pos[0] / ws, pos[1] / ws, pos[2] / ws};
+        std::vector<int> zs;
+        graph.ZonesAt(raw, zs);
+        std::string s;
+        for (int z : zs) s += std::to_string(z) + " ";
+        LogInfo("point (%.1f %.1f %.1f) raw (%.1f %.1f %.1f) in zones: %s",
+                pos[0], pos[1], pos[2], raw[0], raw[1], raw[2],
+                s.empty() ? "(none)" : s.c_str());
+    }
+    return 0;
+}
+
 static int GroundCmd(const char* levelDir, const char* dataRoot,
                      float x, float y, float z, float radius) {
     Level level;
@@ -984,7 +1025,7 @@ static int DefaultRun(const char* exePath) {
         }
     }
     return RunCmd(level.c_str(), root.c_str(), "", exePath,
-                  nullptr, nullptr, 0, 1, 1.f, false);
+                  nullptr, nullptr, 0, 1, 1.f, false, false);
 }
 
 int main(int argc, char** argv) {
@@ -995,6 +1036,7 @@ int main(int argc, char** argv) {
         std::string shot;
         int cullMode = 0, entityCull = 1;
         bool skyOnly = false;
+        bool novis = false;
         float entityScale = 1.f;
         float pos[3], angles[2];
         bool hasPos = false, hasAngles = false;
@@ -1002,6 +1044,7 @@ int main(int argc, char** argv) {
             std::string arg = argv[i];
             if (arg == "--shot" && i + 1 < argc) shot = argv[++i];
             else if (arg == "--skyview") skyOnly = true;
+            else if (arg == "--novis") novis = true;
             else if (arg == "--pos" && i + 3 < argc) {
                 for (int k = 0; k < 3; ++k) pos[k] = float(std::atof(argv[i + 1 + k]));
                 i += 3;
@@ -1023,7 +1066,7 @@ int main(int argc, char** argv) {
         }
         return RunCmd(argv[2], argv[3], shot, argv[0],
                       hasPos ? pos : nullptr, hasAngles ? angles : nullptr, cullMode,
-                      entityCull, entityScale, skyOnly);
+                      entityCull, entityScale, skyOnly, novis);
     }
     if (cmd == "level" && argc >= 4) return LevelCmd(argv[2], argv[3]);
     if (cmd == "entities" && argc >= 4) return EntitiesCmd(argv[2], argv[3]);
@@ -1036,6 +1079,12 @@ int main(int argc, char** argv) {
     if (cmd == "skytex" && argc >= 4) return SkyTexCmd(argv[2], argv[3]);
     if (cmd == "bones") return BonesCmd(argv[2]);
     if (cmd == "scale" && argc >= 4) return ScaleCmd(argv[2], argv[3]);
+    if (cmd == "zones" && argc >= 4) {
+        float zp[3];
+        const bool hasP = argc >= 7;
+        if (hasP) for (int k = 0; k < 3; ++k) zp[k] = float(std::atof(argv[4 + k]));
+        return ZonesCmd(argv[2], argv[3], hasP ? zp : nullptr);
+    }
     if (cmd == "ground" && argc >= 8) return GroundCmd(argv[2], argv[3], float(atof(argv[4])), float(atof(argv[5])), float(atof(argv[6])), float(atof(argv[7])));
     if (cmd == "skydump") return SkyDumpCmd(argv[2]);
     if (cmd == "shaders") return ShadersCmd(argv[2], argc >= 4 ? argv[3] : "");

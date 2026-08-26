@@ -29,8 +29,11 @@ public:
     void Build(const Level& level, TemplateCache& templates, TextureCache& textures,
                const std::string& dataRoot, ShaderLibrary* shaders = nullptr);
 
-    void Draw(bgfx::ViewId view, const float ambient[3], const float fogColor[3],
-              float fogDensity, float fogStart);
+    void Draw(bgfx::ViewId view, const Camera& camera, int width, int height,
+              const LevelInfo& info);
+
+    // Disables frustum culling (the --novis flag).
+    void SetVisibilityCulling(bool on) { visCulling_ = on; }
 
     size_t placed() const { return instances_.size(); }
     size_t distinctModels() const { return models_.size(); }
@@ -63,16 +66,21 @@ private:
         // (cull cw - the Maya exporter's winding is authored, not guessed),
         // pack meshes the defaultNTU family (cull ccw, like world geometry).
         MaterialState material;
+        float bboxLo[3] = {0, 0, 0}, bboxHi[3] = {0, 0, 0};   // local bounds
     };
     struct Instance {
         size_t model = 0;
         Mat4 transform;
+        float aabbLo[3] = {0, 0, 0}, aabbHi[3] = {0, 0, 0};   // world bounds
         // Basis kept so the transform can be rebuilt when the live scale
         // multiplier changes; scaling is about each entity's own origin.
         float pos[3] = {0, 0, 0};
         float rot[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
         float scale = 1.f;
     };
+
+    // Recomputes the instance's world-space bounds from its model's bbox.
+    void UpdateBounds(Instance& instance, const GpuModel& model) const;
 
     // Returns an index into models_, loading and uploading on first use.
     bool GetModel(const std::string& modelName, TextureCache& textures,
@@ -93,12 +101,14 @@ private:
     bgfx::UniformHandle uParams_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle uAmbient_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle uFogColor_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle uFog_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle white_ = BGFX_INVALID_HANDLE;
     size_t unresolved_ = 0, packed_ = 0, hidden_ = 0, drawCalls_ = 0;
     // Models wind the OPPOSITE way to world meshes: .pkmdl comes from the Maya
     // exporter, .mpk from ase2mpk. Verified visually - CCW turns models inside out.
     int cullMode_ = 1;
     float scaleMultiplier_ = 1.f;
+    bool visCulling_ = true;
 };
 
 } // namespace painful

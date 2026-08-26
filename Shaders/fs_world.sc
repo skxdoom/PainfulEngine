@@ -7,9 +7,10 @@ $input v_texcoord0, v_texcoord1, v_normal, v_viewdist
 SAMPLER2D(s_diffuse,  0);
 SAMPLER2D(s_lightmap, 1);
 
-uniform vec4 u_params;    // x: has lightmap, y: alpha-test ref (<0 off), z: fog density, w: fog start
+uniform vec4 u_params;    // x: has lightmap, y: alpha-test ref (<0 off), z/w: unused
 uniform vec4 u_ambient;   // rgb: level ambient, w: lightmap scale (2 when Overbright)
 uniform vec4 u_fogColor;  // rgb: level fog colour
+uniform vec4 u_fog;       // x: mode (0 none, 1 exp, 2 exp2, 3 linear), y: start, z: end, w: density
 
 void main()
 {
@@ -31,11 +32,24 @@ void main()
 
 	vec3 color = base.rgb * (light + u_ambient.rgb);
 
-	// Exponential distance fog. The level supplies both a density and a start
-	// distance; fog must not begin until beyond that start.
-	float fogDist = max(v_viewdist - u_params.w, 0.0);
-	float fog = clamp(exp(-u_params.z * fogDist), 0.0, 1.0);
-	color = mix(u_fogColor.rgb, color, fog);
+	// Fog modes match CLevel.lua: 0=none, 1=exp, 2=exp2, 3=linear. As in D3D
+	// fixed function, only linear fog uses the start/end range; the
+	// exponential modes use density alone.
+	float fog = 1.0;
+	if (u_fog.x > 2.5)
+	{
+		fog = (u_fog.z - v_viewdist) / max(u_fog.z - u_fog.y, 0.001);
+	}
+	else if (u_fog.x > 1.5)
+	{
+		float fd = u_fog.w * v_viewdist;
+		fog = exp(-fd * fd);
+	}
+	else if (u_fog.x > 0.5)
+	{
+		fog = exp(-u_fog.w * v_viewdist);
+	}
+	color = mix(u_fogColor.rgb, color, clamp(fog, 0.0, 1.0));
 
 	gl_FragColor = vec4(color, base.a);
 }
