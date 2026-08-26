@@ -51,14 +51,20 @@ void main()
 	// program.) Shipped values are tile 17.5 10, pan 0.00172 0.003.
 	vec2 uv0 = (v_texcoord0 + u_uvanim.xy) * u_tile.xy;
 
-	// _bx2 in the pixel shader is the 2*x - 1 bias. BumpHeight scales how hard
-	// the normal map bends the reflection - that is the magnitude of the
-	// tangent-to-world rows water_ref.vso builds as "c4.xyz - 1".
+	// _bx2 in the pixel shader is the 2*x - 1 bias.
+	//
+	// ripples_00 is a WORLD-space normal map for a horizontal plane, not a
+	// tangent-space one: sample it anywhere and green is pinned at 255 while
+	// red sits near 128 and blue swings the full range. Green is the up axis,
+	// so the texel is already (x, y, z) with y up and needs no basis change -
+	// which is also why the 3x3 water_ref.vso builds is constant. Reading it as
+	// tangent-space, with blue as up, swings the VERTICAL component across
+	// -1..1 and the surface looks violently bumpy.
+	//
+	// BumpHeight scales the two horizontal components, i.e. how far the normal
+	// tilts, which is the magnitude of the rows built as "c4.xyz - 1".
 	vec3 nT = texture2D(s_normal, uv0).xyz * 2.0 - 1.0;
-	nT.xy *= u_water.x;
-
-	// Tangent space to world for a plane whose normal is +y.
-	vec3 n = normalize(vec3(nT.x, nT.z, nT.y));
+	vec3 n = normalize(vec3(nT.x * u_water.x, nT.y, nT.z * u_water.x));
 
 	vec3 eye  = normalize(v_wpos - u_eye.xyz);
 	vec3 refl = reflect(eye, n);

@@ -98,6 +98,28 @@ defaults, so `o.Water` is the authority and levels override it. It also declares
 `ReflectScene` and `RefractScene` — the quality bits that make
 `SetupMaterials` reach for `water2_refl` / `water2_refr`.
 
+## ripples_00 is a WORLD-space normal map
+
+Worth checking rather than assuming, because it is not the usual thing. Sample
+it anywhere and green is pinned at 255, red sits near 128, and blue swings the
+full 0..255:
+
+```
+(  0,   0)  R 158  G 255  B 254
+(128,   0)  R 150  G 255  B   0
+(  0, 128)  R 112  G 255  B  73
+(128, 128)  R 118  G 255  B 136
+```
+
+A tangent-space normal map saturates its THIRD channel. This one saturates the
+second, so the texel is already a world-space normal for a horizontal plane -
+(x, y, z) with y up - and needs no basis change at all. That is also why the 3x3
+water_ref.vso builds is constant.
+
+Read as tangent-space with blue as up, the VERTICAL component swings across
+-1..1 and the surface comes out violently bumpy. BumpHeight then scales the two
+horizontal components, which is what tilts the normal.
+
 ## The nv20 programs, decoded
 
 `water_embm.pso` is five instructions:
