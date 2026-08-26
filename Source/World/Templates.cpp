@@ -64,6 +64,21 @@ const Properties* TemplateCache::Find(const std::string& name) {
     return &(loaded_[key] = std::move(props));
 }
 
+std::string TemplateCache::ResolveString(const Properties& instance, const std::string& baseObj,
+                                         const std::string& key) {
+    if (instance.Has(key)) {
+        const std::string own = instance.String(key);
+        if (!own.empty()) return own;
+    }
+    return ResolveString(baseObj, key);
+}
+
+double TemplateCache::ResolveNumber(const Properties& instance, const std::string& baseObj,
+                                    const std::string& key, double fallback) {
+    const double chain = ResolveNumber(baseObj, key, fallback);
+    return instance.Has(key) ? instance.Number(key, chain) : chain;
+}
+
 std::string TemplateCache::ResolveString(const std::string& templateName, const std::string& key) {
     std::string current = templateName;
     // Bounded so a malformed BaseObj cycle cannot hang the loader.

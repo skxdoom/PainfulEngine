@@ -23,6 +23,10 @@ struct MaterialState {
     // scripts - conveyor belts, waterfalls). Zero when static.
     float pan0[2] = {0, 0};
     float pan1[2] = {0, 0};
+    // Stage tiling (tile[N]). The engine applies it AFTER the pan, so it
+    // multiplies the scroll speed as well as the coordinate.
+    float tile0[2] = {1, 1};
+    float tile1[2] = {1, 1};
 
     // Builds the state from a resolved pass. Unknown values fall back to the
     // most common defaults and are reported through *warning when given.

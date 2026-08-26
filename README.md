@@ -137,6 +137,7 @@ only reveals itself deep into a playthrough.
 | [`Docs/Particles.md`](Docs/Particles.md) | emitter formats and simulation |
 | [`Docs/Billboards.md`](Docs/Billboards.md) | billboards, coronas and the occlusion trace |
 | [`Docs/TextureTransforms.md`](Docs/TextureTransforms.md) | pan, tile and the detail-map transform |
+| [`Docs/Water.md`](Docs/Water.md) | water surfaces, the material tiers and what each needs |
 | [`Docs/Engine_API.md`](Docs/Engine_API.md) | the C++ surface of `Engine.dll` |
 | [`Docs/Engine_LuaAPI.md`](Docs/Engine_LuaAPI.md) | the native API the scripts call |
 | [`Docs/native_priority.tsv`](Docs/native_priority.tsv) | that API ranked by call count — the work queue |

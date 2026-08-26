@@ -47,6 +47,7 @@ bool WorldRenderer::Init(const std::string& shaderDir) {
     sMask_     = bgfx::createUniform("s_mask2",    bgfx::UniformType::Sampler);
     uUv0_      = bgfx::createUniform("u_uv0",      bgfx::UniformType::Vec4);
     uUv1_      = bgfx::createUniform("u_uv1",      bgfx::UniformType::Vec4);
+    uTile_     = bgfx::createUniform("u_tile",     bgfx::UniformType::Vec4);
     return true;
 }
 
@@ -70,6 +71,7 @@ void WorldRenderer::Shutdown() {
     if (bgfx::isValid(sMask_))     { bgfx::destroy(sMask_);     sMask_     = BGFX_INVALID_HANDLE; }
     if (bgfx::isValid(uUv0_))      { bgfx::destroy(uUv0_);      uUv0_      = BGFX_INVALID_HANDLE; }
     if (bgfx::isValid(uUv1_))      { bgfx::destroy(uUv1_);      uUv1_      = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(uTile_))     { bgfx::destroy(uTile_);     uTile_     = BGFX_INVALID_HANDLE; }
 }
 
 void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
@@ -162,11 +164,36 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
         else if (o.nameHas("atest")) shaderName += "atest";
         if (o.nameHas("2sided")) shaderName += "2sided";
 
+        // Water is a flag on the mesh, and WorldMesh::SetupFlags (Engine.dll
+        // 0x101d7050) sets it from a plain substring test on the object's name:
+        //   strstr(name, "water") -> flags |= 0x8000000
+        // WorldMesh::SetupMaterials then falls back to the "water" material
+        // family; which member depends on the device tier and the quality bits
+        // (water2_refl / _refr / _refl_refr).
+        //
+        // The variant matters more than usual here, because the tiers are not
+        // the same picture drawn better - they are different constructions:
+        //
+        //   nv30  one pass, fx = FXWater_20, compiled bytecode in Water.fxo
+        //   nv20  TWO passes - the lightmap alone, then "blend modulate" with
+        //         an EMBM pass sampling $cubemap through a scrolling $normalmap
+        //   tnl   one pass, $colormap * $lightmap with modulate2x, no cubemap,
+        //         no normal map, xform[0] = $identity so no tiling or scroll
+        //
+        // Only the tnl construction is expressible with what this port has, and
+        // it is fully specified in the script - no FX bytecode, no render
+        // target. So water is pinned to that variant rather than taking the
+        // default nv30 preference and rendering a normal map as if it were a
+        // colour, which is what the higher tiers would degrade into.
+        const bool isWater = o.nameHas("water");
+        if (isWater) shaderName = "water";
+
         const ShaderDef* def = shaders ? shaders->Find(o.name) : nullptr;
         if (def) {
             LogInfo("material by object name: %s", o.name.c_str());
         } else if (shaders) {
-            def = shaders->Find(shaderName);
+            def = isWater ? shaders->Find(shaderName, {"tnl"}) : shaders->Find(shaderName);
+            if (isWater && def) LogInfo("water surface: %s", o.name.c_str());
         }
         if (def && !def->passes.empty()) {
             std::string warn;
@@ -330,6 +357,8 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
                                  c.material.pan0[1] * timeSeconds,
                                  c.material.pan1[0] * timeSeconds,
                                  c.material.pan1[1] * timeSeconds};
+        const float tile[4] = {c.material.tile0[0], c.material.tile0[1],
+                               c.material.tile1[0], c.material.tile1[1]};
         const float detail[4] = {detailTile_[0], detailTile_[1],
                                  detailOn_ ? 1.f : 0.f, 0.f};
         for (const Batch& b : c.batches) {
@@ -342,6 +371,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
             bgfx::setUniform(uDetail_, detail);
             bgfx::setUniform(uUv0_, b.uvDiffuse);
             bgfx::setUniform(uUv1_, b.uvBlend);
+            bgfx::setUniform(uTile_, tile);
             bgfx::setTexture(2, sDetail_, detailOn_ ? detailTex_ : b.diffuse,
                              BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC);
             bgfx::setTexture(3, sBlend2_, b.blended ? b.blend2 : b.diffuse);

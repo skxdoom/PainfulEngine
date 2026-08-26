@@ -90,6 +90,7 @@ bool EntityRenderer::Init(const std::string& shaderDir) {
     sDetail_   = bgfx::createUniform("s_detail",   bgfx::UniformType::Sampler);
     uUv0_      = bgfx::createUniform("u_uv0",      bgfx::UniformType::Vec4);
     uUv1_      = bgfx::createUniform("u_uv1",      bgfx::UniformType::Vec4);
+    uTile_     = bgfx::createUniform("u_tile",     bgfx::UniformType::Vec4);
     return true;
 }
 
@@ -114,6 +115,7 @@ void EntityRenderer::Shutdown() {
     if (bgfx::isValid(sDetail_))   { bgfx::destroy(sDetail_);   sDetail_   = BGFX_INVALID_HANDLE; }
     if (bgfx::isValid(uUv0_))      { bgfx::destroy(uUv0_);      uUv0_      = BGFX_INVALID_HANDLE; }
     if (bgfx::isValid(uUv1_))      { bgfx::destroy(uUv1_);      uUv1_      = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(uTile_))     { bgfx::destroy(uTile_);     uTile_     = BGFX_INVALID_HANDLE; }
 }
 
 bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textures,
@@ -165,6 +167,11 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
         // Models carry one texture per material; the first covers the whole mesh.
         part.diffuse = mesh.materials.empty() ? textures.White()
                                               : textures.Get(mesh.materials[0], "");
+        // The override key is the MESH name, matching how the world path keys
+        // off each object's name. Swamp_dirtywater.pkmdl holds a mesh called
+        // "dirtywater", which is the skin.shader entry that makes the swamp
+        // water scroll; keying off the file name found nothing.
+        part.material = LookupMaterial(shaders_, "palskinned", true, mesh.name);
         gpu.parts.push_back(part);
     }
     if (gpu.parts.empty()) return false;
@@ -276,6 +283,8 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
         }
     }
     if (gpu.parts.empty()) return false;
+    // Pack objects share one material across the whole object, unlike models.
+    for (Part& part : gpu.parts) part.material = gpu.material;
 
     for (int a = 0; a < 3; ++a) {
         gpu.bboxLo[a] = lo[a];
@@ -318,14 +327,9 @@ void EntityRenderer::Build(const Level& level, TemplateCache& templates,
             continue;
         }
 
-        // Scale comes from the instance when it declares one, otherwise from
-        // the template chain. Both o.Pack and o.Mesh resolve through the same
-        // chain: templates usually declare them, instances rarely override.
-        const double templateScale = templates.ResolveNumber(e.baseObj, "Scale", 1.0);
-        const double scale = e.props.Has("Scale") ? e.props.Number("Scale", templateScale)
-                                                  : templateScale;
-        const std::string pack = e.props.Has("Pack")
-            ? e.props.String("Pack") : templates.ResolveString(e.baseObj, "Pack");
+        // Instance properties win over the BaseObj chain, for all of these.
+        const double scale = templates.ResolveNumber(e.props, e.baseObj, "Scale", 1.0);
+        const std::string pack = templates.ResolveString(e.props, e.baseObj, "Pack");
 
         size_t modelSlot = 0;
         float finalScale = 0.f;
@@ -334,8 +338,7 @@ void EntityRenderer::Build(const Level& level, TemplateCache& templates,
             // Pack meshes share the world exporter's units, so o.Scale is a
             // plain multiplier (the slab door is 23.9 units at Scale 0.17,
             // about a 4 m doorway).
-            const std::string meshName = e.props.Has("Mesh")
-                ? e.props.String("Mesh") : templates.ResolveString(e.baseObj, "Mesh");
+            const std::string meshName = templates.ResolveString(e.props, e.baseObj, "Mesh");
             if (!GetPack(pack, meshName, textures, itemsRoot, modelSlot)) {
                 ++unresolved_;
                 continue;
@@ -343,7 +346,7 @@ void EntityRenderer::Build(const Level& level, TemplateCache& templates,
             ++packed_;
             finalScale = float(scale);
         } else {
-            std::string modelName = templates.ResolveString(e.baseObj, "Model");
+            std::string modelName = templates.ResolveString(e.props, e.baseObj, "Model");
             if (modelName.empty()) { ++unresolved_; continue; }
             if (!GetModel(modelName, textures, modelsRoot, modelSlot)) { ++unresolved_; continue; }
             // Models are created with Scale * 0.1 as a plain multiplier - the
@@ -432,28 +435,27 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
     for (const Instance& instance : instances_) {
         if (visCulling_ && !frustum.VisibleAabb(instance.aabbLo, instance.aabbHi)) continue;
         const GpuModel& model = models_[instance.model];
-        // No lightmaps on entities, so u_ambient.w (the lightmap scale) is
-        // never sampled; alpha test comes from the material scripts.
-        const float ambientValue[4] = {ambient[0] / 255.f, ambient[1] / 255.f,
-                                       ambient[2] / 255.f, model.material.lightScale};
-        const float params[4] = {0.f, model.material.alphaRef, 0.f, 0.f};
-        // Animated materials (conveyor pack meshes, swamp water models) pan
-        // their diffuse UVs; entities have no detail maps.
-        const float uvAnim[4] = {model.material.pan0[0] * timeSeconds,
-                                 model.material.pan0[1] * timeSeconds,
-                                 model.material.pan1[0] * timeSeconds,
-                                 model.material.pan1[1] * timeSeconds};
         const float detail[4] = {1.f, 1.f, 0.f, 0.f};
         // Identity UV transform: entity meshes carry no per-slot xform.
         const float identityUv[4] = {1.f, 1.f, 0.f, 0.f};
 
-        uint64_t state = model.material.state | BGFX_STATE_MSAA;
-        // Diagnostic override: --ecull none strips culling, cw/ccw force it.
-        if (cullMode_ == 2) {
-            state &= ~BGFX_STATE_CULL_MASK;
-        }
-
         for (const Part& part : model.parts) {
+            // Material is per part: one model can mix an ordinary skinned mesh
+            // with a scrolling water surface.
+            const MaterialState& mat = part.material;
+            // No lightmaps on entities, so u_ambient.w (the lightmap scale) is
+            // never sampled; alpha test comes from the material scripts.
+            const float ambientValue[4] = {ambient[0] / 255.f, ambient[1] / 255.f,
+                                           ambient[2] / 255.f, mat.lightScale};
+            const float params[4] = {0.f, mat.alphaRef, 0.f, 0.f};
+            // Animated materials pan their diffuse UVs; no detail maps here.
+            const float uvAnim[4] = {mat.pan0[0] * timeSeconds, mat.pan0[1] * timeSeconds,
+                                     mat.pan1[0] * timeSeconds, mat.pan1[1] * timeSeconds};
+            const float tile[4] = {mat.tile0[0], mat.tile0[1], mat.tile1[0], mat.tile1[1]};
+            uint64_t state = mat.state | BGFX_STATE_MSAA;
+            // Diagnostic override: --ecull none strips culling, cw/ccw force it.
+            if (cullMode_ == 2) state &= ~BGFX_STATE_CULL_MASK;
+
             bgfx::setUniform(uAmbient_, ambientValue);
             bgfx::setUniform(uFogColor_, fogValue);
             bgfx::setUniform(uParams_, params);
@@ -461,10 +463,11 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
             bgfx::setUniform(uDetail_, detail);
             bgfx::setUniform(uUv0_, identityUv);
             bgfx::setUniform(uUv1_, identityUv);
+            bgfx::setUniform(uTile_, tile);
             bgfx::setTransform(instance.transform.m);
             bgfx::setVertexBuffer(0, part.vbo);
             bgfx::setIndexBuffer(part.ibo, 0, part.indexCount);
-            bgfx::setTexture(0, sDiffuse_, part.diffuse, model.material.sampler[0]);
+            bgfx::setTexture(0, sDiffuse_, part.diffuse, mat.sampler[0]);
             bgfx::setTexture(1, sLightmap_, white_);
             bgfx::setTexture(2, sDetail_, white_);
             bgfx::setState(state);

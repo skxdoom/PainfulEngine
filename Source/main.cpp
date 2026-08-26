@@ -399,7 +399,7 @@ static int EntitiesCmd(const char* levelDir, const char* dataRoot) {
     int shown = 0, outside = 0, far = 0;
     (void)shown;
     for (const Entity& e : level.entities()) {
-        std::string model = templates.ResolveString(e.baseObj, "Model");
+        std::string model = templates.ResolveString(e.props, e.baseObj, "Model");
         if (model.empty()) continue;
         ++shown;
 
@@ -448,7 +448,7 @@ static int FitCmd(const char* levelDir, const char* dataRoot) {
 
     std::vector<std::array<float, 3>> targets;
     for (const Entity& e : level.entities()) {
-        if (templates.ResolveString(e.baseObj, "Model").empty()) continue;
+        if (templates.ResolveString(e.props, e.baseObj, "Model").empty()) continue;
         targets.push_back({e.pos[0], e.pos[1], e.pos[2]});
     }
     // Subsample the world; we only need a ranking, not exact distances.
@@ -973,6 +973,9 @@ static int MatsCmd(const char* path, const char* nameFilter) {
             }
             LogInfo("%s  (%zu verts, %zu tris, uvChannels %u)", o.name.c_str(),
                     o.vertexCount(), o.triangleCount(), o.uvChannels);
+            LogInfo("  bounds raw x[%.1f..%.1f] y[%.1f..%.1f] z[%.1f..%.1f]",
+                    o.bboxMin[0], o.bboxMax[0], o.bboxMin[1], o.bboxMax[1],
+                    o.bboxMin[2], o.bboxMax[2]);
             LogInfo("  texcoord0 u[%.3f..%.3f] v[%.3f..%.3f]   span %.2f x %.2f",
                     lo0[0], hi0[0], lo0[1], hi0[1], hi0[0] - lo0[0], hi0[1] - lo0[1]);
             LogInfo("  texcoord1 u[%.3f..%.3f] v[%.3f..%.3f]   span %.2f x %.2f",
@@ -1244,6 +1247,22 @@ static int ModelCmd(const char* path) {
     LogInfo("  bind-pose bounds x[%.2f..%.2f] y[%.2f..%.2f] z[%.2f..%.2f]  (size %.2f x %.2f x %.2f)",
             lo[0], hi[0], lo[1], hi[1], lo[2], hi[2],
             hi[0]-lo[0], hi[1]-lo[1], hi[2]-lo[2]);
+    // Per-mesh names and material texture references. The mesh name is what a
+    // .shader script keys off for a per-object material override, so it has to
+    // be visible to tell why a model did or did not pick one up.
+    for (const ModelMesh& mesh : model.meshes) {
+        LogInfo("  mesh %-28s %6zu verts %6zu tris  skin %s  materials%s: %s",
+                mesh.name.c_str(), mesh.vertexCount(), mesh.triangleCount(),
+                mesh.hasSkin() ? "yes" : "no ", mesh.materialsExact ? "" : " (INEXACT)",
+                [&] {
+                    std::string s;
+                    for (const std::string& m : mesh.materials) {
+                        if (!s.empty()) s += ", ";
+                        s += m;
+                    }
+                    return s.empty() ? std::string("(none)") : s;
+                }().c_str());
+    }
     return 0;
 }
 

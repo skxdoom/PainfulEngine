@@ -27,6 +27,16 @@ public:
     // overlay wins over the global set.
     const Properties* Find(const std::string& name);
 
+    // A placed object's own properties win over its BaseObj chain. Every
+    // property follows that precedence, so it lives here rather than being
+    // rewritten at each call site - which is how o.Model ended up chain-only in
+    // three places at once, silently dropping the seven instances that name
+    // their model directly (Swamp's water surface among them).
+    std::string ResolveString(const Properties& instance, const std::string& baseObj,
+                              const std::string& key);
+    double ResolveNumber(const Properties& instance, const std::string& baseObj,
+                         const std::string& key, double fallback);
+
     // Walks the BaseObj chain looking for a property.
     std::string ResolveString(const std::string& templateName, const std::string& key);
     double ResolveNumber(const std::string& templateName, const std::string& key, double fallback);

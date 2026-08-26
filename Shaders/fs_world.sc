@@ -14,6 +14,7 @@ uniform vec4 u_params;    // x: has lightmap, y: alpha-test ref (<0 off), z: ter
 uniform vec4 u_uvanim;    // xy: stage-0 scroll offset, zw: stage-1 scroll offset
 uniform vec4 u_detail;    // xy: detail tiling, z: detail on/off
 uniform vec4 u_uv0;       // diffuse slot UV transform: scale xy, offset zw
+uniform vec4 u_tile;      // tile[N]: xy stage 0, zw stage 1
 uniform vec4 u_uv1;       // blend slot UV transform: scale xy, offset zw
 uniform vec4 u_ambient;   // rgb: level ambient, w: lightmap scale (2 when Overbright)
 uniform vec4 u_fogColor;  // rgb: level fog colour
@@ -24,7 +25,9 @@ void main()
 	// Each material slot carries its own UV transform in the .mpk (scale in
 	// xy, offset in zw), the same job the engine's oT0 = v1 * c24/c25 texture
 	// matrix does. pan[N] then scrolls that result over time.
-	vec2 uvDiffuse = v_texcoord0 * u_uv0.xy + u_uv0.zw + u_uvanim.xy;
+	// (uv * slotXform + pan * t) * tile - tile is applied last, so it scales
+	// the scroll too (Engine.dll 0x1009e5a0).
+	vec2 uvDiffuse = (v_texcoord0 * u_uv0.xy + u_uv0.zw + u_uvanim.xy) * u_tile.xy;
 	vec4 base = texture2D(s_diffuse, uvDiffuse);
 
 	// Terrain blending: two TILED textures mixed by a mask that maps once
@@ -32,7 +35,7 @@ void main()
 	// value is colour times alpha, as in the sky compositor.
 	if (u_params.z > 0.5)
 	{
-		vec2 uvBlend = v_texcoord0 * u_uv1.xy + u_uv1.zw + u_uvanim.xy;
+		vec2 uvBlend = (v_texcoord0 * u_uv1.xy + u_uv1.zw + u_uvanim.zw) * u_tile.zw;
 		vec4 t2 = texture2D(s_blend2, uvBlend);
 		vec4 mk = texture2D(s_mask2, v_texcoord1);
 		base.rgb = mix(base.rgb, t2.rgb, mk.r * mk.a);
@@ -49,7 +52,11 @@ void main()
 	vec3 light = vec3_splat(1.0);
 	if (u_params.x > 0.5)
 	{
-		light = texture2D(s_lightmap, v_texcoord1 + u_uvanim.zw).rgb * u_ambient.w;
+		// Stage 1 is the lightmap on tasmashape (map[1] = $lightmap) but the
+		// blendmap on the lava shaders (map[3] = $lightmap there), so the
+		// stage-1 pan only belongs here when the material is not blended.
+		vec2 lightPan = (u_params.z > 0.5) ? vec2(0.0, 0.0) : u_uvanim.zw;
+		light = texture2D(s_lightmap, v_texcoord1 + lightPan).rgb * u_ambient.w;
 	}
 
 	// Detail map, combined the way defaultTU2detail does: "texture addsigned

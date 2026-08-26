@@ -57,6 +57,11 @@ private:
         bgfx::TextureHandle diffuse = BGFX_INVALID_HANDLE;
         uint32_t indexCount = 0;
         bool ownsVbo = true;               // parts of one pack object share a vbo
+        // Per part, because a .shader override keys off the MESH name, not the
+        // file name: Swamp_dirtywater.pkmdl holds a mesh called "dirtywater",
+        // which is the entry that makes the swamp water scroll. One material
+        // for a whole model could never see that.
+        MaterialState material;
     };
     struct GpuModel {
         std::vector<Part> parts;
@@ -110,6 +115,7 @@ private:
     // or the last world chunk's tiling (up to 30x) leaks onto models.
     bgfx::UniformHandle uUv0_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle uUv1_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle uTile_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle white_ = BGFX_INVALID_HANDLE;
     size_t unresolved_ = 0, packed_ = 0, hidden_ = 0, drawCalls_ = 0;
     // Models wind the OPPOSITE way to world meshes: .pkmdl comes from the Maya

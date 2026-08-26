@@ -90,6 +90,7 @@ private:
     bgfx::UniformHandle sMask_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle uUv0_ = BGFX_INVALID_HANDLE;   // diffuse slot xform
     bgfx::UniformHandle uUv1_ = BGFX_INVALID_HANDLE;   // blend slot xform
+    bgfx::UniformHandle uTile_ = BGFX_INVALID_HANDLE;  // tile[N] stage scaling
     bgfx::TextureHandle detailTex_ = BGFX_INVALID_HANDLE;
     float detailTile_[2] = {8.2f, 7.1f};
     bool detailOn_ = false;

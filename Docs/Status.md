@@ -85,6 +85,15 @@ All parse and are cross-checked against a second implementation.
 - UV panning (`pan[N]`) in units per second and the detail map sized by the
   level's `DetailMap.TileU/TileV` - both confirmed against the engine rather
   than inferred, in [`TextureTransforms.md`](TextureTransforms.md).
+- Per-stage texture transforms in the engine's own order:
+  `uv' = ((uv * slotXform) + pan * t) * tile`. `pan[N]` is units per second and
+  `tile[N]` scales the already-panned coordinate, so a stage with both scrolls
+  `tile` times faster than the pan figure alone reads.
+- Water surfaces, identified the way the engine identifies them - a `strstr`
+  test for "water" on the object name - and drawn with the fixed-function
+  `tnl` construction, the only one of the three tiers expressible without
+  render targets or FX bytecode. Eight maps carry world-geometry water.
+  Decoded in [`Water.md`](Water.md).
 
 ### Visibility
 
@@ -148,10 +157,9 @@ visibility all want the same query. 275k–341k triangles per level, built in
 
 ### Rendering
 
-- `tile[N]` (per-stage tiling) is decoded but NOT implemented: a first attempt
-  regressed world texturing across the board and was reverted. 24 uses, all on
-  lava and water surfaces. See [`TextureTransforms.md`](TextureTransforms.md)
-  for what to check when retrying.
+- Water above the fixed-function tier: the EMBM cube pass, reflection and
+  refraction render targets, and the `FXWater` programs inside `Water.fxo`.
+  See [`Water.md`](Water.md).
 - Texture rotation in the stage transform is not implemented either. Nothing in
   the shipped data sets one - it can only arrive through a named xform, whose
   contexts leave it at zero - so it is currently unreachable.
@@ -159,8 +167,8 @@ visibility all want the same query. 275k–341k triangles per level, built in
   original shows crisp ridges, and too bright. Several causes ruled out; the
   remaining suspect is its lightmap atlas region. Details in
   [`TextureTransforms.md`](TextureTransforms.md).
-- Water: `FXWater` (EMBM reflection) is not implemented; water surfaces render
-  as plain geometry.
+- Cube maps: `TextureCache` cannot load them, which blocks both the water EMBM
+  pass and the swamp surface's `$envcubemap` reflection.
 - Post-processing: no bloom (`Bloom.fxo`), no shadow maps, no motion blur.
 - Dynamic lights and specular are not implemented — lighting is baked
   lightmaps plus level ambient only.

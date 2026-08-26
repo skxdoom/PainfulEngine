@@ -97,12 +97,17 @@ MaterialState MaterialState::FromPass(const ShaderPass& pass, std::string* warni
     }
 
     // UV scrolling: "pan[N] = u v" in units per second (conveyors etc.).
-    auto readPan = [&](const char* key, float pan[2]) {
+    auto readPair = [&](const char* key, float dst[2], float dx, float dy) {
         std::istringstream in(pass.Get(key));
-        in >> pan[0] >> pan[1];
+        if (!(in >> dst[0] >> dst[1])) { dst[0] = dx; dst[1] = dy; }
     };
-    readPan("pan[0]", out.pan0);
-    readPan("pan[1]", out.pan1);
+    readPair("pan[0]", out.pan0, 0.f, 0.f);
+    readPair("pan[1]", out.pan1, 0.f, 0.f);
+    // tile[N] is the stage scale, applied AFTER the pan - see
+    // Docs/TextureTransforms.md. Absent means 1, i.e. no change at all, which
+    // is what keeps every material that never mentions it identical.
+    readPair("tile[0]", out.tile0, 1.f, 1.f);
+    readPair("tile[1]", out.tile1, 1.f, 1.f);
     return out;
 }
 
