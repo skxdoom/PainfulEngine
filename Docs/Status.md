@@ -82,6 +82,9 @@ All parse and are cross-checked against a second implementation.
   identified by which slots carry tiling rather than by assumption.
 - Fog modes 0/1/2/3 exactly as `CLevel.lua` defines them, per-level
   `FarClipDist`, and the void cleared to the fog colour.
+- UV panning (`pan[N]`) in units per second and the detail map sized by the
+  level's `DetailMap.TileU/TileV` - both confirmed against the engine rather
+  than inferred, in [`TextureTransforms.md`](TextureTransforms.md).
 
 ### Visibility
 
@@ -145,12 +148,17 @@ visibility all want the same query. 275k–341k triangles per level, built in
 
 ### Rendering
 
-- Texture panning (`pan[N]`) animates, but the units are not yet confirmed
-  against the engine, so speed/direction may be wrong.
-- Detail maps are applied (`addsigned` grain) but sized by inference. The
-  shipped `tu2_detail.vso` shows detail rides `texcoord0` through its own
-  matrix (`c27/c28`), separate from the diffuse's — the code that fills those
-  constants lives in `D3Dev.dll`'s material system, which is the next read.
+- `tile[N]` (per-stage tiling) is decoded but NOT implemented: a first attempt
+  regressed world texturing across the board and was reverted. 24 uses, all on
+  lava and water surfaces. See [`TextureTransforms.md`](TextureTransforms.md)
+  for what to check when retrying.
+- Texture rotation in the stage transform is not implemented either. Nothing in
+  the shipped data sets one - it can only arrive through a named xform, whose
+  contexts leave it at zero - so it is currently unreachable.
+- The Factory conveyor strip (`tasmashape`) renders as grey mush where the
+  original shows crisp ridges, and too bright. Several causes ruled out; the
+  remaining suspect is its lightmap atlas region. Details in
+  [`TextureTransforms.md`](TextureTransforms.md).
 - Water: `FXWater` (EMBM reflection) is not implemented; water surfaces render
   as plain geometry.
 - Post-processing: no bloom (`Bloom.fxo`), no shadow maps, no motion blur.

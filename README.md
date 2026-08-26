@@ -119,15 +119,14 @@ Rendering comes first: it has a ground truth — the original renders the same
 level, so screenshots can be compared directly — while gameplay correctness
 only reveals itself deep into a playthrough.
 
-1. Confirm the detail-map and pan constants in `D3Dev.dll`.
-2. Water (`FXWater`), which needs a render-target pass — shared with:
-3. Bloom and the rest of the `.fxo` post chain.
-4. Skeletal animation playback and GPU skinning.
-5. `.pak` reading, so a vanilla install works untouched.
-6. Lua 5.0.2 host with the natives from
+1. Water (`FXWater`), which needs a render-target pass — shared with:
+2. Bloom and the rest of the `.fxo` post chain.
+3. Skeletal animation playback and GPU skinning.
+4. `.pak` reading, so a vanilla install works untouched.
+5. Lua 5.0.2 host with the natives from
    [`Docs/native_priority.tsv`](Docs/native_priority.tsv), in call-count order
    — the point where the game starts to *play*.
-7. Physics via Jolt, driven by the same native API.
+6. Physics via Jolt, driven by the same native API.
 
 ## Documentation
 
@@ -137,6 +136,7 @@ only reveals itself deep into a playthrough.
 | [`Docs/Status.md`](Docs/Status.md) | source layout, what works, what is missing |
 | [`Docs/Particles.md`](Docs/Particles.md) | emitter formats and simulation |
 | [`Docs/Billboards.md`](Docs/Billboards.md) | billboards, coronas and the occlusion trace |
+| [`Docs/TextureTransforms.md`](Docs/TextureTransforms.md) | pan, tile and the detail-map transform |
 | [`Docs/Engine_API.md`](Docs/Engine_API.md) | the C++ surface of `Engine.dll` |
 | [`Docs/Engine_LuaAPI.md`](Docs/Engine_LuaAPI.md) | the native API the scripts call |
 | [`Docs/native_priority.tsv`](Docs/native_priority.tsv) | that API ranked by call count — the work queue |
