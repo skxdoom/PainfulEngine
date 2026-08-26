@@ -25,9 +25,33 @@ bool TemplateCache::Init(const std::string& templatesRoot) {
     return true;
 }
 
+void TemplateCache::SetLevelOverlay(const std::string& levelTemplatesDir) {
+    overlay_.clear();
+    overlayLoaded_.clear();
+    if (levelTemplatesDir.empty()) return;
+    std::error_code ec;
+    if (!fs::exists(levelTemplatesDir, ec)) return;
+    for (const auto& entry : fs::recursive_directory_iterator(levelTemplatesDir, ec)) {
+        if (!entry.is_regular_file()) continue;
+        if (entry.path().extension() == ".scc") continue;
+        overlay_[Lower(entry.path().filename().string())] = entry.path().string();
+    }
+}
+
 const Properties* TemplateCache::Find(const std::string& name) {
     if (name.empty()) return nullptr;
     std::string key = Lower(name);
+
+    // The level's own Templates directory shadows the global set, and is
+    // cached separately so it can be dropped wholesale on the next level.
+    auto overlayCached = overlayLoaded_.find(key);
+    if (overlayCached != overlayLoaded_.end()) return &overlayCached->second;
+    auto overlayPath = overlay_.find(key);
+    if (overlayPath != overlay_.end()) {
+        Properties props;
+        if (props.LoadFromFile(overlayPath->second))
+            return &(overlayLoaded_[key] = std::move(props));
+    }
 
     auto cached = loaded_.find(key);
     if (cached != loaded_.end()) return &cached->second;

@@ -49,6 +49,7 @@ add_library(painful_assets STATIC
   Source/Assets/Ani.cpp
   Source/Assets/Skeleton.cpp
   Source/Assets/Properties.cpp
+  Source/Assets/Emitter.cpp
 )
 target_link_libraries(painful_assets PUBLIC painful_core)
 
@@ -67,6 +68,7 @@ add_library(painful_render STATIC
   Source/Render/EntityRenderer.cpp
   Source/Render/MaterialState.cpp
   Source/Render/SkyRenderer.cpp
+  Source/Render/ParticleRenderer.cpp
 )
 # bimg_decode provides imageParse (DDS/PNG/etc); bimg alone is just the core.
 target_link_libraries(painful_render PUBLIC painful_world SDL3::SDL3-static bgfx bimg bimg_decode bx)
@@ -103,6 +105,8 @@ endfunction()
 add_shader(vs_world v s_5_0)
 add_shader(fs_world f s_5_0)
 add_shader(fs_sky   f s_5_0)
+add_shader(vs_particle v s_5_0)
+add_shader(fs_particle f s_5_0)
 
 add_custom_target(shaders ALL DEPENDS ${SHADER_BINS})
 add_dependencies(shaders PainfulEngine)

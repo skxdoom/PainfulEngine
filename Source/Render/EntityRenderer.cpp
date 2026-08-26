@@ -32,57 +32,6 @@ Mat4 MakeTransform(const float pos[3], const float rot[9], float scale) {
     return m;
 }
 
-// Placed objects store their orientation one of two ways, both straight out of
-// the shipped data:
-//
-//     o.Rot = Quaternion:New(w, x, y, z)   -- 6039 instances
-//     o.Ang.X / o.Ang.Y / o.Ang.Z          -- Euler radians
-//
-// Neither is universal, so whichever is present wins and identity is the
-// fallback. Component order (w, x, y, z) and the matrix form were both read out
-// of Engine.dll: PhysicsWorld::GetHavokBodyRotation stores Havok's (x,y,z,w)
-// into the engine layout as (-w, x, y, z), and the engine's quaternion-to-
-// matrix routine (FUN_1000bb90) emits the standard TEXTBOOK matrix, applied to
-// row vectors as-is - NOT transposed into row-vector form. Pre-transposing
-// here mirrored every rotation (+28 degrees rendered as -28).
-void ReadRotation(const Properties& props, float out[9]) {
-    const float identity[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
-    std::memcpy(out, identity, sizeof(identity));
-
-    if (const Value* q = props.Find("Rot")) {
-        if (q->kind == Value::Kind::Ctor && q->args.size() >= 4) {
-            const float w = q->Arg(0), x = q->Arg(1), y = q->Arg(2), z = q->Arg(3);
-            const float n = std::sqrt(w * w + x * x + y * y + z * z);
-            if (n > 1e-6f) {
-                const float iw = w / n, ix = x / n, iy = y / n, iz = z / n;
-                // Verbatim from the engine's own conversion.
-                out[0] = 1 - 2 * (iy * iy + iz * iz);
-                out[1] = 2 * (ix * iy - iz * iw);
-                out[2] = 2 * (ix * iz + iy * iw);
-                out[3] = 2 * (ix * iy + iz * iw);
-                out[4] = 1 - 2 * (ix * ix + iz * iz);
-                out[5] = 2 * (iy * iz - ix * iw);
-                out[6] = 2 * (ix * iz - iy * iw);
-                out[7] = 2 * (iy * iz + ix * iw);
-                out[8] = 1 - 2 * (ix * ix + iy * iy);
-                return;
-            }
-        }
-    }
-
-    if (!props.Has("Ang.X") && !props.Has("Ang.Y") && !props.Has("Ang.Z")) return;
-    const float ax = float(props.Number("Ang.X", 0.0));
-    const float ay = float(props.Number("Ang.Y", 0.0));
-    const float az = float(props.Number("Ang.Z", 0.0));
-    const float sx = std::sin(ax), cx = std::cos(ax);
-    const float sy = std::sin(ay), cy = std::cos(ay);
-    const float sz = std::sin(az), cz = std::cos(az);
-    // Y (yaw) * X (pitch) * Z (roll), row-vector.
-    out[0] = cy * cz + sy * sx * sz;  out[1] = cx * sz;  out[2] = -sy * cz + cy * sx * sz;
-    out[3] = -cy * sz + sy * sx * cz; out[4] = cx * cz;  out[5] = sy * sz + cy * sx * cz;
-    out[6] = sy * cx;                 out[7] = -sx;      out[8] = cy * cx;
-}
-
 // Quiet lookup for per-object material overrides (a script named exactly
 // after the mesh, like skin.shader's "polySurfaceShape847" or lm.shader's
 // "tasmashape" conveyor). Most meshes have none; that is not an error.

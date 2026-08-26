@@ -50,4 +50,9 @@ private:
     std::map<std::string, Value> values_;
 };
 
+// Reads a placed object's orientation into a row-vector 3x3, from whichever of
+// o.Rot / o.Ang the instance happens to carry. Shared by everything that
+// places something in the world - models and particle emitters alike.
+void ReadRotation(const Properties& props, float out[9]);
+
 } // namespace painful

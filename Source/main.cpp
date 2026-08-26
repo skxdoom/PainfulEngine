@@ -18,6 +18,7 @@
 namespace painful { extern bx::DefaultAllocator g_allocator; }
 #include <algorithm>
 #include "Render/EntityRenderer.h"
+#include "Render/ParticleRenderer.h"
 #include "Render/WorldRenderer.h"
 #include "Render/Window.h"
 #include "World/Level.h"
@@ -135,12 +136,17 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
         for (const std::string& e : shaderScripts.errors()) LogWarn("%s", e.c_str());
     }
     LogInfo("%zu material definitions", shaderScripts.size());
+    EmitterLibrary emitterScripts;
+    emitterScripts.Init(root + "/Scripts");
+    LogInfo("%zu emitters, %zu particle effects", emitterScripts.indexedEmitters(),
+            emitterScripts.indexedEffects());
 
     float liveScale = entityScale;
     std::unique_ptr<Level> level;
     std::unique_ptr<WorldRenderer> world;
     std::unique_ptr<EntityRenderer> entities;
     std::unique_ptr<SkyRenderer> sky;
+    std::unique_ptr<ParticleRenderer> particles;
     Camera camera;
     LevelStats stats;
 
@@ -152,12 +158,15 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
         world.reset();
         entities.reset();
         sky.reset();
+        particles.reset();
 
         level = std::make_unique<Level>();
         if (!level->Load(levelDirs[current], root)) {
             LogWarn("cannot load %s", levelDirs[current].c_str());
             return;
         }
+        // Level-local templates shadow the global ones for this level only.
+        templates.SetLevelOverlay(levelDirs[current] + "/Templates");
         stats = Summarise(*level);
 
         world = std::make_unique<WorldRenderer>();
@@ -180,6 +189,12 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
         sky = std::make_unique<SkyRenderer>();
         if (sky->Init(shaderDir)) {
             sky->Load(root + "/Maps", level->info(), textures);
+        }
+
+        particles = std::make_unique<ParticleRenderer>();
+        particles->SetScaleMultiplier(liveScale);
+        if (particles->Init(shaderDir)) {
+            particles->Build(*level, templates, emitterScripts, textures, root);
         }
 
         camera.pos[0] = level->info().startPos[0];
@@ -253,6 +268,12 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
             entities->Draw(Renderer::kWorldView, camera, window.width(), window.height(), info,
                            elapsed);
         }
+        // Particles last in the world view: they are blended and write no
+        // depth, so everything solid has to be down first.
+        if (particles && !skyOnly) {
+            particles->Tick(dt);
+            particles->Draw(Renderer::kWorldView, camera, window.width(), window.height());
+        }
 
         renderer.DebugText(1, "PainfulEngine  -  %s  -  %.1f fps",
                            renderer.BackendName().c_str(), dt > 0.f ? 1.f / dt : 0.f);
@@ -265,6 +286,11 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
                            entities ? entities->placed() : 0,
                            world ? world->zonesVisible() : 0,
                            world ? world->zoneCount() : 0);
+        renderer.DebugText(5, "%zu particles in %zu emitters, %zu effects, %zu particle draws",
+                           particles ? particles->liveParticles() : 0,
+                           particles ? particles->emitters() : 0,
+                           particles ? particles->effects() : 0,
+                           particles ? particles->drawCalls() : 0);
         // rot prints in the exact form --look takes, so a HUD screenshot can
         // be reproduced verbatim: --pos <pos> --look <rot>.
         renderer.DebugText(4, "pos %.1f %.1f %.1f   rot %.2f %.2f   sky %s",
@@ -327,6 +353,7 @@ static int EntitiesCmd(const char* levelDir, const char* dataRoot) {
     if (!level.Load(levelDir, dataRoot)) { LogInfo("failed: %s", level.error().c_str()); return 2; }
     TemplateCache templates;
     templates.Init(std::string(dataRoot) + "/LScripts/Templates");
+    templates.SetLevelOverlay(std::string(levelDir) + "/Templates");
 
     float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
     for (const MapObject& o : level.map().objects) {
@@ -392,6 +419,7 @@ static int FitCmd(const char* levelDir, const char* dataRoot) {
     if (!level.Load(levelDir, dataRoot)) { LogInfo("failed: %s", level.error().c_str()); return 2; }
     TemplateCache templates;
     templates.Init(std::string(dataRoot) + "/LScripts/Templates");
+    templates.SetLevelOverlay(std::string(levelDir) + "/Templates");
 
     std::vector<std::array<float, 3>> targets;
     for (const Entity& e : level.entities()) {
@@ -969,6 +997,61 @@ static int TexturesCmd(const char* mapPath, const char* dataRoot, const char* hi
     return 0;
 }
 
+// Walks the four-file chain a placed CParticleFX resolves through and prints
+// what each step produced, so the data path can be checked without a window:
+//   instance -> template o.Effect -> Effects/<name>.pfx -> Emitters/<file>.ini
+static int ParticlesCmd(const char* levelDir, const char* dataRoot) {
+    Level level;
+    if (!level.Load(levelDir, dataRoot)) { LogInfo("failed: %s", level.error().c_str()); return 2; }
+    TemplateCache templates;
+    templates.Init(std::string(dataRoot) + "/LScripts/Templates");
+    templates.SetLevelOverlay(std::string(levelDir) + "/Templates");
+    EmitterLibrary library;
+    library.Init(std::string(dataRoot) + "/Scripts");
+    LogInfo("library: %zu emitters, %zu effects", library.indexedEmitters(),
+            library.indexedEffects());
+
+    static const char* kBlendName[12] = {"none", "alpha", "add", "modulate", "filter",
+                                         "translucent", "invmodulate", "subtract",
+                                         "revsubtract", "desttranslucent", "destalpha",
+                                         "modulate2x"};
+    std::map<std::string, size_t> byEffect;
+    size_t placed = 0, unresolved = 0, budget = 0;
+    for (const Entity& e : level.entities()) {
+        if (e.type != "CParticleFX") continue;
+        ++placed;
+        std::string effect = e.props.String("Effect", "");
+        if (effect.empty()) effect = templates.ResolveString(e.baseObj, "Effect");
+        if (effect.empty()) effect = "Default";
+        byEffect[effect]++;
+        if (!library.Effect(effect)) ++unresolved;
+    }
+    LogInfo("%zu CParticleFX placed, %zu distinct effects, %zu unresolved", placed,
+            byEffect.size(), unresolved);
+
+    for (const auto& kv : byEffect) {
+        const ParticleFxDef* fx = library.Effect(kv.first);
+        LogInfo("  %-28s x%-4zu %s", kv.first.c_str(), kv.second,
+                fx ? "" : "(UNRESOLVED)");
+        if (!fx) continue;
+        for (const ParticleFxDef::Ref& ref : fx->emitters) {
+            const EmitterParams* p = library.Emitter(ref.file);
+            if (!p) { LogInfo("      %-24s (UNRESOLVED)", ref.file.c_str()); continue; }
+            budget += static_cast<size_t>(p->maxParticles) * kv.second;
+            LogInfo("      %-24s scale %.2f  type %d  blend %-11s  max %4d  rate %6.1f/s  "
+                    "life %.2f-%.2f  tex %s",
+                    ref.file.c_str(), ref.scale, p->type,
+                    (p->blendMode >= 0 && p->blendMode < 12) ? kBlendName[p->blendMode] : "?",
+                    p->maxParticles,
+                    p->spawnInterval > 0.f ? 1.f / p->spawnInterval : 0.f,
+                    p->lifeMin, p->lifeMax, p->texture.c_str());
+        }
+    }
+    LogInfo("worst-case particle budget for this level: %zu", budget);
+    for (const std::string& err : library.errors()) LogWarn("  %s", err.c_str());
+    return 0;
+}
+
 static int ModelCmd(const char* path) {
     Model model;
     if (!Model::Load(path, model)) { LogInfo("failed to load %s", path); return 2; }
@@ -1102,6 +1185,7 @@ int main(int argc, char** argv) {
     if (cmd == "dat") return DatCmd(argv[2]);
     if (cmd == "textures" && argc >= 5) return TexturesCmd(argv[2], argv[3], argv[4]);
     if (cmd == "model") return ModelCmd(argv[2]);
+    if (cmd == "particles" && argc >= 4) return ParticlesCmd(argv[2], argv[3]);
     return Usage();
 }
 

@@ -16,7 +16,15 @@ public:
     // templatesRoot is Data_Extracted/LScripts/Templates.
     bool Init(const std::string& templatesRoot);
 
-    // Looks up a template by file name, e.g. "Bat_Adrian.CActor".
+    // 43 levels ship their own Levels/<name>/Templates directory, whose files
+    // SHADOW the global ones for that level only - two levels can each define
+    // a "swieczka.CParticleFX" with different contents. Call this on every
+    // level load; it replaces whatever the previous level installed. Passing an
+    // empty path just clears the overlay.
+    void SetLevelOverlay(const std::string& levelTemplatesDir);
+
+    // Looks up a template by file name, e.g. "Bat_Adrian.CActor". The level
+    // overlay wins over the global set.
     const Properties* Find(const std::string& name);
 
     // Walks the BaseObj chain looking for a property.
@@ -30,7 +38,9 @@ public:
 
 private:
     std::map<std::string, std::string> index_;      // lowercase name -> path
+    std::map<std::string, std::string> overlay_;    // the current level's own
     std::map<std::string, Properties> loaded_;      // lowercase name -> parsed
+    std::map<std::string, Properties> overlayLoaded_;
 };
 
 } // namespace painful
