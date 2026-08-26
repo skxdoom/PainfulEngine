@@ -35,6 +35,26 @@ struct SkyLayer {
     bool valid() const { return !tex1.name.empty() || !tex2.name.empty(); }
 };
 
+// o.Water from the level's .CLevel. This is where the numbers the water shader
+// needs actually live - not in water.shader, whose tile[0]/pan[0] merely repeat
+// the class defaults below, and not in Engine.dll. 21 levels declare it.
+// Defaults are CLevel.lua's own.
+struct WaterInfo {
+    float fresnelBias = 0.f;
+    float fresnelExponent = 2.f;
+    float deepColor[3] = {150.f, 150.f, 100.f};      // 0..255, as authored
+    float shallowColor[3] = {100.f, 100.f, 100.f};
+    float bumpHeight = 0.05f;                        // normal-map strength
+    float waveAmplitude = 1.f, waveFrequency = 1.f, waveSpeed = 1.f;
+    float waterAmount = 1.f, reflectionAmount = 1.f;
+    float waterLevel = 0.f;
+    // These two are the quality bits that make SetupMaterials reach for
+    // water2_refl / water2_refr instead of plain water.
+    bool reflectScene = false, refractScene = false;
+    float pan[2] = {0.00172f, 0.003f};
+    float tile[2] = {17.5f, 10.f};
+};
+
 // Values read from <level>.CLevel. Names mirror the original property paths so
 // they stay greppable against the shipped data.
 struct LevelInfo {
@@ -63,6 +83,7 @@ struct LevelInfo {
     float skyAngle = 0.f;           // o.SkyDome.LowQuality.Angle, degrees
     std::string skyDomeMap;         // o.SkyDome.Map - the full layered dome
     SkyLayer skyLayers[4];
+    WaterInfo water;
 };
 
 // A loaded level: its settings, its placed entities, and the world mesh it names.

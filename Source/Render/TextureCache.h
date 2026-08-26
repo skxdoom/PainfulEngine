@@ -23,6 +23,11 @@ public:
 
     // Returns a valid handle; falls back to a white texture when unresolved.
     bgfx::TextureHandle Get(const std::string& reference, const std::string& levelHint);
+    // Cube maps need their own creation call and their own sampler type in the
+    // shader, so they cannot share Get(). The engine hardcodes exactly one:
+    // special/cube_wenecja, for water reflections.
+    bgfx::TextureHandle GetCube(const std::string& reference, const std::string& levelHint);
+    bgfx::TextureHandle WhiteCube() const { return whiteCube_; }
     bgfx::TextureHandle White() const { return white_; }
     // Fully transparent 1x1. A sky layer whose texture is missing should vanish,
     // not paint an opaque sheet across the sky.
@@ -40,6 +45,7 @@ private:
     std::map<std::string, std::string> index_;              // key -> absolute path
     std::map<std::string, bgfx::TextureHandle> cache_;      // reference -> handle
     bgfx::TextureHandle white_ = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle whiteCube_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle transparent_ = BGFX_INVALID_HANDLE;
     size_t loaded_ = 0, missing_ = 0;
 };

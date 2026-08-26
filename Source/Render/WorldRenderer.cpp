@@ -32,6 +32,22 @@ bool WorldRenderer::Init(const std::string& shaderDir) {
     if (!bgfx::isValid(vs) || !bgfx::isValid(fs_)) return false;
 
     program_ = bgfx::createProgram(vs, fs_, true);
+
+    // Water gets its own program. Missing shaders are not fatal: water then
+    // falls back to the ordinary world path.
+    bgfx::ShaderHandle wvs = LoadShader((fs::path(shaderDir) / "vs_water.bin").string());
+    bgfx::ShaderHandle wfs = LoadShader((fs::path(shaderDir) / "fs_water.bin").string());
+    if (bgfx::isValid(wvs) && bgfx::isValid(wfs)) {
+        waterProgram_ = bgfx::createProgram(wvs, wfs, true);
+        sNormal_ = bgfx::createUniform("s_normal", bgfx::UniformType::Sampler);
+        sCube_   = bgfx::createUniform("s_cube",   bgfx::UniformType::Sampler);
+        uEye_    = bgfx::createUniform("u_eye",    bgfx::UniformType::Vec4);
+        uWater_        = bgfx::createUniform("u_water",        bgfx::UniformType::Vec4);
+        uWaterDeep_    = bgfx::createUniform("u_waterDeep",    bgfx::UniformType::Vec4);
+        uWaterShallow_ = bgfx::createUniform("u_waterShallow", bgfx::UniformType::Vec4);
+    } else {
+        LogWarn("water: vs_water/fs_water missing, water draws as ordinary geometry");
+    }
     if (!bgfx::isValid(program_)) return false;
 
     sDiffuse_  = bgfx::createUniform("s_diffuse",  bgfx::UniformType::Sampler);
@@ -72,6 +88,13 @@ void WorldRenderer::Shutdown() {
     if (bgfx::isValid(uUv0_))      { bgfx::destroy(uUv0_);      uUv0_      = BGFX_INVALID_HANDLE; }
     if (bgfx::isValid(uUv1_))      { bgfx::destroy(uUv1_);      uUv1_      = BGFX_INVALID_HANDLE; }
     if (bgfx::isValid(uTile_))     { bgfx::destroy(uTile_);     uTile_     = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(waterProgram_)) { bgfx::destroy(waterProgram_); waterProgram_ = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(sNormal_))   { bgfx::destroy(sNormal_);   sNormal_   = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(sCube_))     { bgfx::destroy(sCube_);     sCube_     = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(uEye_))      { bgfx::destroy(uEye_);      uEye_      = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(uWater_))        { bgfx::destroy(uWater_);        uWater_        = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(uWaterDeep_))    { bgfx::destroy(uWaterDeep_);    uWaterDeep_    = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(uWaterShallow_)) { bgfx::destroy(uWaterShallow_); uWaterShallow_ = BGFX_INVALID_HANDLE; }
 }
 
 void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
@@ -86,6 +109,12 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
 
     // The level-wide detail map, applied to world geometry the way
     // MESH.SetDefaultDetailMaps does (addsigned grain, heavy tiling).
+    // WorldMesh::SetupMaterials hardcodes both of these rather than taking them
+    // from the map - see Docs/Water.md.
+    waterChunks_ = 0;
+    waterNormal_ = textures.Get("special/ripples_00", levelHint);
+    waterCube_   = textures.GetCube("special/cube_wenecja", levelHint);
+
     detailOn_ = false;
     if (!info.detailTex.empty() && !textures.Resolve(info.detailTex, "").empty()) {
         detailTex_ = textures.Get(info.detailTex, "");
@@ -192,7 +221,7 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
         if (def) {
             LogInfo("material by object name: %s", o.name.c_str());
         } else if (shaders) {
-            def = isWater ? shaders->Find(shaderName, {"tnl"}) : shaders->Find(shaderName);
+            def = isWater ? shaders->Find(shaderName, {"nv20"}) : shaders->Find(shaderName);
             if (isWater && def) LogInfo("water surface: %s", o.name.c_str());
         }
         if (def && !def->passes.empty()) {
@@ -200,6 +229,19 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
             chunk.material = MaterialState::FromPass(def->passes.front(), &warn);
             if (!warn.empty()) {
                 LogWarn("material %s: %s", shaderName.c_str(), warn.c_str());
+            }
+            // The nv20 water is two passes and they carry different things:
+            // pass 0 is the lightmap draw, which is where the render state
+            // belongs, while the normal map's tile and pan live on pass 1, the
+            // EMBM pass. Folding both into one draw means taking each from
+            // where it actually is. Note pass 1 declares tile[0]/pan[0] only -
+            // one scrolling layer, not the two the nv30 variant uses.
+            if (isWater && def->passes.size() > 1) {
+                const MaterialState embm = MaterialState::FromPass(def->passes[1]);
+                chunk.material.tile0[0] = embm.tile0[0];
+                chunk.material.tile0[1] = embm.tile0[1];
+                chunk.material.pan0[0] = embm.pan0[0];
+                chunk.material.pan0[1] = embm.pan0[1];
             }
         } else {
             if (shaders) LogWarn("material not found: %s", shaderName.c_str());
@@ -212,6 +254,8 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
             if (o.nameHas("atest")) m.alphaRef = 0.5f;
             m.lightScale = overbright ? 2.f : 1.f;
         }
+        chunk.isWater = isWater && bgfx::isValid(waterProgram_);
+        if (chunk.isWater) ++waterChunks_;
         chunk.vbo = bgfx::createVertexBuffer(
             bgfx::copy(verts.data(), uint32_t(verts.size() * sizeof(MeshVertex))), layout_);
         chunk.ibo = bgfx::createIndexBuffer(
@@ -361,6 +405,48 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
                                c.material.tile1[0], c.material.tile1[1]};
         const float detail[4] = {detailTile_[0], detailTile_[1],
                                  detailOn_ ? 1.f : 0.f, 0.f};
+        // Water takes the reflection program instead. The two nv20 passes -
+        // the lightmap alone, then "blend modulate" over it - multiply out to
+        // one expression, so they fold into a single draw here.
+        if (c.isWater) {
+            // o.Water in the level's .CLevel is the authority for these, not
+            // water.shader: the script's tile[0]/pan[0] only restate CLevel.lua's
+            // class defaults, and 21 levels override them.
+            const WaterInfo& w = info.water;
+            const float eye[4] = {camera.pos[0], camera.pos[1], camera.pos[2], 0.f};
+            const float waterTile[4] = {w.tile[0], w.tile[1], w.tile[0], w.tile[1]};
+            const float waterPan[4] = {w.pan[0] * timeSeconds, w.pan[1] * timeSeconds,
+                                       w.pan[0] * timeSeconds, w.pan[1] * timeSeconds};
+            const float waterParams[4] = {w.bumpHeight, w.fresnelBias, w.fresnelExponent,
+                                          w.reflectionAmount};
+            const float deep[4] = {w.deepColor[0] / 255.f, w.deepColor[1] / 255.f,
+                                   w.deepColor[2] / 255.f, w.waterAmount};
+            const float shallow[4] = {w.shallowColor[0] / 255.f, w.shallowColor[1] / 255.f,
+                                      w.shallowColor[2] / 255.f, 1.f};
+            for (const Batch& b : c.batches) {
+                bgfx::setUniform(uAmbient_, ambientValue);
+                bgfx::setUniform(uUvAnim_, waterPan);
+                bgfx::setUniform(uTile_, waterTile);
+                bgfx::setUniform(uWater_, waterParams);
+                bgfx::setUniform(uWaterDeep_, deep);
+                bgfx::setUniform(uWaterShallow_, shallow);
+                bgfx::setUniform(uEye_, eye);
+                bgfx::setUniform(uFogColor_, fogValue);
+                bgfx::setUniform(uFog_, fogParams);
+                bgfx::setTransform(c.transform.m);
+                bgfx::setVertexBuffer(0, c.vbo);
+                bgfx::setIndexBuffer(c.ibo, b.firstIndex, b.indexCount);
+                bgfx::setTexture(0, sNormal_, waterNormal_,
+                                 BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC);
+                bgfx::setTexture(1, sCube_, waterCube_);
+                bgfx::setTexture(2, sLightmap_, b.lightmap, c.material.sampler[1]);
+                bgfx::setState(state);
+                bgfx::submit(view, waterProgram_);
+                ++drawCalls_;
+            }
+            continue;
+        }
+
         for (const Batch& b : c.batches) {
             const float params[4] = {b.hasLightmap ? 1.f : 0.f,
                                      c.material.alphaRef,

@@ -78,18 +78,98 @@ same texture is dead data. Binding `ripples_00` as a colour map, which is what
 naively "implementing the water shader" produces, renders a normal map as if it
 were albedo: bright green.
 
+## o.Water — where the numbers actually live
+
+Not in `water.shader`, and not in `Engine.dll`. Each level's `.CLevel`
+carries an `o.Water` block, and 21 of them do. City on Water's:
+
+```
+o.Water.BumpHeight        = 0.2          o.Water.WaveAmplitude = 0.2
+o.Water.FresnelBias       = -0.2         o.Water.WaveFrequency = 0.3
+o.Water.FresnelExponent   = 5            o.Water.ReflectionAmount = 0.8
+o.Water.DeepWaterColor    = Color:New(72,23,0,0)
+o.Water.ShallowWaterColor = Color:New(66,79,70,0)
+```
+
+`CLevel.lua` gives the class defaults, and two of them settle a loose end:
+`Pan = Vector:New(0.00172, 0.003, 0)` and `Tile = Vector:New(17.5, 10, 1)` are
+exactly the `pan[0]` / `tile[0]` in `water.shader`. The script is restating the
+defaults, so `o.Water` is the authority and levels override it. It also declares
+`ReflectScene` and `RefractScene` — the quality bits that make
+`SetupMaterials` reach for `water2_refl` / `water2_refr`.
+
+## The nv20 programs, decoded
+
+`water_embm.pso` is five instructions:
+
+```
+tex          t0             sample $normalmap at the tiled, panned UV
+texm3x3pad   t1, t0_bx2     three rows of a tangent-to-world 3x3, each dotted
+texm3x3pad   t2, t0_bx2       with the BIASED normal (2*n - 1)
+texm3x3vspec t3, t0_bx2     ...then reflect the eye vector about it and sample
+                            the cube map
+mad          r0, t3, v0, v1  cube * diffuse + specular
+```
+
+and `water_ref.vso` feeds it:
+
+```
+dp4 oT0.x, v1, c24        normal-map UV through the stage-0 matrix
+add oT1, c4, -v0.wwwx     xyz = a row of the tangent basis, w = eye.x - pos.x
+add oT2, c5, -v0.wwwy
+add oT3, c6, -v0.wwwz
+```
+
+The tangent basis is **constant** — a water surface is a flat horizontal plane —
+so only the eye vector travels per vertex.
+
+That same program also displaces `position.y` by a sine, and the constants make
+it unambiguous: `c18` is (π, 2π, 1/2π, 0.5), `c19` is (1, −1/6, 1/120, −1/5040),
+the Taylor series for sin, and `c13`/`c14` are two wave directions,
+`(-1,0,0)` and `(-0.7,0,0.7)`. That is the vertex wave motion, driven by
+`WaveAmplitude` / `WaveFrequency` / `WaveSpeed`.
+
 ## What this port does
 
-Water surfaces take the **`tnl`** variant. It is the only one expressible
-without render targets or FX bytecode, and it is fully specified in the script,
-so nothing is invented: diffuse times lightmap, doubled.
+Water surfaces take the **`nv20`** construction, folded into one draw. Its two
+passes multiply out — the lightmap, then `blend modulate` over it — so one
+shader gives the same result:
 
-Everything above it is still open:
+- `special/ripples_00` sampled at `(uv + Pan * t) * Tile`, one scrolling layer
+  (the nv20 pass declares `tile[0]`/`pan[0]` only; the two-layer sampling is an
+  nv30 thing), with `BumpHeight` scaling how hard the normal bends the reflection
+- the bumped normal taken to world space through the constant flat-plane basis,
+  the eye vector reflected about it, and `special/cube_wenecja` sampled
+- multiplied by the lightmap, which is what pass 1 draws
+
+`TextureCache::GetCube` loads the cube; `bimg` already handled cube DDS, there
+was simply no call for it.
+
+**Where it deliberately stops.** `mad r0, t3, v0, v1` scales the cube by a
+diffuse term and adds a specular one, and `water_ref.vso` builds both from a
+`lit()` chain over engine constants. `o.Water` plainly supplies the ingredients,
+but *which property feeds which term* is not recoverable:
+`WorldMesh::RenderWater` computes those registers from a `TWater` struct and the
+decompiler loses the register numbers across that run of setter calls. Guessing
+the mapping was tried and produced water that was confidently wrong — too dark,
+then a flat tint with the reflection swamped — so the combine stays at what is
+decoded. The values are parsed and handed to the shader (`u_water`,
+`u_waterDeep`, `u_waterShallow`) ready for whoever pins the mapping down.
+
+Against the reference capture the surface is right in structure — reflective,
+correctly tiled, correctly scrolling — but reads darker, because at a grazing
+view the reflection samples the cube's side faces rather than its bright top.
+Whether the original closes that gap through the missing diffuse/specular terms
+or through scene reflection is exactly the open question above.
+
+Everything else is still open:
 
 - **`FXWater_20` / `FXWater2`** live in `Shaders/effects/Water.fxo`, compiled
   D3D effect bytecode — a format not yet decoded.
-- **The EMBM pass** (nv20) needs cube-map sampling, which `TextureCache` cannot
-  load yet, plus a bump-perturbed reflection lookup.
+- **The vertex wave.** The sine chain is decoded but its amplitude and phase
+  constants are uploaded per frame from the `TWater` struct; `o.Water` carries
+  `WaveAmplitude`, `WaveFrequency` and `WaveSpeed` for it. The surface is flat
+  here.
 - **Reflection and refraction** (`water2_refl`, `_refr`) need render targets and
   `$fbtex1`, a framebuffer copy. `WorldMesh::GetReflectionPlane` exists, which
   supports the planar-reflection reading of the Swamp reference shot rather than

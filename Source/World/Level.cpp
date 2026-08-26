@@ -24,6 +24,35 @@ bool Level::LoadSettings(const std::string& levelDir) {
     // default is 0.3, NOT 1 - levels that omit the key rely on it.
     info_.scale = static_cast<float>(p.Number("Scale", 0.3));
     info_.overbright = p.Bool("Overbright", false);
+    // o.Water - see WaterInfo. A Color:New ctor is three 0..255 args.
+    auto colour = [&p](const char* key, float out[3]) {
+        const Value* v = p.Find(key);
+        if (!v || v->kind != Value::Kind::Ctor || v->args.size() < 3) return;
+        for (int i = 0; i < 3; ++i) out[i] = v->Arg(size_t(i));
+    };
+    auto vec2 = [&p](const char* key, float out[2]) {
+        const Value* v = p.Find(key);
+        if (!v || v->kind != Value::Kind::Ctor || v->args.size() < 2) return;
+        out[0] = v->Arg(0);
+        out[1] = v->Arg(1);
+    };
+    WaterInfo& w = info_.water;
+    w.fresnelBias      = float(p.Number("Water.FresnelBias", w.fresnelBias));
+    w.fresnelExponent  = float(p.Number("Water.FresnelExponent", w.fresnelExponent));
+    w.bumpHeight       = float(p.Number("Water.BumpHeight", w.bumpHeight));
+    w.waveAmplitude    = float(p.Number("Water.WaveAmplitude", w.waveAmplitude));
+    w.waveFrequency    = float(p.Number("Water.WaveFrequency", w.waveFrequency));
+    w.waveSpeed        = float(p.Number("Water.WaveSpeed", w.waveSpeed));
+    w.waterAmount      = float(p.Number("Water.WaterAmount", w.waterAmount));
+    w.reflectionAmount = float(p.Number("Water.ReflectionAmount", w.reflectionAmount));
+    w.waterLevel       = float(p.Number("Water.WaterLevel", w.waterLevel));
+    w.reflectScene     = p.Bool("Water.ReflectScene", w.reflectScene);
+    w.refractScene     = p.Bool("Water.RefractScene", w.refractScene);
+    colour("Water.DeepWaterColor", w.deepColor);
+    colour("Water.ShallowWaterColor", w.shallowColor);
+    vec2("Water.Pan", w.pan);
+    vec2("Water.Tile", w.tile);
+
     info_.detailTex = p.String("DetailMap.Tex", "special/detail");
     info_.detailTileU = static_cast<float>(p.Number("DetailMap.TileU", 8.2));
     info_.detailTileV = static_cast<float>(p.Number("DetailMap.TileV", 7.1));

@@ -90,10 +90,12 @@ All parse and are cross-checked against a second implementation.
   `tile[N]` scales the already-panned coordinate, so a stage with both scrolls
   `tile` times faster than the pan figure alone reads.
 - Water surfaces, identified the way the engine identifies them - a `strstr`
-  test for "water" on the object name - and drawn with the fixed-function
-  `tnl` construction, the only one of the three tiers expressible without
-  render targets or FX bytecode. Eight maps carry world-geometry water.
-  Decoded in [`Water.md`](Water.md).
+  test for "water" on the object name - and drawn with the nv20 construction:
+  a cube-map reflection through a scrolling, tiled normal map, times the
+  lightmap. Its numbers come from the level's own `o.Water` block, and the
+  pixel and vertex programs (`water_embm.pso`, `water_ref.vso`) are decoded.
+  Eight maps carry world-geometry water. See [`Water.md`](Water.md).
+- Cube maps load through `TextureCache::GetCube`.
 
 ### Visibility
 
@@ -167,8 +169,10 @@ visibility all want the same query. 275k–341k triangles per level, built in
   original shows crisp ridges, and too bright. Several causes ruled out; the
   remaining suspect is its lightmap atlas region. Details in
   [`TextureTransforms.md`](TextureTransforms.md).
-- Cube maps: `TextureCache` cannot load them, which blocks both the water EMBM
-  pass and the swamp surface's `$envcubemap` reflection.
+- The water combine above the reflection: which `o.Water` property feeds the
+  diffuse and specular terms of `mad r0, t3, v0, v1` is not recoverable from
+  the shipped files. Also the vertex wave, and the swamp surface's
+  `$envcubemap`. See [`Water.md`](Water.md).
 - Post-processing: no bloom (`Bloom.fxo`), no shadow maps, no motion blur.
 - Dynamic lights and specular are not implemented — lighting is baked
   lightmaps plus level ambient only.

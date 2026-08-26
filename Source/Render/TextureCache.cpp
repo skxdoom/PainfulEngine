@@ -40,6 +40,12 @@ bool TextureCache::Init(const std::string& texturesRoot, bool createWhite) {
         const uint32_t whitePixel = 0xffffffff;
         white_ = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::BGRA8,
                                        BGFX_SAMPLER_NONE, bgfx::copy(&whitePixel, 4));
+        // A 1x1 white cube, so an unresolved reflection reads as flat white
+        // rather than leaving a stale sampler bound.
+        const uint32_t whiteFaces[6] = {0xffffffff, 0xffffffff, 0xffffffff,
+                                        0xffffffff, 0xffffffff, 0xffffffff};
+        whiteCube_ = bgfx::createTextureCube(1, false, 1, bgfx::TextureFormat::BGRA8,
+                                             BGFX_SAMPLER_NONE, bgfx::copy(whiteFaces, 24));
         const uint32_t clearPixel = 0x00000000;
         transparent_ = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::BGRA8,
                                              BGFX_SAMPLER_NONE, bgfx::copy(&clearPixel, 4));
@@ -131,6 +137,43 @@ bgfx::TextureHandle TextureCache::Get(const std::string& reference,
         ++missing_;
         LogWarn("texture fell back to white: %s%s", reference.c_str(),
                 path.empty() ? "  (unresolved)" : ("  (decode failed: " + path + ")").c_str());
+    }
+    cache_[cacheKey] = handle;
+    return handle;
+}
+
+bgfx::TextureHandle TextureCache::GetCube(const std::string& reference,
+                                          const std::string& levelHint) {
+    if (reference.empty()) return whiteCube_;
+
+    const std::string cacheKey = "cube|" + Lower(reference) + "|" + Lower(levelHint);
+    auto cached = cache_.find(cacheKey);
+    if (cached != cache_.end()) return cached->second;
+
+    bgfx::TextureHandle handle = whiteCube_;
+    const std::string path = Resolve(reference, levelHint);
+    std::vector<uint8_t> data;
+    if (!path.empty() && ReadFile(path, data) && !data.empty()) {
+        bimg::ImageContainer* image =
+            bimg::imageParse(&g_allocator, data.data(), static_cast<uint32_t>(data.size()));
+        if (image) {
+            if (image->m_cubeMap) {
+                const bgfx::Memory* mem = bgfx::copy(image->m_data, image->m_size);
+                handle = bgfx::createTextureCube(
+                    uint16_t(image->m_width), image->m_numMips > 1, image->m_numLayers,
+                    bgfx::TextureFormat::Enum(image->m_format), BGFX_SAMPLER_NONE, mem);
+            } else {
+                LogWarn("not a cube map: %s", path.c_str());
+            }
+            bimg::imageFree(image);
+            if (bgfx::isValid(handle) && handle.idx != whiteCube_.idx) ++loaded_;
+            else handle = whiteCube_;
+        }
+    }
+    if (handle.idx == whiteCube_.idx) {
+        ++missing_;
+        LogWarn("cube map fell back to white: %s%s", reference.c_str(),
+                path.empty() ? "  (unresolved)" : "  (decode failed)");
     }
     cache_[cacheKey] = handle;
     return handle;

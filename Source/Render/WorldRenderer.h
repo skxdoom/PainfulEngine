@@ -70,6 +70,9 @@ private:
         std::vector<Batch> batches;
         Mat4 transform;
         MaterialState material;          // from the game's .shader scripts
+        // Water surfaces take a separate program: a reflection sampled from a
+        // cube map through a scrolling normal map. See Docs/Water.md.
+        bool isWater = false;
         float aabbLo[3], aabbHi[3];      // world-space bounds, for culling
         std::vector<uint16_t> zones;     // every zone the chunk overlaps; empty = always drawn
     };
@@ -91,6 +94,18 @@ private:
     bgfx::UniformHandle uUv0_ = BGFX_INVALID_HANDLE;   // diffuse slot xform
     bgfx::UniformHandle uUv1_ = BGFX_INVALID_HANDLE;   // blend slot xform
     bgfx::UniformHandle uTile_ = BGFX_INVALID_HANDLE;  // tile[N] stage scaling
+    // Water pass: its own program plus the two textures SetupMaterials
+    // hardcodes (special/ripples_00 and special/cube_wenecja).
+    bgfx::ProgramHandle waterProgram_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle sNormal_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle sCube_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle uEye_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle uWater_ = BGFX_INVALID_HANDLE;      // bump, fresnel, reflection
+    bgfx::UniformHandle uWaterDeep_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle uWaterShallow_ = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle waterNormal_ = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle waterCube_ = BGFX_INVALID_HANDLE;
+    size_t waterChunks_ = 0;
     bgfx::TextureHandle detailTex_ = BGFX_INVALID_HANDLE;
     float detailTile_[2] = {8.2f, 7.1f};
     bool detailOn_ = false;

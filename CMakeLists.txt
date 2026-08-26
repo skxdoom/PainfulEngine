@@ -109,6 +109,8 @@ add_shader(fs_world f s_5_0)
 add_shader(fs_sky   f s_5_0)
 add_shader(vs_particle v s_5_0)
 add_shader(fs_particle f s_5_0)
+add_shader(vs_water    v s_5_0)
+add_shader(fs_water    f s_5_0)
 
 add_custom_target(shaders ALL DEPENDS ${SHADER_BINS})
 add_dependencies(shaders PainfulEngine)
