@@ -106,4 +106,40 @@ MaterialState MaterialState::FromPass(const ShaderPass& pass, std::string* warni
     return out;
 }
 
+uint64_t BlendModeState(int mode) {
+    // Translated one for one from the D3D render states D3Dev.dll's state
+    // setter issues for each value; the table is in Docs/Particles.md.
+    switch (mode) {
+        case kBlendNone: return 0;
+        case kBlendAlpha:
+            return BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_ONE);
+        case kBlendAdd:
+            return BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ONE);
+        case kBlendModulate:
+            return BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_DST_COLOR, BGFX_STATE_BLEND_ZERO);
+        case kBlendFilter:
+            return BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ZERO, BGFX_STATE_BLEND_SRC_COLOR);
+        case kBlendTranslucent:
+            return BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_SRC_ALPHA,
+                                         BGFX_STATE_BLEND_INV_SRC_ALPHA);
+        case kBlendInvModulate:
+            return BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ZERO, BGFX_STATE_BLEND_INV_SRC_COLOR);
+        case kBlendSubtract:
+            return BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ONE) |
+                   BGFX_STATE_BLEND_EQUATION(BGFX_STATE_BLEND_EQUATION_SUB);
+        case kBlendRevSubtract:
+            return BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ONE) |
+                   BGFX_STATE_BLEND_EQUATION(BGFX_STATE_BLEND_EQUATION_REVSUB);
+        case kBlendDestTranslucent:
+            return BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_DST_ALPHA,
+                                         BGFX_STATE_BLEND_INV_DST_ALPHA);
+        case kBlendDestAlpha:
+            return BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_DST_ALPHA, BGFX_STATE_BLEND_ONE);
+        case kBlendModulate2x:
+            return BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_DST_COLOR, BGFX_STATE_BLEND_SRC_COLOR);
+        default:
+            return BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_ONE);
+    }
+}
+
 } // namespace painful

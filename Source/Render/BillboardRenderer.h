@@ -1,0 +1,96 @@
+#pragma once
+#include "../World/CollisionMesh.h"
+#include "../World/Level.h"
+#include "../World/Templates.h"
+#include "Camera.h"
+#include "TextureCache.h"
+#include <bgfx/bgfx.h>
+#include <cstdint>
+#include <string>
+#include <vector>
+
+namespace painful {
+
+// Draws the level's CBillboard entities: light coronas and plain sprites.
+//
+// One entity type covers both. Corona.Enabled decides which: a corona grows
+// with distance, fades in and out as the line of sight to it opens and closes,
+// and ignores the depth buffer; a plain billboard is a fixed-size depth-tested
+// sprite at full alpha. There is no separate lens-flare chain anywhere in the
+// data - the "flare" look comes from the sprite textures (sflare1b, flarka)
+// hung on ordinary coronas.
+//
+// The parameters all arrive through one native call, which is what pins them
+// down: CBillboard:Apply does
+//
+//     BILLBOARD.SetupCorona(entity, Alpha, FadeInTime, FadeOutTime, MinSize,
+//         MinDistance, Size, MaxDistance, OffDistance, TraceMargin,
+//         "Particles/"..Texture, Color:Compose(), BlendMode, not Corona.Enabled)
+//
+// and its implementation (Engine.dll 0x10137b70) gives the field-for-field
+// mapping. Behaviour follows Billboard::Draw (0x101ccae0) and
+// Billboard::FadeTick (0x101cc120).
+class BillboardRenderer {
+public:
+    ~BillboardRenderer() { Shutdown(); }
+
+    bool Init(const std::string& shaderDir);
+    void Shutdown();
+
+    void Build(const Level& level, TemplateCache& templates, TextureCache& textures);
+
+    // Distance, occlusion tracing and fading, all of which the original does
+    // inside Draw. Split out so the frame's simulation and its submission stay
+    // separate, as they are for particles.
+    void Update(const Camera& camera, float dt, const CollisionMesh& collision);
+
+    void Draw(bgfx::ViewId view, const Camera& camera);
+
+    // The level o.Scale multiplier, applied to positions and sizes the same
+    // way EntityRenderer applies it to placed models.
+    void SetScaleMultiplier(float k);
+    float scaleMultiplier() const { return scaleMultiplier_; }
+
+    size_t placed() const { return sprites_.size(); }
+    size_t coronas() const { return coronas_; }
+    size_t visible() const { return visible_; }
+    size_t traces() const { return traces_; }
+    size_t drawCalls() const { return drawCalls_; }
+
+private:
+    struct Sprite {
+        float pos[3] = {0, 0, 0};
+        uint8_t r = 255, g = 255, b = 255;
+        float alpha = 0.5f;          // the TARGET alpha; the fade ramps up to it
+        float size = 5.f;            // max size, reached at MaxDistance
+        float minSize = 0.8f;
+        float minDistance = 5.f, maxDistance = 20.f, offDistance = 70.f;
+        float fadeInTime = 0.5f, fadeOutTime = 0.5f;
+        float traceMargin = 1.f;
+        bool  corona = false;
+
+        // Runtime state, named after the fields they mirror in the original.
+        float curAlpha = 0.f;        // +0x69c
+        float fadeTimer = 0.f;       // +0x690
+        float curSize = 5.f;         // +0x6d8
+        float distance = 0.f;        // +0x6a4
+        float traceTimer = 0.f;      // +0x6fc, counts down to the next trace
+        bool  wasVisible = false;    // +0x6c0
+        bool  blocked = true;        // +0x6c4, last trace result
+
+        bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
+        uint64_t blendState = 0;
+    };
+
+    void FadeTick(Sprite& s, bool nowVisible, float dt) const;
+
+    std::vector<Sprite> sprites_;
+    float scaleMultiplier_ = 1.f;
+    size_t coronas_ = 0, visible_ = 0, traces_ = 0, drawCalls_ = 0;
+
+    bgfx::VertexLayout layout_;
+    bgfx::ProgramHandle program_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle sDiffuse_ = BGFX_INVALID_HANDLE;
+};
+
+} // namespace painful

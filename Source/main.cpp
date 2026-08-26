@@ -18,6 +18,7 @@
 namespace painful { extern bx::DefaultAllocator g_allocator; }
 #include <algorithm>
 #include "Render/EntityRenderer.h"
+#include "Render/BillboardRenderer.h"
 #include "Render/ParticleRenderer.h"
 #include "Render/WorldRenderer.h"
 #include "Render/Window.h"
@@ -147,6 +148,8 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
     std::unique_ptr<EntityRenderer> entities;
     std::unique_ptr<SkyRenderer> sky;
     std::unique_ptr<ParticleRenderer> particles;
+    std::unique_ptr<BillboardRenderer> billboards;
+    CollisionMesh collision;
     Camera camera;
     LevelStats stats;
 
@@ -159,6 +162,8 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
         entities.reset();
         sky.reset();
         particles.reset();
+        billboards.reset();
+        collision.Clear();
 
         level = std::make_unique<Level>();
         if (!level->Load(levelDirs[current], root)) {
@@ -195,6 +200,16 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
         particles->SetScaleMultiplier(liveScale);
         if (particles->Init(shaderDir)) {
             particles->Build(*level, templates, emitterScripts, textures, root);
+        }
+
+        // Coronas trace the line of sight against solid world geometry, in the
+        // same space the world mesh is drawn in.
+        if (level->mapLoaded()) collision.Build(level->map(), level->info().scale);
+
+        billboards = std::make_unique<BillboardRenderer>();
+        billboards->SetScaleMultiplier(liveScale);
+        if (billboards->Init(shaderDir)) {
+            billboards->Build(*level, templates, textures);
         }
 
         camera.pos[0] = level->info().startPos[0];
@@ -274,6 +289,12 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
             particles->Tick(dt);
             particles->Draw(Renderer::kWorldView, camera, window.width(), window.height());
         }
+        // Coronas last of all: they ignore depth entirely, so anything drawn
+        // after them would be wrong regardless of where it sits in the world.
+        if (billboards && !skyOnly) {
+            billboards->Update(camera, dt, collision);
+            billboards->Draw(Renderer::kWorldView, camera);
+        }
 
         renderer.DebugText(1, "PainfulEngine  -  %s  -  %.1f fps",
                            renderer.BackendName().c_str(), dt > 0.f ? 1.f / dt : 0.f);
@@ -286,11 +307,15 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
                            entities ? entities->placed() : 0,
                            world ? world->zonesVisible() : 0,
                            world ? world->zoneCount() : 0);
-        renderer.DebugText(5, "%zu particles in %zu emitters, %zu effects, %zu particle draws",
+        renderer.DebugText(5, "%zu particles in %zu emitters, %zu effects   |   "
+                              "billboards %zu/%zu visible (%zu coronas, %zu traces)",
                            particles ? particles->liveParticles() : 0,
                            particles ? particles->emitters() : 0,
                            particles ? particles->effects() : 0,
-                           particles ? particles->drawCalls() : 0);
+                           billboards ? billboards->visible() : 0,
+                           billboards ? billboards->placed() : 0,
+                           billboards ? billboards->coronas() : 0,
+                           billboards ? billboards->traces() : 0);
         // rot prints in the exact form --look takes, so a HUD screenshot can
         // be reproduced verbatim: --pos <pos> --look <rot>.
         renderer.DebugText(4, "pos %.1f %.1f %.1f   rot %.2f %.2f   sky %s",
@@ -1052,6 +1077,91 @@ static int ParticlesCmd(const char* levelDir, const char* dataRoot) {
     return 0;
 }
 
+// Resolves every CBillboard the level places through its template chain and
+// reports what came out, so the corona parameters can be checked without a
+// window. Also builds the collision BVH and times it, since coronas are the
+// first thing to depend on it.
+static int BillboardsCmd(const char* levelDir, const char* dataRoot) {
+    Level level;
+    if (!level.Load(levelDir, dataRoot)) { LogInfo("failed: %s", level.error().c_str()); return 2; }
+    TemplateCache templates;
+    templates.Init(std::string(dataRoot) + "/LScripts/Templates");
+    templates.SetLevelOverlay(std::string(levelDir) + "/Templates");
+    TextureCache textures;
+    textures.Init(std::string(dataRoot) + "/Textures", false);
+
+    static const char* kBlendName[5] = {"none", "alpha", "add", "filter", "translucent"};
+    struct Row {
+        size_t count = 0, coronas = 0;
+        std::string texture, resolved;
+        float size = 0, minSize = 0, alpha = 0, off = 0;
+        int blend = 0;
+    };
+    std::map<std::string, Row> byBase;
+    size_t total = 0, coronas = 0, missingTex = 0;
+
+    for (const Entity& e : level.entities()) {
+        if (e.type != "CBillboard") continue;
+        ++total;
+
+        // Mirrors BillboardRenderer::Build's walk: instance first, then the
+        // BaseObj chain.
+        std::vector<const Properties*> chain{&e.props};
+        std::string current = e.baseObj;
+        for (int d = 0; d < 16 && !current.empty(); ++d) {
+            const Properties* p = templates.Find(current);
+            if (!p) break;
+            chain.push_back(p);
+            current = p->String("BaseObj");
+        }
+        auto find = [&](const char* key) -> const Value* {
+            for (const Properties* p : chain) if (const Value* v = p->Find(key)) return v;
+            return nullptr;
+        };
+        auto num = [&](const char* key, float fallback) {
+            const Value* v = find(key);
+            return v && v->kind == Value::Kind::Number ? float(v->number) : fallback;
+        };
+
+        Row& row = byBase[e.baseObj.empty() ? "(none)" : e.baseObj];
+        ++row.count;
+        const Value* en = find("Corona.Enabled");
+        const bool isCorona = en && en->kind == Value::Kind::Bool && en->boolean;
+        if (isCorona) { ++row.coronas; ++coronas; }
+
+        const Value* t = find("Texture");
+        row.texture = t && t->kind == Value::Kind::String ? t->text : "banka";
+        row.size = num("Size", 5.f);
+        row.minSize = num("Corona.MinSize", 0.8f);
+        row.alpha = num("Alpha", 0.5f);
+        row.off = num("Corona.OffDistance", 70.f);
+        row.blend = int(num("BlendMode", 1.f));
+        row.resolved = textures.Resolve("Particles/" + row.texture, level.name());
+        if (row.resolved.empty()) ++missingTex;
+    }
+
+    LogInfo("%zu CBillboard placed (%zu coronas), %zu distinct templates", total, coronas,
+            byBase.size());
+    for (const auto& kv : byBase) {
+        const Row& r = kv.second;
+        LogInfo("  %-32s x%-4zu %s  tex %-18s %s  size %.1f-%.1f  alpha %.2f  off %.0f  blend %s",
+                kv.first.c_str(), r.count, r.coronas ? "corona " : "sprite ", r.texture.c_str(),
+                r.resolved.empty() ? "(MISSING)" : "ok", r.minSize, r.size, r.alpha, r.off,
+                (r.blend >= 0 && r.blend < 5) ? kBlendName[r.blend] : "?");
+    }
+    if (missingTex) LogWarn("%zu templates reference a texture that does not resolve", missingTex);
+
+    if (level.mapLoaded()) {
+        const auto t0 = std::chrono::steady_clock::now();
+        CollisionMesh collision;
+        collision.Build(level.map(), level.info().scale);
+        const float ms = std::chrono::duration<float, std::milli>(
+                             std::chrono::steady_clock::now() - t0).count();
+        LogInfo("collision BVH built in %.0f ms", ms);
+    }
+    return 0;
+}
+
 static int ModelCmd(const char* path) {
     Model model;
     if (!Model::Load(path, model)) { LogInfo("failed to load %s", path); return 2; }
@@ -1186,6 +1296,7 @@ int main(int argc, char** argv) {
     if (cmd == "textures" && argc >= 5) return TexturesCmd(argv[2], argv[3], argv[4]);
     if (cmd == "model") return ModelCmd(argv[2]);
     if (cmd == "particles" && argc >= 4) return ParticlesCmd(argv[2], argv[3]);
+    if (cmd == "billboards" && argc >= 4) return BillboardsCmd(argv[2], argv[3]);
     return Usage();
 }
 

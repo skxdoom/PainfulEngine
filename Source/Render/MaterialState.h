@@ -1,4 +1,5 @@
 #pragma once
+#include "../Assets/Emitter.h"
 #include "../Assets/ShaderScript.h"
 #include <cstdint>
 
@@ -27,5 +28,10 @@ struct MaterialState {
     // most common defaults and are reported through *warning when given.
     static MaterialState FromPass(const ShaderPass& pass, std::string* warning = nullptr);
 };
+
+// bgfx blend bits for one of the engine's numbered blend modes (the BlendMode
+// enum in Assets/Emitter.h). Particles and billboards both feed their mode
+// straight into the same D3Dev state field, so they share one translation.
+uint64_t BlendModeState(int mode);
 
 } // namespace painful

@@ -1,6 +1,7 @@
 #include "ParticleRenderer.h"
 #include "../Core/Common.h"
 #include "../Core/Log.h"
+#include "MaterialState.h"
 
 #include <algorithm>
 #include <bx/math.h>
@@ -22,43 +23,6 @@ struct ParticleVertex {
     uint32_t abgr;
     float u, v;
 };
-
-// The engine's blend enum, translated one for one from the D3D render states
-// D3Dev.dll's state setter issues for each value. See BlendMode in Emitter.h
-// for the table this came out of.
-uint64_t BlendState(int mode) {
-    switch (mode) {
-        case kBlendNone: return 0;
-        case kBlendAlpha:
-            return BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_ONE);
-        case kBlendAdd:
-            return BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ONE);
-        case kBlendModulate:
-            return BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_DST_COLOR, BGFX_STATE_BLEND_ZERO);
-        case kBlendFilter:
-            return BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ZERO, BGFX_STATE_BLEND_SRC_COLOR);
-        case kBlendTranslucent:
-            return BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_SRC_ALPHA,
-                                         BGFX_STATE_BLEND_INV_SRC_ALPHA);
-        case kBlendInvModulate:
-            return BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ZERO, BGFX_STATE_BLEND_INV_SRC_COLOR);
-        case kBlendSubtract:
-            return BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ONE) |
-                   BGFX_STATE_BLEND_EQUATION(BGFX_STATE_BLEND_EQUATION_SUB);
-        case kBlendRevSubtract:
-            return BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ONE) |
-                   BGFX_STATE_BLEND_EQUATION(BGFX_STATE_BLEND_EQUATION_REVSUB);
-        case kBlendDestTranslucent:
-            return BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_DST_ALPHA,
-                                         BGFX_STATE_BLEND_INV_DST_ALPHA);
-        case kBlendDestAlpha:
-            return BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_DST_ALPHA, BGFX_STATE_BLEND_ONE);
-        case kBlendModulate2x:
-            return BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_DST_COLOR, BGFX_STATE_BLEND_SRC_COLOR);
-        default:
-            return BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_ONE);
-    }
-}
 
 float Lerp(float a, float b, float t) { return a + (b - a) * t; }
 
@@ -236,7 +200,7 @@ void ParticleRenderer::Build(const Level& level, TemplateCache& templates,
             ApplyScale(e, entityScale * ref.scale * scaleMultiplier_);
 
             e.texture = textures.Get(params->texture, level.name());
-            e.blendState = BlendState(params->blendMode);
+            e.blendState = BlendModeState(params->blendMode);
             e.particles.reserve(std::min(params->maxParticles, 4096));
             emitters_.push_back(std::move(e));
         }

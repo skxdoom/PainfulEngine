@@ -57,6 +57,7 @@ add_library(painful_world STATIC
   Source/World/Level.cpp
   Source/World/Templates.cpp
   Source/World/Zones.cpp
+  Source/World/CollisionMesh.cpp
 )
 target_link_libraries(painful_world PUBLIC painful_assets)
 
@@ -69,6 +70,7 @@ add_library(painful_render STATIC
   Source/Render/MaterialState.cpp
   Source/Render/SkyRenderer.cpp
   Source/Render/ParticleRenderer.cpp
+  Source/Render/BillboardRenderer.cpp
 )
 # bimg_decode provides imageParse (DDS/PNG/etc); bimg alone is just the core.
 target_link_libraries(painful_render PUBLIC painful_world SDL3::SDL3-static bgfx bimg bimg_decode bx)
