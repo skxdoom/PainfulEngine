@@ -4,8 +4,68 @@
 
 #include <bgfx/bgfx.h>
 #include <cstdarg>
+#include <cstdio>
+#include <cstring>
+#include <vector>
 
 namespace painful {
+
+namespace {
+
+// bgfx::requestScreenShot only hands the pixels to the callback interface; with
+// no interface installed the default stub drops them, which is why --shot wrote
+// nothing. This writes an uncompressed 32-bit TGA, which Tools/shot.ps1 already
+// knows how to convert.
+struct ScreenShotCallback : public bgfx::CallbackI {
+    virtual ~ScreenShotCallback() {}
+    void fatal(const char*, uint16_t, bgfx::Fatal::Enum, const char* str) override {
+        LogWarn("bgfx fatal: %s", str);
+    }
+    void traceVargs(const char*, uint16_t, const char*, va_list) override {}
+    void profilerBegin(const char*, uint32_t, const char*, uint16_t) override {}
+    void profilerBeginLiteral(const char*, uint32_t, const char*, uint16_t) override {}
+    void profilerEnd() override {}
+    uint32_t cacheReadSize(uint64_t) override { return 0; }
+    bool cacheRead(uint64_t, void*, uint32_t) override { return false; }
+    void cacheWrite(uint64_t, const void*, uint32_t) override {}
+    void captureBegin(uint32_t, uint32_t, uint32_t, bgfx::TextureFormat::Enum, bool) override {}
+    void captureEnd() override {}
+    void captureFrame(const void*, uint32_t) override {}
+
+    void screenShot(const char* filePath, uint32_t width, uint32_t height, uint32_t pitch,
+                    bgfx::TextureFormat::Enum format, const void* data, uint32_t,
+                    bool yflip) override {
+        FILE* f = fopen(filePath, "wb");
+        if (!f) { LogWarn("screenshot: cannot open %s", filePath); return; }
+        uint8_t header[18] = {};
+        header[2] = 2;                                   // uncompressed true-colour
+        header[12] = uint8_t(width & 0xff);
+        header[13] = uint8_t((width >> 8) & 0xff);
+        header[14] = uint8_t(height & 0xff);
+        header[15] = uint8_t((height >> 8) & 0xff);
+        header[16] = 32;                                 // bits per pixel
+        header[17] = 0x20;                               // rows top-to-bottom
+        fwrite(header, 1, sizeof(header), f);
+        // TGA stores BGRA. D3D11 hands back BGRA8 already; the GL backends give
+        // RGBA8, so those need the two swapped.
+        const bool swapRB = format == bgfx::TextureFormat::RGBA8;
+        const uint8_t* src = static_cast<const uint8_t*>(data);
+        std::vector<uint8_t> row(size_t(width) * 4);
+        for (uint32_t y = 0; y < height; ++y) {
+            const uint32_t sy = yflip ? (height - 1 - y) : y;
+            std::memcpy(row.data(), src + size_t(sy) * pitch, row.size());
+            if (swapRB)
+                for (size_t x = 0; x < row.size(); x += 4) std::swap(row[x], row[x + 2]);
+            fwrite(row.data(), 1, row.size(), f);
+        }
+        fclose(f);
+        LogInfo("screenshot written: %s (%ux%u)", filePath, width, height);
+    }
+};
+
+ScreenShotCallback g_screenShotCallback;
+
+}  // namespace
 
 bool Renderer::Init(Window& window) {
     void* nwh = window.NativeHandle();
@@ -24,6 +84,7 @@ bool Renderer::Init(Window& window) {
     init.resolution.width = static_cast<uint32_t>(window.width());
     init.resolution.height = static_cast<uint32_t>(window.height());
     init.resolution.reset = BGFX_RESET_VSYNC;
+    init.callback = &g_screenShotCallback;
     if (!bgfx::init(init)) {
         LogWarn("bgfx::init failed");
         return false;

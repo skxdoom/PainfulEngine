@@ -938,9 +938,68 @@ static int MapCmd(const char* path) {
 }
 
 // Diagnostic: how are the four texture slots actually populated?
-static int MatsCmd(const char* path) {
+static int MatsCmd(const char* path, const char* nameFilter) {
     MapMesh m;
     MapMesh::Load(path, m);
+
+    // With a name, report that object in full instead of the whole-map summary:
+    // every slot with its UV transform, plus the raw UV span of the geometry.
+    // Those two together are what decides how many times a texture repeats.
+    if (nameFilter && *nameFilter) {
+        std::string want = nameFilter;
+        std::transform(want.begin(), want.end(), want.begin(),
+                       [](unsigned char c) { return char(std::tolower(c)); });
+        size_t found = 0;
+        for (const MapObject& o : m.objects) {
+            std::string lower = o.name;
+            std::transform(lower.begin(), lower.end(), lower.begin(),
+                           [](unsigned char c) { return char(std::tolower(c)); });
+            if (lower.find(want) == std::string::npos) continue;
+            ++found;
+            float lo0[2] = {1e30f, 1e30f}, hi0[2] = {-1e30f, -1e30f};
+            float lo1[2] = {1e30f, 1e30f}, hi1[2] = {-1e30f, -1e30f};
+            for (size_t i = 0; i < o.vertexCount(); ++i) {
+                float uv[2];
+                o.uv(i, uv);
+                for (int c = 0; c < 2; ++c) {
+                    lo0[c] = std::min(lo0[c], uv[c]);
+                    hi0[c] = std::max(hi0[c], uv[c]);
+                }
+                o.uv1(i, uv);
+                for (int c = 0; c < 2; ++c) {
+                    lo1[c] = std::min(lo1[c], uv[c]);
+                    hi1[c] = std::max(hi1[c], uv[c]);
+                }
+            }
+            LogInfo("%s  (%zu verts, %zu tris, uvChannels %u)", o.name.c_str(),
+                    o.vertexCount(), o.triangleCount(), o.uvChannels);
+            LogInfo("  texcoord0 u[%.3f..%.3f] v[%.3f..%.3f]   span %.2f x %.2f",
+                    lo0[0], hi0[0], lo0[1], hi0[1], hi0[0] - lo0[0], hi0[1] - lo0[1]);
+            LogInfo("  texcoord1 u[%.3f..%.3f] v[%.3f..%.3f]   span %.2f x %.2f",
+                    lo1[0], hi1[0], lo1[1], hi1[1], hi1[0] - lo1[0], hi1[1] - lo1[1]);
+            // The raw 8 floats, so a suspected channel mix-up can be judged
+            // rather than argued about: index 3 has no documented meaning on
+            // 2-UV objects.
+            LogInfo("  raw vertex floats (first 4 verts):");
+            for (size_t i = 0; i < o.vertexCount() && i < 4; ++i) {
+                LogInfo("    [%zu] %8.3f %8.3f %8.3f | %8.3f | %8.3f %8.3f | %8.3f %8.3f",
+                        i, o.verts[i * 8 + 0], o.verts[i * 8 + 1], o.verts[i * 8 + 2],
+                        o.verts[i * 8 + 3], o.verts[i * 8 + 4], o.verts[i * 8 + 5],
+                        o.verts[i * 8 + 6], o.verts[i * 8 + 7]);
+            }
+            for (const Material& mat : o.materials) {
+                for (int s = 0; s < 4; ++s) {
+                    const TextureSlot& t = mat.slots[s];
+                    if (t.name.empty()) continue;
+                    LogInfo("  slot%d %-22s off(%.3f,%.3f) scale(%.3f,%.3f)  -> repeats %.1f x %.1f",
+                            s, t.name.c_str(), t.offsetU, t.offsetV, t.scaleU, t.scaleV,
+                            (hi0[0] - lo0[0]) * t.scaleU, (hi0[1] - lo0[1]) * t.scaleV);
+                }
+            }
+        }
+        if (!found) LogInfo("no object matching '%s'", nameFilter);
+        return 0;
+    }
     size_t total = 0, slot0empty = 0, slot1empty = 0, bothFilled = 0, slot0LooksLightmap = 0;
     size_t nonIdentity = 0;
     int shown = 0;
@@ -1277,7 +1336,7 @@ int main(int argc, char** argv) {
     if (cmd == "fit" && argc >= 4) return FitCmd(argv[2], argv[3]);
     if (cmd == "levels") return LevelsCmd(argv[2]);
     if (cmd == "map")   return MapCmd(argv[2]);
-    if (cmd == "mats")  return MatsCmd(argv[2]);
+    if (cmd == "mats")  return MatsCmd(argv[2], argc >= 4 ? argv[3] : "");
     if (cmd == "resolve" && argc >= 4) return ResolveCmd(argv[2], argv[3]);
     if (cmd == "texdump" && argc >= 4) return TexDumpCmd(argv[2], argv[3], argc >= 5 ? argv[4] : "");
     if (cmd == "skytex" && argc >= 4) return SkyTexCmd(argv[2], argv[3]);
