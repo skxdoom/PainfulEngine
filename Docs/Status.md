@@ -23,10 +23,12 @@ Source/
             Properties        the Lua-ish property files, and o.Rot / o.Ang
             ShaderScript      the .shader material scripts
             Emitter           particle emitter .ini and effect .pfx
+            Tweaks            LScripts/Main/Tweak.lua, the physics constants
   World/    Level             level settings, entity placement, world mesh
             Templates         the BaseObj template chain, with level overlays
             Zones             portal/zone visibility graph
             CollisionMesh     BVH over solid geometry, for line-of-sight queries
+            PhysicsWorld      Jolt: the static world, the placed props, queries
   Render/   Window            SDL3
             Renderer          bgfx device
             Frustum           view-frustum planes and AABB tests
@@ -34,6 +36,7 @@ Source/
             TextureCache      extension-agnostic texture resolution
             WorldRenderer / EntityRenderer / SkyRenderer
             ParticleRenderer / BillboardRenderer
+            DebugLines        world-space line overlay, for collision shapes
   main.cpp
 Shaders/    bgfx shader sources, compiled by the build into Shaders/ beside
             the executable
@@ -155,6 +158,19 @@ hit anything". It is general-purpose — line of sight, projectiles and AI
 visibility all want the same query. 275k–341k triangles per level, built in
 100–170 ms at load.
 
+### Physics
+
+Jolt, standing in for Havok. The collidable map geometry is one static body,
+the props the level places are real bodies with the mass and friction their
+templates declare, and the free camera collides against both — it still flies,
+it just stops at walls and shoves loose props aside. Anything the simulation
+moves is drawn where it moved to. The constants come from
+`LScripts/Main/Tweak.lua` and the level's own `o.Physics` block, which is what
+the engine reads too. `P` draws the collision shapes.
+
+Details, the numbers, and the sizeable list of what is still missing are in
+[`Physics.md`](Physics.md).
+
 ## What is missing
 
 ### Rendering
@@ -191,7 +207,6 @@ visibility all want the same query. 275k–341k triangles per level, built in
 - No `.pak` reading — the data must be extracted first.
 - No Lua host, so nothing scripted runs: no spawning, triggers, doors,
   pickups, AI or level progression.
-- No physics (Jolt is the intended replacement for Havok) and no collision
-  response. `CollisionMesh` answers ray queries but simulates nothing; player
-  movement is still a free-flying camera.
+- Nothing wakes the physics props, no player controller, and no ragdolls,
+  glass, explosions, buoyancy, ladders or ice. See [`Physics.md`](Physics.md).
 - No sound, no HUD, no menus, no save/load, no netcode.

@@ -4,3 +4,6 @@
 [submodule "External/bgfx"]
 	path = External/bgfx
 	url = https://github.com/bkaradzic/bgfx.cmake.git
+[submodule "External/JoltPhysics"]
+	path = External/JoltPhysics
+	url = https://github.com/jrouwe/JoltPhysics.git

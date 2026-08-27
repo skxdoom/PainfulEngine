@@ -51,6 +51,8 @@ bool Window::PumpEvents() {
         case SDL_EVENT_KEY_DOWN:
             if (e.key.key == SDLK_LEFTBRACKET) levelStep_ = -1;
             if (e.key.key == SDLK_RIGHTBRACKET) levelStep_ = 1;
+            if (e.key.key == SDLK_N && !e.key.repeat) noclipToggle_ = true;
+            if (e.key.key == SDLK_P && !e.key.repeat) physicsDebugToggle_ = true;
             if (e.key.key == SDLK_ESCAPE) {
                 // First Escape releases the mouse, a second one quits.
                 if (mouseCaptured_) SetMouseCaptured(false);
@@ -92,6 +94,18 @@ int Window::TakeLevelStep() {
     int step = levelStep_;
     levelStep_ = 0;
     return step;
+}
+
+bool Window::TakeNoclipToggle() {
+    const bool pressed = noclipToggle_;
+    noclipToggle_ = false;
+    return pressed;
+}
+
+bool Window::TakePhysicsDebugToggle() {
+    const bool pressed = physicsDebugToggle_;
+    physicsDebugToggle_ = false;
+    return pressed;
 }
 
 void Window::TakeMouseDelta(float& dx, float& dy) {

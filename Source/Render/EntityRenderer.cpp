@@ -304,7 +304,9 @@ void EntityRenderer::Build(const Level& level, TemplateCache& templates,
     const std::string itemsRoot = dataRoot + "/Items";
     white_ = textures.White();
 
-    for (const Entity& e : level.entities()) {
+    const std::vector<Entity>& placedEntities = level.entities();
+    for (size_t entityIndex = 0; entityIndex < placedEntities.size(); ++entityIndex) {
+        const Entity& e = placedEntities[entityIndex];
         if (e.baseObj.empty()) continue;
 
         // Scrolling barriers (the Slab class) start HIDDEN: Slab:OnPlay calls
@@ -359,6 +361,7 @@ void EntityRenderer::Build(const Level& level, TemplateCache& templates,
 
         Instance instance;
         instance.model = modelSlot;
+        instance.entity = entityIndex;
         instance.pos[0] = e.pos[0];
         instance.pos[1] = e.pos[1];
         instance.pos[2] = e.pos[2];
@@ -372,6 +375,21 @@ void EntityRenderer::Build(const Level& level, TemplateCache& templates,
                                            finalScale * scaleMultiplier_);
         UpdateBounds(instance, models_[modelSlot]);
         instances_.push_back(instance);
+    }
+}
+
+void EntityRenderer::SetEntityPose(size_t entityIndex, const float pos[3], const float rot[9]) {
+    for (Instance& instance : instances_) {
+        if (instance.entity != entityIndex) continue;
+        for (int c = 0; c < 3; ++c) instance.pos[c] = pos[c];
+        for (int c = 0; c < 9; ++c) instance.rot[c] = rot[c];
+        const float scaledPos[3] = {instance.pos[0] * scaleMultiplier_,
+                                    instance.pos[1] * scaleMultiplier_,
+                                    instance.pos[2] * scaleMultiplier_};
+        instance.transform = MakeTransform(scaledPos, instance.rot,
+                                           instance.scale * scaleMultiplier_);
+        UpdateBounds(instance, models_[instance.model]);
+        return;
     }
 }
 

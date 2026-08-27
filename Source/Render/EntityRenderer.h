@@ -35,6 +35,12 @@ public:
     // Disables frustum culling (the --novis flag).
     void SetVisibilityCulling(bool on) { visCulling_ = on; }
 
+    // Moves one placed entity to where the simulation has put it. Entities
+    // that became physics bodies are drawn wherever physics says they are,
+    // which is the whole point of them being bodies; everything else keeps the
+    // position the level authored.
+    void SetEntityPose(size_t entityIndex, const float pos[3], const float rot[9]);
+
     size_t placed() const { return instances_.size(); }
     size_t distinctModels() const { return models_.size(); }
     size_t unresolved() const { return unresolved_; }
@@ -82,6 +88,9 @@ private:
         float pos[3] = {0, 0, 0};
         float rot[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
         float scale = 1.f;
+        // Which level entity this came from, so physics can say where it has
+        // moved to.
+        size_t entity = 0;
     };
 
     // Recomputes the instance's world-space bounds from its model's bbox.

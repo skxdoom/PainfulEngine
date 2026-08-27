@@ -12,7 +12,10 @@ struct Camera {
     float fovDegrees = 70.f;
     float nearPlane = 0.5f;
     float farPlane = 8000.f;
-    float moveSpeed = 60.f;   // units per second
+    // Units per second. A unit is about a metre - the player body is two units
+    // tall - so this is already several times a running pace; shift multiplies
+    // it by four for crossing a level.
+    float moveSpeed = 30.f;
 
     void Forward(float out[3]) const {
         const float cp = std::cos(pitch);

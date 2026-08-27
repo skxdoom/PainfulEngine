@@ -34,6 +34,30 @@ set(BX_AMALGAMATED      ON  CACHE BOOL "" FORCE)
 # Not EXCLUDE_FROM_ALL: we need the shaderc target addressable for shader builds.
 add_subdirectory(External/bgfx)
 
+# Jolt Physics, standing in for Havok. Jolt's own CMake is opinionated, so the
+# options that would fight the rest of the build are turned off first:
+#  - it overrides CMAKE_CXX_FLAGS_RELEASE and links the STATIC MSVC runtime by
+#    default, either of which would clash with SDL and bgfx;
+#  - it builds with warnings as errors, which is its business and not ours;
+#  - its SIMD flags are PUBLIC, so anything linking Jolt is compiled with them.
+#    Stopping at SSE4.2 keeps the executable runnable on older machines; the
+#    physics load here is a few hundred bodies, not a reason for AVX2.
+set(OVERRIDE_CXX_FLAGS              OFF CACHE BOOL "" FORCE)
+set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF CACHE BOOL "" FORCE)
+set(ENABLE_ALL_WARNINGS             OFF CACHE BOOL "" FORCE)
+set(INTERPROCEDURAL_OPTIMIZATION    OFF CACHE BOOL "" FORCE)
+set(ENABLE_OBJECT_STREAM            OFF CACHE BOOL "" FORCE)
+set(ENABLE_INSTALL                  OFF CACHE BOOL "" FORCE)
+set(DEBUG_RENDERER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)
+set(PROFILER_IN_DEBUG_AND_RELEASE       OFF CACHE BOOL "" FORCE)
+set(USE_AVX   OFF CACHE BOOL "" FORCE)
+set(USE_AVX2  OFF CACHE BOOL "" FORCE)
+set(USE_F16C  OFF CACHE BOOL "" FORCE)
+set(USE_FMADD OFF CACHE BOOL "" FORCE)
+set(USE_LZCNT OFF CACHE BOOL "" FORCE)
+set(USE_TZCNT OFF CACHE BOOL "" FORCE)
+add_subdirectory(External/JoltPhysics/Build EXCLUDE_FROM_ALL)
+
 # ---------------------------------------------------------------- engine
 # Layered on purpose, and the layering is one-directional:
 #   core <- assets <- world <- render
@@ -50,6 +74,7 @@ add_library(painful_assets STATIC
   Source/Assets/Skeleton.cpp
   Source/Assets/Properties.cpp
   Source/Assets/Emitter.cpp
+  Source/Assets/Tweaks.cpp
 )
 target_link_libraries(painful_assets PUBLIC painful_core)
 
@@ -58,8 +83,9 @@ add_library(painful_world STATIC
   Source/World/Templates.cpp
   Source/World/Zones.cpp
   Source/World/CollisionMesh.cpp
+  Source/World/PhysicsWorld.cpp
 )
-target_link_libraries(painful_world PUBLIC painful_assets)
+target_link_libraries(painful_world PUBLIC painful_assets Jolt)
 
 add_library(painful_render STATIC
   Source/Render/Window.cpp
@@ -71,6 +97,7 @@ add_library(painful_render STATIC
   Source/Render/SkyRenderer.cpp
   Source/Render/ParticleRenderer.cpp
   Source/Render/BillboardRenderer.cpp
+  Source/Render/DebugLines.cpp
 )
 # bimg_decode provides imageParse (DDS/PNG/etc); bimg alone is just the core.
 target_link_libraries(painful_render PUBLIC painful_world SDL3::SDL3-static bgfx bimg bimg_decode bx)
@@ -109,6 +136,8 @@ add_shader(fs_world f s_5_0)
 add_shader(fs_sky   f s_5_0)
 add_shader(vs_particle v s_5_0)
 add_shader(fs_particle f s_5_0)
+add_shader(vs_debug    v s_5_0)
+add_shader(fs_debug    f s_5_0)
 add_shader(vs_water    v s_5_0)
 add_shader(fs_water    f s_5_0)
 

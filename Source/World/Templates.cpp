@@ -1,6 +1,9 @@
 #include "Templates.h"
+#include "../Core/Common.h"
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -114,6 +117,72 @@ bool TemplateCache::ResolveBool(const std::string& templateName, const std::stri
         current = props->String("BaseObj");
     }
     return fallback;
+}
+
+int TemplateCache::ReadBodyType(const std::string& templateName) {
+    const std::string key = Lower(templateName);
+    auto cached = bodyTypes_.find(key);
+    if (cached != bodyTypes_.end()) return cached->second;
+
+    // The script sits beside the property file under the same stem:
+    // Items/BarrelBig.CItem and Items/BarrelBig.lua.
+    const std::string script = Lower(fs::path(templateName).stem().string() + ".lua");
+    std::string path;
+    auto overlayPath = overlay_.find(script);
+    if (overlayPath != overlay_.end()) path = overlayPath->second;
+    else {
+        auto indexed = index_.find(script);
+        if (indexed != index_.end()) path = indexed->second;
+    }
+
+    int type = -1;
+    if (!path.empty()) {
+        std::vector<uint8_t> bytes;
+        if (ReadFile(path, bytes))
+            type = BodyTypeInScript(
+                std::string(reinterpret_cast<const char*>(bytes.data()), bytes.size()));
+    }
+    bodyTypes_[key] = type;
+    return type;
+}
+
+int TemplateCache::BodyTypeInScript(const std::string& text) {
+    const std::string marker = "PO_Create(BodyTypes.";
+    const size_t at = text.find(marker);
+    if (at == std::string::npos) return -1;
+
+    size_t end = at + marker.size();
+    while (end < text.size() &&
+           (std::isalnum(static_cast<unsigned char>(text[end])) || text[end] == '_'))
+        ++end;
+
+    // Definitions.lua's BodyTypes table, verbatim.
+    const std::string name = text.substr(at + marker.size(), end - at - marker.size());
+    if (name == "Default") return 0;
+    if (name == "Simple" || name == "Sphere") return 1;
+    if (name == "Fatter") return 2;
+    if (name == "DefaultSweep") return 3;
+    if (name == "FromMesh") return 4;
+    if (name == "FromMeshNonConvex") return 5;
+    if (name == "FromMeshNotCentered") return 7;
+    if (name == "SphereSweep") return 9;
+    if (name == "FatterSweep") return 10;
+    if (name == "FromMeshSweep") return 11;
+    if (name == "FromRagdoll") return 15;
+    if (name == "Player") return 100;
+    return -1;
+}
+
+int TemplateCache::PhysicsBodyType(const std::string& templateName) {
+    std::string current = templateName;
+    for (int depth = 0; depth < 16 && !current.empty(); ++depth) {
+        const int type = ReadBodyType(current);
+        if (type >= 0) return type;
+        const Properties* props = Find(current);
+        if (!props) break;
+        current = props->String("BaseObj");
+    }
+    return -1;
 }
 
 bool TemplateCache::ResolveHas(const std::string& templateName, const std::string& key) {

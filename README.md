@@ -50,8 +50,11 @@ It is a windowed application, so double-clicking opens no console — but run
 from a terminal it still prints.
 
 Click to capture the mouse, WASD to move, shift for fast, space/ctrl for up and
-down, `[` `]` to cycle levels, Escape to release the mouse and again to quit.
-The HUD prints position, orientation, draw counts and visible zones.
+down, `N` for noclip, `P` for the collision wireframe, `[` `]` to cycle levels,
+Escape to release the mouse and again to quit. The HUD prints position,
+orientation, draw counts and visible zones. The camera flies, but it collides
+with the world and shoves loose props out of its way — `N` turns that off when a
+level needs surveying from outside.
 
 ### Running a level
 
@@ -70,6 +73,8 @@ PainfulEngine levels <DataRoot>                           list levels
 | `--novis` | disable frustum and zone culling, and lift the far clip |
 | `--cull ccw\|cw\|none`, `--ecull …` | override world / entity winding |
 | `--escale <f>` | debug multiplier on entity scale |
+| `--noclip` | start with camera collision off (`N` toggles it) |
+| `--physdebug` | start with the collision wireframe on (`P` toggles it) |
 
 `PAINFUL_SHOT_FRAME=<n>` delays the `--shot` capture (for verifying animation);
 `PAINFUL_SKYLAYER=<n>` draws only one sky layer. `Tools/shot.ps1` converts a
@@ -87,6 +92,7 @@ so a change can be checked without opening a window.
 | `entities <levelDir> <DataRoot>` | placed entities and how each one resolves |
 | `particles <levelDir> <DataRoot>` | effect → emitter chain, per-emitter parameters |
 | `billboards <levelDir> <DataRoot>` | coronas and sprites, plus collision BVH timing |
+| `physics <levelDir> <DataRoot>` | the physics world, and probes of it |
 | `zones <levelDir> <DataRoot> [x y z]` | portal/zone graph, optionally from a point |
 | `ground <levelDir> <DataRoot> <x y z> <radius>` | floor probe |
 | `scale <levelDir> <DataRoot>` | world scale sanity check |
@@ -106,9 +112,10 @@ so a change can be checked without opening a window.
 ## Status
 
 Asset formats, static world rendering, portal/zone visibility, entity
-placement, layered skies, particle effects and light coronas all work. Not yet:
-skeletal animation playback, water and post-processing, `.pak` reading, the Lua
-host, physics, sound and UI.
+placement, layered skies, particle effects, light coronas and world collision
+all work. Not yet: skeletal animation playback, water and post-processing,
+`.pak` reading, the Lua host, everything physics needs a script host for,
+sound and UI.
 
 The full inventory, with the authority cited for each rule, is in
 [`Docs/Status.md`](Docs/Status.md).
@@ -126,7 +133,9 @@ only reveals itself deep into a playthrough.
 5. Lua 5.0.2 host with the natives from
    [`Docs/native_priority.tsv`](Docs/native_priority.tsv), in call-count order
    — the point where the game starts to *play*.
-6. Physics via Jolt, driven by the same native API.
+6. The rest of physics — the player controller, ragdolls, explosions and glass
+   — driven through that same native API. The Jolt world underneath it is up
+   already: see [`Docs/Physics.md`](Docs/Physics.md).
 
 ## Documentation
 
@@ -138,6 +147,7 @@ only reveals itself deep into a playthrough.
 | [`Docs/Billboards.md`](Docs/Billboards.md) | billboards, coronas and the occlusion trace |
 | [`Docs/TextureTransforms.md`](Docs/TextureTransforms.md) | pan, tile and the detail-map transform |
 | [`Docs/Water.md`](Docs/Water.md) | water surfaces, the material tiers and what each needs |
+| [`Docs/Physics.md`](Docs/Physics.md) | the Jolt world, the tweak constants and the player body |
 | [`Docs/Engine_API.md`](Docs/Engine_API.md) | the C++ surface of `Engine.dll` |
 | [`Docs/Engine_LuaAPI.md`](Docs/Engine_LuaAPI.md) | the native API the scripts call |
 | [`Docs/native_priority.tsv`](Docs/native_priority.tsv) | that API ranked by call count — the work queue |
@@ -147,3 +157,4 @@ only reveals itself deep into a playthrough.
 - [SDL3](https://github.com/libsdl-org/SDL) — zlib licence
 - [bgfx](https://github.com/bkaradzic/bgfx) via
   [bgfx.cmake](https://github.com/bkaradzic/bgfx.cmake) — BSD 2-clause
+- [Jolt Physics](https://github.com/jrouwe/JoltPhysics) — MIT licence

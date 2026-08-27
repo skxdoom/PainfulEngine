@@ -44,6 +44,28 @@ public:
     // True when any template in the chain declares the key at all.
     bool ResolveHas(const std::string& templateName, const std::string& key);
 
+    // The BodyTypes value the template's script asks PO_Create for, or -1 when
+    // nothing in its chain creates a physics object.
+    //
+    // A template's physics is not in its property file - it is in the Lua file
+    // beside it, which the engine runs on creation. Items/BarrelBig.CItem
+    // carries Mass and Friction, and Items/BarrelBig.lua carries
+    //
+    //     function BarrelBig:OnCreateEntity()
+    //         self:PO_Create(BodyTypes.FromMesh)
+    //     end
+    //
+    // Without a script host that call cannot be run, but it can be read, and
+    // 128 templates make it.
+    int PhysicsBodyType(const std::string& templateName);
+
+    // The BodyTypes value in a "PO_Create(BodyTypes.X)" call anywhere in a
+    // piece of script text, or -1. Placed instances can carry the call
+    // directly - a Cathedral barrel has
+    // o.StartCommand = "o:PO_Create(BodyTypes.FromMesh)" - so the same scan
+    // serves both the templates and the level's own entities.
+    static int BodyTypeInScript(const std::string& text);
+
     size_t indexed() const { return index_.size(); }
 
 private:
@@ -51,6 +73,10 @@ private:
     std::map<std::string, std::string> overlay_;    // the current level's own
     std::map<std::string, Properties> loaded_;      // lowercase name -> parsed
     std::map<std::string, Properties> overlayLoaded_;
+    // Body type per template file name, read from the sibling .lua on demand.
+    std::map<std::string, int> bodyTypes_;
+
+    int ReadBodyType(const std::string& templateName);
 };
 
 } // namespace painful

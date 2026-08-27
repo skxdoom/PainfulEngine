@@ -25,6 +25,11 @@ public:
     // Level cycling: returns -1, 0 or +1 and clears itself. Edge triggered, so
     // holding the key does not scroll through levels.
     int TakeLevelStep();
+    // True once per press of the noclip key, which lets the camera leave the
+    // level again after physics started holding it inside.
+    bool TakeNoclipToggle();
+    // True once per press of the collision-wireframe key.
+    bool TakePhysicsDebugToggle();
 
     // Mouse movement since the previous call, in pixels.
     void TakeMouseDelta(float& dx, float& dy);
@@ -47,6 +52,8 @@ private:
     bool mouseCaptured_ = false;
     float mouseDx_ = 0.f, mouseDy_ = 0.f;
     int levelStep_ = 0;
+    bool noclipToggle_ = false;
+    bool physicsDebugToggle_ = false;
 };
 
 } // namespace painful

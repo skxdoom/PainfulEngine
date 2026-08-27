@@ -21,8 +21,10 @@ namespace painful { extern bx::DefaultAllocator g_allocator; }
 #include "Render/BillboardRenderer.h"
 #include "Render/ParticleRenderer.h"
 #include "Render/WorldRenderer.h"
+#include "Render/DebugLines.h"
 #include "Render/Window.h"
 #include "World/Level.h"
+#include "World/PhysicsWorld.h"
 #include "World/Templates.h"
 #include "World/Zones.h"
 #include "Assets/Skeleton.h"
@@ -45,6 +47,7 @@ static int Usage() {
     LogInfo("  PainfulEngine                                    find the game data and run");
     LogInfo("  PainfulEngine run   <Data/Levels/NAME> <DataRoot>  open a specific level");
     LogInfo("  PainfulEngine level <Data/Levels/NAME> <DataRoot>  headless report");
+    LogInfo("  PainfulEngine physics <Data/Levels/NAME> <DataRoot> physics world probe");
     LogInfo("  PainfulEngine levels <DataRoot>                    list levels");
     LogInfo("  PainfulEngine map   <file.mpk>");
     LogInfo("  PainfulEngine model <file.pkmdl>");
@@ -55,6 +58,20 @@ static int Usage() {
 struct LevelStats {
     size_t objects = 0, verts = 0, tris = 0, materials = 0, collidable = 0;
 };
+
+// The free camera collides as a sphere this wide.
+//
+// The player body's own widest sphere is 0.4 - EngineGame::CreatePlayer asks
+// for BodyTypes.Player at bodyScale 1.0, and the shape factory builds that as a
+// stack of four spheres in units of 0.2, the widest of them 2.0 units of that.
+// The camera is deliberately fatter: it is not a player, it has no body to see
+// clipping into a wall, and at player width it slides so close to surfaces that
+// the near plane cuts through them.
+static constexpr float kCameraRadius = 1.2f;
+
+// How far around the camera the static world's wireframe is collected. The
+// whole level is 300k triangles, so the debug view is local by necessity.
+static constexpr float kPhysicsDebugRadius = 20.f;
 
 static LevelStats Summarise(const Level& level) {
     LevelStats s;
@@ -91,7 +108,7 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
                   const std::string& shotPath, const char* exePath,
                   const float* startPos, const float* startAngles,
                   int cullMode, int entityCull, float entityScale, bool skyOnly,
-                  bool novis) {
+                  bool novis, bool noclip, bool physicsDebug) {
     const std::string root = dataRoot;
     const std::string shaderDir = ShaderDirFor(exePath);
 
@@ -150,6 +167,12 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
     std::unique_ptr<ParticleRenderer> particles;
     std::unique_ptr<BillboardRenderer> billboards;
     CollisionMesh collision;
+    PhysicsWorld physics;
+    physics.SetProbeRadius(kCameraRadius);
+    DebugLines debugLines;
+    const bool debugLinesReady = debugLines.Init(shaderDir);
+    std::vector<DebugLine> physicsWireframe;
+    std::vector<BodyPose> movedProps;
     Camera camera;
     LevelStats stats;
 
@@ -164,6 +187,7 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
         particles.reset();
         billboards.reset();
         collision.Clear();
+        physics.Clear();
 
         level = std::make_unique<Level>();
         if (!level->Load(levelDirs[current], root)) {
@@ -189,6 +213,9 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
         entities->SetScaleMultiplier(liveScale);
         if (entities->Init(shaderDir)) {
             entities->Build(*level, templates, textures, root, &shaderScripts);
+            LogInfo("entities: %zu placed (%zu from packs), %zu hidden, %zu unresolved",
+                    entities->placed(), entities->packed(), entities->hidden(),
+                    entities->unresolved());
         }
 
         sky = std::make_unique<SkyRenderer>();
@@ -205,6 +232,19 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
         // Coronas trace the line of sight against solid world geometry, in the
         // same space the world mesh is drawn in.
         if (level->mapLoaded()) collision.Build(level->map(), level->info().scale);
+
+        // The physics world takes the same geometry into Jolt, where it is one
+        // static body the camera and anything simulated collide against.
+        physics.Load(*level, templates, root);
+        // Load settles the props, and settled means asleep - which the
+        // per-frame sync deliberately skips. So take every prop's pose once
+        // here, or the level is drawn with its furniture back where it was
+        // authored and only the ones still moving ever catch up.
+        if (entities) {
+            physics.CollectPoses(movedProps, false);
+            for (const BodyPose& pose : movedProps)
+                entities->SetEntityPose(pose.entity, pose.pos, pose.rot);
+        }
 
         billboards = std::make_unique<BillboardRenderer>();
         billboards->SetScaleMultiplier(liveScale);
@@ -262,6 +302,9 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
         window.TakeMouseDelta(dx, dy);
         camera.Look(dx * 0.003f, -dy * 0.003f);
 
+        if (window.TakeNoclipToggle()) noclip = !noclip;
+        if (window.TakePhysicsDebugToggle()) physicsDebug = !physicsDebug;
+
         const float speed = camera.moveSpeed * (window.IsDown(Key::Fast) ? 4.f : 1.f) * dt;
         float fwd = 0.f, right = 0.f, up = 0.f;
         if (window.IsDown(Key::Forward)) fwd += speed;
@@ -270,7 +313,35 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
         if (window.IsDown(Key::Left))    right -= speed;
         if (window.IsDown(Key::Up))      up += speed;
         if (window.IsDown(Key::Down))    up -= speed;
-        camera.Move(fwd, right, up);
+
+        if (noclip) {
+            camera.Move(fwd, right, up);
+        } else {
+            // The camera keeps flying - it is not a player yet, and the player
+            // controller belongs with the script host that creates it. It just
+            // stops passing through walls: the same move, as a sphere, sliding
+            // along whatever the physics world puts in the way.
+            float f[3], r[3], delta[3];
+            camera.Forward(f);
+            camera.Right(r);
+            for (int c = 0; c < 3; ++c) delta[c] = f[c] * fwd + r[c] * right;
+            delta[1] += up;
+            physics.SlideSphere(camera.pos, delta, kCameraRadius);
+        }
+
+        // The camera's own body follows it, so props are pushed rather than
+        // passed through. It does not push while noclipping - that is the
+        // point of noclip.
+        physics.MoveProbe(camera.pos, !noclip);
+        physics.Update(dt);
+
+        // Anything the simulation moved is drawn where it moved to. Only awake
+        // bodies are reported, so a level standing still costs nothing.
+        if (entities) {
+            physics.CollectPoses(movedProps);
+            for (const BodyPose& pose : movedProps)
+                entities->SetEntityPose(pose.entity, pose.pos, pose.rot);
+        }
 
         renderer.BeginFrame();
         const LevelInfo& info = level->info();
@@ -294,6 +365,12 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
         if (billboards && !skyOnly) {
             billboards->Update(camera, dt, collision);
             billboards->Draw(Renderer::kWorldView, camera);
+        }
+        // The collision wireframe goes over everything, since the whole point
+        // of it is to be compared against what was drawn underneath.
+        if (physicsDebug && debugLinesReady) {
+            physics.CollectDebugLines(camera.pos, kPhysicsDebugRadius, physicsWireframe);
+            debugLines.Draw(Renderer::kWorldView, physicsWireframe);
         }
 
         renderer.DebugText(1, "PainfulEngine  -  %s  -  %.1f fps",
@@ -323,7 +400,26 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
                            camera.yaw, camera.pitch,
                            (sky && sky->loaded())
                                ? (sky->layered() ? "layered" : "lowquality") : "none");
-        renderer.DebugText(6, "%s - WASD move, shift fast, space/ctrl up-down, [ ] change level, esc release",
+        renderer.DebugText(7, "physics: %s r%.1f, %zu static tris, %zu props, gravity %.2f%s",
+                           noclip ? "camera NOCLIP" : "camera collides", kCameraRadius,
+                           physics.staticTriangles(), physics.props(),
+                           physics.settings().gravity,
+                           physicsDebug ? "   |   hulls: green awake, yellow asleep, grey world"
+                                        : "");
+        if (physicsDebug) {
+            float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+            for (const DebugLine& line : physicsWireframe) {
+                for (int c = 0; c < 3; ++c) {
+                    lo[c] = std::min(lo[c], line.a[c]);
+                    hi[c] = std::max(hi[c], line.a[c]);
+                }
+            }
+            renderer.DebugText(8, "hulls: %zu segments, %zu drawn, bounds %.1f %.1f %.1f .. %.1f %.1f %.1f%s",
+                               physicsWireframe.size(), debugLines.drawn(), lo[0], lo[1], lo[2],
+                               hi[0], hi[1], hi[2],
+                               debugLinesReady ? "" : "   (no vs_debug/fs_debug)");
+        }
+        renderer.DebugText(6, "%s - WASD move, shift fast, space/ctrl up-down, N noclip, P hulls, [ ] change level, esc release",
                            window.mouseCaptured() ? "mouse captured" : "click to capture mouse");
         renderer.EndFrame();
 
@@ -671,6 +767,202 @@ static int SkyDumpCmd(const char* path) {
                         s, t.offsetU, t.offsetV, t.scaleU, t.scaleV, t.name.c_str());
             }
         }
+    }
+    return 0;
+}
+
+// Diagnostic: bring up the physics world headlessly and probe it.
+//
+// Numbers, not a screenshot: what the level put into Jolt, and where a sphere
+// pushed along each axis from the spawn actually ends up. A camera that
+// collides is a camera whose sphere stops short of what it asked for.
+static int PhysicsCmd(const char* levelDir, const char* dataRoot) {
+    Level level;
+    if (!level.Load(levelDir, dataRoot)) {
+        LogInfo("cannot load level: %s", level.error().c_str());
+        return 2;
+    }
+    TemplateCache templates;
+    templates.Init(std::string(dataRoot) + "/LScripts/Templates");
+    templates.SetLevelOverlay(std::string(levelDir) + "/Templates");
+
+    PhysicsWorld physics;
+    physics.Load(level, templates, dataRoot);
+    if (!physics.loaded()) {
+        LogInfo("level has no collidable geometry");
+        return 2;
+    }
+
+    const Tweaks& t = physics.tweaks();
+    LogInfo("Tweak.lua      : %s, %zu values", t.loaded() ? "loaded" : "MISSING", t.size());
+    LogInfo("gravity        : %.2f units/s2  (Tweak.GlobalData.Gravity)",
+            physics.settings().gravity);
+    LogInfo("mesh friction  : %.2f           (o.Physics.DefaultMeshFriction)",
+            physics.settings().meshFriction);
+    LogInfo("static         : %zu triangles", physics.staticTriangles());
+    LogInfo("props          : %zu bodies, %zu unresolved", physics.props(),
+            physics.unresolvedProps());
+    LogInfo("bodies total   : %zu", physics.bodyCount());
+
+    // The camera's body exists from the start in the real thing, and it sits
+    // exactly where the camera does - so every probe below has to be run with
+    // it present or it is not testing what the engine does.
+    physics.SetProbeRadius(kCameraRadius);
+
+    float spawn[3] = {level.info().startPos[0], level.info().startPos[1],
+                      level.info().startPos[2]};
+    physics.MoveProbe(spawn, false);
+    LogInfo("spawn          : %.2f %.2f %.2f%s", spawn[0], spawn[1], spawn[2],
+            physics.SphereOverlaps(spawn, kCameraRadius) ? "  (inside geometry)" : "");
+    {
+        float freed[3] = {spawn[0], spawn[1], spawn[2]};
+        const int resolved = physics.Depenetrate(freed, kCameraRadius);
+        LogInfo("depenetrate    : %d overlaps, moved %.2f %.2f %.2f", resolved,
+                freed[0] - spawn[0], freed[1] - spawn[1], freed[2] - spawn[2]);
+    }
+
+    // Push the camera sphere 50 units along each axis. Anything that comes
+    // back short hit something; in a closed level, most of them should.
+    const float reach = 50.f;
+    const char* names[6] = {"+X", "-X", "+Y", "-Y", "+Z", "-Z"};
+    const float dirs[6][3] = {{1, 0, 0},  {-1, 0, 0}, {0, 1, 0},
+                              {0, -1, 0}, {0, 0, 1},  {0, 0, -1}};
+    for (int d = 0; d < 6; ++d) {
+        float at[3] = {spawn[0], spawn[1], spawn[2]};
+        const float delta[3] = {dirs[d][0] * reach, dirs[d][1] * reach, dirs[d][2] * reach};
+        physics.SlideSphere(at, delta, kCameraRadius);
+        const float moved = std::sqrt((at[0] - spawn[0]) * (at[0] - spawn[0]) +
+                                      (at[1] - spawn[1]) * (at[1] - spawn[1]) +
+                                      (at[2] - spawn[2]) * (at[2] - spawn[2]));
+        LogInfo("  slide %s     : %6.2f of %.0f units%s", names[d], moved, reach,
+                moved < reach - 0.05f ? "  (blocked)" : "");
+    }
+
+    {
+        // The debug wireframe, counted from a point known to have geometry
+        // under it: with a zero radius the static world's box is degenerate, so
+        // the difference between the two is what the world contributed.
+        std::vector<BodyPose> placed;
+        physics.CollectPoses(placed, false);
+        float at[3] = {spawn[0], spawn[1], spawn[2]};
+        if (!placed.empty()) {
+            const Entity& e = level.entities()[placed.front().entity];
+            for (int c = 0; c < 3; ++c) at[c] = e.pos[c];
+        }
+        std::vector<DebugLine> lines;
+        physics.CollectDebugLines(at, 0.f, lines);
+        const size_t propsOnly = lines.size();
+        physics.CollectDebugLines(at, 20.f, lines);
+        LogInfo("wireframe      : %zu segments from props, %zu from the world within 20 units",
+                propsOnly, lines.size() - propsOnly);
+    }
+
+    // Where do the props end up? They are created awake, so five seconds is
+    // the level settling exactly as it does on load. Anything that travels a
+    // long way is a shape or a placement this port has wrong.
+    physics.ActivateProps();
+    for (int i = 0; i < 300; ++i) physics.Update(1.f / 60.f);
+
+    std::vector<BodyPose> poses;
+    physics.CollectPoses(poses, false);
+    size_t stirred = 0, far = 0;
+    float worst = 0.f;
+    std::string worstName;
+    for (const BodyPose& pose : poses) {
+        const Entity& e = level.entities()[pose.entity];
+        const float d = std::sqrt((pose.pos[0] - e.pos[0]) * (pose.pos[0] - e.pos[0]) +
+                                  (pose.pos[1] - e.pos[1]) * (pose.pos[1] - e.pos[1]) +
+                                  (pose.pos[2] - e.pos[2]) * (pose.pos[2] - e.pos[2]));
+        if (d > 0.05f) ++stirred;
+        if (d > 1.f) ++far;
+        if (d > worst) { worst = d; worstName = e.name + " (" + e.baseObj + ")"; }
+    }
+    std::vector<BodyPose> awake;
+    physics.CollectPoses(awake, true);
+    LogInfo("settle 5 s     : %zu of %zu props moved > 0.05, %zu moved > 1.00 units, "
+            "%zu still awake",
+            stirred, poses.size(), far, awake.size());
+    if (!worstName.empty())
+        LogInfo("  furthest     : %.2f units, %s", worst, worstName.c_str());
+    {
+        // Which templates drift, rather than which instances - a shape that is
+        // wrong is wrong for every copy of it.
+        std::map<std::string, int> drifters;
+        for (const BodyPose& pose : poses) {
+            const Entity& e = level.entities()[pose.entity];
+            const float d = std::sqrt((pose.pos[0] - e.pos[0]) * (pose.pos[0] - e.pos[0]) +
+                                      (pose.pos[1] - e.pos[1]) * (pose.pos[1] - e.pos[1]) +
+                                      (pose.pos[2] - e.pos[2]) * (pose.pos[2] - e.pos[2]));
+            if (d > 1.f) ++drifters[e.baseObj];
+        }
+        for (const auto& [name, count] : drifters)
+            LogInfo("  drifted      : %3d x %s", count, name.c_str());
+    }
+    for (size_t i = 0; i < poses.size() && i < 8; ++i) {
+        const Entity& e = level.entities()[poses[i].entity];
+        // What a query says is under it, for comparison with what the
+        // simulation did: the two disagreeing means the body is wrong, not the
+        // geometry.
+        float probe[3] = {e.pos[0], e.pos[1], e.pos[2]};
+        const float down[3] = {0.f, -250.f, 0.f};
+        physics.SlideSphere(probe, down, kCameraRadius);
+        LogInfo("  %-24s %8.2f %8.2f %8.2f -> delta %6.2f %6.2f %6.2f   query drop %.2f",
+                e.name.c_str(), e.pos[0], e.pos[1], e.pos[2], poses[i].pos[0] - e.pos[0],
+                poses[i].pos[1] - e.pos[1], poses[i].pos[2] - e.pos[2], e.pos[1] - probe[1]);
+    }
+
+    // Last, because it disturbs props: does the camera push what it runs into,
+    // and does it do so at every frame rate?
+    //
+    // A query cannot push anything - only the kinematic body can - so this
+    // checks both halves of camera collision are wired up. It runs the same
+    // traverse at three frame rates because the failure that prompted it was
+    // exactly this: the body was driven with the frame's own delta while the
+    // simulation advances in fixed steps, so how far it actually moved
+    // depended on the frame rate, and the push landed or missed at random.
+    // The three numbers should agree.
+    // The last case is shift speed: 8 units in a tenth of a second is 2 units
+    // of travel per simulation step against a body 1.2 wide, which a stepped
+    // body would jump clean over.
+    struct PushCase { float frame; float seconds; };
+    const PushCase cases[4] = {{1.f / 120.f, 2.f}, {1.f / 60.f, 2.f},
+                               {1.f / 30.f, 2.f},  {1.f / 30.f, 0.1f}};
+    for (const PushCase& probeCase : cases) {
+        const float frame = probeCase.frame;
+        physics.Load(level, templates, dataRoot);
+        physics.SetProbeRadius(kCameraRadius);
+        if (physics.props() == 0) break;
+
+        std::vector<BodyPose> placed;
+        physics.CollectPoses(placed, false);
+        const size_t entity = placed.front().entity;
+        const Entity& target = level.entities()[entity];
+        const float before[3] = {placed.front().pos[0], placed.front().pos[1],
+                                 placed.front().pos[2]};
+
+        // Drive the body straight through it. This is the body's half of
+        // camera collision on its own - the camera's own slide is a separate
+        // question and depends on where in a level the prop happens to sit.
+        const float from[3] = {before[0] - 4.f, before[1] + kCameraRadius, before[2]};
+        physics.MoveProbe(from, false);
+        const int frames = std::max(1, static_cast<int>(probeCase.seconds / frame));
+        const float speed = 8.f / probeCase.seconds;
+        for (int i = 0; i < frames; ++i) {
+            const float t = static_cast<float>(i + 1) / static_cast<float>(frames);
+            const float at[3] = {from[0] + 8.f * t, from[1], from[2]};
+            physics.MoveProbe(at, true);
+            physics.Update(frame);
+        }
+
+        physics.CollectPoses(placed, false);
+        float after[3] = {before[0], before[1], before[2]};
+        for (const BodyPose& pose : placed)
+            if (pose.entity == entity)
+                for (int c = 0; c < 3; ++c) after[c] = pose.pos[c];
+
+        LogInfo("camera push    : %3.0f fps at %5.1f units/s, %s moved %.2f %.2f %.2f",
+                1.f / frame, speed, target.name.c_str(), after[0] - before[0],
+                after[1] - before[1], after[2] - before[2]);
     }
     return 0;
 }
@@ -1307,7 +1599,7 @@ static int DefaultRun(const char* exePath) {
         }
     }
     return RunCmd(level.c_str(), root.c_str(), "", exePath,
-                  nullptr, nullptr, 0, 1, 1.f, false, false);
+                  nullptr, nullptr, 0, 1, 1.f, false, false, false, false);
 }
 
 int main(int argc, char** argv) {
@@ -1319,6 +1611,8 @@ int main(int argc, char** argv) {
         int cullMode = 0, entityCull = 1;
         bool skyOnly = false;
         bool novis = false;
+        bool noclip = false;
+        bool physicsDebug = false;
         float entityScale = 1.f;
         float pos[3], angles[2];
         bool hasPos = false, hasAngles = false;
@@ -1327,6 +1621,8 @@ int main(int argc, char** argv) {
             if (arg == "--shot" && i + 1 < argc) shot = argv[++i];
             else if (arg == "--skyview") skyOnly = true;
             else if (arg == "--novis") novis = true;
+            else if (arg == "--noclip") noclip = true;
+            else if (arg == "--physdebug") physicsDebug = true;
             else if (arg == "--pos" && i + 3 < argc) {
                 for (int k = 0; k < 3; ++k) pos[k] = float(std::atof(argv[i + 1 + k]));
                 i += 3;
@@ -1348,7 +1644,7 @@ int main(int argc, char** argv) {
         }
         return RunCmd(argv[2], argv[3], shot, argv[0],
                       hasPos ? pos : nullptr, hasAngles ? angles : nullptr, cullMode,
-                      entityCull, entityScale, skyOnly, novis);
+                      entityCull, entityScale, skyOnly, novis, noclip, physicsDebug);
     }
     if (cmd == "level" && argc >= 4) return LevelCmd(argv[2], argv[3]);
     if (cmd == "entities" && argc >= 4) return EntitiesCmd(argv[2], argv[3]);
@@ -1375,6 +1671,7 @@ int main(int argc, char** argv) {
     if (cmd == "model") return ModelCmd(argv[2]);
     if (cmd == "particles" && argc >= 4) return ParticlesCmd(argv[2], argv[3]);
     if (cmd == "billboards" && argc >= 4) return BillboardsCmd(argv[2], argv[3]);
+    if (cmd == "physics" && argc >= 4) return PhysicsCmd(argv[2], argv[3]);
     return Usage();
 }
 
