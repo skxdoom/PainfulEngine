@@ -656,16 +656,27 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     entities.SetCullMode(1);   // .pkmdl winding; pack meshes carry their own state
     if (!entities.Init(shaderDir)) return 3;
 
-    // Boot the scripts with the renderer attached, then let them load the
-    // level: every ENTITY.Create lands in the renderer as it happens.
+    // Boot the scripts with the renderer and the simulation attached, then
+    // let them load the level: every ENTITY.Create lands in the renderer and
+    // every PO_Create in Jolt, as they happen.
+    PhysicsWorld physics;
+    physics.SetProbeRadius(kCameraRadius);
     LuaHost host;
     if (!host.Init(root)) return 3;
     ScriptEngine engine;
     engine.Bind(host);
     engine.AttachRenderer(&entities, &textures, root);
+    engine.AttachPhysics(&physics, root);
     if (!host.Boot()) return 3;
     host.CallGameInit();
     host.CallGameLoadLevel(levelName);
+
+    // Let the props settle before the first frame, the same fixed steps the
+    // hand-driven path takes, and draw them where they came to rest - all of
+    // them, because settled means asleep and asleep is what the per-frame
+    // sync deliberately skips.
+    physics.Settle(90);
+    engine.SyncFromPhysics(false);
 
     // Turn the recorded WORLD.* state into renderer state.
     const ScriptEngine::WorldState& ws = engine.world();
@@ -687,21 +698,24 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     const size_t slash = ws.mapPath.find_last_of("/\\");
     info.mapFile = slash == std::string::npos ? ws.mapPath : ws.mapPath.substr(slash + 1);
 
-    MapMesh map;
+    // The map mesh was loaded by the WORLD.LoadMap native (physics needed it
+    // mid-level-load); the renderer reuses the same copy.
+    MapMesh fallbackMap;
+    const MapMesh* map = engine.map();
     WorldRenderer world;
     bool worldReady = false;
-    if (ws.loadRequested) {
+    if (!map && ws.loadRequested) {
         const std::string mapPath = host.ResolvePath(ws.mapPath);
-        if (MapMesh::Load(mapPath, map)) {
-            if (world.Init(shaderDir)) {
-                world.Upload(map, textures, MapNameWithoutExtension(info.mapFile), info,
-                             &shaderScripts);
-                worldReady = true;
-            }
-        } else {
-            LogWarn("map failed: %s (%s)", mapPath.c_str(), map.error.c_str());
+        if (MapMesh::Load(mapPath, fallbackMap)) map = &fallbackMap;
+        else LogWarn("map failed: %s (%s)", mapPath.c_str(), fallbackMap.error.c_str());
+    }
+    if (map) {
+        if (world.Init(shaderDir)) {
+            world.Upload(*map, textures, MapNameWithoutExtension(info.mapFile), info,
+                         &shaderScripts);
+            worldReady = true;
         }
-    } else {
+    } else if (!ws.loadRequested) {
         LogWarn("the scripts never asked for a map - is '%s' a level?", levelName);
     }
 
@@ -723,6 +737,7 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     auto previous = std::chrono::steady_clock::now();
     const auto startTime = previous;
     int frame = 0;
+    bool noclip = false;
     while (window.PumpEvents() && !host.quitRequested()) {
         if (window.TakeResized()) renderer.Resize(window.width(), window.height());
         const auto now = std::chrono::steady_clock::now();
@@ -733,6 +748,7 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
         float dx = 0.f, dy = 0.f;
         window.TakeMouseDelta(dx, dy);
         camera.Look(dx * 0.003f, -dy * 0.003f);
+        if (window.TakeNoclipToggle()) noclip = !noclip;
         const float speed = camera.moveSpeed * (window.IsDown(Key::Fast) ? 4.f : 1.f) * dt;
         float fwd = 0.f, right = 0.f, up = 0.f;
         if (window.IsDown(Key::Forward)) fwd += speed;
@@ -741,11 +757,31 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
         if (window.IsDown(Key::Left))    right -= speed;
         if (window.IsDown(Key::Up))      up += speed;
         if (window.IsDown(Key::Down))    up -= speed;
-        camera.Move(fwd, right, up);
+        if (noclip) {
+            camera.Move(fwd, right, up);
+        } else {
+            // Same rule as the hand-driven path: the camera flies but slides
+            // along the world, and its kinematic body pushes loose props.
+            float f[3], r[3], delta[3];
+            camera.Forward(f);
+            camera.Right(r);
+            for (int c = 0; c < 3; ++c) delta[c] = f[c] * fwd + r[c] * right;
+            delta[1] += up;
+            physics.SlideSphere(camera.pos, delta, kCameraRadius);
+        }
+        physics.MoveProbe(camera.pos, !noclip);
 
-        // The engine's frame order; physics and world steps slot in between
-        // once they hook into this path.
-        host.FrameTick(dt);
+        // The engine's frame order, from Game.lua's own comments: Tick before
+        // physics, Tick2 after physics, Tick3 after the world tick.
+        const double d[1] = {dt};
+        host.CallGlobal("Game_Tick", d, 1);
+        physics.Update(dt);
+        engine.SyncFromPhysics();
+        host.CallGlobal("Game_Tick2", d, 1);
+        host.CallGlobal("Game_Tick3", d, 1);
+        host.CallGlobal("Game_Render", d, 1);
+        host.CallGlobal("Game_PostRender", d, 1);
+        host.CallGlobal("Game_GC", nullptr, 0);
         // Entities the scripts spawned this frame get their renderer slots.
         engine.FlushToRenderer();
 
@@ -767,7 +803,11 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
                            worldReady ? world.zoneCount() : 0);
         renderer.DebugText(4, "pos %.1f %.1f %.1f   rot %.2f %.2f", camera.pos[0],
                            camera.pos[1], camera.pos[2], camera.yaw, camera.pitch);
-        renderer.DebugText(6, "%s - WASD move, shift fast, space/ctrl up-down, esc release",
+        renderer.DebugText(5, "physics: %s, %zu static tris, %zu bodies, gravity %.2f",
+                           noclip ? "camera NOCLIP" : "camera collides",
+                           physics.staticTriangles(), physics.bodyCount(),
+                           physics.settings().gravity);
+        renderer.DebugText(6, "%s - WASD move, shift fast, space/ctrl up-down, N noclip, esc release",
                            window.mouseCaptured() ? "mouse captured" : "click to capture mouse");
         renderer.EndFrame();
 

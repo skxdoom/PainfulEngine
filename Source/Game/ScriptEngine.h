@@ -3,7 +3,9 @@
 #include <unordered_map>
 #include <vector>
 
+#include "../Assets/Mpk.h"
 #include "../Script/LuaHost.h"
+#include "../World/PhysicsWorld.h"
 
 namespace painful {
 
@@ -40,6 +42,7 @@ public:
         bool inWorld = false;       // WORLD.AddEntity was called
         bool worldObject = false;   // WORLD.FindEntityByName pseudo-entity
         int rendererInstance = -1;  // EntityRenderer slot, -1 when headless/unresolved
+        int physicsBody = -1;       // PhysicsWorld script-body slot
     };
 
     // What the scripts told WORLD.* to set up; the game loop turns this into
@@ -70,6 +73,20 @@ public:
     void AttachRenderer(EntityRenderer* entities, TextureCache* textures,
                         const std::string& dataRoot);
 
+    // Attaches the simulation: WORLD.LoadMap builds the static world the
+    // moment the scripts ask for it (entity bodies follow through
+    // ENTITY.PO_Create during the same level load), and PO_* becomes real.
+    void AttachPhysics(PhysicsWorld* physics, const std::string& dataRoot);
+
+    // Writes the simulation's poses back into the registry and the renderer.
+    // Call after every PhysicsWorld::Update. activeOnly=false sweeps sleeping
+    // bodies too - needed once after the load-time settle, because settled
+    // means asleep and asleep is exactly what the per-frame sync skips.
+    void SyncFromPhysics(bool activeOnly = true);
+
+    // The map mesh WORLD.LoadMap loaded (physics path); null until then.
+    const MapMesh* map() const { return mapLoaded_ ? &map_ : nullptr; }
+
     const WorldState& world() const { return world_; }
     void ClearLoadRequest() { world_.loadRequested = false; }
     const std::unordered_map<int, Entity>& entities() const { return entities_; }
@@ -85,6 +102,7 @@ private:
     Entity* Find(int handle);
     void SyncPose(Entity& e);
     void CreateRendererInstance(Entity& e);
+    bool SplitPackSource(const std::string& source, std::string& packName) const;
 
     // --- natives ---
     static int L_Create(lua_State* L);
@@ -97,8 +115,15 @@ private:
     static int L_GetOrientation(lua_State* L);
     static int L_EnableDraw(lua_State* L);
     static int L_GetVelocity(lua_State* L);
+    static int L_PO_Create(lua_State* L);
     static int L_PO_Exist(lua_State* L);
     static int L_PO_GetMaxSphereRay(lua_State* L);
+    static int L_PO_SetMass(lua_State* L);
+    static int L_PO_SetFriction(lua_State* L);
+    static int L_PO_SetRestitution(lua_State* L);
+    static int L_PO_SetLinearDamping(lua_State* L);
+    static int L_PO_SetAngularDamping(lua_State* L);
+    static int L_WORLD_Init(lua_State* L);
     static int L_WORLD_AddEntity(lua_State* L);
     static int L_WORLD_FindEntityByName(lua_State* L);
     static int L_WORLD_LoadMap(lua_State* L);
@@ -115,7 +140,13 @@ private:
 
     EntityRenderer* renderer_ = nullptr;
     TextureCache* textures_ = nullptr;
+    PhysicsWorld* physics_ = nullptr;
     std::string dataRoot_;
+
+    MapMesh map_;
+    bool mapLoaded_ = false;
+    std::unordered_map<int, int> bodyToEntity_;   // body slot -> entity handle
+    std::vector<ScriptBodyPose> poseScratch_;
 };
 
 } // namespace painful

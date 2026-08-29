@@ -120,10 +120,11 @@ rendering, portal/zone visibility, entity placement, layered skies, particle
 effects, light coronas and world collision all work. The Lua 5.0.2 host boots
 the real game scripts and **script-driven level loading works**:
 `PainfulEngine game <DataRoot> <level>` has `Game:LoadLevel` read the level,
-create its 631 entities through the native API, and the window renders what
-the scripts built. Not yet: physics/sky/particles on the script path,
-skeletal animation playback, water and post-processing, the player and AI,
-sound and UI.
+create its 631 entities through the native API — with `ENTITY.PO_Create`
+putting real Jolt bodies under them, so items settle onto the floor — and
+the window renders what the scripts built. Not yet: collision events back
+into the scripts, sky/particles on the script path, skeletal animation
+playback, water and post-processing, the player and AI, sound and UI.
 
 The full inventory, with the authority cited for each rule, is in
 [`Docs/Status.md`](Docs/Status.md).

@@ -144,8 +144,24 @@ renders what they built: the map they asked for via `WORLD.LoadMap`, fog and
 ambient from `WORLD.SetupFog`/`AmbientColor`, and every entity the class
 scripts created. On Cathedral: 958 files, **631 entities created by the
 scripts** (571 live after the cache pass), zero script errors, from the
-archives or a loose tree alike. Not yet on this path: physics (items sit at
-authored positions un-settled), sky, particles, billboards, sound, player.
+archives or a loose tree alike. Not yet on this path: sky, particles,
+billboards, sound, player.
+
+**Physics is on this path.** `WORLD.LoadMap` builds the Jolt static world the
+moment the scripts ask (entity bodies follow through `PO_Create` in the same
+level load and need something to rest on), `WORLD.Init` sets the surface, and
+`ENTITY.PO_Create(e, bodytype, scale, group)` creates each body bare - the
+scripts then dress it through `PO_SetMass`/`PO_SetFriction`/
+`PO_SetRestitution`/`PO_Set*Damping`, exactly the division of work
+`CObject:PO_Create` writes out. A scale of -1 means "the entity's own scale".
+Body shapes reuse the hand-driven path's rule: FromMesh variants become the
+mesh's convex hull, the rest a sphere. Engine quaternions cross into Jolt as
+their CONJUGATE - the row-vector/column-vector transpose, expressed on the
+quaternion. Two traps cost real debugging time: `MapMesh::Load` reports
+success as "no error recorded", so a reused mesh must be reset or a previous
+failure poisons the next load; and settled bodies are ASLEEP, which the
+active-only per-frame sync skips - one full sweep after the load-time settle
+puts furniture where it came to rest.
 
 `Game:LoadLevel`'s own pipeline (all script-side, Game.lua:933): find the
 `.CLevel` via `FS.FindFiles`, `LoadObj` it, preload the level's templates,
@@ -181,8 +197,9 @@ Color:Compose() == R3D.RGBA(r,g,b,a)  -- packing is ours on both ends
 
 ## Next stages
 
-1. Physics into the script path: `ENTITY.PO_*` against Jolt, so items settle
-   and `Game_GetMsg` gets its collision/region events.
+1. Collision/region events out of Jolt into `Game_GetMsg`
+   (COLLISION_WITH_OTHER_ENTITY, REGION_ENTERED) - the half of PO_* physics
+   that talks back.
 2. Sky, particles and billboards on the `game` path (the script state for
    them is already flowing through stubs).
 3. `CreatePlayer` + the player controller; `CAM.*` becomes the player camera.

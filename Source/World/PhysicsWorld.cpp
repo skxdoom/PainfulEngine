@@ -260,6 +260,15 @@ struct PhysicsWorld::Impl {
     std::vector<Prop> props;
     size_t unresolvedProps = 0;
 
+    // Bodies the scripts created through ENTITY.PO_Create; the slot index is
+    // what the script layer holds. Removed slots keep an invalid id so the
+    // indices of the others stay stable.
+    struct ScriptBody {
+        JPH::BodyID body;
+        float radius = 0.f;    // world-space mesh radius, for PO_GetMaxSphereRay
+    };
+    std::vector<ScriptBody> scriptBodies;
+
     JPH::BodyID probe;
     float probePos[3] = {0, 0, 0};
     bool probePush = false;
@@ -296,6 +305,7 @@ void PhysicsWorld::Clear() {
     impl_->worldTriangles = 0;
     impl_->accumulator = 0.f;
     impl_->props.clear();
+    impl_->scriptBodies.clear();
     impl_->unresolvedProps = 0;
     settings_ = PhysicsSettings();
 }
@@ -357,10 +367,7 @@ void PhysicsWorld::MoveProbe(const float pos[3], bool push) {
     }
 }
 
-void PhysicsWorld::Load(const Level& level, TemplateCache& templates,
-                        const std::string& dataRoot) {
-    Clear();
-
+void PhysicsWorld::LoadTweaks(const std::string& dataRoot) {
     // Tweak.lua is level independent, so it is read once and kept.
     if (!tweaks_.loaded() && !dataRoot.empty()) {
         if (tweaks_.LoadFromDataRoot(dataRoot))
@@ -368,14 +375,42 @@ void PhysicsWorld::Load(const Level& level, TemplateCache& templates,
         else
             LogWarn("physics: no LScripts/Main/Tweak.lua - using the shipped defaults");
     }
-
     settings_.gravity = tweaks_.Number("GlobalData.Gravity", settings_.gravity);
-    settings_.meshFriction = level.info().meshFriction;
     maxPushMass_ = tweaks_.Number("PlayerMove.MaximalItemPushMass", maxPushMass_);
     impl_->system.SetGravity(JPH::Vec3(0.f, -settings_.gravity, 0.f));
+}
+
+void PhysicsWorld::Load(const Level& level, TemplateCache& templates,
+                        const std::string& dataRoot) {
+    Clear();
+    LoadTweaks(dataRoot);
+    settings_.meshFriction = level.info().meshFriction;
 
     if (!level.mapLoaded()) return;
+    if (!BuildStaticWorld(level.map(), level.info().scale)) return;
 
+    LoadProps(level, templates, dataRoot);
+    // Clear() destroyed the camera's body along with everything else.
+    CreateProbe();
+
+    // The broad phase is built lazily otherwise, and the first query of the
+    // frame would pay for the whole level.
+    impl_->system.OptimizeBroadPhase();
+
+    // Let the props settle before the level is ever drawn. They are created
+    // awake and most of them have somewhere to fall, and a level that visibly
+    // rains its own furniture into place on load is not what the original
+    // does. A fixed number of fixed steps, so a screenshot of a given frame is
+    // the same picture every time.
+    for (int i = 0; i < 90; ++i) impl_->system.Update(kStep, 1, &impl_->temp, &impl_->jobs);
+
+    LogInfo("physics: %zu static triangles, %zu props (%zu unresolved), "
+            "gravity %.2f, friction %.2f",
+            impl_->worldTriangles, impl_->props.size(), impl_->unresolvedProps,
+            settings_.gravity, settings_.meshFriction);
+}
+
+bool PhysicsWorld::BuildStaticWorld(const MapMesh& map, float worldScale) {
     // The static world, from the same object set the original hands Havok:
     // MapObject::isCollidable rejects portals, zones, volumetric-light helpers
     // and anything named "noclip", and the original gives those no body either.
@@ -384,9 +419,8 @@ void PhysicsWorld::Load(const Level& level, TemplateCache& templates,
     // in.
     JPH::VertexList vertices;
     JPH::IndexedTriangleList triangles;
-    const float worldScale = level.info().scale;
 
-    for (const MapObject& o : level.map().objects) {
+    for (const MapObject& o : map.objects) {
         if (!o.isCollidable()) continue;
         const JPH::uint32 base = static_cast<JPH::uint32>(vertices.size());
         for (size_t v = 0; v < o.vertexCount(); ++v) {
@@ -413,7 +447,7 @@ void PhysicsWorld::Load(const Level& level, TemplateCache& templates,
 
     if (triangles.empty()) {
         LogWarn("physics: level has no collidable geometry");
-        return;
+        return false;
     }
 
     JPH::MeshShapeSettings meshSettings(std::move(vertices), std::move(triangles));
@@ -425,7 +459,7 @@ void PhysicsWorld::Load(const Level& level, TemplateCache& templates,
     JPH::ShapeSettings::ShapeResult shape = meshSettings.Create();
     if (shape.HasError()) {
         LogWarn("physics: mesh shape failed: %s", shape.GetError().c_str());
-        return;
+        return false;
     }
 
     JPH::BodyCreationSettings body(shape.Get(), JPH::RVec3::sZero(), JPH::Quat::sIdentity(),
@@ -436,26 +470,34 @@ void PhysicsWorld::Load(const Level& level, TemplateCache& templates,
     JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
     impl_->worldBody = bodies.CreateAndAddBody(body, JPH::EActivation::DontActivate);
     impl_->worldTriangles = meshSettings.mIndexedTriangles.size();
+    return true;
+}
 
-    LoadProps(level, templates, dataRoot);
-    // Clear() destroyed the camera's body along with everything else.
-    CreateProbe();
+// The shape a prop body gets for a BodyTypes value, scaled into world units.
+// FromMesh and its variants (4/5/7/11) become the mesh's convex hull - Jolt
+// works out the centre of mass itself, which is the difference the original
+// draws between FromMesh and FromMeshNotCentered, and a moving body cannot be
+// a triangle mesh. Everything else (Simple / Sphere / Fatter / Default) is a
+// sphere around the mesh.
+static JPH::ShapeSettings::ShapeResult BuildScaledPropShape(MeshPoints& mesh,
+                                                            int bodyType,
+                                                            float finalScale) {
+    JPH::ShapeSettings::ShapeResult shape;
+    if (bodyType == 4 || bodyType == 5 || bodyType == 7 || bodyType == 11) {
+        Thin(mesh);
+        JPH::ConvexHullShapeSettings hull(mesh.points);
+        hull.SetEmbedded();
+        shape = hull.Create();
+    } else {
+        JPH::SphereShapeSettings sphere(std::max(0.05f, mesh.radius()));
+        sphere.SetEmbedded();
+        shape = sphere.Create();
+    }
+    if (shape.HasError()) return shape;
 
-    // The broad phase is built lazily otherwise, and the first query of the
-    // frame would pay for the whole level.
-    impl_->system.OptimizeBroadPhase();
-
-    // Let the props settle before the level is ever drawn. They are created
-    // awake and most of them have somewhere to fall, and a level that visibly
-    // rains its own furniture into place on load is not what the original
-    // does. A fixed number of fixed steps, so a screenshot of a given frame is
-    // the same picture every time.
-    for (int i = 0; i < 90; ++i) impl_->system.Update(kStep, 1, &impl_->temp, &impl_->jobs);
-
-    LogInfo("physics: %zu static triangles, %zu props (%zu unresolved), "
-            "gravity %.2f, friction %.2f",
-            impl_->worldTriangles, impl_->props.size(), impl_->unresolvedProps,
-            settings_.gravity, settings_.meshFriction);
+    JPH::ScaledShapeSettings scaled(shape.Get(), JPH::Vec3::sReplicate(finalScale));
+    scaled.SetEmbedded();
+    return scaled.Create();
 }
 
 void PhysicsWorld::LoadProps(const Level& level, TemplateCache& templates,
@@ -504,27 +546,7 @@ void PhysicsWorld::LoadProps(const Level& level, TemplateCache& templates,
         }
         if (finalScale <= 0.f) { ++impl_->unresolvedProps; continue; }
 
-        JPH::ShapeSettings::ShapeResult shape;
-        if (bodyType == 4 || bodyType == 5 || bodyType == 7 || bodyType == 11) {
-            // FromMesh and its variants. Jolt works out the centre of mass
-            // itself, which is the difference the original draws between
-            // FromMesh and FromMeshNotCentered; non-convex meshes become their
-            // hull here, since a moving body cannot be a triangle mesh.
-            Thin(mesh);
-            JPH::ConvexHullShapeSettings hull(mesh.points);
-            hull.SetEmbedded();
-            shape = hull.Create();
-        } else {
-            // Simple / Sphere / Fatter / Default - a sphere around the mesh.
-            JPH::SphereShapeSettings sphere(std::max(0.05f, mesh.radius()));
-            sphere.SetEmbedded();
-            shape = sphere.Create();
-        }
-        if (shape.HasError()) { ++impl_->unresolvedProps; continue; }
-
-        JPH::ScaledShapeSettings scaled(shape.Get(), JPH::Vec3::sReplicate(finalScale));
-        scaled.SetEmbedded();
-        JPH::ShapeSettings::ShapeResult final = scaled.Create();
+        JPH::ShapeSettings::ShapeResult final = BuildScaledPropShape(mesh, bodyType, finalScale);
         if (final.HasError()) { ++impl_->unresolvedProps; continue; }
 
         float rot[9];
@@ -626,6 +648,168 @@ void PhysicsWorld::CollectPoses(std::vector<BodyPose>& out, bool activeOnly) con
             const JPH::Vec3 column = basis.GetColumn3(j);
             for (int c = 0; c < 3; ++c) pose.rot[j * 3 + c] = column[c];
         }
+        out.push_back(pose);
+    }
+}
+
+// ------------------------------------------------------------ script bodies
+
+// The engine applies its textbook quaternion matrix to ROW vectors, which in
+// standard column convention is the rotation by the CONJUGATE - the same
+// transpose CollectPoses and LoadProps handle for matrices, expressed on the
+// quaternion itself.
+static JPH::Quat EngineQuatToJolt(const float q[4]) {
+    JPH::Quat j(-q[1], -q[2], -q[3], q[0]);
+    return j.LengthSq() < 1e-12f ? JPH::Quat::sIdentity() : j.Normalized();
+}
+
+static void JoltQuatToEngine(const JPH::Quat& j, float out[4]) {
+    out[0] = j.GetW();
+    out[1] = -j.GetX();
+    out[2] = -j.GetY();
+    out[3] = -j.GetZ();
+}
+
+void PhysicsWorld::LoadWorldMesh(const MapMesh& map, float worldScale,
+                                 const std::string& dataRoot) {
+    Clear();
+    LoadTweaks(dataRoot);
+    if (!BuildStaticWorld(map, worldScale)) return;
+    CreateProbe();
+    LogInfo("physics: %zu static triangles (script path), gravity %.2f",
+            impl_->worldTriangles, settings_.gravity);
+}
+
+void PhysicsWorld::SetWorldSurface(float massScale, float friction, float restitution) {
+    settings_.activeMeshesMassScale = massScale > 0.f ? massScale : 1.f;
+    settings_.meshFriction = friction;
+    settings_.meshRestitution = restitution;
+    if (impl_->worldBody.IsInvalid()) return;
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    bodies.SetFriction(impl_->worldBody, friction);
+    bodies.SetRestitution(impl_->worldBody, restitution);
+}
+
+void PhysicsWorld::Settle(int steps) {
+    impl_->system.OptimizeBroadPhase();
+    for (int i = 0; i < steps; ++i)
+        impl_->system.Update(kStep, 1, &impl_->temp, &impl_->jobs);
+}
+
+int PhysicsWorld::CreateScriptBody(int bodyType, const std::string& modelName,
+                                   const std::string& packName,
+                                   const std::string& packMesh, float scale,
+                                   const float pos[3], const float rotWXYZ[4],
+                                   const std::string& dataRoot) {
+    if (impl_->worldBody.IsInvalid()) return -1;   // no world, nothing to rest on
+
+    MeshPoints mesh;
+    if (!packName.empty()) {
+        if (!PackPoints(dataRoot + "/Items", packName, packMesh, mesh)) return -1;
+    } else {
+        if (modelName.empty() || !ModelPoints(dataRoot + "/Models", modelName, mesh))
+            return -1;
+    }
+    if (scale <= 0.f) return -1;
+
+    const float radius = mesh.radius() * scale;   // world-space
+    JPH::ShapeSettings::ShapeResult shape = BuildScaledPropShape(mesh, bodyType, scale);
+    if (shape.HasError()) return -1;
+
+    // The same body configuration LoadProps uses; mass, friction and the
+    // rest arrive through the PO_Set* calls CObject:PO_Create makes next.
+    JPH::BodyCreationSettings body(shape.Get(), JPH::RVec3(pos[0], pos[1], pos[2]),
+                                   EngineQuatToJolt(rotWXYZ), JPH::EMotionType::Dynamic,
+                                   Layers::kMoving);
+    body.mMotionQuality = JPH::EMotionQuality::LinearCast;
+
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    const JPH::BodyID id = bodies.CreateAndAddBody(body, JPH::EActivation::Activate);
+    if (id.IsInvalid()) return -1;
+
+    impl_->scriptBodies.push_back({id, radius});
+    return int(impl_->scriptBodies.size() - 1);
+}
+
+bool PhysicsWorld::ScriptBodyExists(int slot) const {
+    return slot >= 0 && size_t(slot) < impl_->scriptBodies.size() &&
+           !impl_->scriptBodies[slot].body.IsInvalid();
+}
+
+void PhysicsWorld::SetScriptBodyMass(int slot, float mass) {
+    if (!ScriptBodyExists(slot) || mass <= 0.f) return;
+    JPH::BodyLockWrite lock(impl_->system.GetBodyLockInterface(),
+                            impl_->scriptBodies[slot].body);
+    if (!lock.Succeeded() || !lock.GetBody().IsDynamic()) return;
+    lock.GetBody().GetMotionProperties()->ScaleToMass(
+        mass * settings_.activeMeshesMassScale);
+}
+
+void PhysicsWorld::SetScriptBodyFriction(int slot, float friction) {
+    if (!ScriptBodyExists(slot)) return;
+    impl_->system.GetBodyInterface().SetFriction(impl_->scriptBodies[slot].body,
+                                                 friction);
+}
+
+void PhysicsWorld::SetScriptBodyRestitution(int slot, float restitution) {
+    if (!ScriptBodyExists(slot)) return;
+    impl_->system.GetBodyInterface().SetRestitution(impl_->scriptBodies[slot].body,
+                                                    restitution);
+}
+
+void PhysicsWorld::SetScriptBodyLinearDamping(int slot, float damping) {
+    if (!ScriptBodyExists(slot) || damping < 0.f) return;
+    JPH::BodyLockWrite lock(impl_->system.GetBodyLockInterface(),
+                            impl_->scriptBodies[slot].body);
+    if (lock.Succeeded() && lock.GetBody().IsDynamic())
+        lock.GetBody().GetMotionProperties()->SetLinearDamping(damping);
+}
+
+void PhysicsWorld::SetScriptBodyAngularDamping(int slot, float damping) {
+    if (!ScriptBodyExists(slot) || damping < 0.f) return;
+    JPH::BodyLockWrite lock(impl_->system.GetBodyLockInterface(),
+                            impl_->scriptBodies[slot].body);
+    if (lock.Succeeded() && lock.GetBody().IsDynamic())
+        lock.GetBody().GetMotionProperties()->SetAngularDamping(damping);
+}
+
+void PhysicsWorld::SetScriptBodyPose(int slot, const float pos[3],
+                                     const float rotWXYZ[4]) {
+    if (!ScriptBodyExists(slot)) return;
+    impl_->system.GetBodyInterface().SetPositionAndRotation(
+        impl_->scriptBodies[slot].body, JPH::RVec3(pos[0], pos[1], pos[2]),
+        EngineQuatToJolt(rotWXYZ), JPH::EActivation::Activate);
+}
+
+float PhysicsWorld::ScriptBodyRadius(int slot) const {
+    return ScriptBodyExists(slot) ? impl_->scriptBodies[slot].radius : 0.f;
+}
+
+void PhysicsWorld::RemoveScriptBody(int slot) {
+    if (!ScriptBodyExists(slot)) return;
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    bodies.RemoveBody(impl_->scriptBodies[slot].body);
+    bodies.DestroyBody(impl_->scriptBodies[slot].body);
+    impl_->scriptBodies[slot].body = JPH::BodyID();
+}
+
+void PhysicsWorld::CollectScriptPoses(std::vector<ScriptBodyPose>& out,
+                                      bool activeOnly) const {
+    out.clear();
+    const JPH::BodyInterface& bodies = impl_->system.GetBodyInterfaceNoLock();
+    for (size_t slot = 0; slot < impl_->scriptBodies.size(); ++slot) {
+        const JPH::BodyID id = impl_->scriptBodies[slot].body;
+        if (id.IsInvalid()) continue;
+        if (activeOnly && !bodies.IsActive(id)) continue;
+
+        JPH::RVec3 position;
+        JPH::Quat rotation;
+        bodies.GetPositionAndRotation(id, position, rotation);
+
+        ScriptBodyPose pose;
+        pose.slot = int(slot);
+        for (int c = 0; c < 3; ++c) pose.pos[c] = float(position[c]);
+        JoltQuatToEngine(rotation, pose.quatWXYZ);
         out.push_back(pose);
     }
 }

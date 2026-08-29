@@ -9,6 +9,7 @@ namespace painful {
 
 class Level;
 class TemplateCache;
+struct MapMesh;
 
 // One segment of the collision-shape wireframe, in world space.
 struct DebugLine {
@@ -24,6 +25,14 @@ struct BodyPose {
     size_t entity = 0;
     float pos[3] = {0, 0, 0};
     float rot[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+};
+
+// A script body that has moved, in the terms the script layer holds
+// transforms in: position plus an engine-order (w,x,y,z) quaternion.
+struct ScriptBodyPose {
+    int slot = -1;
+    float pos[3] = {0, 0, 0};
+    float quatWXYZ[4] = {1, 0, 0, 0};
 };
 
 // What the level hands the physics world at load. The original passes exactly
@@ -61,6 +70,42 @@ public:
     // properties. dataRoot is where Tweak.lua is read from.
     void Load(const Level& level, TemplateCache& templates, const std::string& dataRoot);
     void Clear();
+
+    // --- the script-driven path (the WORLD.*/ENTITY.PO_* natives) ---
+    // The natives create bodies one by one as the scripts ask, instead of
+    // Load()'s template sweep; the property setters mirror the PO_Set*
+    // surface, which CObject:PO_Create calls right after creation.
+
+    // The static world from a map mesh, in the same construction Load uses.
+    // WORLD.Init arrives right after and refines the surface via
+    // SetWorldSurface.
+    void LoadWorldMesh(const MapMesh& map, float worldScale, const std::string& dataRoot);
+    // WORLD.Init(massScale, friction, restitution, ...) - the world surface.
+    void SetWorldSurface(float massScale, float friction, float restitution);
+    // Fixed settle steps after a level load, so furniture is in place before
+    // the first frame (Load does the same internally).
+    void Settle(int steps);
+
+    // One dynamic body for a script entity. Exactly one of modelName /
+    // packName is set; the shape comes from the same mesh the renderer
+    // draws. Returns a body slot, or -1 when the mesh cannot be resolved.
+    int CreateScriptBody(int bodyType, const std::string& modelName,
+                         const std::string& packName, const std::string& packMesh,
+                         float scale, const float pos[3], const float rotWXYZ[4],
+                         const std::string& dataRoot);
+    bool ScriptBodyExists(int slot) const;
+    void SetScriptBodyMass(int slot, float mass);
+    void SetScriptBodyFriction(int slot, float friction);
+    void SetScriptBodyRestitution(int slot, float restitution);
+    void SetScriptBodyLinearDamping(int slot, float damping);
+    void SetScriptBodyAngularDamping(int slot, float damping);
+    // Teleports the body where the scripts put the entity.
+    void SetScriptBodyPose(int slot, const float pos[3], const float rotWXYZ[4]);
+    // The world-space mesh radius, which is what PO_GetMaxSphereRay reports.
+    float ScriptBodyRadius(int slot) const;
+    void RemoveScriptBody(int slot);
+    // Where the simulation has put the script bodies (slot in .slot).
+    void CollectScriptPoses(std::vector<ScriptBodyPose>& out, bool activeOnly = true) const;
 
     // Steps the simulation. Jolt wants a fixed step, so this accumulates.
     void Update(float dt);
@@ -133,6 +178,11 @@ private:
     void LoadProps(const Level& level, TemplateCache& templates, const std::string& dataRoot);
     // (Re)builds the camera's kinematic body at the current radius.
     void CreateProbe();
+    // The collidable map geometry as one static body; shared by Load and
+    // LoadWorldMesh.
+    bool BuildStaticWorld(const MapMesh& map, float worldScale);
+    // Tweak.lua and gravity; level independent, read once.
+    void LoadTweaks(const std::string& dataRoot);
 
     struct Impl;
     std::unique_ptr<Impl> impl_;

@@ -231,8 +231,14 @@ Details, the numbers, and the sizeable list of what is still missing are in
   natives land in a real registry (`Source/Game/ScriptEngine`).
   `PainfulEngine game <DataRoot> [level]` renders the result: on Cathedral
   the scripts create 631 entities and the window shows the world, fog and
-  models they asked for. Not yet on this path: physics settling, sky,
-  particles, billboards, player. See [`LuaHost.md`](LuaHost.md).
+  models they asked for.
+- **Physics runs on the script path**: `WORLD.LoadMap` builds the Jolt
+  static world synchronously, `ENTITY.PO_Create` makes each body bare and
+  the scripts dress it through the `PO_Set*` family — the original's own
+  division of work. Items settle onto the floor before the first frame, and
+  the camera collides and pushes props as in `run`. Not yet on this path:
+  collision events into `Game_GetMsg`, sky, particles, billboards, player.
+  See [`LuaHost.md`](LuaHost.md).
 
 ### Everything else
 

@@ -1,5 +1,7 @@
 #include "ScriptEngine.h"
 
+#include "../Core/Common.h"
+#include "../Core/FileSystem.h"
 #include "../Core/Log.h"
 #include "../Render/EntityRenderer.h"
 #include "../Render/TextureCache.h"
@@ -55,6 +57,35 @@ void ScriptEngine::AttachRenderer(EntityRenderer* entities, TextureCache* textur
     renderer_ = entities;
     textures_ = textures;
     dataRoot_ = dataRoot;
+}
+
+void ScriptEngine::AttachPhysics(PhysicsWorld* physics, const std::string& dataRoot) {
+    physics_ = physics;
+    dataRoot_ = dataRoot;
+}
+
+void ScriptEngine::SyncFromPhysics(bool activeOnly) {
+    if (!physics_) return;
+    physics_->CollectScriptPoses(poseScratch_, activeOnly);
+    for (const ScriptBodyPose& pose : poseScratch_) {
+        auto it = bodyToEntity_.find(pose.slot);
+        if (it == bodyToEntity_.end()) continue;
+        Entity* e = Find(it->second);
+        if (!e) continue;
+        for (int c = 0; c < 3; ++c) e->pos[c] = pose.pos[c];
+        for (int c = 0; c < 4; ++c) e->rotWXYZ[c] = pose.quatWXYZ[c];
+        SyncPose(*e);
+    }
+}
+
+// Splits an engine-style "../Data/Items/<pack>" back into the pack name the
+// physics loader joins with its items root.
+bool ScriptEngine::SplitPackSource(const std::string& source, std::string& packName) const {
+    const std::string resolved = host_->ResolvePath(source);
+    const std::string prefix = dataRoot_ + "/Items/";
+    if (!StartsWithCI(resolved, prefix)) return false;
+    packName = resolved.substr(prefix.size());
+    return true;
 }
 
 void ScriptEngine::CreateRendererInstance(Entity& e) {
@@ -122,6 +153,10 @@ int ScriptEngine::L_Release(lua_State* L) {
     if (it == self->entities_.end()) return 0;   // nil and doubles are routine
     if (self->renderer_ && it->second.rendererInstance >= 0)
         self->renderer_->ReleaseScript(it->second.rendererInstance);
+    if (self->physics_ && it->second.physicsBody >= 0) {
+        self->physics_->RemoveScriptBody(it->second.physicsBody);
+        self->bodyToEntity_.erase(it->second.physicsBody);
+    }
     self->entities_.erase(it);
     ++self->released_;
     return 0;
@@ -134,6 +169,8 @@ int ScriptEngine::L_SetPosition(lua_State* L) {
         e->pos[1] = float(luaL_optnumber(L, 3, 0));
         e->pos[2] = float(luaL_optnumber(L, 4, 0));
         self->SyncPose(*e);
+        if (self->physics_ && e->physicsBody >= 0)
+            self->physics_->SetScriptBodyPose(e->physicsBody, e->pos, e->rotWXYZ);
     }
     return 0;
 }
@@ -153,6 +190,8 @@ int ScriptEngine::L_SetRotationQ(lua_State* L) {
         for (int i = 0; i < 4; ++i)
             e->rotWXYZ[i] = float(luaL_optnumber(L, 2 + i, i == 0 ? 1 : 0));
         self->SyncPose(*e);
+        if (self->physics_ && e->physicsBody >= 0)
+            self->physics_->SetScriptBodyPose(e->physicsBody, e->pos, e->rotWXYZ);
     }
     return 0;
 }
@@ -210,16 +249,102 @@ int ScriptEngine::L_GetVelocity(lua_State* L) {
     return 4;
 }
 
+// ENTITY.PO_Create(e, bodytype, scale, collisionGroup): CObject:PO_Create
+// calls this right after SetPosition/SetRotationQ, then sets mass, friction
+// and the rest through the PO_Set* family - so the body starts bare and the
+// scripts dress it, exactly as the original divides the work. A scale of -1
+// (the scripts' "not given") means the entity's own scale, which already
+// carries the model *0.1 rule.
+int ScriptEngine::L_PO_Create(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e || !self->physics_ || e->physicsBody >= 0) return 0;
+
+    const int bodyType = int(luaL_optnumber(L, 2, 0));
+    float scale = float(luaL_optnumber(L, 3, -1.0));
+    if (scale <= 0.f) scale = e->scale;
+
+    std::string model, pack;
+    if (e->type == kModel) {
+        model = e->source;
+    } else if (e->type == kMesh && !e->worldObject) {
+        if (!self->SplitPackSource(e->source, pack)) return 0;
+    } else {
+        return 0;
+    }
+
+    const int slot = self->physics_->CreateScriptBody(
+        bodyType, model, pack, e->mesh, scale, e->pos, e->rotWXYZ, self->dataRoot_);
+    if (slot >= 0) {
+        e->physicsBody = slot;
+        self->bodyToEntity_[slot] = HandleArg(L, 1);
+    }
+    return 0;
+}
+
 int ScriptEngine::L_PO_Exist(lua_State* L) {
-    lua_pushboolean(L, 0);   // physics objects arrive with the Jolt wiring
+    ScriptEngine* self = From(L);
+    const Entity* e = self->Find(HandleArg(L, 1));
+    lua_pushboolean(L, e && self->physics_ && e->physicsBody >= 0 &&
+                           self->physics_->ScriptBodyExists(e->physicsBody));
     return 1;
 }
 
 // CActor divides and multiplies by this; 0.8 is the scripts' own fallback
 // for actors without a physics body.
 int ScriptEngine::L_PO_GetMaxSphereRay(lua_State* L) {
-    lua_pushnumber(L, 0.8);
+    ScriptEngine* self = From(L);
+    const Entity* e = self->Find(HandleArg(L, 1));
+    const float r = (e && self->physics_ && e->physicsBody >= 0)
+                        ? self->physics_->ScriptBodyRadius(e->physicsBody)
+                        : 0.f;
+    lua_pushnumber(L, r > 0.f ? r : 0.8);
     return 1;
+}
+
+int ScriptEngine::L_PO_SetMass(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (const Entity* e = self->Find(HandleArg(L, 1)))
+        if (self->physics_ && e->physicsBody >= 0)
+            self->physics_->SetScriptBodyMass(e->physicsBody,
+                                              float(luaL_optnumber(L, 2, 0)));
+    return 0;
+}
+
+int ScriptEngine::L_PO_SetFriction(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (const Entity* e = self->Find(HandleArg(L, 1)))
+        if (self->physics_ && e->physicsBody >= 0)
+            self->physics_->SetScriptBodyFriction(e->physicsBody,
+                                                  float(luaL_optnumber(L, 2, 0)));
+    return 0;
+}
+
+int ScriptEngine::L_PO_SetRestitution(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (const Entity* e = self->Find(HandleArg(L, 1)))
+        if (self->physics_ && e->physicsBody >= 0)
+            self->physics_->SetScriptBodyRestitution(e->physicsBody,
+                                                     float(luaL_optnumber(L, 2, 0)));
+    return 0;
+}
+
+int ScriptEngine::L_PO_SetLinearDamping(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (const Entity* e = self->Find(HandleArg(L, 1)))
+        if (self->physics_ && e->physicsBody >= 0)
+            self->physics_->SetScriptBodyLinearDamping(e->physicsBody,
+                                                       float(luaL_optnumber(L, 2, 0)));
+    return 0;
+}
+
+int ScriptEngine::L_PO_SetAngularDamping(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (const Entity* e = self->Find(HandleArg(L, 1)))
+        if (self->physics_ && e->physicsBody >= 0)
+            self->physics_->SetScriptBodyAngularDamping(e->physicsBody,
+                                                        float(luaL_optnumber(L, 2, 0)));
+    return 0;
 }
 
 // ---------------------------------------------------------------- WORLD
@@ -268,7 +393,42 @@ int ScriptEngine::L_WORLD_LoadMap(lua_State* L) {
     self->world_.levelName = luaL_optstring(L, 2, "");
     self->world_.scale = float(luaL_optnumber(L, 3, 1.0));
     self->world_.overbright = lua_toboolean(L, 4) != 0;
-    self->world_.loadRequested = !self->world_.mapPath.empty();
+    // The empty "NoName" level passes "../Data/Maps/" with no file - a level
+    // without a world, not an error.
+    self->world_.loadRequested =
+        !self->world_.mapPath.empty() && self->world_.mapPath.back() != '/';
+
+    // With physics attached the static world is built HERE, synchronously:
+    // the entity bodies follow through PO_Create later in this same level
+    // load, and they need something to rest on.
+    self->mapLoaded_ = false;
+    if (self->physics_ && self->world_.loadRequested) {
+        const std::string path = self->host_->ResolvePath(self->world_.mapPath);
+        // Load reports success as "no error recorded", so the reused mesh
+        // must start clean or a previous failure poisons this one.
+        self->map_ = MapMesh();
+        if (MapMesh::Load(path, self->map_)) {
+            self->mapLoaded_ = true;
+            self->physics_->LoadWorldMesh(self->map_, self->world_.scale,
+                                          self->dataRoot_);
+        } else {
+            LogWarn("WORLD.LoadMap: %s failed: %s", path.c_str(),
+                    self->map_.error.c_str());
+        }
+    }
+    return 0;
+}
+
+// WORLD.Init(activeMeshesMassScale, defaultMeshFriction,
+// defaultMeshRestitution, deactivatorDelay, deactivatorMaxPosDiff) - CLevel
+// calls it right after LoadMap. The deactivator pair maps onto Jolt's own
+// sleep thresholds, which are close enough to leave alone for now.
+int ScriptEngine::L_WORLD_Init(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (self->physics_)
+        self->physics_->SetWorldSurface(float(luaL_optnumber(L, 1, 1.0)),
+                                        float(luaL_optnumber(L, 2, 0.5)),
+                                        float(luaL_optnumber(L, 3, 0.5)));
     return 0;
 }
 
@@ -329,8 +489,15 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"ENTITY", "GetOrientation", L_GetOrientation},
         {"ENTITY", "EnableDraw", L_EnableDraw},
         {"ENTITY", "GetVelocity", L_GetVelocity},
+        {"ENTITY", "PO_Create", L_PO_Create},
         {"ENTITY", "PO_Exist", L_PO_Exist},
         {"ENTITY", "PO_GetMaxSphereRay", L_PO_GetMaxSphereRay},
+        {"ENTITY", "PO_SetMass", L_PO_SetMass},
+        {"ENTITY", "PO_SetFriction", L_PO_SetFriction},
+        {"ENTITY", "PO_SetRestitution", L_PO_SetRestitution},
+        {"ENTITY", "PO_SetLinearDamping", L_PO_SetLinearDamping},
+        {"ENTITY", "PO_SetAngularDamping", L_PO_SetAngularDamping},
+        {"WORLD", "Init", L_WORLD_Init},
         {"WORLD", "AddEntity", L_WORLD_AddEntity},
         {"WORLD", "FindEntityByName", L_WORLD_FindEntityByName},
         {"WORLD", "LoadMap", L_WORLD_LoadMap},
