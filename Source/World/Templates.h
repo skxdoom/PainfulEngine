@@ -13,7 +13,7 @@ namespace painful {
 // prefixes its own name - which is why Properties accepts any identifier.
 class TemplateCache {
 public:
-    // templatesRoot is Data_Extracted/LScripts/Templates.
+    // templatesRoot is <DataRoot>/LScripts/Templates.
     bool Init(const std::string& templatesRoot);
 
     // 43 levels ship their own Levels/<name>/Templates directory, whose files

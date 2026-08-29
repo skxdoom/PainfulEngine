@@ -9,6 +9,7 @@
 #include "Assets/Mpk.h"
 #include "Assets/Pkmdl.h"
 #include "Assets/Skeleton.h"
+#include "Core/FileSystem.h"
 #include "Core/Log.h"
 #include "Render/Renderer.h"
 #include "Render/SkyRenderer.h"
@@ -38,6 +39,7 @@ namespace painful { extern bx::DefaultAllocator g_allocator; }
 #include <cstdlib>
 #include <filesystem>
 #include <map>
+#include <set>
 #include <string>
 
 using namespace painful;
@@ -114,13 +116,10 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
 
     // Enumerate every level once so they can be cycled without restarting.
     std::vector<std::string> levelDirs;
-    {
-        std::error_code ec;
-        for (const auto& entry : std::filesystem::directory_iterator(root + "/Levels", ec)) {
-            if (entry.is_directory()) levelDirs.push_back(entry.path().string());
-        }
-        std::sort(levelDirs.begin(), levelDirs.end());
+    for (const DirEntry& entry : FileSystem::Get().List(root + "/Levels")) {
+        if (entry.isDirectory) levelDirs.push_back(root + "/Levels/" + entry.name);
     }
+    std::sort(levelDirs.begin(), levelDirs.end());
     if (levelDirs.empty()) {
         LogInfo("no levels found under %s/Levels", root.c_str());
         return 2;
@@ -603,10 +602,8 @@ static int FitCmd(const char* levelDir, const char* dataRoot) {
 // Lists the levels available for the in-engine selector.
 static int LevelsCmd(const char* dataRoot) {
     std::vector<std::string> dirs;
-    std::error_code ec;
-    for (const auto& entry :
-         std::filesystem::directory_iterator(std::string(dataRoot) + "/Levels", ec)) {
-        if (entry.is_directory()) dirs.push_back(entry.path().filename().string());
+    for (const DirEntry& entry : FileSystem::Get().List(std::string(dataRoot) + "/Levels")) {
+        if (entry.isDirectory) dirs.push_back(entry.name);
     }
     std::sort(dirs.begin(), dirs.end());
     for (size_t i = 0; i < dirs.size(); ++i) {
@@ -621,17 +618,16 @@ static int LevelsCmd(const char* dataRoot) {
 // Diagnostic: parse a .dat item pack, or with a directory, validate every pack.
 static int DatCmd(const char* path) {
     namespace fs = std::filesystem;
-    std::error_code ec;
-    if (fs::is_directory(path, ec)) {
+    if (FileSystem::Get().IsDirectory(path)) {
         size_t ok = 0, bad = 0;
-        for (const auto& entry : fs::recursive_directory_iterator(path, ec)) {
-            if (entry.path().extension() != ".dat") continue;
+        for (const std::string& rel : FileSystem::Get().ListRecursive(path)) {
+            if (fs::path(rel).extension() != ".dat") continue;
             DatPack pack;
-            if (DatPack::Load(entry.path().string(), pack)) {
+            if (DatPack::Load(std::string(path) + "/" + rel, pack)) {
                 ++ok;
             } else {
                 ++bad;
-                LogInfo("FAIL %-40s %s", entry.path().filename().string().c_str(),
+                LogInfo("FAIL %-40s %s", fs::path(rel).filename().string().c_str(),
                         pack.error.c_str());
             }
         }
@@ -1560,25 +1556,51 @@ static int ModelCmd(const char* path) {
 
 // Locates the game data next to the executable. The engine is meant to sit in
 // the game's Bin folder, like the original Painkiller.exe, so the data root is
-// a sibling of the exe's directory. Extracted data is preferred; the .pak
-// archives in Data are not readable yet.
+// a sibling of the exe's directory. The shipped Data folder (read straight
+// from its .pak archives) is preferred; a loose Data_Extracted tree still
+// works as a fallback.
 static std::string FindDataRoot(const char* exePath) {
     namespace fs = std::filesystem;
     std::error_code ec;
     fs::path dir = fs::absolute(exePath, ec).parent_path();
     for (int depth = 0; depth < 2 && !dir.empty(); ++depth, dir = dir.parent_path()) {
-        for (const char* name : {"Data_Extracted", "Data"}) {
+        for (const char* name : {"Data", "Data_Extracted"}) {
             fs::path candidate = dir / name;
-            if (!fs::exists(candidate / "Levels", ec)) continue;
-            if (std::string(name) == "Data") {
-                LogInfo("found %s, but .pak archives are not supported yet - "
-                        "extract them to Data_Extracted", candidate.string().c_str());
-                continue;
-            }
-            return candidate.string();
+            if (fs::exists(candidate / "Levels.pak", ec) ||
+                fs::exists(candidate / "Levels", ec))
+                return candidate.string();
         }
     }
     return {};
+}
+
+// Mounts the .pak archives in a data root before a command touches it. A root
+// of loose extracted files has none, and every lookup then goes to disk.
+static const char* MountRoot(const char* dataRoot) {
+    const size_t n = FileSystem::Get().MountData(dataRoot);
+    if (n) LogInfo("mounted %zu .pak archives from %s", n, dataRoot);
+    return dataRoot;
+}
+
+// For commands that take bare file paths rather than a data root: mount the
+// data directory the path points into (the nearest ancestor holding .pak
+// archives), falling back to the root auto-detected next to the executable,
+// so arguments that point inside the archives resolve too.
+static void MountForPath(const char* anyPath, const char* exePath) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::path dir = fs::absolute(anyPath, ec).parent_path();
+    for (int depth = 0; depth < 8 && dir.has_relative_path(); ++depth) {
+        for (const auto& entry : fs::directory_iterator(dir, ec)) {
+            if (entry.path().extension() == ".pak") {
+                MountRoot(dir.string().c_str());
+                return;
+            }
+        }
+        dir = dir.parent_path();
+    }
+    const std::string root = FindDataRoot(exePath);
+    if (!root.empty()) MountRoot(root.c_str());
 }
 
 // Double-click launch: no arguments, so find the data ourselves and open the
@@ -1587,15 +1609,15 @@ static int DefaultRun(const char* exePath) {
     const std::string root = FindDataRoot(exePath);
     if (root.empty()) {
         LogInfo("no game data found. Place PainfulEngine.exe in the game's Bin");
-        LogInfo("folder, next to a Data_Extracted directory with the unpacked");
-        LogInfo("assets (Levels/, Maps/, Textures/, LScripts/, Models/, Items/).");
+        LogInfo("folder, next to the Data directory with the .pak archives (or");
+        LogInfo("a Data_Extracted directory with the unpacked assets).");
         return 2;
     }
+    MountRoot(root.c_str());
     std::string level = root + "/Levels/C1L1_Cathedral";
-    std::error_code ec;
-    if (!std::filesystem::exists(level, ec)) {
-        for (const auto& entry : std::filesystem::directory_iterator(root + "/Levels", ec)) {
-            if (entry.is_directory()) { level = entry.path().string(); break; }
+    if (!FileSystem::Get().IsDirectory(level)) {
+        for (const DirEntry& entry : FileSystem::Get().List(root + "/Levels")) {
+            if (entry.isDirectory) { level = root + "/Levels/" + entry.name; break; }
         }
     }
     return RunCmd(level.c_str(), root.c_str(), "", exePath,
@@ -1606,6 +1628,21 @@ int main(int argc, char** argv) {
     if (argc < 2) return DefaultRun(argv[0]);
     if (argc < 3) return Usage();
     std::string cmd = argv[1];
+
+    // Mount any .pak archives before dispatch. Most commands name their data
+    // root explicitly; the bare file-path diagnostics (map, dat, model, ...)
+    // get the auto-detected root so arguments that point inside the archives
+    // resolve as well.
+    {
+        static const std::set<std::string> rootAt3 = {
+            "run",   "level",  "entities", "fit",       "skytex",     "scale",
+            "zones", "ground", "textures", "particles", "billboards", "physics"};
+        static const std::set<std::string> rootAt2 = {"levels", "resolve", "texdump",
+                                                      "shaders"};
+        if (rootAt3.count(cmd) && argc >= 4) MountRoot(argv[3]);
+        else if (rootAt2.count(cmd)) MountRoot(argv[2]);
+        else MountForPath(argv[2], argv[0]);
+    }
     if (cmd == "run"   && argc >= 4) {
         std::string shot;
         int cullMode = 0, entityCull = 1;

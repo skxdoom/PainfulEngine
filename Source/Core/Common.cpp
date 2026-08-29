@@ -1,4 +1,5 @@
 #include "Common.h"
+#include "FileSystem.h"
 #include <cstdio>
 
 namespace painful {
@@ -33,6 +34,10 @@ Mat4 Mat4::InvertAffine(const Mat4& x) {
 }
 
 bool ReadFile(const std::string& path, std::vector<uint8_t>& out) {
+    // Mounted .pak archives shadow loose files, matching the original
+    // engine's mount order; anything they don't serve is read from disk.
+    if (FileSystem::Get().ReadPakFile(path, out)) return true;
+
     FILE* fp = nullptr;
 #ifdef _MSC_VER
     if (fopen_s(&fp, path.c_str(), "rb") != 0 || !fp) return false;

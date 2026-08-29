@@ -143,7 +143,7 @@ struct ParticleFxDef {
 // Loads and caches both halves of the particle data, from Data/Scripts.
 class EmitterLibrary {
 public:
-    // scriptsRoot is Data_Extracted/Scripts (holding Emitters/ and Effects/).
+    // scriptsRoot is <DataRoot>/Scripts (holding Emitters/ and Effects/).
     bool Init(const std::string& scriptsRoot);
 
     // Both take a bare name ("Flame_factory1"); a trailing extension is fine.

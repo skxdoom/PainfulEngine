@@ -1,5 +1,6 @@
 #include "EntityRenderer.h"
 #include "../Core/Common.h"
+#include "../Core/FileSystem.h"
 #include "../Core/Log.h"
 #include "Frustum.h"
 #include "MeshVertex.h"
@@ -126,13 +127,11 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
         return true;
     }
 
-    namespace fs = std::filesystem;
-    fs::path path = fs::path(modelsRoot) / (modelName + ".pkmdl");
-    std::error_code ec;
-    if (!fs::exists(path, ec)) return false;
+    const std::string path = modelsRoot + "/" + modelName + ".pkmdl";
+    if (!FileSystem::Get().Exists(path)) return false;
 
     Model model;
-    if (!Model::Load(path.string(), model) || model.meshes.empty()) return false;
+    if (!Model::Load(path, model) || model.meshes.empty()) return false;
 
     GpuModel gpu;
     float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
@@ -201,13 +200,11 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
         return true;
     }
 
-    namespace fs = std::filesystem;
-    fs::path path = fs::path(itemsRoot) / packName;
-    std::error_code ec;
-    if (!fs::exists(path, ec)) return false;
+    const std::string path = itemsRoot + "/" + packName;
+    if (!FileSystem::Get().Exists(path)) return false;
 
     DatPack pack;
-    if (!DatPack::Load(path.string(), pack)) {
+    if (!DatPack::Load(path, pack)) {
         LogWarn("pack %s: %s", packName.c_str(), pack.error.c_str());
         return false;
     }

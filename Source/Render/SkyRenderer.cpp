@@ -1,5 +1,6 @@
 #include "SkyRenderer.h"
 #include "../Core/Common.h"
+#include "../Core/FileSystem.h"
 #include "../Core/Log.h"
 #include "MeshVertex.h"
 
@@ -119,7 +120,6 @@ bool SkyRenderer::LoadDome(const std::string& path) {
 
 bool SkyRenderer::Load(const std::string& mapsRoot, const LevelInfo& info,
                        TextureCache& textures) {
-    namespace fs = std::filesystem;
     white_ = textures.White();
 
     // Prefer the full layered dome; fall back to the LowQuality sky.
@@ -128,13 +128,12 @@ bool SkyRenderer::Load(const std::string& mapsRoot, const LevelInfo& info,
     if (!layered_) domeName = info.skyMap;
     if (domeName.empty()) return false;
 
-    fs::path path = fs::path(mapsRoot) / domeName;
-    std::error_code ec;
-    if (!fs::exists(path, ec)) {
-        LogWarn("sky mesh not found: %s", path.string().c_str());
+    const std::string path = mapsRoot + "/" + domeName;
+    if (!FileSystem::Get().Exists(path)) {
+        LogWarn("sky mesh not found: %s", path.c_str());
         return false;
     }
-    if (!LoadDome(path.string())) return false;
+    if (!LoadDome(path)) return false;
 
     if (layered_) {
         for (int i = 0; i < 4; ++i) {

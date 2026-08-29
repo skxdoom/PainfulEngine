@@ -58,12 +58,26 @@ set(USE_LZCNT OFF CACHE BOOL "" FORCE)
 set(USE_TZCNT OFF CACHE BOOL "" FORCE)
 add_subdirectory(External/JoltPhysics/Build EXCLUDE_FROM_ALL)
 
+# DEFLATE for the .pak reader. bimg_decode already compiles a full miniz (it
+# comes with tinyexr), so the engine reuses those symbols at link time rather
+# than vendoring the library again - compiling miniz.c a second time
+# double-defines every one of its C symbols. This target carries only the
+# header; the executable gets the implementation through bimg_decode.
+add_library(painful_miniz INTERFACE)
+target_include_directories(painful_miniz INTERFACE
+  External/bgfx/bimg/3rdparty/tinyexr/deps/miniz)
+
 # ---------------------------------------------------------------- engine
 # Layered on purpose, and the layering is one-directional:
 #   core <- assets <- world <- render
 # Each layer only knows about the ones to its left.
-add_library(painful_core STATIC Source/Core/Common.cpp)
+add_library(painful_core STATIC
+  Source/Core/Common.cpp
+  Source/Core/PakArchive.cpp
+  Source/Core/FileSystem.cpp
+)
 target_include_directories(painful_core PUBLIC Source)
+target_link_libraries(painful_core PRIVATE painful_miniz)
 
 add_library(painful_assets STATIC
   Source/Assets/Mpk.cpp
@@ -100,7 +114,13 @@ add_library(painful_render STATIC
   Source/Render/DebugLines.cpp
 )
 # bimg_decode provides imageParse (DDS/PNG/etc); bimg alone is just the core.
-target_link_libraries(painful_render PUBLIC painful_world SDL3::SDL3-static bgfx bimg bimg_decode bx)
+# bimg_decode must come BEFORE bimg: both ship the miniz symbols (bimg in a
+# standalone miniz.obj, bimg_decode embedded in image_decode.obj, which is
+# always pulled in for imageParse). The .pak reader references mz_uncompress,
+# and with bimg searched first the linker loads miniz.obj too and every miniz
+# symbol is defined twice. Searched in this order, the reference resolves from
+# the already-loaded image_decode.obj and bimg's copy stays out.
+target_link_libraries(painful_render PUBLIC painful_world SDL3::SDL3-static bgfx bimg_decode bimg bx)
 
 # WIN32: a GUI-subsystem executable, so double-clicking it opens no console.
 # main() is kept as the entry point via the WinMain shim in main.cpp.

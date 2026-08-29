@@ -1,5 +1,6 @@
 #include "ShaderScript.h"
 #include "../Core/Common.h"
+#include "../Core/FileSystem.h"
 
 #include <algorithm>
 #include <cctype>
@@ -49,15 +50,16 @@ std::string Join(const std::vector<std::string>& tokens, size_t from) {
 
 bool ShaderLibrary::LoadDirectory(const std::string& dir) {
     namespace fs = std::filesystem;
-    std::error_code ec;
-    for (const auto& entry : fs::directory_iterator(dir, ec)) {
-        if (Lower(entry.path().extension().string()) != ".shader") continue;
+    for (const DirEntry& entry : FileSystem::Get().List(dir)) {
+        if (entry.isDirectory) continue;
+        if (Lower(fs::path(entry.name).extension().string()) != ".shader") continue;
+        const std::string path = dir + "/" + entry.name;
         std::vector<uint8_t> data;
-        if (!ReadFile(entry.path().string(), data)) {
-            errors_.push_back("cannot read " + entry.path().string());
+        if (!ReadFile(path, data)) {
+            errors_.push_back("cannot read " + path);
             continue;
         }
-        const std::string file = entry.path().filename().string();
+        const std::string& file = entry.name;
         std::string text(data.begin(), data.end());
 
         // The format is line-oriented: one statement per line, blocks opened

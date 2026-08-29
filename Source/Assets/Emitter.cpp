@@ -1,5 +1,6 @@
 #include "Emitter.h"
 #include "../Core/Common.h"
+#include "../Core/FileSystem.h"
 #include "../Core/Log.h"
 
 #include <algorithm>
@@ -253,12 +254,11 @@ bool EmitterLibrary::Init(const std::string& scriptsRoot) {
     namespace fs = std::filesystem;
     auto index = [&](const char* sub, const char* ext,
                      std::map<std::string, std::string>& dst) {
-        std::error_code ec;
-        const fs::path dir = fs::path(scriptsRoot) / sub;
-        for (fs::directory_iterator it(dir, ec), last; !ec && it != last; it.increment(ec)) {
-            if (!it->is_regular_file()) continue;
-            if (Lower(it->path().extension().string()) != ext) continue;
-            dst[Stem(it->path().filename().string())] = it->path().string();
+        const std::string dir = scriptsRoot + "/" + sub;
+        for (const DirEntry& entry : FileSystem::Get().List(dir)) {
+            if (entry.isDirectory) continue;
+            if (Lower(fs::path(entry.name).extension().string()) != ext) continue;
+            dst[Stem(entry.name)] = dir + "/" + entry.name;
         }
     };
     index("Emitters", ".ini", emitterIndex_);

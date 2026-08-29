@@ -42,9 +42,11 @@ cmake -S . -B build -DPAINFUL_DEPLOY_DIR="X:/Painkiller/Bin"
 
 Copy `PainfulEngine.exe` and the `Shaders/` folder into the game's `Bin/`
 directory, beside the original `Painkiller.exe`. With no arguments it finds the
-sibling data directory and opens the first campaign level. (The unpacked
-`Data_Extracted/` layout is required for now; reading `.pak` archives directly
-is planned.)
+sibling data directory and opens the first campaign level. A vanilla install
+works untouched: the `.pak` archives in `Data/` are read directly, with
+numbered patch archives (`Textures2.pak` > `Textures1.pak` > `Textures.pak`)
+and loose files layered the way the original engine mounts them. An unpacked
+`Data_Extracted/` tree still works as a data root too.
 
 It is a windowed application, so double-clicking opens no console — but run
 from a terminal it still prints.
@@ -111,11 +113,11 @@ so a change can be checked without opening a window.
 
 ## Status
 
-Asset formats, static world rendering, portal/zone visibility, entity
-placement, layered skies, particle effects, light coronas and world collision
-all work. Not yet: skeletal animation playback, water and post-processing,
-`.pak` reading, the Lua host, everything physics needs a script host for,
-sound and UI.
+Asset formats, `.pak` reading (a vanilla install runs untouched), static world
+rendering, portal/zone visibility, entity placement, layered skies, particle
+effects, light coronas and world collision all work. Not yet: skeletal
+animation playback, water and post-processing, the Lua host, everything
+physics needs a script host for, sound and UI.
 
 The full inventory, with the authority cited for each rule, is in
 [`Docs/Status.md`](Docs/Status.md).
@@ -129,11 +131,10 @@ only reveals itself deep into a playthrough.
 1. Water (`FXWater`), which needs a render-target pass — shared with:
 2. Bloom and the rest of the `.fxo` post chain.
 3. Skeletal animation playback and GPU skinning.
-4. `.pak` reading, so a vanilla install works untouched.
-5. Lua 5.0.2 host with the natives from
+4. Lua 5.0.2 host with the natives from
    [`Docs/native_priority.tsv`](Docs/native_priority.tsv), in call-count order
    — the point where the game starts to *play*.
-6. The rest of physics — the player controller, ragdolls, explosions and glass
+5. The rest of physics — the player controller, ragdolls, explosions and glass
    — driven through that same native API. The Jolt world underneath it is up
    already: see [`Docs/Physics.md`](Docs/Physics.md).
 
@@ -158,3 +159,5 @@ only reveals itself deep into a playthrough.
 - [bgfx](https://github.com/bkaradzic/bgfx) via
   [bgfx.cmake](https://github.com/bkaradzic/bgfx.cmake) — BSD 2-clause
 - [Jolt Physics](https://github.com/jrouwe/JoltPhysics) — MIT licence
+- [miniz](https://github.com/richgel999/miniz) — MIT licence; the copy bundled
+  inside bimg's tree, reused for `.pak` inflate

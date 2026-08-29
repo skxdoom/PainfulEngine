@@ -15,6 +15,8 @@ Core   <- Assets <- World <- Render
 Source/
   Core/     Common.h/.cpp     Mat4, Reader, ReadFile
             Log.h
+            PakArchive        one .pak: directory parse, name de-obfuscation, inflate
+            FileSystem        the mounted view: archives shadow loose files
   Assets/   Mpk               world meshes, materials, per-slot UV transforms
             Dat               item mesh packs (the o.Pack containers)
             Pkmdl             models: geometry, skeleton, skin weights
@@ -64,6 +66,14 @@ All parse and are cross-checked against a second implementation.
 - `.shader` material scripts: 221 definitions, hardware variants, `copy`
   inheritance, `setflag`, `pass copy previous`.
 - Particle emitter `.ini` and effect `.pfx` — see [`Particles.md`](Particles.md).
+- `.pak` archives read natively: the shipped `Data/` folder mounts directly
+  (`Core/PakArchive` + `Core/FileSystem`), so `Data_Extracted/` is a reference,
+  not a requirement. Name recovery decodes 65,628/65,628 file names across all
+  ten archives, validated against a full extraction; every headless report is
+  byte-identical run from `Data` vs `Data_Extracted`. Mount order follows the
+  engine's: `<name>2.pak` > `<name>1.pak` > `<name>.pak` > loose files
+  (`Source_Port.md` §3; loose-vs-pak precedence is still unconfirmed
+  empirically — the port puts archives first).
 
 ### World rendering
 
@@ -204,7 +214,8 @@ Details, the numbers, and the sizeable list of what is still missing are in
 
 ### Everything else
 
-- No `.pak` reading — the data must be extracted first.
+- `.pkm` mod packages do not auto-mount yet (their internal format is still an
+  open question — `GZipPack` exports hint the engine also reads real ZIPs).
 - No Lua host, so nothing scripted runs: no spawning, triggers, doors,
   pickups, AI or level progression.
 - Nothing wakes the physics props, no player controller, and no ragdolls,

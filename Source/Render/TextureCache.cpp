@@ -1,5 +1,6 @@
 #include "TextureCache.h"
 #include "../Core/Common.h"
+#include "../Core/FileSystem.h"
 #include "../Core/Log.h"
 
 #include <bimg/decode.h>
@@ -51,20 +52,20 @@ bool TextureCache::Init(const std::string& texturesRoot, bool createWhite) {
                                              BGFX_SAMPLER_NONE, bgfx::copy(&clearPixel, 4));
     }
 
-    std::error_code ec;
-    if (!fs::exists(texturesRoot, ec)) {
+    FileSystem& vfs = FileSystem::Get();
+    if (!vfs.IsDirectory(texturesRoot)) {
         LogWarn("textures root not found: %s", texturesRoot.c_str());
         return false;
     }
-    for (const auto& entry : fs::recursive_directory_iterator(texturesRoot, ec)) {
-        if (!entry.is_regular_file()) continue;
-        std::string ext = Lower(entry.path().extension().string());
+    for (const std::string& relOrig : vfs.ListRecursive(texturesRoot)) {
+        const fs::path p(relOrig);
+        std::string ext = Lower(p.extension().string());
         if (ext != ".dds" && ext != ".tga" && ext != ".bmp") continue;
 
-        std::string rel = Lower(fs::relative(entry.path(), texturesRoot, ec).generic_string());
+        std::string rel = Lower(relOrig);
         std::string noExt = StripExtension(rel);
-        std::string base = Lower(entry.path().stem().string());
-        std::string full = entry.path().string();
+        std::string base = Lower(p.stem().string());
+        std::string full = texturesRoot + "/" + relOrig;
 
         // .dds wins when several formats share a name - it is what shipped.
         if (ext == ".dds" || index_.find(noExt) == index_.end()) index_[noExt] = full;

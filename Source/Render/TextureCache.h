@@ -15,7 +15,7 @@ class TextureCache {
 public:
     ~TextureCache() { Shutdown(); }
 
-    // texturesRoot is Data_Extracted/Textures.
+    // texturesRoot is <DataRoot>/Textures.
     // createWhite=false builds only the file index, so the resolver can be used
     // without an initialised graphics device (diagnostics, tests).
     bool Init(const std::string& texturesRoot, bool createWhite = true);

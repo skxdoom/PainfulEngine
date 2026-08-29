@@ -58,13 +58,15 @@ pekit pose  Data_Extracted/Models/clown.pkmdl Data_Extracted/Models/clown.walk.a
 matrices, sample the animation, skin the mesh — and prints the deformed bounds, so
 the whole pipeline stays verifiable from the command line.
 
-**Not yet in the C++ library:** `.pak` reading, because it needs an inflate
-implementation. Loose extracted files are the modding path anyway, and adding
-miniz (single file, public domain) later is trivial.
+`.pak` reading is implemented natively in the engine
+(`Source/Core/PakArchive.*` + `Source/Core/FileSystem.*`): the shipped `Data/`
+folder mounts directly, with `Data_Extracted/` remaining a loose reference
+tree rather than a requirement. Inflate comes from the miniz already compiled
+inside bimg (see the CMake notes on link order).
 
 | Layer | Status | Notes |
 |---|---|---|
-| Asset decoding | **Done** — `PainEngineKit/` (C++), `PainKit/` (C#) | mpk + materials, pkmdl, ani, skeleton, skin; pak in C# only |
+| Asset decoding | **Done** — `PainEngineKit/` (C++), `PainKit/` (C#) | mpk + materials, pkmdl, ani, skeleton, skin; pak native in the engine |
 | Lua host | Not started | Lua 5.0.2 (the exact version the game shipped) |
 | Native API | Not started | 790 functions; 113 give 80% coverage |
 | Physics | Decided: **Jolt** (MIT) | see FINDINGS §3c; `.rde` gives ragdoll tuning |
@@ -306,10 +308,22 @@ decoded[j] = encoded[j] XOR ((k0 + 2*j) & 0xFF)
 
 `k0` is a per-entry seed (it drifts roughly with entry index but the exact
 generator is not yet pinned down — see Open Questions). It doesn't need to be:
-names are ASCII paths, so `PakTool.ps1` recovers each name by trying all 256 seeds
-and scoring for path-likeness (`/`, known extensions, alnum ratio), with a
-directory-coherence tiebreak against neighbours. This recovers 100% of names on the
-validated archives.
+names are ASCII paths, so each name is recovered by trying all 256 seeds and
+scoring for path-likeness (`/`, known extensions, alnum ratio), with two
+neighbour tiebreaks: directory coherence, and the fact that **the directory is
+stored in lexicographic order** — a candidate that keeps `prev <= name <= next`
+wins true ties (e.g. `ntu.vso` vs `fog.vso`: same length, same letter count,
+both known extensions). Recovers **65,628/65,628 file names across all ten
+shipped archives**, validated against a full reference extraction.
+
+Two hard-won decoder rules (each silently corrupted names before it was fixed):
+the known-extension list must be COMPLETE (a censused list of all 61 shipped
+extensions lives in the decoder — `.rde` being absent let a junk decode win for
+`beast.rde`, and the coherence pass then propagated its garbage directory onto
+`beast.pkmdl`, silently dropping models); and only a directory made of ordinary
+path characters may hand out the coherence bonus, so two junk neighbours cannot
+vote each other past the correct names. Implemented twice, in agreement:
+`tools/PakTool.ps1` and the engine's `Source/Core/PakArchive.cpp`.
 
 Decoded names are relative paths with `/` separators, e.g. `Decals/blood.ini`,
 `C1L1_Cathedral/C1L1_Cathedral.CLevel`, `actor/alastor/alastor-fly-fire.wav`.

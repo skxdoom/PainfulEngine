@@ -1,4 +1,5 @@
 #include "Level.h"
+#include "../Core/FileSystem.h"
 #include "../Core/Log.h"
 #include <filesystem>
 
@@ -93,20 +94,22 @@ bool Level::LoadSettings(const std::string& levelDir) {
 
 void Level::LoadEntities(const std::string& levelDir) {
     // Each subfolder is an entity type and each file in it is one instance.
-    std::error_code ec;
-    for (const auto& dir : fs::directory_iterator(levelDir, ec)) {
-        if (!dir.is_directory()) continue;
-        std::string type = dir.path().filename().string();
+    FileSystem& vfs = FileSystem::Get();
+    for (const DirEntry& dir : vfs.List(levelDir)) {
+        if (!dir.isDirectory) continue;
+        const std::string& type = dir.name;
         if (type == "MapEntities") continue;   // not instance data
 
-        for (const auto& file : fs::directory_iterator(dir.path(), ec)) {
-            if (!file.is_regular_file()) continue;
-            if (file.path().extension() == ".scc") continue;   // source-control leftovers
+        const std::string typeDir = levelDir + "/" + type;
+        for (const DirEntry& file : vfs.List(typeDir)) {
+            if (file.isDirectory) continue;
+            const fs::path name(file.name);
+            if (name.extension() == ".scc") continue;   // source-control leftovers
 
             Entity e;
             e.type = type;
-            e.name = file.path().stem().string();
-            if (!e.props.LoadFromFile(file.path().string())) continue;
+            e.name = name.stem().string();
+            if (!e.props.LoadFromFile(typeDir + "/" + file.name)) continue;
             e.baseObj = e.props.String("BaseObj");
             e.props.Vector3("Pos", e.pos);
             entities_.push_back(std::move(e));
@@ -119,12 +122,12 @@ bool Level::Load(const std::string& levelDir, const std::string& dataRoot) {
     LoadEntities(levelDir);
 
     if (!info_.mapFile.empty()) {
-        fs::path mapPath = fs::path(dataRoot) / "Maps" / info_.mapFile;
-        if (fs::exists(mapPath)) {
-            mapLoaded_ = MapMesh::Load(mapPath.string(), map_);
+        const std::string mapPath = dataRoot + "/Maps/" + info_.mapFile;
+        if (FileSystem::Get().Exists(mapPath)) {
+            mapLoaded_ = MapMesh::Load(mapPath, map_);
             if (!mapLoaded_) LogWarn("map %s failed: %s", info_.mapFile.c_str(), map_.error.c_str());
         } else {
-            LogWarn("map not found: %s", mapPath.string().c_str());
+            LogWarn("map not found: %s", mapPath.c_str());
         }
     }
     return true;

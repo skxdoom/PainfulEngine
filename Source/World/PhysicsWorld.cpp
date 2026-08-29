@@ -22,6 +22,7 @@
 
 #include "../Assets/Dat.h"
 #include "../Assets/Pkmdl.h"
+#include "../Core/FileSystem.h"
 #include "../Core/Log.h"
 #include "Level.h"
 #include "Templates.h"
@@ -196,13 +197,11 @@ void Thin(MeshPoints& mesh) {
 
 bool PackPoints(const std::string& itemsRoot, const std::string& packName,
                 const std::string& meshName, MeshPoints& out) {
-    namespace fs = std::filesystem;
-    const fs::path path = fs::path(itemsRoot) / packName;
-    std::error_code ec;
-    if (!fs::exists(path, ec)) return false;
+    const std::string path = itemsRoot + "/" + packName;
+    if (!FileSystem::Get().Exists(path)) return false;
 
     DatPack pack;
-    if (!DatPack::Load(path.string(), pack)) return false;
+    if (!DatPack::Load(path, pack)) return false;
 
     for (const MapObject& o : pack.objects) {
         // o.Mesh selects one object; when it matches nothing, the whole pack
@@ -222,13 +221,11 @@ bool PackPoints(const std::string& itemsRoot, const std::string& packName,
 }
 
 bool ModelPoints(const std::string& modelsRoot, const std::string& modelName, MeshPoints& out) {
-    namespace fs = std::filesystem;
-    const fs::path path = fs::path(modelsRoot) / (modelName + ".pkmdl");
-    std::error_code ec;
-    if (!fs::exists(path, ec)) return false;
+    const std::string path = modelsRoot + "/" + modelName + ".pkmdl";
+    if (!FileSystem::Get().Exists(path)) return false;
 
     Model model;
-    if (!Model::Load(path.string(), model)) return false;
+    if (!Model::Load(path, model)) return false;
     for (const ModelMesh& mesh : model.meshes) {
         for (size_t v = 0; v + 7 < mesh.verts.size(); v += 8) {
             const float p[3] = {mesh.verts[v], mesh.verts[v + 1], mesh.verts[v + 2]};

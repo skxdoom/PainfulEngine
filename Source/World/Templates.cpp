@@ -1,5 +1,6 @@
 #include "Templates.h"
 #include "../Core/Common.h"
+#include "../Core/FileSystem.h"
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
@@ -18,12 +19,12 @@ std::string Lower(std::string s) {
 } // namespace
 
 bool TemplateCache::Init(const std::string& templatesRoot) {
-    std::error_code ec;
-    if (!fs::exists(templatesRoot, ec)) return false;
-    for (const auto& entry : fs::recursive_directory_iterator(templatesRoot, ec)) {
-        if (!entry.is_regular_file()) continue;
-        if (entry.path().extension() == ".scc") continue;
-        index_[Lower(entry.path().filename().string())] = entry.path().string();
+    FileSystem& vfs = FileSystem::Get();
+    if (!vfs.IsDirectory(templatesRoot)) return false;
+    for (const std::string& rel : vfs.ListRecursive(templatesRoot)) {
+        const fs::path p(rel);
+        if (p.extension() == ".scc") continue;
+        index_[Lower(p.filename().string())] = templatesRoot + "/" + rel;
     }
     return true;
 }
@@ -32,12 +33,12 @@ void TemplateCache::SetLevelOverlay(const std::string& levelTemplatesDir) {
     overlay_.clear();
     overlayLoaded_.clear();
     if (levelTemplatesDir.empty()) return;
-    std::error_code ec;
-    if (!fs::exists(levelTemplatesDir, ec)) return;
-    for (const auto& entry : fs::recursive_directory_iterator(levelTemplatesDir, ec)) {
-        if (!entry.is_regular_file()) continue;
-        if (entry.path().extension() == ".scc") continue;
-        overlay_[Lower(entry.path().filename().string())] = entry.path().string();
+    FileSystem& vfs = FileSystem::Get();
+    if (!vfs.IsDirectory(levelTemplatesDir)) return;
+    for (const std::string& rel : vfs.ListRecursive(levelTemplatesDir)) {
+        const fs::path p(rel);
+        if (p.extension() == ".scc") continue;
+        overlay_[Lower(p.filename().string())] = levelTemplatesDir + "/" + rel;
     }
 }
 

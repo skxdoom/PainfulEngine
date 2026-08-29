@@ -89,7 +89,8 @@ struct LevelInfo {
 // A loaded level: its settings, its placed entities, and the world mesh it names.
 class Level {
 public:
-    // levelDir is Data_Extracted/Levels/<name>; dataRoot is Data_Extracted.
+    // levelDir is <DataRoot>/Levels/<name>; both resolve through the mounted
+    // .pak archives or a loose extracted tree alike.
     bool Load(const std::string& levelDir, const std::string& dataRoot);
 
     const std::string& name() const { return name_; }
