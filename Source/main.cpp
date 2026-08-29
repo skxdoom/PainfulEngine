@@ -643,6 +643,11 @@ static int LuaCmd(const char* dataRoot, int frames, const char* level,
             host.CallGameLoadLevel(level);
             physics.Settle(90);
             engine.SyncFromPhysics(false);
+            // Same play transition the windowed run makes: the level has
+            // seated the camera through CAM.SetPos while unlocked, and the
+            // lock goes on before OnPlay so CreatePlayerSP finds Lev.Pos
+            // still holding the level's own spawn.
+            engine.SetMouseLocked(true);
             host.CallGameOnPlay();
         }
         // The diagnostic hook: run an arbitrary chunk between OnPlay and the
@@ -726,18 +731,24 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     physics.Settle(90);
     engine.SyncFromPhysics(false);
 
-    // The transition into gameplay: Game:OnPlay creates the player through
-    // CreatePlayer and launches the level's OnPlay actions. The camera pose
-    // must be primed FIRST: the play transition reads CAM.GetPos to seat the
-    // pawn (SwitchPlayerToPhysics does PO_SetPawnHeadPos(CAM.GetPos())), and
-    // an unprimed origin camera sent the player falling at (0,0,0).
-    // Note the camera is seated at Lev.Pos further down for the no-player
-    // case; prime with the same value here.
-    {
-        float lev[3];
-        if (host.ReadVec3("Lev", "Pos", lev))
-            engine.SetCameraPose(lev, 0.f, 0.f);
-    }
+    // The transition into gameplay, in the engine's own order (Game.lua's
+    // demo loader shows it plainly): the camera is seated from the level,
+    // then the mouse locks, then play begins.
+    //
+    // The seating is already done by this point - the level loaded with the
+    // mouse unlocked, so CLevel:Synchronize pushed Lev.Pos and Lev.Ang out
+    // through CAM.SetPos/SetAng - so all that is left is to adopt the pose
+    // into our own camera. This ORDER is load-bearing: CreatePlayerSP seats
+    // the player at Lev.Pos, and locking any earlier inverts the
+    // synchronise, so the level records our camera instead of pushing its
+    // own pose and the player spawns at the world origin.
+    float seatPos[3] = {0, 0, 0};
+    float seatYaw = 0.f, seatPitch = 0.f;
+    const bool seated = engine.TakeCameraPose(seatPos, seatYaw, seatPitch);
+    if (seated)
+        LogInfo("camera seated from the level at %.1f %.1f %.1f", seatPos[0], seatPos[1],
+                seatPos[2]);
+    engine.SetMouseLocked(true);
     host.CallGameOnPlay();
 
     // Turn the recorded WORLD.* state into renderer state.
@@ -798,12 +809,15 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     CollisionMesh collision;
     if (map) collision.Build(*map, ws.scale);
 
+    // The pose the level pushed out through CAM.SetPos/SetAng during load,
+    // captured at the play transition above. Reading Lev.Pos here instead
+    // would be too late: the mouse is locked by now, so CLevel:Synchronize
+    // has started writing the camera INTO Lev.Pos rather than out of it.
     Camera camera;
-    float startPos[3];
-    if (host.ReadVec3("Lev", "Pos", startPos)) {
-        camera.pos[0] = startPos[0];
-        camera.pos[1] = startPos[1];
-        camera.pos[2] = startPos[2];
+    if (seated) {
+        for (int i = 0; i < 3; ++i) camera.pos[i] = seatPos[i];
+        camera.yaw = seatYaw;
+        camera.pitch = seatPitch;
     }
     camera.farPlane = info.farClip;
     if (info.fogMode != 0)
@@ -955,8 +969,11 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
                            physics.settings().gravity,
                            particles.liveParticles(), particles.emitters(),
                            billboards.visible(), billboards.placed());
-        renderer.DebugText(6, "%s - WASD move, shift fast, space/ctrl up-down, N noclip, esc release",
-                           window.mouseCaptured() ? "mouse captured" : "click to capture mouse");
+        renderer.DebugText(6, "%s - %s, esc release",
+                           window.mouseCaptured() ? "mouse captured"
+                                                  : "click to capture mouse",
+                           walking ? "WASD walk, space jump, mouse look, N to fly"
+                                   : "WASD move, shift fast, space/ctrl up-down, N to walk");
         renderer.EndFrame();
 
         if (!shotPath.empty()) {
@@ -1987,14 +2004,18 @@ static int DefaultRun(const char* exePath) {
         return 2;
     }
     MountRoot(root.c_str());
-    std::string level = root + "/Levels/C1L1_Cathedral";
-    if (!FileSystem::Get().IsDirectory(level)) {
+    std::string level = "C1L1_Cathedral";
+    if (!FileSystem::Get().IsDirectory(root + "/Levels/" + level)) {
         for (const DirEntry& entry : FileSystem::Get().List(root + "/Levels")) {
-            if (entry.isDirectory) { level = root + "/Levels/" + entry.name; break; }
+            if (entry.isDirectory) { level = entry.name; break; }
         }
     }
-    return RunCmd(level.c_str(), root.c_str(), "", exePath,
-                  nullptr, nullptr, 0, 1, 1.f, false, false, false, false);
+    // Launching the exe means playing, so this takes the script-driven path:
+    // the game's own Lua loads the level, Game:OnPlay creates the player, and
+    // you walk. `run` is the older hand-driven loader, which builds the same
+    // world without a Lua host - so it has no player and only ever gives a
+    // free camera. It stays as a diagnostic, not as the way in.
+    return GameCmd(root.c_str(), level.c_str(), exePath, "");
 }
 
 int main(int argc, char** argv) {

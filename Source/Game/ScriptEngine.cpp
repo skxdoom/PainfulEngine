@@ -742,6 +742,37 @@ static float EngineTurn(float camYaw) {
     return -(camYaw + kPi * 0.5f);
 }
 
+// CAM.SetPos / CAM.SetAng - the scripts steering the view. A level seats the
+// camera this way at load (CLevel:Synchronize while the mouse is unlocked
+// pushes Lev.Pos and Lev.Ang out), and Game:Tick2 steers it this way during
+// play. Angles arrive in degrees, in the engine's turn convention, so they
+// come back through the same conversion - which is its own inverse.
+int ScriptEngine::L_CAM_SetPos(lua_State* L) {
+    ScriptEngine* self = From(L);
+    for (int i = 0; i < 3; ++i)
+        self->camPos_[i] = float(luaL_optnumber(L, i + 1, self->camPos_[i]));
+    self->camPoseDirty_ = true;
+    return 0;
+}
+
+int ScriptEngine::L_CAM_SetAng(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const float k = kPi / 180.f;
+    self->camYaw_ = EngineTurn(float(luaL_optnumber(L, 1, 0)) * k);
+    self->camPitch_ = float(luaL_optnumber(L, 2, 0)) * k;
+    self->camPoseDirty_ = true;
+    return 0;
+}
+
+bool ScriptEngine::TakeCameraPose(float pos[3], float& yaw, float& pitch) {
+    if (!camPoseDirty_) return false;
+    camPoseDirty_ = false;
+    for (int i = 0; i < 3; ++i) pos[i] = camPos_[i];
+    yaw = camYaw_;
+    pitch = camPitch_;
+    return true;
+}
+
 int ScriptEngine::L_CAM_GetAng(lua_State* L) {
     ScriptEngine* self = From(L);
     const float k = 180.f / kPi;
@@ -1193,6 +1224,8 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"MOUSE", "Lock", L_MOUSE_Lock},
         {"MOUSE", "IsLocked", L_MOUSE_IsLocked},
         {"CAM", "GetPos", L_CAM_GetPos},
+        {"CAM", "SetPos", L_CAM_SetPos},
+        {"CAM", "SetAng", L_CAM_SetAng},
         {"CAM", "GetForwardVector", L_CAM_GetForwardVector},
         {"CAM", "GetAng", L_CAM_GetAng},
         {"CAM", "GetAngRad", L_CAM_GetAngRad},

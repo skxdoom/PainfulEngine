@@ -327,12 +327,44 @@ and gameplay can be tested without a window. Overriding a native from the
 `exec` chunk is how a situation gets staged - `INP.GetActionStatus = function
 (e) return Actions.Forward end` walks the player.
 
+## The play transition, and why the mouse lock seats the player
+
+A level LOADS with the mouse unlocked, and that is not a detail.
+`CLevel:Synchronize` branches on it:
+
+```lua
+if not MOUSE.IsLocked() then
+    CAM.SetAng(self.Ang.X,self.Ang.Y,self.Ang.Z)   -- level -> camera
+    CAM.SetPos(self.Pos.X,self.Pos.Y,self.Pos.Z)
+else
+    self.Ang:Set(CAM.GetAng())                     -- camera -> level
+    self.Pos:Set(CAM.GetPos())
+end
+```
+
+So `Lev.Pos` is the level's start camera, pushed out into the engine while
+loading; once play begins the camera is authoritative and the level record
+follows it. `Game:CreatePlayerSP` then seats the player at `Lev.Pos`.
+
+Start locked and the synchronise runs backwards: `Lev.Pos` is overwritten
+with wherever our camera happens to be before `CreatePlayerSP` ever reads it,
+and the player spawns at the world origin and falls. Cathedral's `.CLevel`
+declares `o.Pos = (-315.106, -2.36039, -2.90619)`; the symptom was reading
+`Lev.Pos` back as `(0,0,0)` with `Lev.Ang.X` at exactly -90, which is our own
+zero-yaw camera converted into the engine's turn convention - the giveaway
+that the level was recording us rather than seating us.
+
+The order, which `Game_DemoLoadLevel` spells out and the host now follows:
+load the level (unlocked, so it seats the camera) → adopt that pose → lock
+the mouse → `Game:OnPlay`.
+
 ## Next stages
 
-1. Camera handover: `MOUSE.GetDelta` fed with real motion, `CAM.SetPos` /
-   `SetAng` / `SetPositionDisplacement` accepted, so `Game:Tick2` steers the
-   view as the original does. The angle conversion above is its own inverse,
-   which is what the handover needs.
+1. Finish the camera handover: `MOUSE.GetDelta` fed with real motion,
+   `MOUSE.SetSensitivity` and `CAM.SetPositionDisplacement` (the camera bob)
+   implemented, so `Game:Tick2` steers the view during play as it does at
+   load. The angle conversion above is its own inverse, which is what the
+   handover needs.
 2. Weapons: `WORLD.LineTrace` / `LineTraceFixedGeom` off Jolt, the
    intersection-solver registry, `ENTITY.SetPosAndRotRelativeToCamera` for
    the view model.

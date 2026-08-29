@@ -148,6 +148,20 @@ public:
     // Call once per frame after the ticks.
     void TickTriggers();
 
+    // MOUSE.Lock(true), which the engine itself does at the play transition
+    // (right after seating the camera from Lev.Pos/Lev.Ang). It is not a
+    // mirror of the window's capture state: Game:Tick branches on the lock,
+    // and CLevel:Synchronize uses it to decide which way the camera and the
+    // level record synchronise. Unlocked, the level pushes its stored pose
+    // into the camera - which is how a level seats the view at load. Locked,
+    // the camera is authoritative and the level follows it.
+    void SetMouseLocked(bool locked) { mouseLocked_ = locked; }
+
+    // Takes the pose the scripts last pushed through CAM.SetPos/SetAng, if
+    // any, so the game loop can adopt it. Returns false when they have not
+    // moved the camera since the last call.
+    bool TakeCameraPose(float pos[3], float& yaw, float& pitch);
+
     // The camera the CAM.* reads report (position, yaw and pitch in
     // radians). The game loop feeds it every frame; headless runs keep the
     // defaults.
@@ -231,6 +245,8 @@ private:
     static int L_MOUSE_Lock(lua_State* L);
     static int L_MOUSE_IsLocked(lua_State* L);
     static int L_CAM_GetPos(lua_State* L);
+    static int L_CAM_SetPos(lua_State* L);
+    static int L_CAM_SetAng(lua_State* L);
     static int L_CAM_GetForwardVector(lua_State* L);
     static int L_CAM_GetAng(lua_State* L);
     static int L_CAM_GetAngRad(lua_State* L);
@@ -277,7 +293,14 @@ private:
     // EDITOR tick, where the player globals never update. Driving it from
     // the window's click-to-capture state is what once left the player
     // falling at the world origin. True at boot, as the engine enters play.
-    bool mouseLocked_ = true;
+    // False until the play transition, because a level LOADS unlocked: that
+    // is what lets CLevel:Synchronize push Lev.Pos/Lev.Ang into the camera
+    // and seat the view where the level says. Starting locked inverts the
+    // synchronise and overwrites Lev.Pos with wherever our camera happened
+    // to be - which spawned the player at the world origin, since
+    // CreatePlayerSP seats them at Lev.Pos.
+    bool mouseLocked_ = false;
+    bool camPoseDirty_ = false;
     float camPos_[3] = {0, 0, 0};
     float camYaw_ = 0.f, camPitch_ = 0.f;
     float playerSpeedOverride_ = -1.f;
