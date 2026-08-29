@@ -167,11 +167,49 @@ only reveals itself deep into a playthrough.
 | [`Docs/Engine_LuaAPI.md`](Docs/Engine_LuaAPI.md) | the native API the scripts call |
 | [`Docs/native_priority.tsv`](Docs/native_priority.tsv) | that API ranked by call count — the work queue |
 
+## Licence
+
+Copyright © 2026 Dmitry Karpukhin.
+
+PainfulEngine is **GPL-3.0-or-later** — see [`LICENSE`](LICENSE).
+
+Copyleft is the deliberate choice rather than the default one. This is a
+preservation and interoperability project, and the licence keeps it that way:
+anyone may study, change and share it, and nobody may take it closed or sell
+it on. That is also the norm among source ports of commercial games, for the
+same reasons.
+
+The licence covers this project's own code. It grants nothing over
+*Painkiller* itself, which remains its rights holders'. No game data, assets
+or binaries are included here, and running the engine requires your own copy
+of the game.
+
+*Painkiller* was made by People Can Fly. This project is not affiliated with
+them or with the game's current rights holders, and exists to understand and
+preserve the engine rather than to compete with it.
+
+## Credits
+
+Written by Dmitry Karpukhin, in collaboration with **Claude** (Anthropic),
+which wrote a substantial share of the engine, the Ghidra analysis behind it
+and these docs. Per-commit authorship is recorded in `Co-Authored-By`
+trailers throughout the history.
+
+Nearly every rule in `Docs/` was recovered rather than guessed — from the
+shipped data, the shipped Lua, or `Engine.dll` in Ghidra. Where a guess was
+made and later proved wrong, the docs say so and say how it was caught; that
+record is deliberate, and worth keeping as the project grows.
+
 ## Third-party
 
+Every dependency is permissive and GPL-compatible, and each stays under its
+own terms — [`THIRD-PARTY.md`](THIRD-PARTY.md) has the details and the paths
+to their licence texts.
+
 - [SDL3](https://github.com/libsdl-org/SDL) — zlib licence
-- [bgfx](https://github.com/bkaradzic/bgfx) via
-  [bgfx.cmake](https://github.com/bkaradzic/bgfx.cmake) — BSD 2-clause
+- [bgfx](https://github.com/bkaradzic/bgfx), with bx and bimg — BSD 2-clause;
+  built through [bgfx.cmake](https://github.com/bkaradzic/bgfx.cmake), which
+  is CC0
 - [Jolt Physics](https://github.com/jrouwe/JoltPhysics) — MIT licence
 - [miniz](https://github.com/richgel999/miniz) — MIT licence; the copy bundled
   inside bimg's tree, reused for `.pak` inflate
