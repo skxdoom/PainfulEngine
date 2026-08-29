@@ -119,12 +119,14 @@ Asset formats, `.pak` reading (a vanilla install runs untouched), static world
 rendering, portal/zone visibility, entity placement, layered skies, particle
 effects, light coronas and world collision all work. The Lua 5.0.2 host boots
 the real game scripts and **script-driven level loading works**:
-`PainfulEngine game <DataRoot> <level>` has `Game:LoadLevel` read the level,
-create its 631 entities through the native API — with `ENTITY.PO_Create`
-putting real Jolt bodies under them, so items settle onto the floor — and
-the window renders what the scripts built. Not yet: collision events back
-into the scripts, sky/particles on the script path, skeletal animation
-playback, water and post-processing, the player and AI, sound and UI.
+`PainfulEngine game <DataRoot> <level>` has `Game:LoadLevel` read the level
+and create its entities through the native API — `ENTITY.PO_Create` puts
+real Jolt bodies under them so items settle onto the floor, and the layered
+sky, particle effects and light coronas all arrive through their natives
+too. The script path even lights the item-bound torches the hand-driven
+loader never resolved. Not yet: collision events back into the scripts,
+skeletal animation playback, water and post-processing, the player and AI,
+sound and UI.
 
 The full inventory, with the authority cited for each rule, is in
 [`Docs/Status.md`](Docs/Status.md).

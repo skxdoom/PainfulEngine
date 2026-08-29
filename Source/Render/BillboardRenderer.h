@@ -39,6 +39,19 @@ public:
 
     void Build(const Level& level, TemplateCache& templates, TextureCache& textures);
 
+    // --- script-driven sprites (the BILLBOARD.SetupCorona native path) ---
+    // Arguments arrive exactly as the native passes them - the script has
+    // already done the old light-corona conversions Build must handle
+    // itself. args holds, in the native's order: alpha, fadeIn, fadeOut,
+    // minSize, minDistance, size, maxDistance, offDistance, traceMargin.
+    // slot -1 creates the sprite; an existing slot reconfigures in place.
+    // Returns the slot.
+    int SetupScriptCorona(int slot, const float args[9], const std::string& texture,
+                          uint32_t packedColor, int blendMode, bool spriteOnly,
+                          TextureCache& textures, const std::string& levelHint);
+    void SetScriptSpritePos(int slot, const float pos[3]);
+    void RemoveScriptSprite(int slot);
+
     // Distance, occlusion tracing and fading, all of which the original does
     // inside Draw. Split out so the frame's simulation and its submission stay
     // separate, as they are for particles.
@@ -80,6 +93,9 @@ private:
 
         bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
         uint64_t blendState = 0;
+        // Script-driven sprites are created and released at runtime; slots
+        // stay put so handles remain stable.
+        bool alive = true;
     };
 
     void FadeTick(Sprite& s, bool nowVisible, float dt) const;

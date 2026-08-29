@@ -511,8 +511,8 @@ int L_CAM_GetAng(lua_State* L) {
 }
 
 // WORLD.LoadSky(mapPath) -> number of sky-dome layers. Zero means "no sky",
-// which CLevel:ReloadSky handles as the low-quality/absent path. Returns the
-// real count once the script layer drives the renderer.
+// which CLevel:ReloadSky handles as the low-quality/absent path. This is the
+// bare-host fallback; ScriptEngine::Bind overrides it with the real reader.
 int L_WORLD_LoadSky(lua_State* L) {
     lua_pushnumber(L, 0);
     return 1;
@@ -678,6 +678,9 @@ const ModuleImpl kModuleImpls[] = {
     {"PMENU", "GetLoadingScreenOverall", L_Zero},
     {"MDL", "SetAnim", L_MDL_SetAnim},
     {"MDL", "GetAnimLength", L_Zero},
+    // Same "missing" convention as SetAnim: joints resolve once skeletal
+    // animation lands, and the scripts handle -1 as "no such joint".
+    {"MDL", "GetJointIndex", L_MDL_SetAnim},
 };
 
 } // namespace

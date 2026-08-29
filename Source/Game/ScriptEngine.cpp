@@ -1,9 +1,12 @@
 #include "ScriptEngine.h"
 
+#include "../Assets/Emitter.h"
 #include "../Core/Common.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
+#include "../Render/BillboardRenderer.h"
 #include "../Render/EntityRenderer.h"
+#include "../Render/ParticleRenderer.h"
 #include "../Render/TextureCache.h"
 
 extern "C" {
@@ -64,6 +67,29 @@ void ScriptEngine::AttachPhysics(PhysicsWorld* physics, const std::string& dataR
     dataRoot_ = dataRoot;
 }
 
+void ScriptEngine::AttachParticles(ParticleRenderer* particles, EmitterLibrary* library) {
+    particles_ = particles;
+    emitterLib_ = library;
+}
+
+void ScriptEngine::AttachBillboards(BillboardRenderer* billboards) {
+    billboards_ = billboards;
+}
+
+void ScriptEngine::UpdateAttachments(Entity& e) {
+    if (particles_ && !e.emitterSlots.empty()) {
+        float rot9[9];
+        EngineQuatToRot9(e.rotWXYZ, rot9);
+        for (int slot : e.emitterSlots) {
+            if (slot < 0) continue;
+            particles_->SetScriptEmitterOwner(slot, e.pos, rot9, e.scale,
+                                              e.visible && e.inWorld);
+        }
+    }
+    if (billboards_ && e.spriteSlot >= 0)
+        billboards_->SetScriptSpritePos(e.spriteSlot, e.pos);
+}
+
 void ScriptEngine::SyncFromPhysics(bool activeOnly) {
     if (!physics_) return;
     physics_->CollectScriptPoses(poseScratch_, activeOnly);
@@ -112,9 +138,11 @@ void ScriptEngine::CreateRendererInstance(Entity& e) {
 }
 
 void ScriptEngine::SyncPose(Entity& e) {
-    if (!renderer_ || e.rendererInstance < 0) return;
-    renderer_->SetScriptPose(e.rendererInstance, e.pos, e.rotWXYZ);
-    renderer_->SetScriptVisible(e.rendererInstance, e.visible && e.inWorld);
+    if (renderer_ && e.rendererInstance >= 0) {
+        renderer_->SetScriptPose(e.rendererInstance, e.pos, e.rotWXYZ);
+        renderer_->SetScriptVisible(e.rendererInstance, e.visible && e.inWorld);
+    }
+    UpdateAttachments(e);
 }
 
 void ScriptEngine::FlushToRenderer() {
@@ -157,6 +185,11 @@ int ScriptEngine::L_Release(lua_State* L) {
         self->physics_->RemoveScriptBody(it->second.physicsBody);
         self->bodyToEntity_.erase(it->second.physicsBody);
     }
+    if (self->billboards_ && it->second.spriteSlot >= 0)
+        self->billboards_->RemoveScriptSprite(it->second.spriteSlot);
+    if (self->particles_)
+        for (int slot : it->second.emitterSlots)
+            if (slot >= 0) self->particles_->RemoveScriptEmitter(slot);
     self->entities_.erase(it);
     ++self->released_;
     return 0;
@@ -229,6 +262,77 @@ int ScriptEngine::L_GetOrientation(lua_State* L) {
         e ? 2.f * std::atan2(e->rotWXYZ[2], e->rotWXYZ[0]) : 0.f;
     lua_pushnumber(L, yaw);
     return 1;
+}
+
+// ENTITY.SetScale(e, s): particle effects apply their entity scale this way.
+// A model's renderer instance keeps its creation scale for now - the shipped
+// load path never rescales one after Create.
+int ScriptEngine::L_SetScale(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (Entity* e = self->Find(HandleArg(L, 1))) {
+        e->scale = float(luaL_optnumber(L, 2, 1.0));
+        self->UpdateAttachments(*e);
+    }
+    return 0;
+}
+
+// PARTICLE.AddEmitter(e, file) -> the per-entity emitter index the scripts
+// hand back to SetupEmitter. The effect resolution happened script-side
+// (LoadParticleFX over ParticleFXArray); only the .ini name arrives.
+int ScriptEngine::L_PARTICLE_AddEmitter(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e) return 0;
+    int slot = -1;
+    if (self->particles_ && self->emitterLib_ && self->textures_)
+        slot = self->particles_->AddScriptEmitter(luaL_optstring(L, 2, ""),
+                                                  *self->emitterLib_, *self->textures_,
+                                                  self->world_.levelName);
+    e->emitterSlots.push_back(slot);
+    lua_pushnumber(L, double(e->emitterSlots.size() - 1));
+    return 1;
+}
+
+// PARTICLE.SetupEmitter(e, i, scale, px, py, pz, rx, ry, rz) - the .pfx
+// entry's own transform; rotation in degrees, exactly what the entry stores.
+int ScriptEngine::L_PARTICLE_SetupEmitter(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e || !self->particles_) return 0;
+    const size_t idx = size_t(luaL_optnumber(L, 2, -1));
+    if (idx >= e->emitterSlots.size() || e->emitterSlots[idx] < 0) return 0;
+
+    const float offset[3] = {float(luaL_optnumber(L, 4, 0)), float(luaL_optnumber(L, 5, 0)),
+                             float(luaL_optnumber(L, 6, 0))};
+    const float rotDeg[3] = {float(luaL_optnumber(L, 7, 0)), float(luaL_optnumber(L, 8, 0)),
+                             float(luaL_optnumber(L, 9, 0))};
+    self->particles_->SetupScriptEmitter(e->emitterSlots[idx],
+                                         float(luaL_optnumber(L, 3, 1.0)), offset, rotDeg);
+    self->UpdateAttachments(*e);
+    return 0;
+}
+
+// PARTICLE.SetEvolve / SetFixedTransform: evolve is always on in this port
+// (the flag exists to freeze effects while the editor scrubs), and fixed
+// transforms only matter once effects are bound to moving entities.
+int ScriptEngine::L_NoOpNative(lua_State*) { return 0; }
+
+// BILLBOARD.SetupCorona(e, alpha, fadeIn, fadeOut, minSize, minDistance,
+// size, maxDistance, offDistance, traceMargin, tex, packedColor, blendMode,
+// spriteOnly) - CBillboard:Apply's one native, field for field.
+int ScriptEngine::L_BILLBOARD_SetupCorona(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e || !self->billboards_ || !self->textures_) return 0;
+
+    float args[9];
+    for (int i = 0; i < 9; ++i) args[i] = float(luaL_optnumber(L, 2 + i, 0));
+    e->spriteSlot = self->billboards_->SetupScriptCorona(
+        e->spriteSlot, args, luaL_optstring(L, 11, ""),
+        uint32_t(int64_t(luaL_optnumber(L, 12, 0))), int(luaL_optnumber(L, 13, 1)),
+        lua_toboolean(L, 14) != 0, *self->textures_, self->world_.levelName);
+    self->billboards_->SetScriptSpritePos(e->spriteSlot, e->pos);
+    return 0;
 }
 
 int ScriptEngine::L_EnableDraw(lua_State* L) {
@@ -462,6 +566,88 @@ int ScriptEngine::L_WORLD_AmbientColor(lua_State* L) {
     return 0;
 }
 
+// WORLD.LoadSky("../Data/Maps/<dome>") -> layer count, read out of the dome
+// mesh itself: objects name their layer ("layer01shape",
+// "_trans_layer03shape"), and the count is how many carry one. An empty path
+// (Cfg.RenderSky < 2) or an unreadable mesh returns 0, which sends
+// CLevel:ReloadSky down the low-quality path - the same fallback the
+// original uses for DX7-class hardware.
+int ScriptEngine::L_WORLD_LoadSky(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const std::string mapPath = luaL_optstring(L, 1, "");
+    self->world_.skyDomeMap.clear();
+    self->world_.skyLayerCount = 0;
+
+    if (!mapPath.empty() && mapPath.back() != '/') {
+        MapMesh dome;
+        if (MapMesh::Load(self->host_->ResolvePath(mapPath), dome)) {
+            int count = 0;
+            for (const MapObject& o : dome.objects) {
+                std::string low = o.name;
+                for (char& c : low)
+                    c = char(std::tolower(static_cast<unsigned char>(c)));
+                if (low.find("layer") != std::string::npos) ++count;
+            }
+            if (count > 4) count = 4;
+            if (count > 0) {
+                const size_t slash = mapPath.find_last_of("/\\");
+                self->world_.skyDomeMap =
+                    slash == std::string::npos ? mapPath : mapPath.substr(slash + 1);
+                self->world_.skyLayerCount = count;
+            }
+        }
+    }
+    lua_pushnumber(L, self->world_.skyLayerCount);
+    return 1;
+}
+
+// WORLD.LoadLowQualitySky("../Data/Maps/<dome>", height, angle) -> layer
+// count (one: the single-texture dome).
+int ScriptEngine::L_WORLD_LoadLowQualitySky(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const std::string mapPath = luaL_optstring(L, 1, "");
+    self->world_.skyMap.clear();
+    if (mapPath.empty() || mapPath.back() == '/' ||
+        !FileSystem::Get().Exists(self->host_->ResolvePath(mapPath))) {
+        lua_pushnumber(L, 0);
+        return 1;
+    }
+    const size_t slash = mapPath.find_last_of("/\\");
+    self->world_.skyMap = slash == std::string::npos ? mapPath : mapPath.substr(slash + 1);
+    self->world_.skyAngle = float(luaL_optnumber(L, 3, 0));
+    lua_pushnumber(L, 1);
+    return 1;
+}
+
+// WORLD.SetupSkyLayer(i, texMask, texLMap,
+//     tex1, rot, panU, panV, tileU, tileV,
+//     tex2, rot, panU, panV, tileU, tileV) - argument order straight from
+// CLevel:ReloadSky. On the low-quality path (no layered dome) the only
+// meaningful argument is tex1: the dome's single texture.
+int ScriptEngine::L_WORLD_SetupSkyLayer(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const int i = int(luaL_optnumber(L, 1, 0));
+    if (self->world_.skyLayerCount == 0) {
+        self->world_.skyTexture = luaL_optstring(L, 4, "");
+        return 0;
+    }
+    if (i < 0 || i >= 4) return 0;
+    SkyLayer& layer = self->world_.skyLayers[i];
+    layer.mask = luaL_optstring(L, 2, "");
+    layer.lightmap = luaL_optstring(L, 3, "");
+    SkyTexture* tex[2] = {&layer.tex1, &layer.tex2};
+    for (int t = 0; t < 2; ++t) {
+        const int base = 4 + t * 6;
+        tex[t]->name = luaL_optstring(L, base, "");
+        tex[t]->rotSpeed = float(luaL_optnumber(L, base + 1, 0));
+        tex[t]->panU = float(luaL_optnumber(L, base + 2, 0));
+        tex[t]->panV = float(luaL_optnumber(L, base + 3, 0));
+        tex[t]->tileU = float(luaL_optnumber(L, base + 4, 1));
+        tex[t]->tileV = float(luaL_optnumber(L, base + 5, 1));
+    }
+    return 0;
+}
+
 int ScriptEngine::L_MESH_SetDefaultDetailMaps(lua_State* L) {
     ScriptEngine* self = From(L);
     self->world_.detailTex = luaL_optstring(L, 1, "");
@@ -487,7 +673,13 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"ENTITY", "GetRotationQ", L_GetRotationQ},
         {"ENTITY", "SetOrientation", L_SetOrientation},
         {"ENTITY", "GetOrientation", L_GetOrientation},
+        {"ENTITY", "SetScale", L_SetScale},
         {"ENTITY", "EnableDraw", L_EnableDraw},
+        {"PARTICLE", "AddEmitter", L_PARTICLE_AddEmitter},
+        {"PARTICLE", "SetupEmitter", L_PARTICLE_SetupEmitter},
+        {"PARTICLE", "SetEvolve", L_NoOpNative},
+        {"PARTICLE", "SetFixedTransform", L_NoOpNative},
+        {"BILLBOARD", "SetupCorona", L_BILLBOARD_SetupCorona},
         {"ENTITY", "GetVelocity", L_GetVelocity},
         {"ENTITY", "PO_Create", L_PO_Create},
         {"ENTITY", "PO_Exist", L_PO_Exist},
@@ -504,6 +696,9 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"WORLD", "SetupFog", L_WORLD_SetupFog},
         {"WORLD", "SetFarClipDist", L_WORLD_SetFarClipDist},
         {"WORLD", "AmbientColor", L_WORLD_AmbientColor},
+        {"WORLD", "LoadSky", L_WORLD_LoadSky},
+        {"WORLD", "LoadLowQualitySky", L_WORLD_LoadLowQualitySky},
+        {"WORLD", "SetupSkyLayer", L_WORLD_SetupSkyLayer},
         {"MESH", "SetDefaultDetailMaps", L_MESH_SetDefaultDetailMaps},
     };
     for (const auto& n : natives) host.RegisterNative(n.module, n.name, n.fn, this);

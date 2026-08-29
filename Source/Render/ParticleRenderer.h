@@ -38,6 +38,23 @@ public:
     // Advances every emitter. dt is real seconds.
     void Tick(float dt);
 
+    // --- script-driven emitters (the PARTICLE.* native path) ---
+    // The scripts resolve the effect themselves (LoadParticleFX walks
+    // ParticleFXArray and calls PARTICLE.AddEmitter per entry), so only the
+    // emitter .ini name arrives here; the .pfx entry's offset/rotation/scale
+    // follow through SetupScriptEmitter and the owning entity's transform
+    // through SetScriptEmitterOwner - composed with the same
+    // EmitterDef::SetupTransform rule Build applies. Returns the emitter
+    // slot, or -1 when the emitter cannot be resolved.
+    int AddScriptEmitter(const std::string& emitterFile, EmitterLibrary& library,
+                         TextureCache& textures, const std::string& levelHint);
+    void SetupScriptEmitter(int slot, float refScale, const float refOffset[3],
+                            const float refRotDegrees[3]);
+    void SetScriptEmitterOwner(int slot, const float ownerPos[3],
+                               const float ownerRot9[9], float entityScale,
+                               bool visible);
+    void RemoveScriptEmitter(int slot);
+
     void Draw(bgfx::ViewId view, const Camera& camera, int width, int height);
 
     // Multiplies emitter positions and sizes, like EntityRenderer's - the level
@@ -95,7 +112,22 @@ private:
 
         bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
         uint64_t blendState = 0;
+
+        // Script-driven emitters keep their .pfx entry and owner state so
+        // either side can change and the pose recomposes; slots stay put so
+        // handles remain stable.
+        bool alive = true;
+        bool visible = true;
+        float refOffset[3] = {0, 0, 0};
+        float refRotDeg[3] = {0, 0, 0};
+        float refScale = 1.f;
+        float entityScale = 1.f;
+        float ownerRot9[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
     };
+
+    // Recomposes a script emitter's pose and ranges from its stored .pfx
+    // entry and owner state.
+    void RecomposeScript(Emitter& e);
 
     // Rebuilds the scaled ranges from params, the way SetScale does.
     void ApplyScale(Emitter& e, float scale) const;

@@ -656,9 +656,17 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     entities.SetCullMode(1);   // .pkmdl winding; pack meshes carry their own state
     if (!entities.Init(shaderDir)) return 3;
 
-    // Boot the scripts with the renderer and the simulation attached, then
-    // let them load the level: every ENTITY.Create lands in the renderer and
-    // every PO_Create in Jolt, as they happen.
+    EmitterLibrary emitterScripts;
+    emitterScripts.Init(root + "/Scripts");
+    ParticleRenderer particles;
+    const bool particlesReady = particles.Init(shaderDir);
+    BillboardRenderer billboards;
+    const bool billboardsReady = billboards.Init(shaderDir);
+
+    // Boot the scripts with the renderers and the simulation attached, then
+    // let them load the level: every ENTITY.Create lands in the renderer,
+    // every PO_Create in Jolt, every AddEmitter and SetupCorona in its
+    // renderer, as they happen.
     PhysicsWorld physics;
     physics.SetProbeRadius(kCameraRadius);
     LuaHost host;
@@ -667,6 +675,8 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     engine.Bind(host);
     engine.AttachRenderer(&entities, &textures, root);
     engine.AttachPhysics(&physics, root);
+    if (particlesReady) engine.AttachParticles(&particles, &emitterScripts);
+    if (billboardsReady) engine.AttachBillboards(&billboards);
     if (!host.Boot()) return 3;
     host.CallGameInit();
     host.CallGameLoadLevel(levelName);
@@ -695,6 +705,11 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     info.detailTex = ws.detailTex;
     info.detailTileU = ws.detailTileU;
     info.detailTileV = ws.detailTileV;
+    info.skyDomeMap = ws.skyDomeMap;
+    for (int i = 0; i < 4; ++i) info.skyLayers[i] = ws.skyLayers[i];
+    info.skyMap = ws.skyMap;
+    info.skyTexture = ws.skyTexture;
+    info.skyAngle = ws.skyAngle;
     const size_t slash = ws.mapPath.find_last_of("/\\");
     info.mapFile = slash == std::string::npos ? ws.mapPath : ws.mapPath.substr(slash + 1);
 
@@ -718,6 +733,18 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     } else if (!ws.loadRequested) {
         LogWarn("the scripts never asked for a map - is '%s' a level?", levelName);
     }
+
+    SkyRenderer sky;
+    bool skyReady = false;
+    if (sky.Init(shaderDir)) skyReady = sky.Load(root + "/Maps", info, textures);
+    LogInfo("sky: %s (dome '%s', %d layers, lowq '%s')",
+            skyReady ? (sky.layered() ? "layered" : "lowquality") : "none",
+            ws.skyDomeMap.c_str(), ws.skyLayerCount, ws.skyMap.c_str());
+
+    // Corona line-of-sight traces run against the same solid geometry the
+    // world is drawn from.
+    CollisionMesh collision;
+    if (map) collision.Build(*map, ws.scale);
 
     Camera camera;
     float startPos[3];
@@ -786,11 +813,23 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
         engine.FlushToRenderer();
 
         renderer.BeginFrame();
+        if (skyReady)
+            sky.Draw(Renderer::kSkyView, camera, window.width(), window.height(), elapsed);
         if (worldReady)
             world.Draw(Renderer::kWorldView, camera, window.width(), window.height(),
                        info, elapsed);
         entities.Draw(Renderer::kWorldView, camera, window.width(), window.height(),
                       info, elapsed);
+        // Particles then coronas last, exactly as in the hand-driven loop:
+        // blended, no depth writes, and coronas ignore depth entirely.
+        if (particlesReady) {
+            particles.Tick(dt);
+            particles.Draw(Renderer::kWorldView, camera, window.width(), window.height());
+        }
+        if (billboardsReady) {
+            billboards.Update(camera, dt, collision);
+            billboards.Draw(Renderer::kWorldView, camera);
+        }
 
         renderer.DebugText(1, "PainfulEngine (script-driven)  -  %s  -  %.1f fps",
                            renderer.BackendName().c_str(), dt > 0.f ? 1.f / dt : 0.f);
@@ -803,10 +842,13 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
                            worldReady ? world.zoneCount() : 0);
         renderer.DebugText(4, "pos %.1f %.1f %.1f   rot %.2f %.2f", camera.pos[0],
                            camera.pos[1], camera.pos[2], camera.yaw, camera.pitch);
-        renderer.DebugText(5, "physics: %s, %zu static tris, %zu bodies, gravity %.2f",
+        renderer.DebugText(5, "physics: %s, %zu static tris, %zu bodies, gravity %.2f   |   "
+                              "%zu particles in %zu emitters, %zu/%zu billboards",
                            noclip ? "camera NOCLIP" : "camera collides",
                            physics.staticTriangles(), physics.bodyCount(),
-                           physics.settings().gravity);
+                           physics.settings().gravity,
+                           particles.liveParticles(), particles.emitters(),
+                           billboards.visible(), billboards.placed());
         renderer.DebugText(6, "%s - WASD move, shift fast, space/ctrl up-down, N noclip, esc release",
                            window.mouseCaptured() ? "mouse captured" : "click to capture mouse");
         renderer.EndFrame();

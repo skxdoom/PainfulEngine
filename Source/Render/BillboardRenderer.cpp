@@ -237,6 +237,53 @@ void BillboardRenderer::FadeTick(Sprite& s, bool nowVisible, float dt) const {
     }
 }
 
+int BillboardRenderer::SetupScriptCorona(int slot, const float args[9],
+                                         const std::string& texture,
+                                         uint32_t packedColor, int blendMode,
+                                         bool spriteOnly, TextureCache& textures,
+                                         const std::string& levelHint) {
+    if (slot < 0 || size_t(slot) >= sprites_.size()) {
+        sprites_.push_back(Sprite());
+        slot = int(sprites_.size() - 1);
+    }
+    Sprite& s = sprites_[slot];
+    const bool wasCorona = s.corona;
+
+    // The native's field-for-field mapping (Engine.dll 0x10137b70).
+    s.alpha = args[0];
+    s.fadeInTime = args[1];
+    s.fadeOutTime = args[2];
+    s.minSize = args[3] * scaleMultiplier_;
+    s.minDistance = args[4];
+    s.size = args[5] * scaleMultiplier_;
+    s.maxDistance = args[6];
+    s.offDistance = args[7];
+    s.traceMargin = args[8];
+    s.corona = !spriteOnly;
+    // The colour is our own R3D.RGBA packing; its alpha channel is unused -
+    // the corona's alpha comes from the fade.
+    s.r = uint8_t((packedColor >> 16) & 0xFF);
+    s.g = uint8_t((packedColor >> 8) & 0xFF);
+    s.b = uint8_t(packedColor & 0xFF);
+    s.blendState = BlendModeState(RemapBlendMode(blendMode));
+    s.texture = textures.Get(texture, levelHint);
+    s.curSize = s.size;
+    // Coronas start hidden and fade in; plain sprites sit at their target.
+    s.curAlpha = s.corona ? 0.f : s.alpha;
+    if (s.corona && !wasCorona) ++coronas_;
+    return slot;
+}
+
+void BillboardRenderer::SetScriptSpritePos(int slot, const float pos[3]) {
+    if (slot < 0 || size_t(slot) >= sprites_.size()) return;
+    for (int i = 0; i < 3; ++i) sprites_[slot].pos[i] = pos[i] * scaleMultiplier_;
+}
+
+void BillboardRenderer::RemoveScriptSprite(int slot) {
+    if (slot < 0 || size_t(slot) >= sprites_.size()) return;
+    sprites_[slot].alive = false;
+}
+
 void BillboardRenderer::Update(const Camera& camera, float dt, const CollisionMesh& collision) {
     visible_ = 0;
     traces_ = 0;
@@ -244,6 +291,7 @@ void BillboardRenderer::Update(const Camera& camera, float dt, const CollisionMe
     dt = std::min(dt, 0.1f);
 
     for (Sprite& s : sprites_) {
+        if (!s.alive) continue;
         if (!s.corona) {
             s.curAlpha = s.alpha;
             if (s.curAlpha > 0.f) ++visible_;
@@ -307,7 +355,7 @@ void BillboardRenderer::Draw(bgfx::ViewId view, const Camera& camera) {
     up[2] = right[0] * forward[1] - right[1] * forward[0];
 
     for (const Sprite& s : sprites_) {
-        if (s.curAlpha <= 0.f) continue;
+        if (!s.alive || s.curAlpha <= 0.f) continue;
         if (bgfx::getAvailTransientVertexBuffer(4, layout_) < 4) return;
         if (bgfx::getAvailTransientIndexBuffer(6) < 6) return;
 

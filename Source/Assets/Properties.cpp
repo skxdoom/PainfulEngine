@@ -165,26 +165,36 @@ bool Properties::Vector3(const std::string& key, float out[3]) const {
 // matrix routine (FUN_1000bb90) emits the standard TEXTBOOK matrix, applied to
 // row vectors as-is - NOT transposed into row-vector form. Pre-transposing
 // here mirrored every rotation (+28 degrees rendered as -28).
+void EngineQuatToRot9(const float q[4], float out[9]) {
+    const float identity[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    std::memcpy(out, identity, sizeof(identity));
+    const float n = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+    if (n < 1e-6f) return;
+    const float iw = q[0] / n, ix = q[1] / n, iy = q[2] / n, iz = q[3] / n;
+    // Verbatim from the engine's own conversion (FUN_1000bb90), applied to
+    // row vectors as-is.
+    out[0] = 1 - 2 * (iy * iy + iz * iz);
+    out[1] = 2 * (ix * iy - iz * iw);
+    out[2] = 2 * (ix * iz + iy * iw);
+    out[3] = 2 * (ix * iy + iz * iw);
+    out[4] = 1 - 2 * (ix * ix + iz * iz);
+    out[5] = 2 * (iy * iz - ix * iw);
+    out[6] = 2 * (ix * iz - iy * iw);
+    out[7] = 2 * (iy * iz + ix * iw);
+    out[8] = 1 - 2 * (ix * ix + iy * iy);
+}
+
 void ReadRotation(const Properties& props, float out[9]) {
     const float identity[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
     std::memcpy(out, identity, sizeof(identity));
 
     if (const Value* q = props.Find("Rot")) {
         if (q->kind == Value::Kind::Ctor && q->args.size() >= 4) {
-            const float w = q->Arg(0), x = q->Arg(1), y = q->Arg(2), z = q->Arg(3);
-            const float n = std::sqrt(w * w + x * x + y * y + z * z);
+            const float quat[4] = {q->Arg(0), q->Arg(1), q->Arg(2), q->Arg(3)};
+            const float n = std::sqrt(quat[0] * quat[0] + quat[1] * quat[1] +
+                                      quat[2] * quat[2] + quat[3] * quat[3]);
             if (n > 1e-6f) {
-                const float iw = w / n, ix = x / n, iy = y / n, iz = z / n;
-                // Verbatim from the engine's own conversion.
-                out[0] = 1 - 2 * (iy * iy + iz * iz);
-                out[1] = 2 * (ix * iy - iz * iw);
-                out[2] = 2 * (ix * iz + iy * iw);
-                out[3] = 2 * (ix * iy + iz * iw);
-                out[4] = 1 - 2 * (ix * ix + iz * iz);
-                out[5] = 2 * (iy * iz - ix * iw);
-                out[6] = 2 * (ix * iz - iy * iw);
-                out[7] = 2 * (iy * iz + ix * iw);
-                out[8] = 1 - 2 * (ix * ix + iy * iy);
+                EngineQuatToRot9(quat, out);
                 return;
             }
         }

@@ -375,30 +375,6 @@ void EntityRenderer::Build(const Level& level, TemplateCache& templates,
     }
 }
 
-namespace {
-// Engine-order (w,x,y,z) quaternion to the row-vector rotation the instance
-// transform wants - the same textbook form ReadRotation uses, straight from
-// the engine's own conversion (FUN_1000bb90).
-void QuatToRot9(const float q[4], float out[9]) {
-    const float n = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
-    if (n < 1e-6f) {
-        const float identity[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
-        std::memcpy(out, identity, sizeof(identity));
-        return;
-    }
-    const float w = q[0] / n, x = q[1] / n, y = q[2] / n, z = q[3] / n;
-    out[0] = 1 - 2 * (y * y + z * z);
-    out[1] = 2 * (x * y - z * w);
-    out[2] = 2 * (x * z + y * w);
-    out[3] = 2 * (x * y + z * w);
-    out[4] = 1 - 2 * (x * x + z * z);
-    out[5] = 2 * (y * z - x * w);
-    out[6] = 2 * (x * z - y * w);
-    out[7] = 2 * (y * z + x * w);
-    out[8] = 1 - 2 * (x * x + y * y);
-}
-} // namespace
-
 int EntityRenderer::CreateScriptModel(const std::string& modelName, float scale,
                                       TextureCache& textures,
                                       const std::string& modelsRoot) {
@@ -436,7 +412,7 @@ void EntityRenderer::SetScriptPose(int slot, const float pos[3], const float rot
     if (slot < 0 || size_t(slot) >= instances_.size()) return;
     Instance& instance = instances_[slot];
     for (int c = 0; c < 3; ++c) instance.pos[c] = pos[c];
-    QuatToRot9(rotWXYZ, instance.rot);
+    EngineQuatToRot9(rotWXYZ, instance.rot);
     instance.transform = MakeTransform(instance.pos, instance.rot, instance.scale);
     UpdateBounds(instance, models_[instance.model]);
 }

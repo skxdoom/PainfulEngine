@@ -236,9 +236,14 @@ Details, the numbers, and the sizeable list of what is still missing are in
   static world synchronously, `ENTITY.PO_Create` makes each body bare and
   the scripts dress it through the `PO_Set*` family — the original's own
   division of work. Items settle onto the floor before the first frame, and
-  the camera collides and pushes props as in `run`. Not yet on this path:
-  collision events into `Game_GetMsg`, sky, particles, billboards, player.
-  See [`LuaHost.md`](LuaHost.md).
+  the camera collides and pushes props as in `run`.
+- **Sky, particles and coronas run on the script path**: the layered sky
+  through `WORLD.LoadSky`/`SetupSkyLayer`, effects through
+  `PARTICLE.AddEmitter`/`SetupEmitter` (resolution stays script-side), and
+  coronas through `BILLBOARD.SetupCorona`. The scripts create the item-bound
+  flames the hand-driven batch loader never resolved, so `game` shows more
+  than `run`. Not yet on this path: collision events into `Game_GetMsg`,
+  player, sound. See [`LuaHost.md`](LuaHost.md).
 
 ### Everything else
 

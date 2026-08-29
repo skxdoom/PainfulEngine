@@ -5,11 +5,15 @@
 
 #include "../Assets/Mpk.h"
 #include "../Script/LuaHost.h"
+#include "../World/Level.h"
 #include "../World/PhysicsWorld.h"
 
 namespace painful {
 
+class BillboardRenderer;
+class EmitterLibrary;
 class EntityRenderer;
+class ParticleRenderer;
 class TextureCache;
 
 // The engine-side state behind the script natives: the entity registry that
@@ -43,6 +47,10 @@ public:
         bool worldObject = false;   // WORLD.FindEntityByName pseudo-entity
         int rendererInstance = -1;  // EntityRenderer slot, -1 when headless/unresolved
         int physicsBody = -1;       // PhysicsWorld script-body slot
+        int spriteSlot = -1;        // BillboardRenderer slot (Billboard type)
+        // ParticleRenderer slots, indexed by the per-entity emitter index the
+        // scripts hold (-1 entries when running headless).
+        std::vector<int> emitterSlots;
     };
 
     // What the scripts told WORLD.* to set up; the game loop turns this into
@@ -62,6 +70,15 @@ public:
         float ambient[3] = {128, 128, 128};     // 0-255
         std::string detailTex;
         float detailTileU = 8.2f, detailTileV = 7.1f;
+
+        // Sky, via WORLD.LoadSky / SetupSkyLayer / LoadLowQualitySky - the
+        // same data CLevel:ReloadSky pushes at the original.
+        std::string skyDomeMap;      // layered dome mesh, basename
+        int skyLayerCount = 0;
+        SkyLayer skyLayers[4];
+        std::string skyMap;          // low-quality dome, basename
+        std::string skyTexture;      // low-quality single texture
+        float skyAngle = 0.f;
     };
 
     // Installs the real natives over their stubs. Call after LuaHost::Init.
@@ -77,6 +94,11 @@ public:
     // moment the scripts ask for it (entity bodies follow through
     // ENTITY.PO_Create during the same level load), and PO_* becomes real.
     void AttachPhysics(PhysicsWorld* physics, const std::string& dataRoot);
+
+    // Attaches the effect renderers: PARTICLE.* and BILLBOARD.SetupCorona
+    // become real.
+    void AttachParticles(ParticleRenderer* particles, EmitterLibrary* library);
+    void AttachBillboards(BillboardRenderer* billboards);
 
     // Writes the simulation's poses back into the registry and the renderer.
     // Call after every PhysicsWorld::Update. activeOnly=false sweeps sleeping
@@ -102,6 +124,7 @@ private:
     Entity* Find(int handle);
     void SyncPose(Entity& e);
     void CreateRendererInstance(Entity& e);
+    void UpdateAttachments(Entity& e);
     bool SplitPackSource(const std::string& source, std::string& packName) const;
 
     // --- natives ---
@@ -113,7 +136,12 @@ private:
     static int L_GetRotationQ(lua_State* L);
     static int L_SetOrientation(lua_State* L);
     static int L_GetOrientation(lua_State* L);
+    static int L_SetScale(lua_State* L);
     static int L_EnableDraw(lua_State* L);
+    static int L_PARTICLE_AddEmitter(lua_State* L);
+    static int L_PARTICLE_SetupEmitter(lua_State* L);
+    static int L_NoOpNative(lua_State* L);
+    static int L_BILLBOARD_SetupCorona(lua_State* L);
     static int L_GetVelocity(lua_State* L);
     static int L_PO_Create(lua_State* L);
     static int L_PO_Exist(lua_State* L);
@@ -130,6 +158,9 @@ private:
     static int L_WORLD_SetupFog(lua_State* L);
     static int L_WORLD_SetFarClipDist(lua_State* L);
     static int L_WORLD_AmbientColor(lua_State* L);
+    static int L_WORLD_LoadSky(lua_State* L);
+    static int L_WORLD_LoadLowQualitySky(lua_State* L);
+    static int L_WORLD_SetupSkyLayer(lua_State* L);
     static int L_MESH_SetDefaultDetailMaps(lua_State* L);
 
     LuaHost* host_ = nullptr;
@@ -141,6 +172,9 @@ private:
     EntityRenderer* renderer_ = nullptr;
     TextureCache* textures_ = nullptr;
     PhysicsWorld* physics_ = nullptr;
+    ParticleRenderer* particles_ = nullptr;
+    EmitterLibrary* emitterLib_ = nullptr;
+    BillboardRenderer* billboards_ = nullptr;
     std::string dataRoot_;
 
     MapMesh map_;

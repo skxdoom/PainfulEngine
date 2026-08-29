@@ -406,9 +406,74 @@ void ParticleRenderer::Tick(float dt) {
     dt = std::min(dt, 0.1f);
     live_ = 0;
     for (Emitter& e : emitters_) {
+        if (!e.alive || !e.visible) continue;
         TickEmitter(e, dt);
         live_ += e.particles.size();
     }
+}
+
+int ParticleRenderer::AddScriptEmitter(const std::string& emitterFile,
+                                       EmitterLibrary& library, TextureCache& textures,
+                                       const std::string& levelHint) {
+    const EmitterParams* params = library.Emitter(emitterFile);
+    if (!params) {
+        ++unresolved_;
+        return -1;
+    }
+    Emitter e;
+    e.params = params;
+    e.texture = textures.Get(params->texture, levelHint);
+    e.blendState = BlendModeState(params->blendMode);
+    e.particles.reserve(std::min(params->maxParticles, 4096));
+    ApplyScale(e, scaleMultiplier_);
+    emitters_.push_back(std::move(e));
+    return int(emitters_.size() - 1);
+}
+
+void ParticleRenderer::SetupScriptEmitter(int slot, float refScale,
+                                          const float refOffset[3],
+                                          const float refRotDegrees[3]) {
+    if (slot < 0 || size_t(slot) >= emitters_.size()) return;
+    Emitter& e = emitters_[slot];
+    for (int i = 0; i < 3; ++i) {
+        e.refOffset[i] = refOffset[i];
+        e.refRotDeg[i] = refRotDegrees[i];
+    }
+    e.refScale = refScale > 0.f ? refScale : 1.f;
+    RecomposeScript(e);
+}
+
+void ParticleRenderer::SetScriptEmitterOwner(int slot, const float ownerPos[3],
+                                             const float ownerRot9[9],
+                                             float entityScale, bool visible) {
+    if (slot < 0 || size_t(slot) >= emitters_.size()) return;
+    Emitter& e = emitters_[slot];
+    for (int i = 0; i < 3; ++i) e.ownerPos[i] = ownerPos[i] * scaleMultiplier_;
+    for (int i = 0; i < 9; ++i) e.ownerRot9[i] = ownerRot9[i];
+    e.entityScale = entityScale > 0.f ? entityScale : 1.f;
+    e.visible = visible;
+    RecomposeScript(e);
+}
+
+void ParticleRenderer::RemoveScriptEmitter(int slot) {
+    if (slot < 0 || size_t(slot) >= emitters_.size()) return;
+    emitters_[slot].alive = false;
+    emitters_[slot].particles.clear();
+}
+
+void ParticleRenderer::RecomposeScript(Emitter& e) {
+    // The same EmitterDef::SetupTransform rule Build applies: the entry's
+    // offset is scaled by the parent entity but NOT rotated by it, the
+    // orientations compose, and the emitter's scale is the product of the
+    // entity's, the entry's and the level multiplier.
+    float defRot[9];
+    EulerDegreesToMatrix(e.refRotDeg, defRot);
+    MatMul3(e.ownerRot9, defRot, e.rot);
+    for (int i = 0; i < 3; ++i) {
+        e.pos[i] = e.ownerPos[i] + e.entityScale * e.refOffset[i] * scaleMultiplier_;
+        e.prevPos[i] = e.pos[i];
+    }
+    ApplyScale(e, e.entityScale * e.refScale * scaleMultiplier_);
 }
 
 void ParticleRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int height) {
@@ -423,6 +488,7 @@ void ParticleRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, 
     Cross(right, forward, up);
 
     for (Emitter& e : emitters_) {
+        if (!e.alive || !e.visible) continue;
         const size_t n = e.particles.size();
         if (n == 0) continue;
 

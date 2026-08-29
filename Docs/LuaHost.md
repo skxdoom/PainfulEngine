@@ -141,11 +141,16 @@ PainfulEngine game <DataRoot> [level] [--shot f]
 
 boots the scripts, calls `Game:Init()` and `Game:LoadLevel(level)`, and
 renders what they built: the map they asked for via `WORLD.LoadMap`, fog and
-ambient from `WORLD.SetupFog`/`AmbientColor`, and every entity the class
-scripts created. On Cathedral: 958 files, **631 entities created by the
-scripts** (571 live after the cache pass), zero script errors, from the
-archives or a loose tree alike. Not yet on this path: sky, particles,
-billboards, sound, player.
+ambient from `WORLD.SetupFog`/`AmbientColor`, the layered sky through
+`LoadSky`/`SetupSkyLayer` (the layer count is read out of the dome mesh's
+own object names), light coronas through `BILLBOARD.SetupCorona`, particle
+effects through `PARTICLE.AddEmitter`/`SetupEmitter` (the effect resolution
+stays script-side in `LoadParticleFX`), and every entity the class scripts
+created. On Cathedral: 958 files, **631 entities created by the scripts**
+(571 live after the cache pass), zero script errors, from the archives or a
+loose tree alike. The script path even runs MORE effects than the
+hand-driven one - it creates the item-bound flames (`bindFX`) the batch
+loader never resolved. Not yet on this path: sound, player.
 
 **Physics is on this path.** `WORLD.LoadMap` builds the Jolt static world the
 moment the scripts ask (entity bodies follow through `PO_Create` in the same
@@ -197,10 +202,9 @@ Color:Compose() == R3D.RGBA(r,g,b,a)  -- packing is ours on both ends
 
 ## Next stages
 
-1. Collision/region events out of Jolt into `Game_GetMsg`
+1. `CreatePlayer` + the player controller; `CAM.*` becomes the player camera.
+2. Collision/region events out of Jolt into `Game_GetMsg`
    (COLLISION_WITH_OTHER_ENTITY, REGION_ENTERED) - the half of PO_* physics
-   that talks back.
-2. Sky, particles and billboards on the `game` path (the script state for
-   them is already flowing through stubs).
-3. `CreatePlayer` + the player controller; `CAM.*` becomes the player camera.
-4. `PMENU` against a real menu renderer; `SOUND` when audio lands.
+   that talks back, and what triggers/ambushes/pickups hang off once a
+   player exists to trip them.
+3. `PMENU` against a real menu renderer; `SOUND` when audio lands.
