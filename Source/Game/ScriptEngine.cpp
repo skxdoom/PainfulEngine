@@ -629,6 +629,157 @@ int ScriptEngine::L_SetPlayerSpeed(lua_State* L) {
     return 0;
 }
 
+// ---------------------------------------------------------------- regions
+
+// REGION.BuildFromPoint(e, points): a trigger volume from an array of
+// vectors ({X=..., Y=..., Z=...} tables). Stored as the points' AABB - the
+// shipped regions are boxes and box-shaped prisms; a genuine polygon prism
+// test can replace this if a level ever needs one.
+int ScriptEngine::L_REGION_BuildFromPoint(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e || !lua_istable(L, 2)) return 0;
+
+    bool any = false;
+    for (int i = 1;; ++i) {
+        lua_rawgeti(L, 2, i);
+        if (!lua_istable(L, -1)) {
+            lua_pop(L, 1);
+            break;
+        }
+        float p[3];
+        const char* axes[3] = {"X", "Y", "Z"};
+        bool ok = true;
+        for (int a = 0; a < 3; ++a) {
+            lua_pushstring(L, axes[a]);
+            lua_gettable(L, -2);
+            ok = ok && lua_isnumber(L, -1);
+            p[a] = float(lua_tonumber(L, -1));
+            lua_pop(L, 1);
+        }
+        lua_pop(L, 1);
+        if (!ok) continue;
+        for (int a = 0; a < 3; ++a) {
+            if (!any || p[a] < e->regionMin[a]) e->regionMin[a] = p[a];
+            if (!any || p[a] > e->regionMax[a]) e->regionMax[a] = p[a];
+        }
+        any = true;
+    }
+    e->isRegion = any;
+    e->playerInside = false;
+    return 0;
+}
+
+void ScriptEngine::TickTriggers() {
+    if (!host_ || !playerHandle_) return;
+    const Entity* player = Find(playerHandle_);
+    if (!player) return;
+
+    // The test point follows the scripts' own convention: a metre above the
+    // feet, the same PY+1 every IsInside caller uses.
+    float at[3];
+    if (pawn_) {
+        pawn_->FloorPos(at);
+    } else {
+        for (int i = 0; i < 3; ++i) at[i] = player->pos[i];
+    }
+    at[1] += 1.f;
+
+    for (auto& kv : entities_) {
+        Entity& e = kv.second;
+        if (!e.isRegion) continue;
+        bool inside = true;
+        for (int a = 0; a < 3 && inside; ++a)
+            inside = at[a] >= e.pos[a] + e.regionMin[a] &&
+                     at[a] <= e.pos[a] + e.regionMax[a];
+        if (inside == e.playerInside) continue;
+        e.playerInside = inside;
+        const double args[2] = {double(kv.first), double(playerHandle_)};
+        host_->PostMsg(inside ? "REGION_ENTERED" : "REGION_LEFT", args, 2);
+    }
+}
+
+// The CAM reads, from the pose the game loop feeds each frame. GetAng is in
+// degrees (CActor converts with -x * 3.14/180), GetAngRad in radians
+// (CPlayer wraps it straight into 0..2pi).
+int ScriptEngine::L_CAM_GetPos(lua_State* L) {
+    ScriptEngine* self = From(L);
+    lua_pushnumber(L, self->camPos_[0]);
+    lua_pushnumber(L, self->camPos_[1]);
+    lua_pushnumber(L, self->camPos_[2]);
+    return 3;
+}
+
+int ScriptEngine::L_CAM_GetForwardVector(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const float cp = std::cos(self->camPitch_);
+    lua_pushnumber(L, std::cos(self->camYaw_) * cp);
+    lua_pushnumber(L, std::sin(self->camPitch_));
+    lua_pushnumber(L, std::sin(self->camYaw_) * cp);
+    return 3;
+}
+
+int ScriptEngine::L_CAM_GetAng(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const float k = 180.f / 3.14159265f;
+    lua_pushnumber(L, self->camYaw_ * k);
+    lua_pushnumber(L, self->camPitch_ * k);
+    lua_pushnumber(L, 0);
+    return 3;
+}
+
+int ScriptEngine::L_CAM_GetAngRad(lua_State* L) {
+    ScriptEngine* self = From(L);
+    lua_pushnumber(L, self->camYaw_);
+    lua_pushnumber(L, self->camPitch_);
+    lua_pushnumber(L, 0);
+    return 3;
+}
+
+// The head-to-camera offset the original applies when the pawn drives the
+// view; zero until the crouch/land bob that feeds it exists.
+int ScriptEngine::L_PLAYER_GetCameraFix(lua_State* L) {
+    lua_pushnumber(L, 0);
+    return 1;
+}
+
+// CAM.GetRawRotation() -> the accumulated look angles in DEGREES - Game's
+// camera tick wraps them with math.mod(...,360). While the C++ loop drives
+// the camera, these mirror its state and MOUSE.GetDelta reports no motion,
+// so the script-side accumulation is a faithful no-op; handing the camera
+// to the scripts entirely means feeding real deltas here instead.
+int ScriptEngine::L_CAM_GetRawRotation(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const float k = 180.f / 3.14159265f;
+    lua_pushnumber(L, self->camYaw_ * k);
+    lua_pushnumber(L, self->camPitch_ * k);
+    return 2;
+}
+
+int ScriptEngine::L_MOUSE_GetDelta(lua_State* L) {
+    lua_pushnumber(L, 0);
+    lua_pushnumber(L, 0);
+    return 2;
+}
+
+// INP.GetActionStatus(e) -> the pressed-actions bitmask CPlayer:Tick feeds
+// the weapon logic. Zero until real bindings land - a number, because every
+// bit-flag helper demands one.
+int ScriptEngine::L_INP_GetActionStatus(lua_State* L) {
+    lua_pushnumber(L, 0);
+    return 1;
+}
+
+int ScriptEngine::L_MOUSE_Lock(lua_State* L) {
+    From(L)->mouseLocked_ = lua_toboolean(L, 1) != 0;
+    return 0;
+}
+
+int ScriptEngine::L_MOUSE_IsLocked(lua_State* L) {
+    lua_pushboolean(L, From(L)->mouseLocked_);
+    return 1;
+}
+
 // ---------------------------------------------------------------- WORLD
 
 // WORLD.AddEntity(handle, hidden) - enters the entity into the drawn world;
@@ -876,6 +1027,17 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"ENTITY", "GetWorldPosition", L_GetPosition},
         {"ENTITY", "IsDrawEnabled", L_IsDrawEnabled},
         {"PLAYER", "GetDistanceFromPoint", L_PLAYER_GetDistanceFromPoint},
+        {"REGION", "BuildFromPoint", L_REGION_BuildFromPoint},
+        {"MOUSE", "Lock", L_MOUSE_Lock},
+        {"MOUSE", "IsLocked", L_MOUSE_IsLocked},
+        {"CAM", "GetPos", L_CAM_GetPos},
+        {"CAM", "GetForwardVector", L_CAM_GetForwardVector},
+        {"CAM", "GetAng", L_CAM_GetAng},
+        {"CAM", "GetAngRad", L_CAM_GetAngRad},
+        {"CAM", "GetRawRotation", L_CAM_GetRawRotation},
+        {"MOUSE", "GetDelta", L_MOUSE_GetDelta},
+        {"INP", "GetActionStatus", L_INP_GetActionStatus},
+        {"PLAYER", "GetCameraFix", L_PLAYER_GetCameraFix},
         {nullptr, "CreatePlayer", L_CreatePlayer},
         {nullptr, "GetPlayerSpeed", L_GetPlayerSpeed},
         {nullptr, "SetPlayerSpeed", L_SetPlayerSpeed},

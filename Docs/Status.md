@@ -245,19 +245,40 @@ Details, the numbers, and the sizeable list of what is still missing are in
   than `run`.
 - **The player walks.** `Game:OnPlay` creates it through `CreatePlayer`, the
   engine-side pawn moves from the `Tweak.PlayerMove` constants (as the
-  original divides the work), the camera rides the pawn's head, and
-  `Game.Active` turns the whole gameplay loop on - actors tick, weapons
-  tick, and every item polls `PLAYER.GetDistanceFromPoint` for pickup. `N`
-  switches walk/fly. Not yet: collision events into `Game_GetMsg`, input
-  actions (fire/use), sound. See [`LuaHost.md`](LuaHost.md).
+  original divides the work — the mover recovered from
+  `PhysicsObject::PlayerAction`, see
+  [`PlayerMovement.md`](PlayerMovement.md)), the camera rides the pawn's
+  head, and `Game.Active` turns the whole gameplay loop on - actors tick,
+  weapons tick, and every item polls `PLAYER.GetDistanceFromPoint` for
+  pickup. `N` switches walk/fly.
+- **Triggers fire.** CBox ambushes poll the player globals in Lua (kept
+  alive by truthful mouse-lock natives), engine regions post
+  `REGION_ENTERED`/`REGION_LEFT` into `Game_GetMsg`, and hard landings post
+  `PLAYER_HIT_GROUND`. Walking into an ambush box spawns its monsters
+  through the full `CActor` chain — in bind pose, until animation lands.
+  Not yet: input actions (fire/use), entity-collision events, sound. See
+  [`LuaHost.md`](LuaHost.md).
 
 ### Everything else
 
 - `.pkm` mod packages do not auto-mount yet (their internal format is still an
   open question — `GZipPack` exports hint the engine also reads real ZIPs).
-- The script layer does not yet drive the engine: `WORLD.*`/`ENTITY.*` natives
-  are stubs, so no scripted spawning, triggers, doors, pickups, AI or level
-  progression reaches the screen yet.
-- Nothing wakes the physics props, no player controller, and no ragdolls,
-  glass, explosions, buoyancy, ladders or ice. See [`Physics.md`](Physics.md).
+- **The player cannot act.** Movement is driven C++-side from the camera
+  rather than through the original's own seam — `INP.GetActionStatus` into an
+  `Actions` bitmask, `ENTITY.PO_SetAction`, then `PLAYER.ExecAction` — so
+  there is no firing, weapon switching, rocket jumping or use. The whole
+  `INP` module is stubbed.
+- **Nothing is animated.** `MDL.SetAnim` answers -1 and `MDL.GetAnimTimeScale`
+  answers 0, which also closes `CActor`'s animation-event loop — the path
+  melee damage, footsteps and attack sounds travel down. Entities draw in
+  bind pose.
+- **Monsters do not move.** They spawn from triggers through the full
+  `CActor` chain and then stand still: `ENTITY.PO_Move` is a stub (15 238
+  calls in a 400-frame run), as are `SeesEntity`, `PO_IsOnFloor` and
+  `WPT.Load`.
+- No ragdolls, glass, explosions, buoyancy, ladders or ice. See
+  [`Physics.md`](Physics.md).
 - No sound, no HUD, no menus, no save/load, no netcode.
+
+The measured gap and the order for closing it are in
+[`Gameplay_Roadmap.md`](Gameplay_Roadmap.md).

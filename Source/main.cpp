@@ -609,7 +609,15 @@ static int FitCmd(const char* levelDir, const char* dataRoot) {
 // engine's own sequence - Game:Init() and per-frame ticks - and prints what
 // the scripts actually called. This is the recovery loop for the native API:
 // boot, read the report, implement what the game hit, repeat.
-static int LuaCmd(const char* dataRoot, int frames, const char* level) {
+//
+// Given a level it goes all the way into gameplay: LoadLevel then
+// Game:OnPlay, so the player exists and the whole tick chain runs - actors,
+// weapons, pickup polling, triggers. That is what makes the report a
+// measurement of the GAME rather than of the boot. `exec` then runs one
+// chunk between OnPlay and the first tick, which is how a scripted situation
+// gets set up headlessly (teleport into a trigger, poke a template).
+static int LuaCmd(const char* dataRoot, int frames, const char* level,
+                  const char* exec) {
     LuaHost host;
     if (!host.Init(dataRoot)) {
         LogInfo("failed to create the Lua state");
@@ -620,9 +628,17 @@ static int LuaCmd(const char* dataRoot, int frames, const char* level) {
     const bool ok = host.Boot();
     if (ok) {
         host.CallGameInit();
-        if (level && level[0]) host.CallGameLoadLevel(level);
-        for (int i = 0; i < frames && !host.quitRequested(); ++i)
+        if (level && level[0]) {
+            host.CallGameLoadLevel(level);
+            host.CallGameOnPlay();
+        }
+        // The diagnostic hook: run an arbitrary chunk between OnPlay and the
+        // ticks - teleport the player into a trigger, poke a template, ...
+        if (exec && exec[0]) host.RunString(exec);
+        for (int i = 0; i < frames && !host.quitRequested(); ++i) {
             host.FrameTick(1.0 / 60.0);
+            engine.TickTriggers();
+        }
     }
     LogInfo("entities: %zu created, %zu released, %zu live; map \"%s\" scale %.2f",
             engine.created(), engine.released(), engine.entities().size(),
@@ -692,7 +708,17 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     engine.SyncFromPhysics(false);
 
     // The transition into gameplay: Game:OnPlay creates the player through
-    // CreatePlayer and launches the level's OnPlay actions.
+    // CreatePlayer and launches the level's OnPlay actions. The camera pose
+    // must be primed FIRST: the play transition reads CAM.GetPos to seat the
+    // pawn (SwitchPlayerToPhysics does PO_SetPawnHeadPos(CAM.GetPos())), and
+    // an unprimed origin camera sent the player falling at (0,0,0).
+    // Note the camera is seated at Lev.Pos further down for the no-player
+    // case; prime with the same value here.
+    {
+        float lev[3];
+        if (host.ReadVec3("Lev", "Pos", lev))
+            engine.SetCameraPose(lev, 0.f, 0.f);
+    }
     host.CallGameOnPlay();
 
     // Turn the recorded WORLD.* state into renderer state.
@@ -830,6 +856,20 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
         }
         physics.MoveProbe(camera.pos, !noclip);
 
+        // What the CAM.* reads report while the C++ loop still owns the
+        // view. The scripts derive the player's movement basis from these
+        // (CPlayer:SetupAction off CAM.GetAngRad), so they have to track the
+        // camera every frame, not just at load.
+        engine.SetCameraPose(camera.pos, camera.yaw, camera.pitch);
+
+        // A hard landing is fall damage, script-side: the same
+        // PLAYER_HIT_GROUND PlayerAction queues, on the pawn's own test.
+        const float impact = pawn.TakeGroundHit();
+        if (impact > 0.f && engine.playerHandle()) {
+            const double hitArgs[2] = {double(engine.playerHandle()), double(impact)};
+            host.PostMsg("PLAYER_HIT_GROUND", hitArgs, 2);
+        }
+
         // The engine's frame order, from Game.lua's own comments: Tick before
         // physics, Tick2 after physics, Tick3 after the world tick.
         const double d[1] = {dt};
@@ -838,6 +878,9 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
         engine.SyncFromPhysics();
         host.CallGlobal("Game_Tick2", d, 1);
         host.CallGlobal("Game_Tick3", d, 1);
+        // Region transitions feed the message pump the way the engine's
+        // phantoms do.
+        engine.TickTriggers();
         host.CallGlobal("Game_Render", d, 1);
         host.CallGlobal("Game_PostRender", d, 1);
         host.CallGlobal("Game_GC", nullptr, 0);
@@ -896,6 +939,8 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
             if (frame >= shotFrame + 4) break;
         }
     }
+    LogInfo("game loop ended: %s", host.quitRequested() ? "scripts called Exit()"
+                                                        : "window closed");
     return 0;
 }
 
@@ -1989,7 +2034,7 @@ int main(int argc, char** argv) {
     if (cmd == "levels") return LevelsCmd(argv[2]);
     if (cmd == "lua")
         return LuaCmd(argv[2], argc >= 4 ? std::atoi(argv[3]) : 10,
-                      argc >= 5 ? argv[4] : nullptr);
+                      argc >= 5 ? argv[4] : nullptr, argc >= 6 ? argv[5] : nullptr);
     if (cmd == "game") {
         std::string shot;
         for (int i = 4; i < argc; ++i)

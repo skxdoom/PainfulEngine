@@ -224,11 +224,49 @@ native's own numbers. `ENTITY.GetDimensions` returns the model's world-space
 size - the Slab ambush plates sink by their own height to hide, so it must
 be real.
 
+## Triggers and events
+
+Level triggers come in two shapes, and both work:
+
+- **CBox ambush triggers poll in pure Lua**: `AmbushForPlayer.CBox` and
+  friends test `self:IsInside(PX, PY+1, PZ)` against the player-position
+  globals every tick. The load-bearing detail: `Game:Tick` branches on
+  `MOUSE.IsLocked()` - unlocked runs the EDITOR tick and `PX/PY/PZ` never
+  update - so the mouse-lock natives must be truthful. With them in place,
+  walking into an ambush box launches its `MonstersSpawnPoint`s and monsters
+  spawn through the full `CActor` chain (`PO_SetMonsterType`,
+  `PO_SetMonsterMovementConst`, `PO_SetSightParams`, ...).
+- **Engine regions** (`CArea`, teleport boxes): `REGION.BuildFromPoint(e,
+  points)` builds a volume (stored as the points' AABB), and
+  `ScriptEngine::TickTriggers` posts **`REGION_ENTERED(region, enterer)`** /
+  `REGION_LEFT` into `Game_GetMsg` on the transitions - `OnEnter` fires,
+  which is teleports and checkpoints.
+- The pawn posts **`PLAYER_HIT_GROUND(player, fallSpeed)`** on landings
+  above the engine's threshold of 20 - fall damage is script-side
+  (`OnHitGround`).
+
+The camera tick (`Game:Tick2`) is script-driven in the original: it reads
+`MOUSE.GetDelta`, accumulates `CAM.GetRawRotation`'s degrees, and steers
+`CAM.SetPos`. While the C++ loop drives the camera, `GetRawRotation` mirrors
+its state and `GetDelta` reports zero, making the script-side accumulation a
+faithful no-op; handing the camera over entirely means feeding real deltas.
+`INP.GetActionStatus(e)` returns the pressed-actions bitmask - zero until
+real key bindings land.
+
+The `lua` command's fourth argument runs an arbitrary chunk after
+`Game:OnPlay`, which is how gameplay is tested headless:
+
+```
+PainfulEngine lua <DataRoot> 120 C1L1_Cathedral "ENTITY.SetPosition(Player._Entity,-142.7,8.1,-2.3)"
+```
+
+teleports the player into Cathedral's first ambush box and the monsters
+spawn within the ticked frames.
+
 ## Next stages
 
-1. Collision/region events out of Jolt into `Game_GetMsg`
-   (COLLISION_WITH_OTHER_ENTITY, REGION_ENTERED) - what triggers, ambushes
-   and doors hang off now that a player can trip them.
-2. Input actions (`INP.Action` bitmasks against real key bindings) - firing,
-   use, weapon switch.
+1. Input actions (`INP.Action`/`GetActionStatus` bitmasks against real key
+   bindings) - firing, use, weapon switch.
+2. Entity-vs-entity collision events (COLLISION_WITH_OTHER_ENTITY) out of
+   Jolt contacts.
 3. `PMENU` against a real menu renderer; `SOUND` when audio lands.

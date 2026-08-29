@@ -118,7 +118,10 @@ void PlayerPawn::Move(const PhysicsWorld& physics, const Tweaks& tweaks,
     const float down[3] = {0.f, -0.06f, 0.f};
     physics.SlideSphere(probe, down, kRadius);
     const bool grounded = (feet[1] - probe[1]) < 0.045f;
-    if (grounded && !onGround_) groundedTime_ = 0.f;   // touchdown
+    if (grounded && !onGround_) {
+        groundedTime_ = 0.f;             // touchdown
+        landingImpact_ = -velY_;         // fall speed at impact
+    }
     onGround_ = grounded;
     if (onGround_ && velY_ < 0.f) velY_ = 0.f;
     // A ceiling stops upward motion.

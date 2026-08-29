@@ -46,6 +46,10 @@ public:
     // whatever the root directory is actually called.
     std::string ResolvePath(const std::string& scriptPath) const;
 
+    // Runs one Lua chunk - the diagnostic console's spine. Errors are logged
+    // and counted, never propagated.
+    bool RunString(const std::string& chunk);
+
     // --- the engine -> Lua contract (names recovered from Engine.dll's
     // string table; definitions in Game.lua / HUD.lua) ---
 
@@ -71,10 +75,9 @@ public:
     void FrameTick(double delta);
 
     // Game_GetMsg(msg, ...) - the engine's event pump into the scripts
-    // (EXPLOSION, ENTITY_CREATE, REGION_ENTERED, ...). Arguments must be
-    // pushed by the caller before invoking; this variant covers the no-arg
-    // case.
-    bool PostMsg(const char* msg);
+    // (REGION_ENTERED, PLAYER_HIT_GROUND, EXPLOSION, ...). Numeric arguments
+    // follow the message name, the shape every handler reads via arg[N].
+    bool PostMsg(const char* msg, const double* args = nullptr, int nargs = 0);
 
     // Calls a global function with `nargs` numeric arguments. Errors are
     // logged and counted, never propagated.

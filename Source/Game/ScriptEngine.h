@@ -52,6 +52,18 @@ public:
         // ParticleRenderer slots, indexed by the per-entity emitter index the
         // scripts hold (-1 entries when running headless).
         std::vector<int> emitterSlots;
+        // REGION.BuildFromPoint volume: the points' AABB, held in the
+        // entity's LOCAL space and offset by pos at test time. That is the
+        // shipped convention - CreateRegion and Teleport.CBox both author
+        // extents about the origin and then call ENTITY.SetPosition. CArea
+        // authors world points and never positions the entity, so it would
+        // need pos to stay zero; no shipped level takes that path (none sets
+        // HasRegion), and CArea's points are a walk path rather than a box
+        // anyway, so an AABB would be the wrong shape for it regardless.
+        bool isRegion = false;
+        bool playerInside = false;
+        float regionMin[3] = {0, 0, 0};
+        float regionMax[3] = {0, 0, 0};
     };
 
     // What the scripts told WORLD.* to set up; the game loop turns this into
@@ -112,6 +124,20 @@ public:
     // read where the player actually is. Call after every pawn move.
     void SyncPlayerFromPawn();
 
+    // Tests the player against every region volume and posts
+    // REGION_ENTERED / REGION_LEFT into Game_GetMsg on the transitions.
+    // Call once per frame after the ticks.
+    void TickTriggers();
+
+    // The camera the CAM.* reads report (position, yaw and pitch in
+    // radians). The game loop feeds it every frame; headless runs keep the
+    // defaults.
+    void SetCameraPose(const float pos[3], float yaw, float pitch) {
+        for (int i = 0; i < 3; ++i) camPos_[i] = pos[i];
+        camYaw_ = yaw;
+        camPitch_ = pitch;
+    }
+
     // Writes the simulation's poses back into the registry and the renderer.
     // Call after every PhysicsWorld::Update. activeOnly=false sweeps sleeping
     // bodies too - needed once after the load-time settle, because settled
@@ -170,6 +196,17 @@ private:
     static int L_GetDimensions(lua_State* L);
     static int L_IsDrawEnabled(lua_State* L);
     static int L_PLAYER_GetDistanceFromPoint(lua_State* L);
+    static int L_REGION_BuildFromPoint(lua_State* L);
+    static int L_MOUSE_Lock(lua_State* L);
+    static int L_MOUSE_IsLocked(lua_State* L);
+    static int L_CAM_GetPos(lua_State* L);
+    static int L_CAM_GetForwardVector(lua_State* L);
+    static int L_CAM_GetAng(lua_State* L);
+    static int L_CAM_GetAngRad(lua_State* L);
+    static int L_CAM_GetRawRotation(lua_State* L);
+    static int L_MOUSE_GetDelta(lua_State* L);
+    static int L_INP_GetActionStatus(lua_State* L);
+    static int L_PLAYER_GetCameraFix(lua_State* L);
     static int L_PO_IsEnabled(lua_State* L);
     static int L_PO_Enable(lua_State* L);
     static int L_GetPlayerSpeed(lua_State* L);
@@ -201,6 +238,15 @@ private:
     PlayerPawn* pawn_ = nullptr;
     int playerHandle_ = 0;
     bool pawnEnabled_ = true;
+    // What MOUSE.Lock/IsLocked report. The SCRIPTS own this - they lock on
+    // entering play and unlock for menus - and nothing on the C++ side may
+    // write it: Game:Tick branches on it, and an unlocked mouse runs the
+    // EDITOR tick, where the player globals never update. Driving it from
+    // the window's click-to-capture state is what once left the player
+    // falling at the world origin. True at boot, as the engine enters play.
+    bool mouseLocked_ = true;
+    float camPos_[3] = {0, 0, 0};
+    float camYaw_ = 0.f, camPitch_ = 0.f;
     float playerSpeedOverride_ = -1.f;
     float jumpStrengthOverride_ = -1.f;
     std::string dataRoot_;

@@ -145,6 +145,25 @@ bool LuaHost::Boot() {
     return DoFile("../Data/LScripts/Loader.lua");
 }
 
+bool LuaHost::RunString(const std::string& chunk) {
+    if (luaL_loadbuffer(L_, chunk.data(), chunk.size(), "@exec") != 0) {
+        LogWarn("exec parse error: %s", lua_tostring(L_, -1));
+        lua_pop(L_, 1);
+        ++scriptErrors_;
+        return false;
+    }
+    lua_pushcfunction(L_, Traceback);
+    lua_insert(L_, -2);
+    if (lua_pcall(L_, 0, 0, -2) != 0) {
+        LogWarn("exec error: %s", lua_tostring(L_, -1));
+        lua_pop(L_, 2);
+        ++scriptErrors_;
+        return false;
+    }
+    lua_pop(L_, 1);
+    return true;
+}
+
 bool LuaHost::CallGlobal(const char* name, const double* args, int nargs) {
     lua_pushcfunction(L_, Traceback);
     lua_getglobal(L_, name);
@@ -230,7 +249,7 @@ void LuaHost::FrameTick(double delta) {
     CallGlobal("Game_GC", nullptr, 0);
 }
 
-bool LuaHost::PostMsg(const char* msg) {
+bool LuaHost::PostMsg(const char* msg, const double* args, int nargs) {
     lua_pushcfunction(L_, Traceback);
     lua_getglobal(L_, "Game_GetMsg");
     if (!lua_isfunction(L_, -1)) {
@@ -238,7 +257,8 @@ bool LuaHost::PostMsg(const char* msg) {
         return false;
     }
     lua_pushstring(L_, msg);
-    if (lua_pcall(L_, 1, 0, -3) != 0) {
+    for (int i = 0; i < nargs; ++i) lua_pushnumber(L_, args[i]);
+    if (lua_pcall(L_, 1 + nargs, 0, -nargs - 3) != 0) {
         LogWarn("Game_GetMsg(%s): %s", msg, lua_tostring(L_, -1));
         lua_pop(L_, 2);
         ++scriptErrors_;

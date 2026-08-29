@@ -48,6 +48,29 @@ public:
     bool onGround() const { return onGround_; }
     float currentSpeed() const { return speed_; }
 
+    // The engine's own landing test, and the only authority for it.
+    // PlayerAction queues PLAYER_HIT_GROUND when the touchdown speed scaled
+    // by the world time multiplier passes kHitGroundSpeed; fall damage
+    // itself is script-side, in OnHitGround.
+    //
+    // worldTimeScale is the double at GEngine+0x100 - the world speed the
+    // engine multiplies frame time by, 1.0 normally (PlayerAction has a fast
+    // path testing it against exactly 1.0) and retuned for slow motion.
+    // WORLD.SetWorldSpeed is still a stub here, so the default stands in for
+    // it; pass the real value once that native lands.
+    //
+    // Returns the fall speed to report, or 0 for a soft landing. Clears the
+    // recorded impact either way, so call it once per frame.
+    float TakeGroundHit(float worldTimeScale = 1.f) {
+        const float impact = landingImpact_;
+        landingImpact_ = 0.f;
+        return impact * worldTimeScale > kHitGroundSpeed ? impact : 0.f;
+    }
+
+    // 0x102c8690, the constant PlayerAction compares the scaled fall speed
+    // against.
+    static constexpr float kHitGroundSpeed = 20.f;
+
 private:
     // player_box at 0.155: half-height h = 1.155, eye-to-floor = 2h = 2.31.
     // The collision sphere sits at the feet (radius from the 0.82 m box
@@ -65,6 +88,7 @@ private:
     float jumpQueuedFor_ = 0.f;      // before-landing buffer countdown
     bool jumpHeld_ = false;          // edge detection for hop presses
     float takeoffDir_[2] = {0, 0};   // frozen air direction (x, z)
+    float landingImpact_ = 0.f;      // fall speed at the last touchdown
 };
 
 } // namespace painful

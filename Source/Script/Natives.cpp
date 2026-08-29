@@ -525,11 +525,28 @@ int L_Zero(lua_State* L) {
     return 1;
 }
 
+// MATERIAL.Size(mat) -> width, height. The HUD divides by these for layout.
+int L_MaterialSize(lua_State* L) {
+    lua_pushnumber(L, 256);
+    lua_pushnumber(L, 256);
+    return 2;
+}
+
 // MDL.SetAnim(e, anim, loop, speed, blend, mcurve, hasMovingCurveRot) -> the
 // animation index, negative when the track does not exist - which the
 // scripts handle as "keep going without it". The honest answer until
 // animation playback lands.
 int L_MDL_SetAnim(lua_State* L) {
+    lua_pushnumber(L, -1);
+    return 1;
+}
+
+// MDL.GetJointIndex(e, name) -> the joint's index, -1 when the skeleton has
+// no such joint. Same value as SetAnim's "no such track" for now, but a
+// different question with a different answer once skinning lands - and
+// leaving it as the missing-joint convention matters: the scripts branch on
+// it, and an error here silently aborted GObjects:Apply mid-level.
+int L_MDL_GetJointIndex(lua_State* L) {
     lua_pushnumber(L, -1);
     return 1;
 }
@@ -680,10 +697,12 @@ const ModuleImpl kModuleImpls[] = {
     {"MDL", "GetAnimLength", L_Zero},
     // Same "missing" convention as SetAnim: joints resolve once skeletal
     // animation lands, and the scripts handle -1 as "no such joint".
-    {"MDL", "GetJointIndex", L_MDL_SetAnim},
+    {"MDL", "GetJointIndex", L_MDL_GetJointIndex},
     // 0 = "not animating", which skips the animation-event loop cleanly.
     {"MDL", "GetAnimTimeScale", L_Zero},
     {"MDL", "GetAnimTime", L_Zero},
+    // Material dimensions for HUD layout; real when the HUD renderer lands.
+    {"MATERIAL", "Size", L_MaterialSize},
 };
 
 } // namespace
