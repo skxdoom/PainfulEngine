@@ -802,6 +802,26 @@ void PhysicsWorld::SetScriptBodyVelocity(int slot, const float v[3]) {
     if (!bodies.IsActive(id)) bodies.ActivateBody(id);
 }
 
+
+void PhysicsWorld::AddScriptBodyImpulse(int slot, const float at[3],
+                                        const float impulse[3]) {
+    if (!ScriptBodyExists(slot)) return;
+    const JPH::Vec3 j(impulse[0], impulse[1], impulse[2]);
+    if (j.IsNearZero()) return;
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    const JPH::BodyID id = impl_->scriptBodies[slot].body;
+    // Only a dynamic body can be shoved; the world and anything pinned in
+    // place take the hit without moving, which is what they are for.
+    if (bodies.GetMotionType(id) != JPH::EMotionType::Dynamic) return;
+    // Wake it FIRST. An impulse applied to a sleeping body is dropped, and
+    // props settle to sleep the moment a level finishes loading - so every
+    // shot at a barrel that had been standing still would do nothing.
+    if (!bodies.IsActive(id)) bodies.ActivateBody(id);
+    // At a point rather than at the centre, so a shot off to one side spins
+    // the thing it hits instead of sliding it flat.
+    bodies.AddImpulse(id, j, JPH::RVec3(at[0], at[1], at[2]));
+}
+
 bool PhysicsWorld::GetScriptBodyVelocity(int slot, float out[3]) const {
     if (!ScriptBodyExists(slot)) return false;
     const JPH::Vec3 v =

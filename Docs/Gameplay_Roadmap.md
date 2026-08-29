@@ -12,12 +12,12 @@ PainfulEngine lua D:/Dev/PKRE/Data 400 C1L1_Cathedral
 
 boots the shipped scripts, loads Cathedral, runs `Game:OnPlay` and ticks 400
 frames, then prints every native the scripts called that we have not written.
-Current reading, after Stage 7 and the first half of Stage 8:
+Current reading, after Stages 7 and 8:
 
 ```
 boot: 962 files loaded, 0 missing, 0 script errors
 entities: 678 created, 108 released, 618 live
-unimplemented natives hit: 134 distinct, 50060 calls
+unimplemented natives hit: 134 distinct, 50095 calls
 ```
 
 against a starting point of 153 distinct / 82,843 calls and 634 entities.
@@ -139,20 +139,41 @@ the recovered rules.
    `MOUSE.SetSensitivity`, so `Game:Tick2` steers the view as the original
    does. Verify against the free check above before trusting it.
 
-### Stage 8 - weapons fire — traces and the view model DONE
+### Stage 8 - weapons fire — DONE
 
-Traces, the intersection solver and the view model have landed (report down
-to **134 distinct / 50,060 calls** from 139 / 66,894). Still open: damage —
-the shot lands, but nothing takes it yet.
+Traces, the intersection solver, the view model and the hit reaction have
+landed (report down to **134 distinct / 50,095 calls** from 139 / 66,894).
 
-Originally scoped as: `WORLD.LineTrace` / `LineTraceFixedGeom` /
-`LineTraceHitPlayerBalls` off Jolt;
-`ENTITY.AddToIntersectionSolver` / `RemoveFromIntersectionSolver` and the
-ragdoll pair (the hit-detection registry, 15 600 calls between them);
-`ENTITY.SetPosAndRotRelativeToCamera` for the view model;
-`ENTITY.EnableGunPass`, `ENTITY.SetRotationCAM`, `ENTITY.ExplodeItem`. The
-weapon logic itself is already loaded and ticking - this stage only gives it
-somewhere to shoot.
+**Damage needed no work at all, which the roadmap got wrong.** It is entirely
+script-side: a weapon traces, takes the entity the trace reports, looks it up
+with `EntityToObject[e]` and calls `obj:OnDamage(...)`. Once the trace
+resolved to the right entity handle, the whole chain was already live.
+Measured on Cathedral: aim a shotgun at a spawned `EvilMonkV2` with `Health
+= 9`, fire, and it goes to `Health = 0`, `_died = true`. Worth remembering as
+a general lesson here - before building a system, check whether the scripts
+already are it.
+
+What was genuinely missing was the REACTION: a shot landed and nothing moved.
+`ENTITY.PO_Hit` and `WORLD.HitPhysicObject` are an impulse at the point of
+impact, applied through a new `PhysicsWorld::AddScriptBodyImpulse`. The one
+real bug was ordering - a body has to be WOKEN before the impulse, because
+Jolt drops an impulse applied to a sleeping body and props are asleep the
+moment a level finishes loading, so every shot at a standing barrel did
+nothing.
+
+Verified three ways: a single pellet-sized impulse (188 against the barrel's
+declared mass of 200) nudges it about 0.05 and friction settles it; the same
+total in one call throws it five units; and every pellet of a shotgun volley
+resolves to the right body with the right magnitude. One thing NOT explained:
+fifteen pellet impulses spread over a second move the barrel markedly less
+than the same total delivered at once. That is plausible contact-and-friction
+behaviour on a heavy resting body rather than a demonstrated defect, and no
+defect could be found - recorded here rather than quietly assumed away.
+
+Still stubs, deliberately: `ENTITY.PO_AccumulateRotation` (the knockback spin
+- "accumulate" suggests it buffers for the ragdoll, and guessing at that is
+how earlier convention bugs happened) and `ENTITY.PO_SetPlayerShocked`.
+
 
 ### Stage 9 - animation and the actor clock
 

@@ -107,6 +107,9 @@ public:
     // projectile is created, given its velocity and expected to fly.
     void SetScriptBodyVelocity(int slot, const float v[3]);
     bool GetScriptBodyVelocity(int slot, float out[3]) const;
+    // ENTITY.PO_Hit / WORLD.HitPhysicObject: an impulse at a world point, so
+    // a shot shoves what it lands on and spins it about the point it struck.
+    void AddScriptBodyImpulse(int slot, const float at[3], const float impulse[3]);
     // The world-space mesh radius, which is what PO_GetMaxSphereRay reports.
     float ScriptBodyRadius(int slot) const;
     void RemoveScriptBody(int slot);

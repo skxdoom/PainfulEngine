@@ -221,6 +221,36 @@ int ScriptEngine::L_Release(lua_State* L) {
     return 0;
 }
 
+// ENTITY.PO_Hit(e, x,y,z, ix,iy,iz) and WORLD.HitPhysicObject(body, ...) -
+// the shove a hit delivers, as an impulse at the point it landed. The two
+// differ only in what they are handed: PO_Hit takes an entity, and
+// HitPhysicObject takes the body handle a trace reported, which is the same
+// script body slot. A weapon calls both - the first for what it damaged, the
+// second for anything physical it touched.
+static void ApplyHitImpulse(lua_State* L, PhysicsWorld* physics, int slot) {
+    if (!physics || slot < 0) return;
+    const float at[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+                         float(luaL_optnumber(L, 4, 0))};
+    const float impulse[3] = {float(luaL_optnumber(L, 5, 0)),
+                              float(luaL_optnumber(L, 6, 0)),
+                              float(luaL_optnumber(L, 7, 0))};
+    physics->AddScriptBodyImpulse(slot, at, impulse);
+}
+
+int ScriptEngine::L_PO_Hit(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const Entity* e = self->Find(HandleArg(L, 1));
+    if (e) ApplyHitImpulse(L, self->physics_, e->physicsBody);
+    return 0;
+}
+
+int ScriptEngine::L_WORLD_HitPhysicObject(lua_State* L) {
+    ScriptEngine* self = From(L);
+    // -1 is what a trace reports for the world itself, which cannot be moved.
+    ApplyHitImpulse(L, self->physics_, int(luaL_optnumber(L, 1, -1)));
+    return 0;
+}
+
 // ENTITY.SetTimeToDie(e, seconds) - the engine reaps the entity itself once
 // the time is up. Everything transient uses it: shell casings, the stone
 // chips a shotgun knocks off a wall, a spent projectile. Left unimplemented
@@ -1490,6 +1520,8 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"ENTITY", "GetVelocity", L_GetVelocity},
         {"ENTITY", "SetVelocity", L_SetVelocity},
         {"ENTITY", "SetTimeToDie", L_SetTimeToDie},
+        {"ENTITY", "PO_Hit", L_PO_Hit},
+        {"WORLD", "HitPhysicObject", L_WORLD_HitPhysicObject},
         {"ENTITY", "PO_Create", L_PO_Create},
         {"ENTITY", "PO_Exist", L_PO_Exist},
         {"ENTITY", "PO_GetMaxSphereRay", L_PO_GetMaxSphereRay},

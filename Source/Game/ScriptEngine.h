@@ -228,6 +228,8 @@ private:
     static int L_GetVelocity(lua_State* L);
     static int L_SetVelocity(lua_State* L);
     static int L_SetTimeToDie(lua_State* L);
+    static int L_PO_Hit(lua_State* L);
+    static int L_WORLD_HitPhysicObject(lua_State* L);
     void ReleaseEntity(int handle);
     static int L_PO_Create(lua_State* L);
     static int L_PO_Exist(lua_State* L);
