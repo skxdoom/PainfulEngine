@@ -10,7 +10,14 @@ struct Camera {
     float yaw = 0.f;      // radians, around world up
     float pitch = 0.f;    // radians, clamped to avoid gimbal flip
     float fovDegrees = 70.f;
-    float nearPlane = 0.5f;
+    // Has to clear the closest the eye can ever get to a surface, or standing
+    // against a wall cuts a hole in it. The pawn's collision sphere is 0.40
+    // and the slide keeps a 0.02 skin, so the eye can be 0.38 from a wall -
+    // 0.5 was inside that, which is why walls clipped. 0.1 leaves nearly four
+    // times the margin and still costs nothing in depth precision: the far
+    // plane is the level's own FarClipDist (around 1024), so the ratio stays
+    // near 10^4, well inside what a 24-bit buffer resolves.
+    float nearPlane = 0.1f;
     float farPlane = 8000.f;
     // Units per second. A unit is about a metre - the player body is two units
     // tall - so this is already several times a running pace; shift multiplies

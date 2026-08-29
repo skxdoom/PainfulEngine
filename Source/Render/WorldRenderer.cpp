@@ -362,11 +362,15 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
         // visibility starts from all of them. Outside every zone the graph
         // stays permissive and the frustum alone culls.
         zoneGraph_.ZonesAt(raw, cameraZones_);
-        // Portals closer than a few near-plane widths stay open, so walking
-        // through a doorway never blinks the far room out for a frame.
-        const float nearRadius = camera.nearPlane * 4.f;
-        zoneGraph_.VisibleZones(frustum, cameraZones_, worldScale_, camera.pos, nearRadius,
-                                zoneVisible_);
+        // Portals within arm's reach stay open, so walking through a doorway
+        // never blinks the far room out for a frame. This is a distance about
+        // the body, not a property of the projection: it used to be derived
+        // from the near plane, which silently tied it to a value chosen for
+        // an entirely different reason - pulling the near plane in to stop
+        // walls clipping would have started the doorways popping.
+        constexpr float kPortalNearRadius = 2.f;
+        zoneGraph_.VisibleZones(frustum, cameraZones_, worldScale_, camera.pos,
+                                kPortalNearRadius, zoneVisible_);
         zonesVisible_ = size_t(std::count(zoneVisible_.begin(), zoneVisible_.end(), true));
     }
 
