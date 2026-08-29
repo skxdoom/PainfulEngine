@@ -67,8 +67,8 @@ inside bimg (see the CMake notes on link order).
 | Layer | Status | Notes |
 |---|---|---|
 | Asset decoding | **Done** — `PainEngineKit/` (C++), `PainKit/` (C#) | mpk + materials, pkmdl, ani, skeleton, skin; pak native in the engine |
-| Lua host | Not started | Lua 5.0.2 (the exact version the game shipped) |
-| Native API | Not started | 790 functions; 113 give 80% coverage |
+| Lua host | **Boots** — vendored Lua 5.0.2, Loader.lua + Game:Init + frame ticks clean | see `LuaHost.md` |
+| Native API | Instrumented stubs + first real impls | 790 functions; 113 give 80% coverage |
 | Physics | Decided: **Jolt** (MIT) | see FINDINGS §3c; `.rde` gives ragdoll tuning |
 | Renderer | Not started | full reimplementation required (see below) |
 | Audio | Not started | Miles → OpenAL-Soft / miniaudio |

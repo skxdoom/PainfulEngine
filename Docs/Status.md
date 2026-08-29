@@ -17,6 +17,9 @@ Source/
             Log.h
             PakArchive        one .pak: directory parse, name de-obfuscation, inflate
             FileSystem        the mounted view: archives shadow loose files
+  Script/   LuaHost           Lua 5.0.2 state, boot, the engine->Lua frame contract
+            Natives           the native API: module tables, stubs, real impls
+            NativeList.inc    generated from Docs/Engine_LuaAPI.md + script usage
   Assets/   Mpk               world meshes, materials, per-slot UV transforms
             Dat               item mesh packs (the o.Pack containers)
             Pkmdl             models: geometry, skeleton, skin weights
@@ -212,12 +215,23 @@ Details, the numbers, and the sizeable list of what is still missing are in
 - A few `.mpk` per-object trailing bytes are still unparsed; they appear to
   hold extra blend-layer materials.
 
+### Script layer (first stage)
+
+- The Lua 5.0.2 host boots the real game scripts: `Loader.lua` (68 files),
+  `Game:Init()` — 1054 templates preloaded, the empty "NoName" level created
+  and applied — and the per-frame `Game_Tick*/Render/GC` chain, with zero
+  script errors, from the archives or a loose tree alike
+  (`PainfulEngine lua <DataRoot> [frames]`). Unimplemented natives are
+  instrumented stubs that report what the scripts call, which is how the
+  remaining API gets recovered. See [`LuaHost.md`](LuaHost.md).
+
 ### Everything else
 
 - `.pkm` mod packages do not auto-mount yet (their internal format is still an
   open question — `GZipPack` exports hint the engine also reads real ZIPs).
-- No Lua host, so nothing scripted runs: no spawning, triggers, doors,
-  pickups, AI or level progression.
+- The script layer does not yet drive the engine: `WORLD.*`/`ENTITY.*` natives
+  are stubs, so no scripted spawning, triggers, doors, pickups, AI or level
+  progression reaches the screen yet.
 - Nothing wakes the physics props, no player controller, and no ragdolls,
   glass, explosions, buoyancy, ladders or ice. See [`Physics.md`](Physics.md).
 - No sound, no HUD, no menus, no save/load, no netcode.

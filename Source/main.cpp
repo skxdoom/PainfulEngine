@@ -11,6 +11,7 @@
 #include "Assets/Skeleton.h"
 #include "Core/FileSystem.h"
 #include "Core/Log.h"
+#include "Script/LuaHost.h"
 #include "Render/Renderer.h"
 #include "Render/SkyRenderer.h"
 #include "Render/TextureCache.h"
@@ -51,6 +52,7 @@ static int Usage() {
     LogInfo("  PainfulEngine level <Data/Levels/NAME> <DataRoot>  headless report");
     LogInfo("  PainfulEngine physics <Data/Levels/NAME> <DataRoot> physics world probe");
     LogInfo("  PainfulEngine levels <DataRoot>                    list levels");
+    LogInfo("  PainfulEngine lua   <DataRoot> [frames]            boot the script layer");
     LogInfo("  PainfulEngine map   <file.mpk>");
     LogInfo("  PainfulEngine model <file.pkmdl>");
     return 1;
@@ -597,6 +599,27 @@ static int FitCmd(const char* levelDir, const char* dataRoot) {
         LogInfo("  %-24s mean nearest-geometry distance: %8.2f", c.name, total / targets.size());
     }
     return 0;
+}
+
+// Boots the Lua 5.0.2 script layer: runs LScripts/Loader.lua with the
+// recovered native surface installed as instrumented stubs, then follows the
+// engine's own sequence - Game:Init() and per-frame ticks - and prints what
+// the scripts actually called. This is the recovery loop for the native API:
+// boot, read the report, implement what the game hit, repeat.
+static int LuaCmd(const char* dataRoot, int frames) {
+    LuaHost host;
+    if (!host.Init(dataRoot)) {
+        LogInfo("failed to create the Lua state");
+        return 2;
+    }
+    const bool ok = host.Boot();
+    if (ok) {
+        host.CallGameInit();
+        for (int i = 0; i < frames && !host.quitRequested(); ++i)
+            host.FrameTick(1.0 / 60.0);
+    }
+    host.PrintCallReport(40);
+    return ok && host.scriptErrors() == 0 ? 0 : 3;
 }
 
 // Lists the levels available for the in-engine selector.
@@ -1638,7 +1661,7 @@ int main(int argc, char** argv) {
             "run",   "level",  "entities", "fit",       "skytex",     "scale",
             "zones", "ground", "textures", "particles", "billboards", "physics"};
         static const std::set<std::string> rootAt2 = {"levels", "resolve", "texdump",
-                                                      "shaders"};
+                                                      "shaders", "lua"};
         if (rootAt3.count(cmd) && argc >= 4) MountRoot(argv[3]);
         else if (rootAt2.count(cmd)) MountRoot(argv[2]);
         else MountForPath(argv[2], argv[0]);
@@ -1687,6 +1710,7 @@ int main(int argc, char** argv) {
     if (cmd == "entities" && argc >= 4) return EntitiesCmd(argv[2], argv[3]);
     if (cmd == "fit" && argc >= 4) return FitCmd(argv[2], argv[3]);
     if (cmd == "levels") return LevelsCmd(argv[2]);
+    if (cmd == "lua") return LuaCmd(argv[2], argc >= 4 ? std::atoi(argv[3]) : 10);
     if (cmd == "map")   return MapCmd(argv[2]);
     if (cmd == "mats")  return MatsCmd(argv[2], argc >= 4 ? argv[3] : "");
     if (cmd == "resolve" && argc >= 4) return ResolveCmd(argv[2], argv[3]);

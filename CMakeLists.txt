@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
-project(PainfulEngine LANGUAGES CXX)
+# C is for Lua 5.0.2; everything else is C++.
+project(PainfulEngine LANGUAGES C CXX)
 
 # PainfulEngine - open reimplementation of PainEngine (Painkiller, 2004).
 # Requires the user's own copy of the game data. No original assets are shipped.
@@ -67,10 +68,55 @@ add_library(painful_miniz INTERFACE)
 target_include_directories(painful_miniz INTERFACE
   External/bgfx/bimg/3rdparty/tinyexr/deps/miniz)
 
+# Lua 5.0.2, vendored verbatim from lua.org (MIT licence). The version is
+# load-bearing: the shipped scripts use 5.0-only forms (generic
+# `for k,v in <table> do`, `table.getn`, `math.mod`) that 5.1+ rejects, and
+# Engine.dll statically links exactly this interpreter. It is 2003-era ANSI C,
+# so its warnings are not ours to fix.
+add_library(painful_lua STATIC
+  External/lua-5.0.2/src/lapi.c
+  External/lua-5.0.2/src/lcode.c
+  External/lua-5.0.2/src/ldebug.c
+  External/lua-5.0.2/src/ldo.c
+  External/lua-5.0.2/src/ldump.c
+  External/lua-5.0.2/src/lfunc.c
+  External/lua-5.0.2/src/lgc.c
+  External/lua-5.0.2/src/llex.c
+  External/lua-5.0.2/src/lmem.c
+  External/lua-5.0.2/src/lobject.c
+  External/lua-5.0.2/src/lopcodes.c
+  External/lua-5.0.2/src/lparser.c
+  External/lua-5.0.2/src/lstate.c
+  External/lua-5.0.2/src/lstring.c
+  External/lua-5.0.2/src/ltable.c
+  External/lua-5.0.2/src/ltm.c
+  External/lua-5.0.2/src/lundump.c
+  External/lua-5.0.2/src/lvm.c
+  External/lua-5.0.2/src/lzio.c
+  External/lua-5.0.2/src/lib/lauxlib.c
+  External/lua-5.0.2/src/lib/lbaselib.c
+  External/lua-5.0.2/src/lib/ldblib.c
+  External/lua-5.0.2/src/lib/liolib.c
+  External/lua-5.0.2/src/lib/lmathlib.c
+  External/lua-5.0.2/src/lib/loadlib.c
+  External/lua-5.0.2/src/lib/lstrlib.c
+  External/lua-5.0.2/src/lib/ltablib.c
+)
+target_include_directories(painful_lua
+  PUBLIC External/lua-5.0.2/include
+  PRIVATE External/lua-5.0.2/src)
+if(MSVC)
+  target_compile_options(painful_lua PRIVATE /w)
+else()
+  target_compile_options(painful_lua PRIVATE -w)
+endif()
+
 # ---------------------------------------------------------------- engine
 # Layered on purpose, and the layering is one-directional:
 #   core <- assets <- world <- render
-# Each layer only knows about the ones to its left.
+# Each layer only knows about the ones to its left. Script sits beside
+# assets: it needs only core (the VFS) plus the Lua interpreter - native
+# implementations that touch world or render state are wired in from above.
 add_library(painful_core STATIC
   Source/Core/Common.cpp
   Source/Core/PakArchive.cpp
@@ -91,6 +137,12 @@ add_library(painful_assets STATIC
   Source/Assets/Tweaks.cpp
 )
 target_link_libraries(painful_assets PUBLIC painful_core)
+
+add_library(painful_script STATIC
+  Source/Script/LuaHost.cpp
+  Source/Script/Natives.cpp
+)
+target_link_libraries(painful_script PUBLIC painful_core painful_lua)
 
 add_library(painful_world STATIC
   Source/World/Level.cpp
@@ -125,7 +177,7 @@ target_link_libraries(painful_render PUBLIC painful_world SDL3::SDL3-static bgfx
 # WIN32: a GUI-subsystem executable, so double-clicking it opens no console.
 # main() is kept as the entry point via the WinMain shim in main.cpp.
 add_executable(PainfulEngine WIN32 Source/main.cpp)
-target_link_libraries(PainfulEngine PRIVATE painful_render)
+target_link_libraries(PainfulEngine PRIVATE painful_render painful_script)
 
 # Compile the shaders whenever their sources change, into the shaders folder
 # next to the executable. Depends on the shaderc tool built from bgfx.

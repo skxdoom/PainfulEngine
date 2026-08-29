@@ -107,6 +107,7 @@ so a change can be checked without opening a window.
 | `skydump <file.mpk>` | dome shells, UV ranges, material slots |
 | `skytex <levelDir> <DataRoot>` | sky layer textures and whether they resolve |
 | `shaders <DataRoot> [name]` | material scripts; one name prints it resolved |
+| `lua <DataRoot> [frames]` | boot the script layer, tick N frames, report native calls |
 | `textures <file.mpk> <DataRoot> <hint>` | which map textures resolve |
 | `resolve <DataRoot> <name>` | where a texture reference resolves |
 | `texdump <DataRoot> <name> [out.tga]` | decode a texture, print corner pixels |
@@ -115,9 +116,11 @@ so a change can be checked without opening a window.
 
 Asset formats, `.pak` reading (a vanilla install runs untouched), static world
 rendering, portal/zone visibility, entity placement, layered skies, particle
-effects, light coronas and world collision all work. Not yet: skeletal
-animation playback, water and post-processing, the Lua host, everything
-physics needs a script host for, sound and UI.
+effects, light coronas and world collision all work. The Lua 5.0.2 host boots
+the real game scripts — `Loader.lua`, `Game:Init()` with all 1054 templates,
+and the per-frame tick chain run without errors — but its natives do not
+drive the engine yet. Not yet: skeletal animation playback, water and
+post-processing, script-driven gameplay, sound and UI.
 
 The full inventory, with the authority cited for each rule, is in
 [`Docs/Status.md`](Docs/Status.md).
@@ -131,9 +134,11 @@ only reveals itself deep into a playthrough.
 1. Water (`FXWater`), which needs a render-target pass — shared with:
 2. Bloom and the rest of the `.fxo` post chain.
 3. Skeletal animation playback and GPU skinning.
-4. Lua 5.0.2 host with the natives from
-   [`Docs/native_priority.tsv`](Docs/native_priority.tsv), in call-count order
-   — the point where the game starts to *play*.
+4. The Lua host's natives, from
+   [`Docs/native_priority.tsv`](Docs/native_priority.tsv) in call-count order
+   — wiring `WORLD`/`ENTITY`/`CAM` to the real subsystems is the point where
+   the game starts to *play*. The host itself is up: see
+   [`Docs/LuaHost.md`](Docs/LuaHost.md).
 5. The rest of physics — the player controller, ragdolls, explosions and glass
    — driven through that same native API. The Jolt world underneath it is up
    already: see [`Docs/Physics.md`](Docs/Physics.md).
@@ -149,6 +154,7 @@ only reveals itself deep into a playthrough.
 | [`Docs/TextureTransforms.md`](Docs/TextureTransforms.md) | pan, tile and the detail-map transform |
 | [`Docs/Water.md`](Docs/Water.md) | water surfaces, the material tiers and what each needs |
 | [`Docs/Physics.md`](Docs/Physics.md) | the Jolt world, the tweak constants and the player body |
+| [`Docs/LuaHost.md`](Docs/LuaHost.md) | the Lua 5.0.2 host, the native API shape, the boot and frame contract |
 | [`Docs/Engine_API.md`](Docs/Engine_API.md) | the C++ surface of `Engine.dll` |
 | [`Docs/Engine_LuaAPI.md`](Docs/Engine_LuaAPI.md) | the native API the scripts call |
 | [`Docs/native_priority.tsv`](Docs/native_priority.tsv) | that API ranked by call count — the work queue |
@@ -161,3 +167,5 @@ only reveals itself deep into a playthrough.
 - [Jolt Physics](https://github.com/jrouwe/JoltPhysics) — MIT licence
 - [miniz](https://github.com/richgel999/miniz) — MIT licence; the copy bundled
   inside bimg's tree, reused for `.pak` inflate
+- [Lua 5.0.2](https://www.lua.org/versions.html#5.0) — MIT licence, vendored
+  verbatim in `External/lua-5.0.2/`; the exact interpreter the game shipped
