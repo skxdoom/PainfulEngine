@@ -1,5 +1,6 @@
 #pragma once
 #include "../World/PhysicsWorld.h"
+#include "Input.h"
 
 namespace painful {
 
@@ -32,10 +33,18 @@ class PlayerPawn {
 public:
     void Spawn(const float headPos[3]);
 
-    // One movement step. wishDir is the camera-relative ground-plane
-    // direction (unnormalised is fine; zero means no input).
-    void Move(const PhysicsWorld& physics, const Tweaks& tweaks,
-              const float wishDir[3], bool jump, float dt);
+    // One movement step, with PlayerAction's own arguments: the action
+    // bitmask the scripts set through ENTITY.PO_SetAction, and the camera
+    // basis PLAYER.ExecAction passes.
+    //
+    // Only `right` shapes the ground direction. PlayerAction reads its
+    // second Vector argument alone and derives forward by rotating it
+    // (forward = (right.z, -right.x)), which is why looking up or down
+    // neither slows walking nor drives the player into the floor - the
+    // forward vector it is also handed carries a Y component and is not used
+    // for this. Of the mask it consumes only Act::MoveMask.
+    void Move(const PhysicsWorld& physics, const Tweaks& tweaks, uint32_t action,
+              const float right[3], float dt);
 
     const float* headPos() const { return head_; }
     void SetHeadPos(const float p[3]);

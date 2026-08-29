@@ -263,10 +263,78 @@ PainfulEngine lua <DataRoot> 120 C1L1_Cathedral "ENTITY.SetPosition(Player._Enti
 teleports the player into Cathedral's first ambush box and the monsters
 spawn within the ticked frames.
 
+## Input and the player action path
+
+The player's controls are a script path in this engine, and the port now
+takes it rather than going round it. `CPlayer:Tick` does:
+
+```lua
+local action = INP.GetActionStatus(self._Entity)   -- Actions bitmask
+... overrides: weapon select, switched fire, rocket jump ...
+ENTITY.PO_SetAction(self._Entity, self.CurAction)
+PLAYER.ExecAction(self._Entity, 0, fv.X,fv.Y,fv.Z, rv.X,rv.Y,rv.Z)
+```
+
+and `PLAYER.ExecAction` is the entry to `PhysicsObject::PlayerAction`. So the
+mover runs *inside* `Game_Tick`, on the mask the scripts built, and nothing
+on the C++ side decides how the player moves. `Source/Game/Input` holds the
+keys and the bindings; `PlayerPawn` is only the mover.
+
+Recovered along the way:
+
+- **Keys are Windows virtual-key codes.** `Definitions.lua`'s `Keys` is the
+  standard VK list plus three the engine synthesises: Numpad Enter 252,
+  Mouse Wheel Forward 253, Mouse Wheel Back 254.
+- **`INP.Key(k)` is tri-state**: 0 up, 1 pressed this frame, 2 held.
+  `Game.lua` pairs `==1` for a toggle with `==2` for a modifier held
+  alongside it, so a boolean breaks both halves.
+- **Bindings live in the scripts' own `Cfg` table**, as
+  `Cfg.KeyPrimary<Action>` / `Cfg.KeyAlternative<Action>` holding engine key
+  names ("Left Mouse Button", "Right Ctrl", "None"). `Cfg.lua` carries the
+  defaults and `DoFile`s `config.ini` over them. `INP.LoadBindings()`
+  therefore reads them straight back out of the Lua state, and the options
+  menu calls it again after a rebind. The engine's key-name table sits in
+  `Engine.dll` beside its short names ("LMB", "RCtrl", "WheelFwd").
+- **`PlayerAction` builds the ground direction from the RIGHT vector alone**,
+  deriving forward as `(right.z, -right.x)`. It is handed both vectors and
+  uses the second. That is why looking up or down neither slows walking nor
+  drives the player into the floor - the forward vector carries a Y
+  component and is not used for this.
+- **The angle convention differs from ours and it is load-bearing.** The
+  scripts rebuild the whole movement basis from `CAM.GetAngRad` in pure Lua
+  (`CPlayer:SetupAction`, via `Quaternion:New_FromEuler`). Reading their
+  maths back out gives, at turn `a`, `right = (cos a, 0, -sin a)` and
+  `forward = (-sin a, 0, -cos a)`: it starts down -Z and runs the opposite
+  way round from our yaw. Matching it against our
+  `right = (-sin yaw, 0, cos yaw)` gives **turn = -(yaw + pi/2)**, with the
+  elevation passing through unchanged. `CAM.GetAng`/`GetAngRad`/
+  `GetRawRotation` all apply it. Get it wrong and the player walks at ninety
+  degrees to where the camera points. The check that settles it: run the
+  scripts' own `SetupAction` round trip and compare the vector it produces
+  against `CAM.GetForwardVector`, which computes the same basis in C++ -
+  they agree to float epsilon.
+
+`ENTITY.PO_SetAction` / `PO_AddAction` / `PO_IsActionState` keep the mask on
+the entity, the way `PlayerAction` keeps it at `this+0x78`. The mover
+consumes only the five movement bits (it masks to `0x3e`); the rest is the
+scripts talking to themselves - which is how the weapon code learns that
+fire was held this tick.
+
+**The headless `lua` command now attaches physics, the pawn and the input
+too.** Headless means no renderer, not a hollow game: the tick chain there is
+the one the windowed run takes, so the call report measures the real thing
+and gameplay can be tested without a window. Overriding a native from the
+`exec` chunk is how a situation gets staged - `INP.GetActionStatus = function
+(e) return Actions.Forward end` walks the player.
+
 ## Next stages
 
-1. Input actions (`INP.Action`/`GetActionStatus` bitmasks against real key
-   bindings) - firing, use, weapon switch.
-2. Entity-vs-entity collision events (COLLISION_WITH_OTHER_ENTITY) out of
-   Jolt contacts.
-3. `PMENU` against a real menu renderer; `SOUND` when audio lands.
+1. Camera handover: `MOUSE.GetDelta` fed with real motion, `CAM.SetPos` /
+   `SetAng` / `SetPositionDisplacement` accepted, so `Game:Tick2` steers the
+   view as the original does. The angle conversion above is its own inverse,
+   which is what the handover needs.
+2. Weapons: `WORLD.LineTrace` / `LineTraceFixedGeom` off Jolt, the
+   intersection-solver registry, `ENTITY.SetPosAndRotRelativeToCamera` for
+   the view model.
+3. Animation and the actor clock - see
+   [`Gameplay_Roadmap.md`](Gameplay_Roadmap.md) for the full order.

@@ -7,6 +7,7 @@
 #include "../Script/LuaHost.h"
 #include "../World/Level.h"
 #include "../World/PhysicsWorld.h"
+#include "Input.h"
 
 namespace painful {
 
@@ -64,6 +65,13 @@ public:
         bool playerInside = false;
         float regionMin[3] = {0, 0, 0};
         float regionMax[3] = {0, 0, 0};
+        // The Actions bitmask ENTITY.PO_SetAction stores on the physics
+        // object (PlayerAction reads it from this+0x78). The mover consumes
+        // only Act::MoveMask; the rest is the scripts talking to themselves
+        // through PO_IsActionState - which is how the weapon code learns
+        // that fire was held this tick.
+        uint32_t action = 0;
+        bool jumpedLastAction = false;
     };
 
     // What the scripts told WORLD.* to set up; the game loop turns this into
@@ -117,6 +125,17 @@ public:
     // real, and the game loop can walk.
     void AttachPlayer(PlayerPawn* pawn);
     int playerHandle() const { return playerHandle_; }
+
+    // Attaches the keyboard and mouse: the INP.* family starts answering
+    // truthfully, so CPlayer:Tick builds a real action mask and hands it to
+    // PLAYER.ExecAction. Without this the scripts see no keys held, which is
+    // a valid state (a standing player), not an error.
+    void AttachInput(Input* input);
+
+    // The frame delta PLAYER.ExecAction moves the pawn by. The original
+    // takes the engine's own frame time inside PlayerAction rather than the
+    // delta the script was called with; set this before the tick chain.
+    void SetFrameDelta(float dt) { frameDelta_ = dt; }
     // ENTITY.PO_Enable on the player toggles between the walking pawn and
     // free flight - the scripts' own SwitchPlayerToPhysics semantics.
     bool pawnEnabled() const { return pawnEnabled_; }
@@ -197,6 +216,18 @@ private:
     static int L_IsDrawEnabled(lua_State* L);
     static int L_PLAYER_GetDistanceFromPoint(lua_State* L);
     static int L_REGION_BuildFromPoint(lua_State* L);
+    static int L_INP_Key(lua_State* L);
+    static int L_INP_Action(lua_State* L);
+    static int L_INP_UIAction(lua_State* L);
+    static int L_INP_IsFireSwitched(lua_State* L);
+    static int L_INP_LoadBindings(lua_State* L);
+    static int L_INP_Reset(lua_State* L);
+    static int L_PO_SetAction(lua_State* L);
+    static int L_PO_AddAction(lua_State* L);
+    static int L_PO_IsActionState(lua_State* L);
+    static int L_PO_JumpedInLastAction(lua_State* L);
+    static int L_PLAYER_ExecAction(lua_State* L);
+    static int L_PLAYER_FloorCheck(lua_State* L);
     static int L_MOUSE_Lock(lua_State* L);
     static int L_MOUSE_IsLocked(lua_State* L);
     static int L_CAM_GetPos(lua_State* L);
@@ -236,6 +267,8 @@ private:
     EmitterLibrary* emitterLib_ = nullptr;
     BillboardRenderer* billboards_ = nullptr;
     PlayerPawn* pawn_ = nullptr;
+    Input* input_ = nullptr;
+    float frameDelta_ = 1.f / 60.f;
     int playerHandle_ = 0;
     bool pawnEnabled_ = true;
     // What MOUSE.Lock/IsLocked report. The SCRIPTS own this - they lock on

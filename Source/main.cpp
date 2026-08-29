@@ -623,20 +623,37 @@ static int LuaCmd(const char* dataRoot, int frames, const char* level,
         LogInfo("failed to create the Lua state");
         return 2;
     }
-    ScriptEngine engine;    // headless: real registry, no renderer attached
+    // Headless means no renderer, not a hollow game: physics, the pawn and
+    // the input all attach, so the tick chain here is the one the windowed
+    // run takes and the call report measures the real thing. Only the
+    // drawing is missing.
+    PhysicsWorld physics;
+    physics.SetProbeRadius(kCameraRadius);
+    PlayerPawn pawn;
+    Input input;
+    ScriptEngine engine;
     engine.Bind(host);
+    engine.AttachPhysics(&physics, dataRoot);
+    engine.AttachPlayer(&pawn);
+    engine.AttachInput(&input);
     const bool ok = host.Boot();
     if (ok) {
         host.CallGameInit();
         if (level && level[0]) {
             host.CallGameLoadLevel(level);
+            physics.Settle(90);
+            engine.SyncFromPhysics(false);
             host.CallGameOnPlay();
         }
         // The diagnostic hook: run an arbitrary chunk between OnPlay and the
         // ticks - teleport the player into a trigger, poke a template, ...
         if (exec && exec[0]) host.RunString(exec);
         for (int i = 0; i < frames && !host.quitRequested(); ++i) {
+            input.BeginFrame();
+            engine.SetFrameDelta(1.f / 60.f);
             host.FrameTick(1.0 / 60.0);
+            physics.Update(1.f / 60.f);
+            engine.SyncFromPhysics();
             engine.TickTriggers();
         }
     }
@@ -687,6 +704,7 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     PhysicsWorld physics;
     physics.SetProbeRadius(kCameraRadius);
     PlayerPawn pawn;
+    Input input;
     LuaHost host;
     if (!host.Init(root)) return 3;
     ScriptEngine engine;
@@ -696,6 +714,7 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     if (particlesReady) engine.AttachParticles(&particles, &emitterScripts);
     if (billboardsReady) engine.AttachBillboards(&billboards);
     engine.AttachPlayer(&pawn);
+    engine.AttachInput(&input);
     if (!host.Boot()) return 3;
     host.CallGameInit();
     host.CallGameLoadLevel(levelName);
@@ -805,8 +824,24 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
         previous = now;
         const float elapsed = std::chrono::duration<float>(now - startTime).count();
 
+        // Hand the window's virtual-key state to the scripts' input. Edge
+        // detection lives in Input, so this has to run once per frame,
+        // before anything asks a question of it.
+        input.BeginFrame();
+        {
+            const bool* keys = window.VirtualKeys();
+            for (int vk = 1; vk < Input::kKeyCount; ++vk) input.SetKeyDown(vk, keys[vk]);
+            // A wheel notch has no held state; it reads as pressed for the
+            // one frame, under the codes Definitions.lua calls
+            // MouseWheelForward / MouseWheelBack.
+            const int wheel = window.TakeWheelSteps();
+            if (wheel > 0) input.PulseKey(Input::kMouseWheelForward);
+            if (wheel < 0) input.PulseKey(Input::kMouseWheelBack);
+        }
+
         float dx = 0.f, dy = 0.f;
         window.TakeMouseDelta(dx, dy);
+        input.AddMouseDelta(dx, dy);
         camera.Look(dx * 0.003f, -dy * 0.003f);
         if (window.TakeNoclipToggle()) noclip = !noclip;
         const float speed = camera.moveSpeed * (window.IsDown(Key::Fast) ? 4.f : 1.f) * dt;
@@ -820,22 +855,10 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
         const bool walking =
             engine.playerHandle() != 0 && engine.pawnEnabled() && !noclip;
         if (walking) {
-            // The player pawn walks: camera-relative ground direction, space
-            // to jump, eye glued to the pawn's head. The pawn takes its speed
-            // from Tweak.PlayerMove, so key-repeat speed here is irrelevant.
-            float f[3], r[3];
-            camera.Forward(f);
-            camera.Right(r);
-            float wish[3] = {0, 0, 0};
-            const float fk = (window.IsDown(Key::Forward) ? 1.f : 0.f) -
-                             (window.IsDown(Key::Back) ? 1.f : 0.f);
-            const float rk = (window.IsDown(Key::Right) ? 1.f : 0.f) -
-                             (window.IsDown(Key::Left) ? 1.f : 0.f);
-            wish[0] = f[0] * fk + r[0] * rk;
-            wish[2] = f[2] * fk + r[2] * rk;
-            pawn.Move(physics, physics.tweaks(), wish, window.IsDown(Key::Up), dt);
-            engine.SyncPlayerFromPawn();
-            for (int c = 0; c < 3; ++c) camera.pos[c] = pawn.headPos()[c];
+            // Nothing to do here: the pawn moves inside the tick chain, when
+            // CPlayer:Tick calls PLAYER.ExecAction with the action mask it
+            // built from these keys. The eye follows the pawn's head once
+            // that has run.
         } else if (noclip) {
             camera.Move(fwd, right, up);
             if (engine.playerHandle()) {
@@ -871,9 +894,14 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
         }
 
         // The engine's frame order, from Game.lua's own comments: Tick before
-        // physics, Tick2 after physics, Tick3 after the world tick.
+        // physics, Tick2 after physics, Tick3 after the world tick. The
+        // player moves inside Game_Tick, when CPlayer:Tick reaches
+        // PLAYER.ExecAction, so the mover needs this frame's delta first.
         const double d[1] = {dt};
+        engine.SetFrameDelta(dt);
         host.CallGlobal("Game_Tick", d, 1);
+        // The eye rides the pawn's head, wherever the tick left it.
+        if (walking) for (int c = 0; c < 3; ++c) camera.pos[c] = pawn.headPos()[c];
         physics.Update(dt);
         engine.SyncFromPhysics();
         host.CallGlobal("Game_Tick2", d, 1);

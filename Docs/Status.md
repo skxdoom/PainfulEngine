@@ -258,16 +258,27 @@ Details, the numbers, and the sizeable list of what is still missing are in
   through the full `CActor` chain — in bind pose, until animation lands.
   Not yet: input actions (fire/use), entity-collision events, sound. See
   [`LuaHost.md`](LuaHost.md).
+- **The player acts through the game's own seam.** Keys and bindings live in
+  `Source/Game/Input`, the bindings read out of the scripts' `Cfg` table the
+  way `INP.LoadBindings` does, and `CPlayer:Tick` turns them into an
+  `Actions` bitmask that reaches the mover through `ENTITY.PO_SetAction` and
+  `PLAYER.ExecAction` — so `PlayerPawn` now runs inside `Game_Tick` on the
+  scripts' mask rather than off the camera. Measured against
+  `Tweak.PlayerMove`: walking settles at 7.9999 m/s against `PlayerSpeed`
+  8.0, and a jump rises 0.753 m, which is what the recovered
+  `JumpStrength × PlayerSpeed × 0.7` gives under the same semi-implicit
+  step. See [`PlayerMovement.md`](PlayerMovement.md).
 
 ### Everything else
 
 - `.pkm` mod packages do not auto-mount yet (their internal format is still an
   open question — `GZipPack` exports hint the engine also reads real ZIPs).
-- **The player cannot act.** Movement is driven C++-side from the camera
-  rather than through the original's own seam — `INP.GetActionStatus` into an
-  `Actions` bitmask, `ENTITY.PO_SetAction`, then `PLAYER.ExecAction` — so
-  there is no firing, weapon switching, rocket jumping or use. The whole
-  `INP` module is stubbed.
+- The camera is still ours. `Game:Tick2` steers the view in the original
+  (`MOUSE.GetDelta` into `CAM.SetPos`/`SetAng`); here the C++ loop drives it
+  and the `CAM` reads mirror it, which is a faithful no-op but not the real
+  division of work.
+- Firing has nowhere to land: the fire bits reach the weapon code, but
+  `WORLD.LineTrace` and the intersection-solver registry are still stubs.
 - **Nothing is animated.** `MDL.SetAnim` answers -1 and `MDL.GetAnimTimeScale`
   answers 0, which also closes `CActor`'s animation-event loop — the path
   melee damage, footsteps and attack sounds travel down. Entities draw in

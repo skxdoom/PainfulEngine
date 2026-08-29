@@ -31,6 +31,17 @@ public:
     // True once per press of the collision-wireframe key.
     bool TakePhysicsDebugToggle();
 
+    // Windows VIRTUAL-KEY state, which is the space the scripts speak:
+    // Definitions.lua's `Keys` table is the standard VK list. 256 entries,
+    // indexed by code, mouse buttons included at 1/2/4. Edge detection is
+    // not here - Input owns that, because INP.Key's tri-state is a script
+    // contract rather than a windowing one.
+    const bool* VirtualKeys() const { return vkDown_; }
+    // Wheel notches since the last call: positive forward, negative back.
+    // The wheel has no held state, so it reaches the scripts as the
+    // synthetic keys 253/254 pulsed for a single frame.
+    int TakeWheelSteps();
+
     // Mouse movement since the previous call, in pixels.
     void TakeMouseDelta(float& dx, float& dy);
     // While captured the cursor is hidden and movement is unbounded.
@@ -54,6 +65,8 @@ private:
     int levelStep_ = 0;
     bool noclipToggle_ = false;
     bool physicsDebugToggle_ = false;
+    bool vkDown_[256] = {};
+    int wheelSteps_ = 0;
 };
 
 } // namespace painful

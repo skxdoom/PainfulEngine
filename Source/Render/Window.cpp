@@ -17,6 +17,70 @@ SDL_Scancode ScancodeFor(Key key) {
     }
     return SDL_SCANCODE_UNKNOWN;
 }
+
+// SDL scancode -> Windows virtual-key code, the space Definitions.lua's
+// `Keys` table uses. Translating from the SCANCODE rather than the keycode
+// keeps WASD on the same three physical keys under any layout, which is what
+// a player binding movement expects. The three codes with no Windows
+// original - Numpad Enter 252, wheel 253/254 - are the engine's own.
+int VirtualKeyFor(SDL_Scancode sc) {
+    if (sc >= SDL_SCANCODE_A && sc <= SDL_SCANCODE_Z) return 'A' + (sc - SDL_SCANCODE_A);
+    if (sc >= SDL_SCANCODE_1 && sc <= SDL_SCANCODE_9) return '1' + (sc - SDL_SCANCODE_1);
+    if (sc == SDL_SCANCODE_0) return '0';
+    if (sc >= SDL_SCANCODE_F1 && sc <= SDL_SCANCODE_F12)
+        return 112 + (sc - SDL_SCANCODE_F1);
+    if (sc >= SDL_SCANCODE_KP_1 && sc <= SDL_SCANCODE_KP_9)
+        return 97 + (sc - SDL_SCANCODE_KP_1);
+    switch (sc) {
+    case SDL_SCANCODE_RETURN:       return 13;
+    case SDL_SCANCODE_ESCAPE:       return 27;
+    case SDL_SCANCODE_BACKSPACE:    return 8;
+    case SDL_SCANCODE_TAB:          return 9;
+    case SDL_SCANCODE_SPACE:        return 32;
+    case SDL_SCANCODE_MINUS:        return 189;
+    case SDL_SCANCODE_EQUALS:       return 187;
+    case SDL_SCANCODE_LEFTBRACKET:  return 219;
+    case SDL_SCANCODE_RIGHTBRACKET: return 221;
+    case SDL_SCANCODE_BACKSLASH:    return 220;
+    case SDL_SCANCODE_SEMICOLON:    return 186;
+    case SDL_SCANCODE_APOSTROPHE:   return 222;
+    case SDL_SCANCODE_GRAVE:        return 192;
+    case SDL_SCANCODE_COMMA:        return 188;
+    case SDL_SCANCODE_PERIOD:       return 190;
+    case SDL_SCANCODE_SLASH:        return 191;
+    case SDL_SCANCODE_CAPSLOCK:     return 20;
+    case SDL_SCANCODE_PRINTSCREEN:  return 44;
+    case SDL_SCANCODE_SCROLLLOCK:   return 145;
+    case SDL_SCANCODE_PAUSE:        return 19;
+    case SDL_SCANCODE_INSERT:       return 45;
+    case SDL_SCANCODE_HOME:         return 36;
+    case SDL_SCANCODE_PAGEUP:       return 33;
+    case SDL_SCANCODE_DELETE:       return 46;
+    case SDL_SCANCODE_END:          return 35;
+    case SDL_SCANCODE_PAGEDOWN:     return 34;
+    case SDL_SCANCODE_RIGHT:        return 39;
+    case SDL_SCANCODE_LEFT:         return 37;
+    case SDL_SCANCODE_DOWN:         return 40;
+    case SDL_SCANCODE_UP:           return 38;
+    case SDL_SCANCODE_NUMLOCKCLEAR: return 144;
+    case SDL_SCANCODE_KP_DIVIDE:    return 111;
+    case SDL_SCANCODE_KP_MULTIPLY:  return 106;
+    case SDL_SCANCODE_KP_MINUS:     return 109;
+    case SDL_SCANCODE_KP_PLUS:      return 107;
+    case SDL_SCANCODE_KP_ENTER:     return 252;
+    case SDL_SCANCODE_KP_0:         return 96;
+    case SDL_SCANCODE_KP_PERIOD:    return 110;
+    case SDL_SCANCODE_LCTRL:        return 162;
+    case SDL_SCANCODE_LSHIFT:       return 160;
+    case SDL_SCANCODE_LALT:         return 164;
+    case SDL_SCANCODE_LGUI:         return 91;
+    case SDL_SCANCODE_RCTRL:        return 163;
+    case SDL_SCANCODE_RSHIFT:       return 161;
+    case SDL_SCANCODE_RALT:         return 165;
+    case SDL_SCANCODE_RGUI:         return 92;
+    default:                        return 0;
+    }
+}
 } // namespace
 
 bool Window::Open(const std::string& title, int width, int height) {
@@ -48,7 +112,11 @@ bool Window::PumpEvents() {
         switch (e.type) {
         case SDL_EVENT_QUIT:
             return false;
+        case SDL_EVENT_KEY_UP:
+            if (const int vk = VirtualKeyFor(e.key.scancode)) vkDown_[vk] = false;
+            break;
         case SDL_EVENT_KEY_DOWN:
+            if (const int vk = VirtualKeyFor(e.key.scancode)) vkDown_[vk] = true;
             if (e.key.key == SDLK_LEFTBRACKET) levelStep_ = -1;
             if (e.key.key == SDLK_RIGHTBRACKET) levelStep_ = 1;
             if (e.key.key == SDLK_N && !e.key.repeat) noclipToggle_ = true;
@@ -60,13 +128,32 @@ bool Window::PumpEvents() {
             }
             break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
-            if (!mouseCaptured_) SetMouseCaptured(true);
+        case SDL_EVENT_MOUSE_BUTTON_UP: {
+            // VK_LBUTTON 1, VK_RBUTTON 2, VK_MBUTTON 4 - the codes
+            // Definitions.lua names MouseButtonLeft/Right/Middle.
+            const bool down = e.type == SDL_EVENT_MOUSE_BUTTON_DOWN;
+            if (e.button.button == SDL_BUTTON_LEFT)   vkDown_[1] = down;
+            if (e.button.button == SDL_BUTTON_RIGHT)  vkDown_[2] = down;
+            if (e.button.button == SDL_BUTTON_MIDDLE) vkDown_[4] = down;
+            // Clicking into the window captures the mouse rather than
+            // reaching the game, so a click never both aims and fires.
+            if (down && !mouseCaptured_) SetMouseCaptured(true);
+            break;
+        }
+        case SDL_EVENT_MOUSE_WHEEL:
+            wheelSteps_ += int(e.wheel.y);
             break;
         case SDL_EVENT_MOUSE_MOTION:
             if (mouseCaptured_) {
                 mouseDx_ += e.motion.xrel;
                 mouseDy_ += e.motion.yrel;
             }
+            break;
+        case SDL_EVENT_WINDOW_FOCUS_LOST:
+            // Alt-tabbing away never delivers the key-up, so without this
+            // the player keeps walking into a wall while the window is not
+            // even focused.
+            for (bool& k : vkDown_) k = false;
             break;
         case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
             width_ = e.window.data1;
@@ -88,6 +175,12 @@ bool Window::IsDown(Key key) const {
     if (key == Key::ScaleDown) return keys[SDL_SCANCODE_MINUS]  || keys[SDL_SCANCODE_KP_MINUS];
     SDL_Scancode code = ScancodeFor(key);
     return code != SDL_SCANCODE_UNKNOWN && keys[code];
+}
+
+int Window::TakeWheelSteps() {
+    const int steps = wheelSteps_;
+    wheelSteps_ = 0;
+    return steps;
 }
 
 int Window::TakeLevelStep() {

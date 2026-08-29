@@ -19,7 +19,7 @@ void PlayerPawn::SetHeadPos(const float p[3]) {
 }
 
 void PlayerPawn::Move(const PhysicsWorld& physics, const Tweaks& tweaks,
-                      const float wishDir[3], bool jump, float dt) {
+                      uint32_t action, const float right[3], float dt) {
     if (dt <= 0.f) return;
     dt = std::min(dt, 0.05f);   // a hitch must not become a teleport
 
@@ -39,14 +39,22 @@ void PlayerPawn::Move(const PhysicsWorld& physics, const Tweaks& tweaks,
 
     if (speed_ <= 0.f) speed_ = playerSpeed;
 
-    // Normalised wish direction on the ground plane.
-    float wish[2] = {wishDir[0], wishDir[2]};
+    // The wish direction, accumulated exactly as PlayerAction does: the
+    // right vector is the strafe axis and forward is it rotated a quarter
+    // turn, so both stay in the ground plane whatever the pitch.
+    const float rx = right[0], rz = right[2];
+    float wish[2] = {0.f, 0.f};
+    if (action & Act::Forward)  { wish[0] += rz; wish[1] += -rx; }
+    if (action & Act::Backward) { wish[0] -= rz; wish[1] -= -rx; }
+    if (action & Act::Right)    { wish[0] += rx; wish[1] += rz; }
+    if (action & Act::Left)     { wish[0] -= rx; wish[1] -= rz; }
     const float wl = std::sqrt(wish[0] * wish[0] + wish[1] * wish[1]);
     const bool hasInput = wl > 1e-4f;
     if (hasInput) {
         wish[0] /= wl;
         wish[1] /= wl;
     }
+    const bool jump = (action & Act::Jump) != 0;
 
     // The before-landing buffer: a jump pressed in the air counts if the
     // ground arrives within the window (PlayerAction's pfVar2[7] timer).
@@ -105,7 +113,14 @@ void PlayerPawn::Move(const PhysicsWorld& physics, const Tweaks& tweaks,
         vz = takeoffDir_[1] * speed_;
     }
 
-    velY_ -= gravity * dt;
+    // Gravity applies only off the ground. Integrating it while standing
+    // pushes the sphere a little into the floor every frame, and the slide's
+    // skin lift does not quite give it all back - the player sank about 0.1
+    // units a second, forever, and would eventually be under the level.
+    // Standing still means standing still; leaving the ground is detected by
+    // the probe below, and the jump path has already cleared onGround_.
+    if (onGround_ && velY_ <= 0.f) velY_ = 0.f;
+    else velY_ -= gravity * dt;
     velY_ = std::max(velY_, -60.f);
 
     // Slide the feet sphere; the eye rides 2.31 m above the floor contact.

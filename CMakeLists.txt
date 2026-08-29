@@ -178,6 +178,7 @@ target_link_libraries(painful_render PUBLIC painful_world SDL3::SDL3-static bgfx
 add_library(painful_game STATIC
   Source/Game/ScriptEngine.cpp
   Source/Game/PlayerPawn.cpp
+  Source/Game/Input.cpp
 )
 target_link_libraries(painful_game PUBLIC painful_script painful_render)
 

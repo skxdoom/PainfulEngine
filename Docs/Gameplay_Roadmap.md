@@ -106,10 +106,13 @@ and chase and still never hurt anything until the animation clock is real.
 
 ## The stages
 
-### Stage 7 - the player acts
+### Stage 7 - the player acts — steps 1-5 DONE, step 6 open
 
 Turn the pawn from a camera-driven debug body into the game's own control
-path. This is the next task.
+path. Steps 1 to 5 have landed: the report is down to **142 distinct
+natives / 68,110 calls** from 153 / 82,843, and the movement now measures
+against `Tweak.PlayerMove` (7.9999 m/s against `PlayerSpeed` 8.0). The
+camera handover, step 6, is still open.
 
 1. **Input state** - an `Input` service fed from SDL, exposing virtual-key
    state with press-edge tracking. Natives: `INP.Key` (tri-state),
