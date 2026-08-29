@@ -427,6 +427,15 @@ void EntityRenderer::ReleaseScript(int slot) {
     instances_[slot].alive = false;
 }
 
+bool EntityRenderer::GetScriptDimensions(int slot, float out[3]) const {
+    if (slot < 0 || size_t(slot) >= instances_.size()) return false;
+    const Instance& instance = instances_[slot];
+    const GpuModel& model = models_[instance.model];
+    for (int i = 0; i < 3; ++i)
+        out[i] = (model.bboxHi[i] - model.bboxLo[i]) * instance.scale;
+    return true;
+}
+
 void EntityRenderer::SetEntityPose(size_t entityIndex, const float pos[3], const float rot[9]) {
     for (Instance& instance : instances_) {
         if (instance.entity != entityIndex) continue;

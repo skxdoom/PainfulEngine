@@ -58,6 +58,11 @@ public:
     // then Apply()s the level and every object through the native API.
     bool CallGameLoadLevel(const std::string& levelName);
 
+    // Game:OnPlay(true) - the transition into gameplay: creates the player
+    // (CreatePlayerSP -> CreatePlayer), launches the level's OnPlay actions,
+    // and sets Game.Active.
+    bool CallGameOnPlay();
+
     // One frame of the script layer, in the engine's documented order:
     // Game_Tick (before physics), Game_Tick2 (after physics, before world
     // tick), Game_Tick3 (after world tick), Game_Render, Game_PostRender,

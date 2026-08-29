@@ -681,6 +681,9 @@ const ModuleImpl kModuleImpls[] = {
     // Same "missing" convention as SetAnim: joints resolve once skeletal
     // animation lands, and the scripts handle -1 as "no such joint".
     {"MDL", "GetJointIndex", L_MDL_SetAnim},
+    // 0 = "not animating", which skips the animation-event loop cleanly.
+    {"MDL", "GetAnimTimeScale", L_Zero},
+    {"MDL", "GetAnimTime", L_Zero},
 };
 
 } // namespace

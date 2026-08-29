@@ -200,11 +200,35 @@ LANG.ParseLangFile(path)         -- calls Languages_ParseLangLine per line
 Color:Compose() == R3D.RGBA(r,g,b,a)  -- packing is ours on both ends
 ```
 
+## The player
+
+`Game:OnPlay(true)` is the transition into gameplay - the `game` command
+calls it after the level loads, the way the original's menu flow does. It
+runs `CreatePlayerSP` -> **`CreatePlayer("player_box", false)`**, wraps the
+returned handle in `CPlayer`, launches the level's OnPlay actions and sets
+`Game.Active` - at which point the whole gameplay loop ticks: actors,
+weapons (`CWeapon:Tick` polls `MDL.GetAnimTime`), and the pickup poll
+(`PLAYER.GetDistanceFromPoint` against every item's takeDistance).
+
+The pawn is ENGINE-side, as in the original: native code moves the player
+from the `Tweak.PlayerMove` constants (PlayerSpeed 8.0, JumpStrength,
+air-control...) and the scripts only read the results.
+`Source/Game/PlayerPawn` rebuilds that on the collision world's queries - a
+body sphere slid with gravity, ground detection and jumping, anchored at the
+HEAD (which is what `ENTITY.PO_SetPawnHeadPos`/`PO_GetPawnHeadPos` address;
+`PO_GetPawnFloorPos` reports the feet that the scripts' `_groundx/y/z`
+track). `PO_Enable` on the player is the walk/fly switch, the scripts' own
+`SwitchPlayerToPhysics` semantics; on a prop it wakes or sleeps the body.
+The jump velocity and air-control curve are approximations pending the
+native's own numbers. `ENTITY.GetDimensions` returns the model's world-space
+size - the Slab ambush plates sink by their own height to hide, so it must
+be real.
+
 ## Next stages
 
-1. `CreatePlayer` + the player controller; `CAM.*` becomes the player camera.
-2. Collision/region events out of Jolt into `Game_GetMsg`
-   (COLLISION_WITH_OTHER_ENTITY, REGION_ENTERED) - the half of PO_* physics
-   that talks back, and what triggers/ambushes/pickups hang off once a
-   player exists to trip them.
+1. Collision/region events out of Jolt into `Game_GetMsg`
+   (COLLISION_WITH_OTHER_ENTITY, REGION_ENTERED) - what triggers, ambushes
+   and doors hang off now that a player can trip them.
+2. Input actions (`INP.Action` bitmasks against real key bindings) - firing,
+   use, weapon switch.
 3. `PMENU` against a real menu renderer; `SOUND` when audio lands.

@@ -242,8 +242,14 @@ Details, the numbers, and the sizeable list of what is still missing are in
   `PARTICLE.AddEmitter`/`SetupEmitter` (resolution stays script-side), and
   coronas through `BILLBOARD.SetupCorona`. The scripts create the item-bound
   flames the hand-driven batch loader never resolved, so `game` shows more
-  than `run`. Not yet on this path: collision events into `Game_GetMsg`,
-  player, sound. See [`LuaHost.md`](LuaHost.md).
+  than `run`.
+- **The player walks.** `Game:OnPlay` creates it through `CreatePlayer`, the
+  engine-side pawn moves from the `Tweak.PlayerMove` constants (as the
+  original divides the work), the camera rides the pawn's head, and
+  `Game.Active` turns the whole gameplay loop on - actors tick, weapons
+  tick, and every item polls `PLAYER.GetDistanceFromPoint` for pickup. `N`
+  switches walk/fly. Not yet: collision events into `Game_GetMsg`, input
+  actions (fire/use), sound. See [`LuaHost.md`](LuaHost.md).
 
 ### Everything else
 

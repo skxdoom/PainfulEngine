@@ -11,6 +11,7 @@
 #include "Assets/Skeleton.h"
 #include "Core/FileSystem.h"
 #include "Core/Log.h"
+#include "Game/PlayerPawn.h"
 #include "Game/ScriptEngine.h"
 #include "Script/LuaHost.h"
 #include "Render/Renderer.h"
@@ -669,6 +670,7 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     // renderer, as they happen.
     PhysicsWorld physics;
     physics.SetProbeRadius(kCameraRadius);
+    PlayerPawn pawn;
     LuaHost host;
     if (!host.Init(root)) return 3;
     ScriptEngine engine;
@@ -677,6 +679,7 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     engine.AttachPhysics(&physics, root);
     if (particlesReady) engine.AttachParticles(&particles, &emitterScripts);
     if (billboardsReady) engine.AttachBillboards(&billboards);
+    engine.AttachPlayer(&pawn);
     if (!host.Boot()) return 3;
     host.CallGameInit();
     host.CallGameLoadLevel(levelName);
@@ -687,6 +690,10 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     // sync deliberately skips.
     physics.Settle(90);
     engine.SyncFromPhysics(false);
+
+    // The transition into gameplay: Game:OnPlay creates the player through
+    // CreatePlayer and launches the level's OnPlay actions.
+    host.CallGameOnPlay();
 
     // Turn the recorded WORLD.* state into renderer state.
     const ScriptEngine::WorldState& ws = engine.world();
@@ -784,11 +791,36 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
         if (window.IsDown(Key::Left))    right -= speed;
         if (window.IsDown(Key::Up))      up += speed;
         if (window.IsDown(Key::Down))    up -= speed;
-        if (noclip) {
+        const bool walking =
+            engine.playerHandle() != 0 && engine.pawnEnabled() && !noclip;
+        if (walking) {
+            // The player pawn walks: camera-relative ground direction, space
+            // to jump, eye glued to the pawn's head. The pawn takes its speed
+            // from Tweak.PlayerMove, so key-repeat speed here is irrelevant.
+            float f[3], r[3];
+            camera.Forward(f);
+            camera.Right(r);
+            float wish[3] = {0, 0, 0};
+            const float fk = (window.IsDown(Key::Forward) ? 1.f : 0.f) -
+                             (window.IsDown(Key::Back) ? 1.f : 0.f);
+            const float rk = (window.IsDown(Key::Right) ? 1.f : 0.f) -
+                             (window.IsDown(Key::Left) ? 1.f : 0.f);
+            wish[0] = f[0] * fk + r[0] * rk;
+            wish[2] = f[2] * fk + r[2] * rk;
+            pawn.Move(physics, physics.tweaks(), wish, window.IsDown(Key::Up), dt);
+            engine.SyncPlayerFromPawn();
+            for (int c = 0; c < 3; ++c) camera.pos[c] = pawn.headPos()[c];
+        } else if (noclip) {
             camera.Move(fwd, right, up);
+            if (engine.playerHandle()) {
+                // Keep the pawn with the flying camera, so dropping out of
+                // noclip resumes from here rather than across the level.
+                pawn.SetHeadPos(camera.pos);
+                engine.SyncPlayerFromPawn();
+            }
         } else {
-            // Same rule as the hand-driven path: the camera flies but slides
-            // along the world, and its kinematic body pushes loose props.
+            // No player yet: the free camera flies but slides along the
+            // world, as in the hand-driven path.
             float f[3], r[3], delta[3];
             camera.Forward(f);
             camera.Right(r);
@@ -840,8 +872,11 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
                            worldReady ? world.drawCalls() : 0, entities.drawCalls(),
                            worldReady ? world.zonesVisible() : 0,
                            worldReady ? world.zoneCount() : 0);
-        renderer.DebugText(4, "pos %.1f %.1f %.1f   rot %.2f %.2f", camera.pos[0],
-                           camera.pos[1], camera.pos[2], camera.yaw, camera.pitch);
+        renderer.DebugText(4, "pos %.1f %.1f %.1f   rot %.2f %.2f   %s", camera.pos[0],
+                           camera.pos[1], camera.pos[2], camera.yaw, camera.pitch,
+                           walking ? (pawn.onGround() ? "walking" : "airborne")
+                                   : (engine.playerHandle() ? "flying (N to walk)"
+                                                            : "no player"));
         renderer.DebugText(5, "physics: %s, %zu static tris, %zu bodies, gravity %.2f   |   "
                               "%zu particles in %zu emitters, %zu/%zu billboards",
                            noclip ? "camera NOCLIP" : "camera collides",

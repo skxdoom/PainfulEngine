@@ -123,10 +123,11 @@ the real game scripts and **script-driven level loading works**:
 and create its entities through the native API — `ENTITY.PO_Create` puts
 real Jolt bodies under them so items settle onto the floor, and the layered
 sky, particle effects and light coronas all arrive through their natives
-too. The script path even lights the item-bound torches the hand-driven
-loader never resolved. Not yet: collision events back into the scripts,
-skeletal animation playback, water and post-processing, the player and AI,
-sound and UI.
+too. **You walk**: `Game:OnPlay` creates the player, the engine-side pawn
+moves from the game's own `Tweak.PlayerMove` constants, actors and weapons
+tick, and items poll for pickup. Not yet: collision events back into the
+scripts, firing and use actions, skeletal animation playback, water and
+post-processing, AI behaviour, sound and UI.
 
 The full inventory, with the authority cited for each rule, is in
 [`Docs/Status.md`](Docs/Status.md).
@@ -161,6 +162,7 @@ only reveals itself deep into a playthrough.
 | [`Docs/Water.md`](Docs/Water.md) | water surfaces, the material tiers and what each needs |
 | [`Docs/Physics.md`](Docs/Physics.md) | the Jolt world, the tweak constants and the player body |
 | [`Docs/LuaHost.md`](Docs/LuaHost.md) | the Lua 5.0.2 host, the native API shape, the boot and frame contract |
+| [`Docs/PlayerMovement.md`](Docs/PlayerMovement.md) | the player mover, recovered from PhysicsObject::PlayerAction |
 | [`Docs/Engine_API.md`](Docs/Engine_API.md) | the C++ surface of `Engine.dll` |
 | [`Docs/Engine_LuaAPI.md`](Docs/Engine_LuaAPI.md) | the native API the scripts call |
 | [`Docs/native_priority.tsv`](Docs/native_priority.tsv) | that API ranked by call count — the work queue |

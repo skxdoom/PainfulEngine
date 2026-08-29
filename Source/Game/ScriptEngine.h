@@ -14,6 +14,7 @@ class BillboardRenderer;
 class EmitterLibrary;
 class EntityRenderer;
 class ParticleRenderer;
+class PlayerPawn;
 class TextureCache;
 
 // The engine-side state behind the script natives: the entity registry that
@@ -100,6 +101,17 @@ public:
     void AttachParticles(ParticleRenderer* particles, EmitterLibrary* library);
     void AttachBillboards(BillboardRenderer* billboards);
 
+    // Attaches the player pawn: CreatePlayer and the PO_ pawn family become
+    // real, and the game loop can walk.
+    void AttachPlayer(PlayerPawn* pawn);
+    int playerHandle() const { return playerHandle_; }
+    // ENTITY.PO_Enable on the player toggles between the walking pawn and
+    // free flight - the scripts' own SwitchPlayerToPhysics semantics.
+    bool pawnEnabled() const { return pawnEnabled_; }
+    // Writes the pawn's position back into the player entity, so the scripts
+    // read where the player actually is. Call after every pawn move.
+    void SyncPlayerFromPawn();
+
     // Writes the simulation's poses back into the registry and the renderer.
     // Call after every PhysicsWorld::Update. activeOnly=false sweeps sleeping
     // bodies too - needed once after the load-time settle, because settled
@@ -151,6 +163,17 @@ private:
     static int L_PO_SetRestitution(lua_State* L);
     static int L_PO_SetLinearDamping(lua_State* L);
     static int L_PO_SetAngularDamping(lua_State* L);
+    static int L_CreatePlayer(lua_State* L);
+    static int L_PO_SetPawnHeadPos(lua_State* L);
+    static int L_PO_GetPawnHeadPos(lua_State* L);
+    static int L_PO_GetPawnFloorPos(lua_State* L);
+    static int L_GetDimensions(lua_State* L);
+    static int L_IsDrawEnabled(lua_State* L);
+    static int L_PLAYER_GetDistanceFromPoint(lua_State* L);
+    static int L_PO_IsEnabled(lua_State* L);
+    static int L_PO_Enable(lua_State* L);
+    static int L_GetPlayerSpeed(lua_State* L);
+    static int L_SetPlayerSpeed(lua_State* L);
     static int L_WORLD_Init(lua_State* L);
     static int L_WORLD_AddEntity(lua_State* L);
     static int L_WORLD_FindEntityByName(lua_State* L);
@@ -175,6 +198,11 @@ private:
     ParticleRenderer* particles_ = nullptr;
     EmitterLibrary* emitterLib_ = nullptr;
     BillboardRenderer* billboards_ = nullptr;
+    PlayerPawn* pawn_ = nullptr;
+    int playerHandle_ = 0;
+    bool pawnEnabled_ = true;
+    float playerSpeedOverride_ = -1.f;
+    float jumpStrengthOverride_ = -1.f;
     std::string dataRoot_;
 
     MapMesh map_;

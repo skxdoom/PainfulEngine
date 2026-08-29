@@ -56,6 +56,9 @@ public:
     void SetScriptPose(int slot, const float pos[3], const float rotWXYZ[4]);
     void SetScriptVisible(int slot, bool visible);
     void ReleaseScript(int slot);
+    // World-space size of the instance's model (bind-pose bounds times its
+    // scale) - what ENTITY.GetDimensions reports.
+    bool GetScriptDimensions(int slot, float out[3]) const;
 
     size_t placed() const { return instances_.size(); }
     size_t distinctModels() const { return models_.size(); }

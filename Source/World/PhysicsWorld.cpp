@@ -781,6 +781,15 @@ void PhysicsWorld::SetScriptBodyPose(int slot, const float pos[3],
         EngineQuatToJolt(rotWXYZ), JPH::EActivation::Activate);
 }
 
+void PhysicsWorld::SetScriptBodyEnabled(int slot, bool enabled) {
+    if (!ScriptBodyExists(slot)) return;
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    if (enabled)
+        bodies.ActivateBody(impl_->scriptBodies[slot].body);
+    else
+        bodies.DeactivateBody(impl_->scriptBodies[slot].body);
+}
+
 float PhysicsWorld::ScriptBodyRadius(int slot) const {
     return ScriptBodyExists(slot) ? impl_->scriptBodies[slot].radius : 0.f;
 }

@@ -101,6 +101,8 @@ public:
     void SetScriptBodyAngularDamping(int slot, float damping);
     // Teleports the body where the scripts put the entity.
     void SetScriptBodyPose(int slot, const float pos[3], const float rotWXYZ[4]);
+    // PO_Enable on a prop: wakes or sleeps the body.
+    void SetScriptBodyEnabled(int slot, bool enabled);
     // The world-space mesh radius, which is what PO_GetMaxSphereRay reports.
     float ScriptBodyRadius(int slot) const;
     void RemoveScriptBody(int slot);

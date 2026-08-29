@@ -201,6 +201,25 @@ bool LuaHost::CallGameLoadLevel(const std::string& levelName) {
     return CallGameMethod("LoadLevel", levelName.c_str());
 }
 
+bool LuaHost::CallGameOnPlay() {
+    lua_pushcfunction(L_, Traceback);
+    lua_getglobal(L_, "Game");
+    if (!lua_istable(L_, -1)) { lua_pop(L_, 2); return false; }
+    lua_pushstring(L_, "OnPlay");
+    lua_gettable(L_, -2);
+    if (!lua_isfunction(L_, -1)) { lua_pop(L_, 3); return false; }
+    lua_insert(L_, -2);              // function below its self argument
+    lua_pushboolean(L_, 1);          // firstTime
+    if (lua_pcall(L_, 2, 0, -4) != 0) {
+        LogWarn("Game:OnPlay: %s", lua_tostring(L_, -1));
+        lua_pop(L_, 2);
+        ++scriptErrors_;
+        return false;
+    }
+    lua_pop(L_, 1);
+    return true;
+}
+
 void LuaHost::FrameTick(double delta) {
     const double d[1] = {delta};
     CallGlobal("Game_Tick", d, 1);        // before physics

@@ -8,6 +8,7 @@
 #include "../Render/EntityRenderer.h"
 #include "../Render/ParticleRenderer.h"
 #include "../Render/TextureCache.h"
+#include "PlayerPawn.h"
 
 extern "C" {
 #include <lauxlib.h>
@@ -74,6 +75,18 @@ void ScriptEngine::AttachParticles(ParticleRenderer* particles, EmitterLibrary* 
 
 void ScriptEngine::AttachBillboards(BillboardRenderer* billboards) {
     billboards_ = billboards;
+}
+
+void ScriptEngine::AttachPlayer(PlayerPawn* pawn) {
+    pawn_ = pawn;
+}
+
+void ScriptEngine::SyncPlayerFromPawn() {
+    if (!pawn_ || !playerHandle_) return;
+    if (Entity* e = Find(playerHandle_)) {
+        const float* head = pawn_->headPos();
+        for (int i = 0; i < 3; ++i) e->pos[i] = head[i];
+    }
 }
 
 void ScriptEngine::UpdateAttachments(Entity& e) {
@@ -197,13 +210,16 @@ int ScriptEngine::L_Release(lua_State* L) {
 
 int ScriptEngine::L_SetPosition(lua_State* L) {
     ScriptEngine* self = From(L);
-    if (Entity* e = self->Find(HandleArg(L, 1))) {
+    const int handle = HandleArg(L, 1);
+    if (Entity* e = self->Find(handle)) {
         e->pos[0] = float(luaL_optnumber(L, 2, 0));
         e->pos[1] = float(luaL_optnumber(L, 3, 0));
         e->pos[2] = float(luaL_optnumber(L, 4, 0));
         self->SyncPose(*e);
         if (self->physics_ && e->physicsBody >= 0)
             self->physics_->SetScriptBodyPose(e->physicsBody, e->pos, e->rotWXYZ);
+        if (self->pawn_ && handle == self->playerHandle_)
+            self->pawn_->SetHeadPos(e->pos);   // teleports (spawn, checkpoints)
     }
     return 0;
 }
@@ -451,6 +467,168 @@ int ScriptEngine::L_PO_SetAngularDamping(lua_State* L) {
     return 0;
 }
 
+// ---------------------------------------------------------------- player
+
+// CreatePlayer(model, bool) -> the player's entity handle. The pawn itself
+// is engine-side: the original's player locomotion is native code driven by
+// the PlayerMove tweaks, and the scripts wrap the handle in CPlayer for
+// health, weapons and pickups. The model ("player_box") is never drawn in
+// first person - Game:AddPlayer sets Visible = false immediately.
+int ScriptEngine::L_CreatePlayer(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity e;
+    e.type = kModel;
+    e.source = luaL_optstring(L, 1, "");
+    e.name = "Player";
+    const int handle = self->nextHandle_++;
+    self->entities_.emplace(handle, e);
+    ++self->created_;
+    self->playerHandle_ = handle;
+    self->pawnEnabled_ = true;
+    if (self->pawn_) {
+        const float zero[3] = {0, 0, 0};
+        self->pawn_->Spawn(zero);
+    }
+    lua_pushnumber(L, handle);
+    return 1;
+}
+
+int ScriptEngine::L_PO_SetPawnHeadPos(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e) return 0;
+    const float p[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+                        float(luaL_optnumber(L, 4, 0))};
+    for (int i = 0; i < 3; ++i) e->pos[i] = p[i];
+    if (self->pawn_ && HandleArg(L, 1) == self->playerHandle_) self->pawn_->SetHeadPos(p);
+    return 0;
+}
+
+int ScriptEngine::L_PO_GetPawnHeadPos(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const Entity* e = self->Find(HandleArg(L, 1));
+    const float* p = (self->pawn_ && HandleArg(L, 1) == self->playerHandle_)
+                         ? self->pawn_->headPos()
+                         : (e ? e->pos : nullptr);
+    lua_pushnumber(L, p ? p[0] : 0);
+    lua_pushnumber(L, p ? p[1] : 0);
+    lua_pushnumber(L, p ? p[2] : 0);
+    return 3;
+}
+
+// PO_Enable / PO_IsEnabled: on the player this is the walk/fly switch
+// (SwitchPlayerToPhysics); on a prop it wakes or sleeps the body.
+int ScriptEngine::L_PO_IsEnabled(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const int handle = HandleArg(L, 1);
+    if (handle == self->playerHandle_ && self->playerHandle_) {
+        lua_pushboolean(L, self->pawnEnabled_);
+        return 1;
+    }
+    const Entity* e = self->Find(handle);
+    lua_pushboolean(L, e && self->physics_ && e->physicsBody >= 0 &&
+                           self->physics_->ScriptBodyExists(e->physicsBody));
+    return 1;
+}
+
+int ScriptEngine::L_PO_Enable(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const int handle = HandleArg(L, 1);
+    const bool enable = lua_toboolean(L, 2) != 0;
+    if (handle == self->playerHandle_ && self->playerHandle_) {
+        self->pawnEnabled_ = enable;
+        return 0;
+    }
+    if (const Entity* e = self->Find(handle))
+        if (self->physics_ && e->physicsBody >= 0)
+            self->physics_->SetScriptBodyEnabled(e->physicsBody, enable);
+    return 0;
+}
+
+// ENTITY.PO_GetPawnFloorPos(e) -> the feet; the scripts' _groundx/y/z track
+// this every player tick and the proximity helpers measure from it.
+int ScriptEngine::L_PO_GetPawnFloorPos(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (self->pawn_ && HandleArg(L, 1) == self->playerHandle_) {
+        float feet[3];
+        self->pawn_->FloorPos(feet);
+        lua_pushnumber(L, feet[0]);
+        lua_pushnumber(L, feet[1]);
+        lua_pushnumber(L, feet[2]);
+        return 3;
+    }
+    return L_GetPosition(L);
+}
+
+// ENTITY.GetDimensions(e) -> w,h,d, world-space - Slab plates sink by their
+// own height when they open, so this must be real for the ambush barriers
+// to hide.
+int ScriptEngine::L_GetDimensions(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const Entity* e = self->Find(HandleArg(L, 1));
+    float dims[3] = {0, 0, 0};
+    if (e && self->renderer_ && e->rendererInstance >= 0)
+        self->renderer_->GetScriptDimensions(e->rendererInstance, dims);
+    lua_pushnumber(L, dims[0]);
+    lua_pushnumber(L, dims[1]);
+    lua_pushnumber(L, dims[2]);
+    return 3;
+}
+
+// PLAYER.GetDistanceFromPoint(e, x, y, z) - the pickup poll: every CItem
+// measures the player's distance against its takeDistance each tick, and
+// OnTake fires inside that radius.
+int ScriptEngine::L_PLAYER_GetDistanceFromPoint(lua_State* L) {
+    ScriptEngine* self = From(L);
+    float from[3] = {0, 0, 0};
+    if (self->pawn_ && HandleArg(L, 1) == self->playerHandle_) {
+        // The pawn's body centre - between the head and the feet, which is
+        // what the item's own Pos.Y-1 adjustment expects to measure against.
+        self->pawn_->FloorPos(from);
+        from[1] += 0.9f;
+    } else if (const Entity* e = self->Find(HandleArg(L, 1))) {
+        for (int i = 0; i < 3; ++i) from[i] = e->pos[i];
+    }
+    const float dx = from[0] - float(luaL_optnumber(L, 2, 0));
+    const float dy = from[1] - float(luaL_optnumber(L, 3, 0));
+    const float dz = from[2] - float(luaL_optnumber(L, 4, 0));
+    lua_pushnumber(L, std::sqrt(dx * dx + dy * dy + dz * dz));
+    return 1;
+}
+
+int ScriptEngine::L_IsDrawEnabled(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const Entity* e = self->Find(HandleArg(L, 1));
+    lua_pushboolean(L, e && e->visible && e->inWorld);
+    return 1;
+}
+
+// GetPlayerSpeed() -> speed, jumpStrength; SetPlayerSpeed(speed [, jump]) -
+// the natives at 0x1011df50/0x1011dea0 read and write the LIVE tweak fields
+// (+0xc and +0x14 of the physics engine's tweak block), which is how demon
+// mode and powerups retune movement.
+int ScriptEngine::L_GetPlayerSpeed(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const Tweaks* tweaks = self->physics_ ? &self->physics_->tweaks() : nullptr;
+    double speed = self->playerSpeedOverride_;
+    if (speed < 0)
+        speed = tweaks ? tweaks->Number("PlayerMove.PlayerSpeed", 8.0) : 8.0;
+    double jump = self->jumpStrengthOverride_;
+    if (jump < 0)
+        jump = tweaks ? tweaks->Number("PlayerMove.JumpStrength", 1.0) : 1.0;
+    lua_pushnumber(L, speed);
+    lua_pushnumber(L, jump);
+    return 2;
+}
+
+int ScriptEngine::L_SetPlayerSpeed(lua_State* L) {
+    ScriptEngine* self = From(L);
+    self->playerSpeedOverride_ = float(luaL_optnumber(L, 1, -1.0));
+    if (lua_isnumber(L, 2))
+        self->jumpStrengthOverride_ = float(lua_tonumber(L, 2));
+    return 0;
+}
+
 // ---------------------------------------------------------------- WORLD
 
 // WORLD.AddEntity(handle, hidden) - enters the entity into the drawn world;
@@ -689,6 +867,18 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"ENTITY", "PO_SetRestitution", L_PO_SetRestitution},
         {"ENTITY", "PO_SetLinearDamping", L_PO_SetLinearDamping},
         {"ENTITY", "PO_SetAngularDamping", L_PO_SetAngularDamping},
+        {"ENTITY", "PO_SetPawnHeadPos", L_PO_SetPawnHeadPos},
+        {"ENTITY", "PO_GetPawnHeadPos", L_PO_GetPawnHeadPos},
+        {"ENTITY", "PO_GetPawnFloorPos", L_PO_GetPawnFloorPos},
+        {"ENTITY", "PO_IsEnabled", L_PO_IsEnabled},
+        {"ENTITY", "PO_Enable", L_PO_Enable},
+        {"ENTITY", "GetDimensions", L_GetDimensions},
+        {"ENTITY", "GetWorldPosition", L_GetPosition},
+        {"ENTITY", "IsDrawEnabled", L_IsDrawEnabled},
+        {"PLAYER", "GetDistanceFromPoint", L_PLAYER_GetDistanceFromPoint},
+        {nullptr, "CreatePlayer", L_CreatePlayer},
+        {nullptr, "GetPlayerSpeed", L_GetPlayerSpeed},
+        {nullptr, "SetPlayerSpeed", L_SetPlayerSpeed},
         {"WORLD", "Init", L_WORLD_Init},
         {"WORLD", "AddEntity", L_WORLD_AddEntity},
         {"WORLD", "FindEntityByName", L_WORLD_FindEntityByName},
