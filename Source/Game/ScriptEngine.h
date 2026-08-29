@@ -3,6 +3,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "../Assets/AnimationCache.h"
 #include "../Assets/Mpk.h"
 #include "../Script/LuaHost.h"
 #include "../World/Level.h"
@@ -66,6 +67,25 @@ public:
         float velocity[3] = {0, 0, 0};   // ENTITY.SetVelocity, for bodyless entities
         // ENTITY.SetTimeToDie countdown in seconds; negative means no timer.
         float timeToDie = -1.f;
+
+        // The animation clock. MDL.SetAnim hands the scripts an INDEX which
+        // they keep as _CurAnimIndex and pass back to every other MDL call,
+        // so the indices have to be stable per entity: a slot is appended the
+        // first time an animation is named and never moves afterwards.
+        //
+        // Only the current animation actually runs. The scripts only ever
+        // query the index they last set, so a query about any other slot
+        // answers with that track's length and a time of zero rather than
+        // pretending to keep a clock per track.
+        struct AnimSlot {
+            std::string name;
+            float length = 0.f;
+        };
+        std::vector<AnimSlot> animSlots;
+        int animIndex = -1;      // slot now playing, -1 = none
+        float animTime = 0.f;    // seconds into it
+        float animScale = 1.f;   // MDL.Get/SetAnimTimeScale; 0 pauses
+        bool animLoop = false;
         float regionMin[3] = {0, 0, 0};
         float regionMax[3] = {0, 0, 0};
         // The Actions bitmask ENTITY.PO_SetAction stores on the physics
@@ -159,6 +179,10 @@ public:
     // Counts down ENTITY.SetTimeToDie and reaps whatever has run out. Call
     // once per frame; transient debris and spent projectiles depend on it.
     void TickLifetimes(float dt);
+
+    // Advances every entity's animation clock. Call once per frame BEFORE
+    // the tick chain: CActor:Tick reads the time the same frame.
+    void TickAnimations(float dt);
 
     // MOUSE.Lock(true), which the engine itself does at the play transition
     // (right after seating the camera from Lev.Pos/Lev.Ang). It is not a
@@ -259,6 +283,18 @@ private:
     static int L_SetPosAndRotRelativeToCamera(lua_State* L);
     static int L_GetType(lua_State* L);
     static int L_PARTICLE_SetEvolve(lua_State* L);
+    static int L_MDL_SetAnim(lua_State* L);
+    static int L_MDL_GetAnimLength(lua_State* L);
+    static int L_MDL_GetAnimTime(lua_State* L);
+    static int L_MDL_SetAnimTime(lua_State* L);
+    static int L_MDL_GetAnimTimeScale(lua_State* L);
+    static int L_MDL_SetAnimTimeScale(lua_State* L);
+    static int L_MDL_ResetFrame(lua_State* L);
+    static int L_MDL_LoadAnim(lua_State* L);
+    static int L_MDL_GetAnimMovement(lua_State* L);
+    static int L_MDL_TransformPointByJoint(lua_State* L);
+    static int L_MDL_GetJointPos(lua_State* L);
+    static const Entity::AnimSlot* AnimSlotArg(const Entity* e, lua_State* L, int arg);
     static int L_INP_Key(lua_State* L);
     static int L_INP_Action(lua_State* L);
     static int L_INP_UIAction(lua_State* L);
@@ -347,6 +383,7 @@ private:
     // one frame and the set is only ever a couple of entities deep.
     std::vector<int> excludedSlots_;
     std::vector<int> expired_;   // scratch for TickLifetimes
+    AnimationCache animations_;
     std::vector<ScriptBodyPose> poseScratch_;
 };
 

@@ -62,11 +62,13 @@ void ScriptEngine::AttachRenderer(EntityRenderer* entities, TextureCache* textur
     renderer_ = entities;
     textures_ = textures;
     dataRoot_ = dataRoot;
+    animations_.SetRoot(dataRoot + "/Models");
 }
 
 void ScriptEngine::AttachPhysics(PhysicsWorld* physics, const std::string& dataRoot) {
     physics_ = physics;
     dataRoot_ = dataRoot;
+    animations_.SetRoot(dataRoot + "/Models");
 }
 
 void ScriptEngine::AttachParticles(ParticleRenderer* particles, EmitterLibrary* library) {
@@ -1288,6 +1290,224 @@ int ScriptEngine::L_GetType(lua_State* L) {
     return 1;
 }
 
+// ------------------------------------------------------------ the anim clock
+//
+// This is the half of animation the GAME waits on, as opposed to the half the
+// eye does. CActor:Tick opens its whole animation-event loop with
+//
+//     local animSpeed = MDL.GetAnimTimeScale(self._Entity, self._CurAnimIndex)
+//     if animSpeed > 0 then ... while self._AnimationEvents[i] do ...
+//
+// and the events are declared in the actor's own template as
+// {timeInSeconds, method, arg}. So melee damage, footsteps, attack sounds and
+// the sequencing of every actor state hang off nothing more than a per-entity
+// timer and a duration. None of it needs a single triangle drawn.
+
+// MDL.SetAnim(e, anim, loop, speed, blend, mcurve, hasMovingCurveRot) -> the
+// animation's index on this entity, or -1 when the model has no such track -
+// which the scripts handle as "carry on without it", so it must stay a
+// negative number rather than an error.
+//
+// blend, mcurve and hasMovingCurveRot are accepted and ignored: blending and
+// root motion are their own problems, and guessing at them is how conventions
+// get broken here. See Docs/Animation.md.
+int ScriptEngine::L_MDL_SetAnim(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    const char* name = lua_isstring(L, 2) ? lua_tostring(L, 2) : nullptr;
+    if (!e || !name || !*name) {
+        lua_pushnumber(L, -1);
+        return 1;
+    }
+
+    const Animation* anim = self->animations_.Get(e->source, name);
+    if (!anim) {
+        lua_pushnumber(L, -1);
+        return 1;
+    }
+
+    // Find the slot this animation already has on the entity, or append one.
+    int index = -1;
+    for (size_t i = 0; i < e->animSlots.size(); ++i) {
+        if (e->animSlots[i].name == name) {
+            index = int(i);
+            break;
+        }
+    }
+    if (index < 0) {
+        e->animSlots.push_back({name, anim->duration()});
+        index = int(e->animSlots.size()) - 1;
+    }
+
+    e->animIndex = index;
+    e->animTime = 0.f;
+    e->animLoop = lua_toboolean(L, 3) != 0;
+    // The template's declared speed. A speed of zero would stall the event
+    // loop the moment it started, so an unspecified or zero speed plays at 1.
+    const float speed = float(luaL_optnumber(L, 4, 1.0));
+    e->animScale = speed > 0.f ? speed : 1.f;
+    lua_pushnumber(L, index);
+    return 1;
+}
+
+// The slot an MDL call is asking about. Defaults to the one playing, since
+// that is what the scripts pass in every case that matters.
+const ScriptEngine::Entity::AnimSlot* ScriptEngine::AnimSlotArg(const Entity* e,
+                                                                lua_State* L, int arg) {
+    if (!e) return nullptr;
+    const int index = lua_isnumber(L, arg) ? int(lua_tonumber(L, arg)) : e->animIndex;
+    if (index < 0 || size_t(index) >= e->animSlots.size()) return nullptr;
+    return &e->animSlots[index];
+}
+
+// MDL.GetAnimLength(e, index) -> the track's duration in seconds. CActor
+// stores it as _CurAnimLength and sequences against it.
+int ScriptEngine::L_MDL_GetAnimLength(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const Entity* e = self->Find(HandleArg(L, 1));
+    const Entity::AnimSlot* slot = AnimSlotArg(e, L, 2);
+    lua_pushnumber(L, slot ? slot->length : 0.0);
+    return 1;
+}
+
+// MDL.GetAnimTime(e, index) -> how far into it we are. Only the playing
+// animation has a clock; anything else reads as not started.
+int ScriptEngine::L_MDL_GetAnimTime(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const Entity* e = self->Find(HandleArg(L, 1));
+    const int index = lua_isnumber(L, 2) ? int(lua_tonumber(L, 2)) : (e ? e->animIndex : -1);
+    lua_pushnumber(L, (e && index == e->animIndex) ? e->animTime : 0.0);
+    return 1;
+}
+
+int ScriptEngine::L_MDL_SetAnimTime(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (e) e->animTime = float(luaL_optnumber(L, 3, 0));
+    return 0;
+}
+
+// MDL.GetAnimTimeScale / SetAnimTimeScale - the playback speed, and the gate
+// the event loop tests. CActor pauses an animation by storing the scale,
+// setting it to 0 and restoring it later, which is what says this is a speed
+// rather than a flag.
+int ScriptEngine::L_MDL_GetAnimTimeScale(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const Entity* e = self->Find(HandleArg(L, 1));
+    const bool playing = e && e->animIndex >= 0;
+    lua_pushnumber(L, playing ? e->animScale : 0.0);
+    return 1;
+}
+
+int ScriptEngine::L_MDL_SetAnimTimeScale(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (e) e->animScale = float(luaL_optnumber(L, 3, 1.0));
+    return 0;
+}
+
+// MDL.ResetFrame(e) - back to the first frame without changing which
+// animation is playing.
+int ScriptEngine::L_MDL_ResetFrame(lua_State* L) {
+    if (Entity* e = From(L)->Find(HandleArg(L, 1))) e->animTime = 0.f;
+    return 0;
+}
+
+// MDL.LoadAnim(e, anim) - preload, so the first play does not read a file
+// mid-frame. Answers the same index SetAnim would.
+int ScriptEngine::L_MDL_LoadAnim(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    const char* name = lua_isstring(L, 2) ? lua_tostring(L, 2) : nullptr;
+    if (!e || !name || !*name || !self->animations_.Get(e->source, name)) {
+        lua_pushnumber(L, -1);
+        return 1;
+    }
+    for (size_t i = 0; i < e->animSlots.size(); ++i)
+        if (e->animSlots[i].name == name) {
+            lua_pushnumber(L, double(i));
+            return 1;
+        }
+    e->animSlots.push_back({name, self->animations_.Get(e->source, name)->duration()});
+    lua_pushnumber(L, double(e->animSlots.size() - 1));
+    return 1;
+}
+
+// MDL.GetAnimMovement(e, index, delta) -> how far the animation itself moved
+// the actor this frame: root motion, the thing that carries a monster forward
+// during an attack.
+//
+// Zero for now, and that is a placeholder rather than an answer. The real
+// value is the root bone's translation between last frame's time and this
+// one, and the .ani tracks hold it - but WHICH bone is the root, and how the
+// "moving curve" flag in an actor's template selects it, is not established.
+// Guessing at that is how the rotation conventions went wrong. See
+// Docs/Animation.md.
+//
+// It must still return three numbers: CActor multiplies them the moment it
+// has a moving curve, so returning nothing throws an arithmetic error that
+// aborts the whole tick - which is precisely how this need announced itself.
+int ScriptEngine::L_MDL_GetAnimMovement(lua_State* L) {
+    lua_pushnumber(L, 0);
+    lua_pushnumber(L, 0);
+    lua_pushnumber(L, 0);
+    return 3;
+}
+
+// MDL.TransformPointByJoint(e, joint, x,y,z, ...) -> a point carried by a
+// bone, plus that bone's rotation: x,y,z,rw,rx,ry,rz. It is how a muzzle
+// flash sits at the barrel and how anything else rides a skeleton.
+//
+// The joint stage has not been built (Docs/Animation.md), so this answers
+// with the ENTITY's own position and an identity rotation. That is a
+// placeholder, and a deliberately visible one - effects land on the object
+// rather than at its barrel, instead of at the world origin.
+//
+// It has to return all seven values regardless. Returning nothing is what the
+// stub did, and once the animation clock let weapons reach this at all, the
+// nils flowed into Vector:New and threw an error that aborted Game_Tick
+// entirely - taking the whole actor update with it, every frame a weapon
+// fired.
+int ScriptEngine::L_MDL_TransformPointByJoint(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const Entity* e = self->Find(HandleArg(L, 1));
+    for (int c = 0; c < 3; ++c) lua_pushnumber(L, e ? e->pos[c] : 0.0);
+    lua_pushnumber(L, 1);   // identity quaternion, engine order (w,x,y,z)
+    lua_pushnumber(L, 0);
+    lua_pushnumber(L, 0);
+    lua_pushnumber(L, 0);
+    return 7;
+}
+
+// MDL.GetJointPos(e, joint) -> where a bone is. Same placeholder, same
+// reason.
+int ScriptEngine::L_MDL_GetJointPos(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const Entity* e = self->Find(HandleArg(L, 1));
+    for (int c = 0; c < 3; ++c) lua_pushnumber(L, e ? e->pos[c] : 0.0);
+    return 3;
+}
+
+void ScriptEngine::TickAnimations(float dt) {
+    if (dt <= 0.f) return;
+    for (auto& kv : entities_) {
+        Entity& e = kv.second;
+        if (e.animIndex < 0 || e.animScale <= 0.f) continue;   // none, or paused
+        const float length = e.animSlots[size_t(e.animIndex)].length;
+        e.animTime += dt * e.animScale;
+        if (length <= 0.f) {
+            e.animTime = 0.f;
+        } else if (e.animLoop) {
+            while (e.animTime >= length) e.animTime -= length;
+        } else if (e.animTime > length) {
+            // A one-shot holds on its last frame. It must not wrap: the event
+            // loop walks forward through the declared times and would fire
+            // the whole list again on every pass.
+            e.animTime = length;
+        }
+    }
+}
+
 // ---------------------------------------------------------------- WORLD
 
 // WORLD.AddEntity(handle, hidden) - enters the entity into the drawn world;
@@ -1515,6 +1735,17 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"PARTICLE", "AddEmitter", L_PARTICLE_AddEmitter},
         {"PARTICLE", "SetupEmitter", L_PARTICLE_SetupEmitter},
         {"PARTICLE", "SetEvolve", L_PARTICLE_SetEvolve},
+        {"MDL", "SetAnim", L_MDL_SetAnim},
+        {"MDL", "GetAnimLength", L_MDL_GetAnimLength},
+        {"MDL", "GetAnimTime", L_MDL_GetAnimTime},
+        {"MDL", "SetAnimTime", L_MDL_SetAnimTime},
+        {"MDL", "GetAnimTimeScale", L_MDL_GetAnimTimeScale},
+        {"MDL", "SetAnimTimeScale", L_MDL_SetAnimTimeScale},
+        {"MDL", "ResetFrame", L_MDL_ResetFrame},
+        {"MDL", "LoadAnim", L_MDL_LoadAnim},
+        {"MDL", "GetAnimMovement", L_MDL_GetAnimMovement},
+        {"MDL", "TransformPointByJoint", L_MDL_TransformPointByJoint},
+        {"MDL", "GetJointPos", L_MDL_GetJointPos},
         {"PARTICLE", "SetFixedTransform", L_NoOpNative},
         {"BILLBOARD", "SetupCorona", L_BILLBOARD_SetupCorona},
         {"ENTITY", "GetVelocity", L_GetVelocity},

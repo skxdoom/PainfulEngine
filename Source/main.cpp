@@ -661,6 +661,8 @@ static int LuaCmd(const char* dataRoot, int frames, const char* level,
         for (int i = 0; i < frames && !host.quitRequested(); ++i) {
             input.BeginFrame();
             engine.SetFrameDelta(1.f / 60.f);
+
+            engine.TickAnimations(1.f / 60.f);
             host.FrameTick(1.0 / 60.0);
             physics.Update(1.f / 60.f);
             engine.SyncFromPhysics();
@@ -927,6 +929,8 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
         // PLAYER.ExecAction, so the mover needs this frame's delta first.
         const double d[1] = {dt};
         engine.SetFrameDelta(dt);
+
+        engine.TickAnimations(dt);
         host.CallGlobal("Game_Tick", d, 1);
         physics.Update(dt);
         engine.SyncFromPhysics();

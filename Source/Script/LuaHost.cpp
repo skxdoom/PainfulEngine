@@ -37,16 +37,36 @@ bool StartsWithCI(const std::string& s, const char* prefix) {
 }
 
 // The message handler for pcall: appends a traceback via debug.traceback.
+// Where debug.traceback is stashed at startup. It cannot be looked up as a
+// global when an error happens: the shipped scripts alias the debug library
+// to `debugl` and then use `debug`-prefixed names for their own flags, so by
+// the time anything fails the global is no longer the library and every error
+// would arrive as a bare one-line message with no stack.
+const char* const kTracebackKey = "painful.traceback";
+
 int Traceback(lua_State* L) {
+    lua_pushstring(L, kTracebackKey);
+    lua_gettable(L, LUA_REGISTRYINDEX);
+    if (!lua_isfunction(L, -1)) { lua_pop(L, 1); return 1; }
+    // Lua 5.0 traceback takes the message ALONE - the level argument only
+    // arrived in 5.1, and passing one here appends it to the text.
+    lua_pushvalue(L, 1);
+    lua_call(L, 1, 1);
+    return 1;
+}
+
+// Call once, before any script runs.
+void StashTraceback(lua_State* L) {
     lua_getglobal(L, "debug");
-    if (!lua_istable(L, -1)) { lua_pop(L, 1); return 1; }
+    if (!lua_istable(L, -1)) { lua_pop(L, 1); return; }
     lua_pushstring(L, "traceback");
     lua_gettable(L, -2);
-    if (!lua_isfunction(L, -1)) { lua_pop(L, 2); return 1; }
-    lua_pushvalue(L, 1);       // message
-    lua_pushnumber(L, 2);      // skip this handler
-    lua_call(L, 2, 1);
-    return 1;
+    if (lua_isfunction(L, -1)) {
+        lua_pushstring(L, kTracebackKey);
+        lua_pushvalue(L, -2);
+        lua_settable(L, LUA_REGISTRYINDEX);
+    }
+    lua_pop(L, 2);
 }
 
 } // namespace
@@ -70,6 +90,7 @@ bool LuaHost::Init(const std::string& dataRoot) {
     luaopen_math(L_);
     luaopen_io(L_);        // also provides os.* in 5.0
     luaopen_debug(L_);
+    StashTraceback(L_);
     lua_settop(L_, 0);
 
     lua_pushstring(L_, kHostKey);
