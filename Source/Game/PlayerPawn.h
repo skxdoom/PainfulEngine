@@ -11,7 +11,9 @@ namespace painful {
 //
 // Recovered facts, each from the decompile:
 //  - The pawn is the "player_box" model at scale 0.155: 14.90 units tall
-//    -> 2.31 m, 0.82 m wide (EngineGame::CreatePlayer, 0x1001cef0).
+//    -> 2.31 m, 0.82 m wide (EngineGame::CreatePlayer, 0x1001cef0). The
+//    collision body is its own shape and slightly shorter - see
+//    kEyeAboveFloor.
 //  - Positions are head-anchored: head = centre + 0.9h, floor = centre -
 //    1.1h with h the half-height (GetPawnHeadPos / GetPawnFloorPos, the
 //    0.9/1.1 at 0x102c8510/0x102c7c04). SetPawnHeadPos takes the EYE
@@ -25,10 +27,12 @@ namespace painful {
 //    currentSpeed += (MaximalBunnyHopSpeed - currentSpeed) *
 //    BunnyHopAcceleration, clamped at the maximum. Standing on the ground
 //    past the AfterLanding window resets currentSpeed to PlayerSpeed.
-//  - In the air the horizontal direction is FROZEN at takeoff; input that
-//    opposes it bleeds speed by SlowdownDuringJump * speed * opposition *
-//    dt (halved while it exceeds the speed), which is the jump's only
-//    steering.
+//  - In the air the INPUT MASK is frozen, not the direction: the stored
+//    bits are re-accumulated every frame against the CURRENT camera basis,
+//    so holding a strafe and turning the mouse turns the motion with it.
+//    Turning back on the previous frame's direction bleeds speed by
+//    SlowdownDuringJump * speed * opposition (halved while it exceeds the
+//    speed).
 class PlayerPawn {
 public:
     void Spawn(const float headPos[3]);
@@ -81,11 +85,47 @@ public:
     static constexpr float kHitGroundSpeed = 20.f;
 
 private:
-    // player_box at 0.155: half-height h = 1.155, eye-to-floor = 2h = 2.31.
-    // The collision sphere sits at the feet (radius from the 0.82 m box
-    // width), so steps and floors resolve where the body actually is.
-    static constexpr float kEyeAboveFloor = 2.31f;
-    static constexpr float kRadius = 0.41f;
+    // The pawn's own geometry, from the shape factory rather than the model.
+    // GetPawnHeadPos is `(this+0x20) * 0.9 + centre` and GetPawnFloorPos
+    // `(this+0x20) * -1.1 + centre`, where that field is the body scale -
+    // 1.0 for the player, which the mass confirms (80 = 0.2^3 * 10000 at
+    // bodyScale 1). So the eye sits exactly 2.0 above the floor contact.
+    //
+    // Not 2.31: that came from scaling the player_box MODEL (14.90 units at
+    // 0.155) and treating its half-height as the multiplier, which made the
+    // player a noticeable 15% too tall. The four-sphere collision stack is
+    // the authority, and it agrees - centres -0.63/-0.10/+0.50/+0.90 with
+    // radii 0.33/0.40/0.40/0.20 span -0.96 to +1.10, just over 2 units.
+    // Its widest radius, 0.40, is the body's, and the model's 0.82 width
+    // matches it far better than a scaled 0.92 would.
+    static constexpr float kEyeAboveFloor = 2.0f;
+    static constexpr float kRadius = 0.40f;
+
+    // PhysicsObject::StepCheck (0x1018eb90) is a ladder of forward line
+    // traces at fixed heights, and it returns which rung first came back
+    // blocked. The heights are DOUBLES in Engine.dll at 0x102c8580..0x102c85f0,
+    // measured from the pawn centre; the floor is centre - 1.1, so a rung at
+    // centre + r sits 1.1 + r above the floor:
+    //
+    //   rung -1.096 -> 0.00 above floor -> returns 1, climbed at full speed
+    //   rung -0.96  -> 0.14             -> returns 2, velocity x 0.3
+    //   rung -0.68  -> 0.42             -> returns 3, horizontal x 0.3
+    //   rung -0.24  -> 0.86             -> returns 4, a wall: stop dead
+    //
+    // So the engine climbs anything up to 0.86 above the floor and charges
+    // for it by height, which is why a step in the original reads as a small
+    // hop that differs with the step: the pawn rises in one frame while that
+    // frame's travel is cut to 30%. A bare sphere only rolls over what its
+    // own radius clears, which is why steps felt too low here.
+    // Note these are hardcoded in the binary, not read from the tweaks.
+    // StepCheck's only tweak-ish input is its float argument, and that scales
+    // the FORWARD trace distance (0.42/0.532/0.646 of it below a threshold,
+    // a flat 0.76 above), not the heights - so Tweak.PlayerMove.MaxStepHeight
+    // (0.7) does not appear to reach here. Left unresolved rather than
+    // assumed.
+    static constexpr float kStepFree = 0.14f;      // free below this
+    static constexpr float kStepMax = 0.86f;       // a wall above this
+    static constexpr float kStepPenalty = 0.3f;    // 0x102af83c
 
     float head_[3] = {0, 0, 0};
     float velY_ = 0.f;
@@ -96,7 +136,8 @@ private:
     float groundedTime_ = 0.f;       // seconds since touchdown
     float jumpQueuedFor_ = 0.f;      // before-landing buffer countdown
     bool jumpHeld_ = false;          // edge detection for hop presses
-    float takeoffDir_[2] = {0, 0};   // frozen air direction (x, z)
+    uint32_t takeoffMask_ = 0;       // movement bits frozen at takeoff
+    float airDir_[2] = {0, 0};       // last frame's travel direction (x, z)
     float landingImpact_ = 0.f;      // fall speed at the last touchdown
 };
 

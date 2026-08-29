@@ -91,6 +91,14 @@ public:
 // the pushing barely moves and the push looks feeble.
 //
 // It also drops the camera's own body, which sits exactly where the camera is.
+//
+// A maxPushMass of kSolidProps disables the mass rule entirely, so every body
+// blocks. That is what the PLAYER wants: you stand on a barrel, you do not
+// walk through it. The pass-through is a free-camera affordance, not a
+// gameplay rule - the mass line governs what can be SHOVED, and the shoving
+// is done by the kinematic probe body, not by the query.
+constexpr float kSolidProps = -1.f;
+
 class CameraBlockerFilter final : public JPH::BodyFilter {
 public:
     CameraBlockerFilter(const JPH::BodyID& ignore, float maxPushMass)
@@ -100,6 +108,7 @@ public:
 
     bool ShouldCollideLocked(const JPH::Body& body) const override {
         if (body.GetID() == ignore_) return false;
+        if (maxPushMass_ < 0.f) return true;
         // The world, and anything pinned in place, always blocks.
         if (body.GetMotionType() != JPH::EMotionType::Dynamic) return true;
         const JPH::MotionProperties* motion = body.GetMotionProperties();
@@ -899,12 +908,13 @@ bool PhysicsWorld::SphereOverlaps(const float pos[3], float radius) const {
     return collector.HadHit();
 }
 
-int PhysicsWorld::Depenetrate(float pos[3], float radius, int iterations) const {
+int PhysicsWorld::Depenetrate(float pos[3], float radius, int iterations,
+                              bool solidProps) const {
     if (!loaded()) return 0;
 
     const JPH::SphereShape sphere(radius);
     sphere.SetEmbedded();
-    const CameraBlockerFilter blockers(impl_->probe, maxPushMass_);
+    const CameraBlockerFilter blockers(impl_->probe, solidProps ? kSolidProps : maxPushMass_);
 
     int resolved = 0;
     for (int pass = 0; pass < iterations; ++pass) {
@@ -942,7 +952,8 @@ int PhysicsWorld::Depenetrate(float pos[3], float radius, int iterations) const 
     return resolved;
 }
 
-void PhysicsWorld::SlideSphere(float pos[3], const float delta[3], float radius) const {
+void PhysicsWorld::SlideSphere(float pos[3], const float delta[3], float radius,
+                               bool solidProps) const {
     if (!loaded()) {
         for (int c = 0; c < 3; ++c) pos[c] += delta[c];
         return;
@@ -951,7 +962,7 @@ void PhysicsWorld::SlideSphere(float pos[3], const float delta[3], float radius)
     // Get out of anything first. A cast that starts inside geometry reports a
     // hit at zero distance in every direction, which is indistinguishable from
     // being wedged - and being wedged for good is exactly what it looks like.
-    Depenetrate(pos, radius);
+    Depenetrate(pos, radius, 4, solidProps);
 
     JPH::Vec3 at(pos[0], pos[1], pos[2]);
     JPH::Vec3 remaining(delta[0], delta[1], delta[2]);
@@ -962,7 +973,7 @@ void PhysicsWorld::SlideSphere(float pos[3], const float delta[3], float radius)
 
     const JPH::SphereShape sphere(radius);
     sphere.SetEmbedded();
-    const CameraBlockerFilter blockers(impl_->probe, maxPushMass_);
+    const CameraBlockerFilter blockers(impl_->probe, solidProps ? kSolidProps : maxPushMass_);
 
     // Keeps the sphere just clear of the surface so the next cast starts
     // outside it. The original calls the same idea PhantomTolerance.

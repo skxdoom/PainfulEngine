@@ -66,6 +66,18 @@ void PlayerPawn::Move(const PhysicsWorld& physics, const Tweaks& tweaks,
     float vx = 0.f, vz = 0.f;
     if (onGround_) {
         groundedTime_ += dt;
+        // While grounded, PlayerAction stores BOTH the travel direction and
+        // the movement bits on the physics object, every frame. Whatever is
+        // held at the moment the ground is left is what the airborne branch
+        // then works from - so this has to track continuously, not only be
+        // captured on a jump. Set it only at takeoff and walking off a lip
+        // leaves an empty mask, which reads as no air direction at all and
+        // drops the player straight down with no forward motion.
+        if (hasInput) {
+            airDir_[0] = wish[0];
+            airDir_[1] = wish[1];
+        }
+        takeoffMask_ = action & (Act::Forward | Act::Backward | Act::Left | Act::Right);
         const bool wantsHop =
             (jumpPressed || jumpQueuedFor_ > 0.f) && groundedTime_ <= hopAfter;
         const bool wantsJump = jumpPressed || jumpQueuedFor_ > 0.f;
@@ -80,14 +92,11 @@ void PlayerPawn::Move(const PhysicsWorld& physics, const Tweaks& tweaks,
                     speed_ += (maxHopSpeed - speed_) * hopAccel;
                 speed_ = std::min(speed_, maxHopSpeed);
             }
-            // The air direction freezes at takeoff.
-            takeoffDir_[0] = hasInput ? wish[0] : 0.f;
-            takeoffDir_[1] = hasInput ? wish[1] : 0.f;
             onGround_ = false;
             groundedTime_ = 0.f;
             jumpQueuedFor_ = 0.f;
-            vx = takeoffDir_[0] * speed_;
-            vz = takeoffDir_[1] * speed_;
+            vx = airDir_[0] * speed_;
+            vz = airDir_[1] * speed_;
         } else {
             // Grounded past the hop window: back to walking speed. Ground
             // movement is an instant snap to wishDir * speed - the original
@@ -97,20 +106,47 @@ void PlayerPawn::Move(const PhysicsWorld& physics, const Tweaks& tweaks,
             vz = hasInput ? wish[1] * speed_ : 0.f;
         }
     } else {
-        // Airborne: the direction is the takeoff's. Opposing input bleeds
-        // speed - PlayerAction's SlowdownDuringJump term, halved while it
-        // exceeds the speed - and that is the only air steering.
-        if (hasInput) {
-            const float opposition =
-                -(wish[0] * takeoffDir_[0] + wish[1] * takeoffDir_[1]);
-            if (opposition > 0.f) {
-                float cut = slowdown * speed_ * opposition * dt;
-                while (cut > speed_) cut *= 0.5f;
-                speed_ -= cut;
-            }
+        // Airborne. What freezes at takeoff is the INPUT MASK, not the
+        // direction: PlayerAction stores `action & 0x1e` and then, every
+        // airborne frame, rebuilds a direction from those stored bits using
+        // the RIGHT VECTOR IT WAS JUST HANDED - the same accumulation the
+        // ground branch runs, on the current camera basis. So turning the
+        // mouse in the air turns your motion with it, which is the whole of
+        // air control here: hold a strafe key, swing the mouse, and the
+        // velocity follows. Freezing the world-space direction instead (as
+        // this did) removes air steering entirely and pins you to a wall
+        // you jumped alongside, because nothing can turn the motion away
+        // from it.
+        float air[2] = {0.f, 0.f};
+        if (takeoffMask_ & Act::Forward)  { air[0] += rz; air[1] += -rx; }
+        if (takeoffMask_ & Act::Backward) { air[0] -= rz; air[1] -= -rx; }
+        if (takeoffMask_ & Act::Right)    { air[0] += rx; air[1] += rz; }
+        if (takeoffMask_ & Act::Left)     { air[0] -= rx; air[1] -= rz; }
+        const float al = std::sqrt(air[0] * air[0] + air[1] * air[1]);
+        if (al > 1e-4f) {
+            air[0] /= al;
+            air[1] /= al;
+        } else {
+            // No movement key was held at takeoff: keep drifting the way we
+            // already were rather than stopping dead in mid-air.
+            air[0] = airDir_[0];
+            air[1] = airDir_[1];
         }
-        vx = takeoffDir_[0] * speed_;
-        vz = takeoffDir_[1] * speed_;
+
+        // Turning the motion back on itself costs speed - the
+        // SlowdownDuringJump term, halved while the cut exceeds the speed.
+        // Measured against the direction we were travelling LAST frame, so a
+        // smooth turn is nearly free and a hard reversal is not.
+        const float opposition = -(air[0] * airDir_[0] + air[1] * airDir_[1]);
+        if (hasInput && opposition > 0.f) {
+            float cut = slowdown * speed_ * opposition * dt;
+            while (cut > speed_) cut *= 0.5f;
+            speed_ -= cut;
+        }
+        airDir_[0] = air[0];
+        airDir_[1] = air[1];
+        vx = air[0] * speed_;
+        vz = air[1] * speed_;
     }
 
     // Gravity applies only off the ground. Integrating it while standing
@@ -123,15 +159,62 @@ void PlayerPawn::Move(const PhysicsWorld& physics, const Tweaks& tweaks,
     else velY_ -= gravity * dt;
     velY_ = std::max(velY_, -60.f);
 
-    // Slide the feet sphere; the eye rides 2.31 m above the floor contact.
+    // Slide the feet sphere; the eye rides kEyeAboveFloor above the contact.
+    const bool wasGrounded = onGround_;
     float feet[3] = {head_[0], head_[1] - kEyeAboveFloor + kRadius, head_[2]};
+    const float startX = feet[0], startY = feet[1], startZ = feet[2];
     const float delta[3] = {vx * dt, velY_ * dt, vz * dt};
-    physics.SlideSphere(feet, delta, kRadius);
+    physics.SlideSphere(feet, delta, kRadius, true);
+
+    // StepCheck, after the engine's own ladder (see kStepMax in the header).
+    // When a grounded move comes up short of what was asked, retry it from
+    // the top of what the engine would still climb and settle back down onto
+    // whatever is there. Keep it only if it actually got further.
+    const float wantX = vx * dt, wantZ = vz * dt;
+    const float want2 = wantX * wantX + wantZ * wantZ;
+    if (wasGrounded && want2 > 1e-8f) {
+        const float gotX = feet[0] - startX, gotZ = feet[2] - startZ;
+        const float got2 = gotX * gotX + gotZ * gotZ;
+        if (got2 < want2 * 0.81f) {           // blocked: under 90% of the ask
+            float step[3] = {startX, startY + kStepMax, startZ};
+            const float over[3] = {wantX, 0.f, wantZ};
+            physics.SlideSphere(step, over, kRadius, true);
+            const float sX = step[0] - startX, sZ = step[2] - startZ;
+            if (sX * sX + sZ * sZ > got2) {
+                // Higher up there is room. Drop back onto the step; if
+                // nothing is under it the descent finds the original floor
+                // again, so this cannot leave the player hovering.
+                const float back[3] = {0.f, -kStepMax, 0.f};
+                physics.SlideSphere(step, back, kRadius, true);
+                for (int c = 0; c < 3; ++c) feet[c] = step[c];
+
+                // Anything above the free rung is charged for: the engine
+                // scales that frame's velocity by 0.3, which on a fixed step
+                // is the same as scaling the distance it just covered. That
+                // cut, against a rise of up to 0.86 in one frame, is what
+                // gives a step its small hop.
+                if (feet[1] - startY > kStepFree) {
+                    feet[0] = startX + (feet[0] - startX) * kStepPenalty;
+                    feet[2] = startZ + (feet[2] - startZ) * kStepPenalty;
+                }
+            }
+        }
+    }
+
+    // A downhill ground-follow was tried here - cast a step down after the
+    // move and take the contact, so a descent does not drop the pawn into
+    // the airborne branch. Measured across eight directions it helped
+    // descents (6.74 against 5.44 over a second) and cost as much again on
+    // flat and climbing ground (5.58 against 7.98), while changing which
+    // route the player took rather than following the same one better. The
+    // harm it was meant to undo - a flickering frame freezing the movement
+    // bits - is already gone, because the grounded branch above now keeps
+    // those bits current. Left out until something measures better.
 
     // Grounded when a small downward probe barely moves.
     float probe[3] = {feet[0], feet[1], feet[2]};
     const float down[3] = {0.f, -0.06f, 0.f};
-    physics.SlideSphere(probe, down, kRadius);
+    physics.SlideSphere(probe, down, kRadius, true);
     const bool grounded = (feet[1] - probe[1]) < 0.045f;
     if (grounded && !onGround_) {
         groundedTime_ = 0.f;             // touchdown

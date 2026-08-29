@@ -117,7 +117,15 @@ public:
     // collide without being a simulated body - the engine has the same idea in
     // PhysicsObject::SetFlying, where the player keeps its shape but not its
     // gravity.
-    void SlideSphere(float pos[3], const float delta[3], float radius) const;
+    //
+    // solidProps=true makes every body block, which is what the PLAYER
+    // needs - props are things you stand on. Left false, bodies lighter than
+    // Tweak.PlayerMove.MaximalItemPushMass are passed straight through; that
+    // is a free-camera affordance so it can press into a barrel and have the
+    // probe body shove it, and it is why the player used to walk through
+    // barrels while still standing on the heavier, pinned coffins.
+    void SlideSphere(float pos[3], const float delta[3], float radius,
+                     bool solidProps = false) const;
 
     // True when a sphere at this position overlaps anything solid.
     bool SphereOverlaps(const float pos[3], float radius) const;
@@ -126,7 +134,8 @@ public:
     // overlaps it had to resolve. SlideSphere does this before every move:
     // a cast that starts inside geometry hits at zero distance whichever way
     // it goes, which is indistinguishable from being wedged for good.
-    int Depenetrate(float pos[3], float radius, int iterations = 4) const;
+    int Depenetrate(float pos[3], float radius, int iterations = 4,
+                    bool solidProps = false) const;
 
     // The camera's body in the simulation: a kinematic sphere that follows it.
     //
