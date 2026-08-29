@@ -25,6 +25,10 @@ public:
         std::vector<Bone> bones;         // hierarchy already resolved
         std::vector<Mat4> bindWorld;
         std::vector<Mat4> inverseBind;
+        // Model-space bounds of the meshes, for callers that need the shape
+        // rather than the skeleton - a character radius is the horizontal
+        // half-extent, and a T-posed humanoid's widest axis is its ARMS.
+        float lo[3] = {0, 0, 0}, hi[3] = {0, 0, 0};
     };
 
     void SetRoot(const std::string& modelsRoot) { root_ = modelsRoot; }

@@ -665,6 +665,7 @@ static int LuaCmd(const char* dataRoot, int frames, const char* level,
             engine.SetFrameDelta(1.f / 60.f);
 
             engine.TickAnimations(1.f / 60.f);
+            engine.TickMonsters(1.f / 60.f);
             host.FrameTick(1.0 / 60.0);
             physics.Update(1.f / 60.f);
             engine.SyncFromPhysics();
@@ -933,6 +934,7 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
         engine.SetFrameDelta(dt);
 
         engine.TickAnimations(dt);
+        engine.TickMonsters(dt);
         host.CallGlobal("Game_Tick", d, 1);
         physics.Update(dt);
         engine.SyncFromPhysics();

@@ -67,6 +67,15 @@ void ComputeBoneWorldAtTime(const std::vector<Bone>& bones,
                             const JointOverride* overrides = nullptr,
                             size_t overrideCount = 0);
 
+// One bone's model-space position at a playback time, walking only its own
+// ancestors. Root motion asks this twice per actor per tick and reads a single
+// bone, so posing the whole skeleton for it would cost more than the animation
+// itself. Script joint rotations are deliberately NOT applied: root motion is
+// what the ANIMATION moves the actor by, not what a head-look does to it.
+bool ComputeBonePositionAtTime(const std::vector<Bone>& bones,
+                               const std::vector<const AnimTrack*>& tracks,
+                               int bone, float time, float outPos[3]);
+
 // skin[b] = inverseBind[b] * boneWorld[b]. Split from the above because the
 // renderer wants this and the joint natives want the bone world matrices, and
 // both must come from ONE pose or a muzzle flash drifts off the barrel it is

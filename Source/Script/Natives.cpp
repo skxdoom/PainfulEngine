@@ -290,6 +290,34 @@ int RotateVector(lua_State* L, bool inverse) {
 int L_VectorRotateByQuat(lua_State* L) { return RotateVector(L, true); }
 int L_VectorInverseRotateByQuat(lua_State* L) { return RotateVector(L, false); }
 
+// VectorRotate(x,y,z, ax,ay,az) -> the vector turned by Euler angles.
+//
+// Engine.dll (0x1013B660) builds a matrix from the three angles and pushes the
+// vector through FUN_100A1610, which is
+//     out.x = v.x*m[0] + v.y*m[4] + v.z*m[8] + m[12]     (and so on)
+// - the row-vector convention this port already uses everywhere. So this is
+// the same Euler composition EulerToQuat produces, applied the same way
+// VectorRotateByQuat applies a quaternion, and it is written as exactly that
+// rather than as a second copy of the convention that could drift from it.
+//
+// This one is not decoration: CAiBrain, farattack and jumpUp all build their
+// movement directions with it, and it was returning nothing - so `mvx` came
+// back nil and the arithmetic in CActor aborted the tick.
+int L_VectorRotate(lua_State* L) {
+    const double vx = Arg(L, 1), vy = Arg(L, 2), vz = Arg(L, 3);
+    float q[4];
+    EngineEulerToQuat(float(Arg(L, 4)), float(Arg(L, 5)), float(Arg(L, 6)), q);
+    const Quat quat = {q[0], q[1], q[2], q[3]};
+    const Quat inv = {quat.w, -quat.x, -quat.y, -quat.z};
+    // Same handedness as VectorRotateByQuat: the engine rotates a vector as
+    // q^-1 * v * q, which is why that native negates the axis before use.
+    const Quat r = QuatMul(QuatMul(inv, {0, vx, vy, vz}), quat);
+    lua_pushnumber(L, r.x);
+    lua_pushnumber(L, r.y);
+    lua_pushnumber(L, r.z);
+    return 3;
+}
+
 int L_RotateQuatByAxisAngle(lua_State* L) {
     const Quat q = {Arg(L, 1), Arg(L, 2), Arg(L, 3), Arg(L, 4)};
     const Quat r = QuatFromAxisAngle(Arg(L, 5), Arg(L, 6), Arg(L, 7), Arg(L, 8));
@@ -637,6 +665,7 @@ const luaL_reg kGlobalImpls[] = {
 
     {"EulerToQuat", L_EulerToQuat},
     {"QuatToEuler", L_QuatToEuler},
+    {"VectorRotate", L_VectorRotate},
     {"VectorRotateByQuat", L_VectorRotateByQuat},
     {"VectorInverseRotateByQuat", L_VectorInverseRotateByQuat},
     {"RotateQuatByAxisAngle", L_RotateQuatByAxisAngle},

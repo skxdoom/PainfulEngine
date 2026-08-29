@@ -171,6 +171,55 @@ Mat4 BlendPose(const Mat4& a, const Mat4& b, float u) {
 
 } // namespace
 
+namespace {
+
+// One bone's parent-relative matrix at a playback time: the animation's if it
+// drives this bone, its bind pose otherwise, plus any script rotation.
+Mat4 LocalAtTime(const std::vector<Bone>& bones,
+                 const std::vector<const AnimTrack*>& tracks,
+                 size_t i, float time,
+                 const JointOverride* overrides, size_t overrideCount) {
+    // A bone the animation does not drive keeps its bind pose, which is what
+    // leaves an unanimated arm attached instead of at the origin.
+    Mat4 local = bones[i].bind;
+    const AnimTrack* track = i < tracks.size() ? tracks[i] : nullptr;
+    if (track) {
+        const std::vector<AnimKey>& keys = track->keys;
+        size_t k = 0;
+        while (k + 1 < keys.size() && keys[k + 1].time <= time) ++k;
+        if (k + 1 < keys.size()) {
+            const float span = keys[k + 1].time - keys[k].time;
+            const float u = span > 1e-6f
+                                ? std::min(1.f, std::max(0.f, (time - keys[k].time) / span))
+                                : 0.f;
+            local = BlendPose(keys[k].pose, keys[k + 1].pose, u);
+        } else {
+            local = keys[k].pose;          // past the last key, hold it
+        }
+    }
+
+    // A script's own rotation on top of the animation. `local` maps this
+    // bone's space into its parent's, so pre-multiplying applies the turn in
+    // the BONE's frame - the head turns where it sits. Post-multiplying would
+    // apply it in the parent's frame and swing the head around the neck.
+    for (size_t o = 0; o < overrideCount; ++o) {
+        if (overrides[o].bone != int(i)) continue;
+        const float* e = overrides[o].euler;
+        if (e[0] == 0.f && e[1] == 0.f && e[2] == 0.f) break;
+        float q[4], rot[9];
+        EngineEulerToQuat(e[0], e[1], e[2], q);
+        EngineQuatToRot9(q, rot);
+        Mat4 r;
+        for (int rr = 0; rr < 3; ++rr)
+            for (int cc = 0; cc < 3; ++cc) r.m[rr * 4 + cc] = rot[rr * 3 + cc];
+        local = Mat4::Mul(r, local);
+        break;
+    }
+    return local;
+}
+
+} // namespace
+
 void ComputeBoneWorldAtTime(const std::vector<Bone>& bones,
                             const std::vector<const AnimTrack*>& tracks,
                             float time,
@@ -179,47 +228,34 @@ void ComputeBoneWorldAtTime(const std::vector<Bone>& bones,
                             size_t overrideCount) {
     outWorld.assign(bones.size(), Mat4{});
     for (size_t i = 0; i < bones.size(); ++i) {
-        // A bone the animation does not drive keeps its bind pose, which is
-        // what leaves an unanimated arm attached instead of at the origin.
-        Mat4 local = bones[i].bind;
-        const AnimTrack* track = i < tracks.size() ? tracks[i] : nullptr;
-        if (track) {
-            const std::vector<AnimKey>& keys = track->keys;
-            size_t k = 0;
-            while (k + 1 < keys.size() && keys[k + 1].time <= time) ++k;
-            if (k + 1 < keys.size()) {
-                const float span = keys[k + 1].time - keys[k].time;
-                const float u = span > 1e-6f
-                                    ? std::min(1.f, std::max(0.f, (time - keys[k].time) / span))
-                                    : 0.f;
-                local = BlendPose(keys[k].pose, keys[k + 1].pose, u);
-            } else {
-                local = keys[k].pose;      // past the last key, hold it
-            }
-        }
-        // A script's own rotation on top of the animation. `local` maps this
-        // bone's space into its parent's, so pre-multiplying applies the turn
-        // in the BONE's frame - the head turns where it sits. Post-multiplying
-        // would apply it in the parent's frame and swing the head around the
-        // neck instead.
-        for (size_t o = 0; o < overrideCount; ++o) {
-            if (overrides[o].bone != int(i)) continue;
-            const float* e = overrides[o].euler;
-            if (e[0] == 0.f && e[1] == 0.f && e[2] == 0.f) break;
-            float q[4], rot[9];
-            EngineEulerToQuat(e[0], e[1], e[2], q);
-            EngineQuatToRot9(q, rot);
-            Mat4 r;
-            for (int rr = 0; rr < 3; ++rr)
-                for (int cc = 0; cc < 3; ++cc) r.m[rr * 4 + cc] = rot[rr * 3 + cc];
-            local = Mat4::Mul(r, local);
-            break;
-        }
-
+        const Mat4 local = LocalAtTime(bones, tracks, i, time, overrides, overrideCount);
         // Bones are stored in preorder, so a parent is always already done.
         const int par = bones[i].parent;
         outWorld[i] = (par >= 0) ? Mat4::Mul(local, outWorld[par]) : local;
     }
+}
+
+bool ComputeBonePositionAtTime(const std::vector<Bone>& bones,
+                               const std::vector<const AnimTrack*>& tracks,
+                               int bone, float time, float outPos[3]) {
+    if (bone < 0 || size_t(bone) >= bones.size()) return false;
+
+    // Only this bone's ancestors matter, and there are a handful of them.
+    // Root motion samples twice per actor per tick, and posing sixty bones
+    // twice to read one of them would be most of the cost of animating at all.
+    int chain[64];
+    int depth = 0;
+    for (int b = bone; b >= 0 && depth < 64; b = bones[size_t(b)].parent)
+        chain[depth++] = b;
+
+    Mat4 world;
+    for (int d = depth - 1; d >= 0; --d) {
+        const Mat4 local =
+            LocalAtTime(bones, tracks, size_t(chain[d]), time, nullptr, 0);
+        world = (d == depth - 1) ? local : Mat4::Mul(local, world);
+    }
+    for (int c = 0; c < 3; ++c) outPos[c] = world.m[12 + c];
+    return true;
 }
 
 void BoneWorldToSkinning(const std::vector<Mat4>& inverseBind,

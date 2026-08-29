@@ -144,6 +144,11 @@ void ScriptEngine::SyncFromPhysics(bool activeOnly) {
         if (it == bodyToEntity_.end()) continue;
         Entity* e = Find(it->second);
         if (!e) continue;
+        // A monster is MOVED, not simulated: TickMonsters owns where it is,
+        // and its body is carried along behind. Reading the body back here
+        // would put the two in a tug of war - each frame the walk would be
+        // half undone by whatever the kinematic body had drifted to.
+        if (e->isMonster) continue;
         for (int c = 0; c < 3; ++c) e->pos[c] = pose.pos[c];
         for (int c = 0; c < 4; ++c) e->rotWXYZ[c] = pose.quatWXYZ[c];
         SyncPose(*e);
@@ -291,6 +296,98 @@ int ScriptEngine::L_SetTimeToDie(lua_State* L) {
     return 0;
 }
 
+// How wide a monster is, in world units.
+//
+// NOT the body radius CreateScriptBody computed: that is the largest of the
+// three half-extents, which is right for a barrel and badly wrong for a
+// character - evilmonkv2's widest axis is its outstretched ARMS, 14.4 model
+// units against a body only 2.9 deep. A monster given that radius is a sphere
+// wider than it is tall, and it cannot get near a wall.
+//
+// The horizontal half-extents are the honest measure of a character's width,
+// and the SMALLER of the two is the one that is not arms. The engine's own
+// rule for BodyTypes.Fatter lives inside Entity::CreatePhysicsObject and has
+// not been recovered, so this is a shape argument rather than the original's
+// constant - flagged in Docs/Gameplay_Roadmap.md.
+// Also reports how far the sphere's CENTRE sits above the entity's position,
+// which is not zero and is not the radius: a .pkmdl's origin is the middle of
+// the model, not the ground under it. evilmonkv2's bounds run y[-12.80..10.11],
+// so its feet are 12.8 model units BELOW the position the scripts set. Place
+// the sphere about the origin and the monster wades through the floor; lift it
+// by a radius, as a foot-origin rig would want, and it climbs out of the world
+// a radius at a time.
+float ScriptEngine::MonsterRadius(Entity& e, float* centreAboveOrigin) {
+    if (centreAboveOrigin) *centreAboveOrigin = 0.f;
+    const SkeletonCache::Entry* skel = skeletons_.Get(e.source);
+    if (!skel) return 0.f;
+    const float halfX = (skel->hi[0] - skel->lo[0]) * 0.5f;
+    const float halfZ = (skel->hi[2] - skel->lo[2]) * 0.5f;
+    const float half = std::min(halfX, halfZ);
+    if (half <= 0.f) return 0.f;
+
+    const float radius = half * e.scale;
+    // Bottom of the sphere on the soles: centre = feet + radius, and the feet
+    // are lo[1] (negative) below the origin.
+    if (centreAboveOrigin) *centreAboveOrigin = skel->lo[1] * e.scale + radius;
+    return radius;
+}
+
+void ScriptEngine::TickMonsters(float dt) {
+    if (dt <= 0.f || !physics_) return;
+
+    for (auto& kv : entities_) {
+        Entity& e = kv.second;
+        if (!e.isMonster || e.physicsBody < 0) continue;
+
+        float lift = 0.f;
+        const float radius = MonsterRadius(e, &lift);
+        if (radius <= 0.f) continue;
+
+        // Gravity is ours. The AI passes a direction to walk in, not a fall -
+        // CActor's vector comes out of VectorRotate on its facing angle - so
+        // something has to hold the actor down, and in the original that is
+        // the physics step this stands in for.
+        e.fallSpeed = e.onFloor ? 0.f : e.fallSpeed + physics_->settings().gravity * dt;
+
+        const float step[3] = {e.moveWish[0] * dt,
+                               e.moveWish[1] * dt - e.fallSpeed * dt,
+                               e.moveWish[2] * dt};
+
+        // The SAME swept sphere the player moves with, so a monster is stopped
+        // by exactly the geometry the player is stopped by. solidProps=true
+        // because a monster should no more walk through a coffin than the
+        // player should.
+        //
+        // The sphere is carried to where the model's soles are and put back on
+        // the origin afterwards; MonsterRadius works that offset out from the
+        // model's own bounds.
+        float pos[3] = {e.pos[0], e.pos[1] + lift, e.pos[2]};
+
+        // Floor state, for PO_IsOnFloor. A short probe straight down: far
+        // enough to survive the gap a slide leaves, short enough not to claim
+        // ground the actor is falling towards.
+        const float below[3] = {0.f, -(radius * 0.25f), 0.f};
+        float probe[3] = {pos[0], pos[1], pos[2]};
+        physics_->SlideSphere(probe, below, radius, true, e.physicsBody);
+        e.onFloor = (probe[1] - pos[1]) > below[1] * 0.5f;
+        if (e.onFloor) e.fallSpeed = 0.f;
+        pos[1] -= lift;
+        // The normal is not measured yet; upright is the answer that keeps
+        // CAiBrain's arithmetic honest until a real contact normal is read.
+        e.floorNormal[0] = 0.f;
+        e.floorNormal[1] = 1.f;
+        e.floorNormal[2] = 0.f;
+
+        for (int c = 0; c < 3; ++c) e.pos[c] = pos[c];
+        // The body is kinematic, so it does not move itself - it is carried,
+        // and it exists so that everything sweeping against the world finds a
+        // monster in the way.
+        physics_->SetScriptBodyPose(e.physicsBody, e.pos, e.rotWXYZ);
+        if (renderer_ && e.rendererInstance >= 0)
+            renderer_->SetScriptPose(e.rendererInstance, e.pos, e.rotWXYZ);
+    }
+}
+
 void ScriptEngine::TickLifetimes(float dt) {
     if (dt <= 0.f) return;
     expired_.clear();
@@ -375,15 +472,26 @@ int ScriptEngine::L_GetRotationQ(lua_State* L) {
     return 4;
 }
 
-// SetOrientation/GetOrientation: yaw about Y, radians - BindPoint in
-// Utils.lua rotates offsets with cos/sin of the negated value.
+// SetOrientation/GetOrientation: yaw about Y, radians.
+//
+// The sign is NEGATED, and the shipped scripts say so twice. `BindPoint`
+// (Utils.lua) rotates an offset by `-GetOrientation(e)`, and
+// `CActor:MoveWithAnimation` rotates the animation's own motion by
+// `cos(-angle)/sin(-angle)`. Both come out as the same transform:
+//
+//     world = ( cos A * mx + sin A * mz,  my,  -sin A * mx + cos A * mz )
+//
+// which sends the model's forward (+Z, the axis the walk animations travel
+// along) to (sin A, 0, cos A). Built the other way round the actor faces the
+// mirror image of where it is going - right at 0 and 180 degrees, backwards
+// at 90, which is what "close, but facing the wrong way" looks like.
 int ScriptEngine::L_SetOrientation(lua_State* L) {
     ScriptEngine* self = From(L);
     if (Entity* e = self->Find(HandleArg(L, 1))) {
         const float a = float(luaL_optnumber(L, 2, 0)) * 0.5f;
         e->rotWXYZ[0] = std::cos(a);
         e->rotWXYZ[1] = 0;
-        e->rotWXYZ[2] = std::sin(a);
+        e->rotWXYZ[2] = -std::sin(a);
         e->rotWXYZ[3] = 0;
         self->SyncPose(*e);
     }
@@ -393,9 +501,11 @@ int ScriptEngine::L_SetOrientation(lua_State* L) {
 int ScriptEngine::L_GetOrientation(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
-    // Extract the yaw component of the stored quaternion.
+    // The yaw back out of the stored quaternion, negated to match the above -
+    // an actor reads its own angle back every tick through Synchronize, so a
+    // round trip that does not land on the same number makes it drift.
     const float yaw =
-        e ? 2.f * std::atan2(e->rotWXYZ[2], e->rotWXYZ[0]) : 0.f;
+        e ? -2.f * std::atan2(e->rotWXYZ[2], e->rotWXYZ[0]) : 0.f;
     lua_pushnumber(L, yaw);
     return 1;
 }
@@ -542,6 +652,142 @@ int ScriptEngine::L_PO_Create(lua_State* L) {
         self->bodyToEntity_[slot] = HandleArg(L, 1);
     }
     return 0;
+}
+
+// ENTITY.PO_Move(e, x, y, z) - where this actor WANTS to go, as a velocity.
+//
+// A pure setter, exactly as in the original: 0x10130D50 writes the three
+// floats to PhysicsObject+0x34 and returns. Nothing moves here; the physics
+// step spends it (TickMonsters). CActor calls this with `mv * (1/delta)`,
+// which is why the units are per second.
+int ScriptEngine::L_PO_Move(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e) return 0;
+    for (int c = 0; c < 3; ++c) e->moveWish[c] = float(luaL_optnumber(L, c + 2, 0));
+    return 0;
+}
+
+// ENTITY.PO_SetMonsterType(e) - this body is walked, not simulated.
+//
+// The engine sets one flag bit and changes nothing else (0x101313C0). The flag
+// arrives AFTER PO_Create, so the body is born an ordinary dynamic prop and is
+// converted here - which is also the only moment we know it is a monster.
+int ScriptEngine::L_PO_SetMonsterType(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e) return 0;
+    e->isMonster = true;
+    if (self->physics_ && e->physicsBody >= 0)
+        self->physics_->SetScriptBodyKinematic(e->physicsBody, self->MonsterRadius(*e));
+    return 0;
+}
+
+// ENTITY.PO_SetSightParams(e, viewDistance, viewDistance360, viewAngle,
+// viewAnglePitch) - 0x10131210, writing the four floats at PhysicsObject
+// +0x24..+0x30. The defaults are the engine's own: 20, 2, 180, 180.
+//
+// The names come from the templates, and they say what the model is:
+// `viewDistance360` is how far the actor sees in EVERY direction, and
+// `viewDistance` how far it sees inside its cone. Shipped monsters carry
+// things like `viewAngle = 170, viewDistance360 = 6`: aware of anything within
+// six units, and beyond that only what is in front.
+//
+// The angles arrive in DEGREES as a full spread (360 means all round) and are
+// stored as a half-angle in radians, which is what makes the engine's own
+// default of 180 come out as pi/2 - the value PO_Create seeds.
+int ScriptEngine::L_PO_SetSightParams(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e) return 0;
+    e->sightRange = float(luaL_optnumber(L, 2, 20.0));
+    e->sightRange360 = float(luaL_optnumber(L, 3, 2.0));
+    e->sightHalfYaw = float(luaL_optnumber(L, 4, 180.0)) * float(kPi / 360.0);
+    e->sightHalfPitch = float(luaL_optnumber(L, 5, 180.0)) * float(kPi / 360.0);
+    return 0;
+}
+
+// ENTITY.SeesEntity(a, b) -> can a see b.
+//
+// Engine.dll 0x101335E0 hands this to PhysicsWorld::CalculatePawnToEntityVisibility
+// when the looker has a physics object, and otherwise falls back to a plain
+// line trace between the two entity POSITIONS (+0x620) - which is the shape
+// reproduced here: the range and cone from PO_SetSightParams, then an
+// unobstructed line.
+//
+// Note what the engine brackets the trace with: it turns the looker's own
+// ragdoll off for the duration and back on afterwards, because a monster's own
+// body sits on the line and would blind it. The same applies to us - both
+// bodies are excluded below.
+int ScriptEngine::L_SeesEntity(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* a = self->Find(HandleArg(L, 1));
+    Entity* b = self->Find(HandleArg(L, 2));
+    lua_pushboolean(L, a && b && self->Sees(*a, *b));
+    return 1;
+}
+
+bool ScriptEngine::Sees(Entity& a, Entity& b) const {
+    if (!physics_) return false;
+
+    float to[3];
+    for (int c = 0; c < 3; ++c) to[c] = b.pos[c] - a.pos[c];
+    const float dist = std::sqrt(to[0]*to[0] + to[1]*to[1] + to[2]*to[2]);
+    if (dist > a.sightRange) return false;
+    if (dist < 1e-4f) return true;
+
+    // Inside the all-round radius the cone does not apply; outside it, the
+    // target has to be in front. A viewAngle of 360 makes the half-angle pi,
+    // which no angle can exceed - so a monster declared to see all round
+    // never fails this, without needing a special case.
+    if (dist > a.sightRange360 && a.sightHalfYaw < float(kPi)) {
+        const float fwd[3] = {0, 0, 1};      // model forward, the axis the
+        float facing[3];                     // walk animations travel along
+        EngineQuatRotate(a.rotWXYZ, fwd, facing);
+        const float fl = std::sqrt(facing[0]*facing[0] + facing[2]*facing[2]);
+        const float tl = std::sqrt(to[0]*to[0] + to[2]*to[2]);
+        if (fl > 1e-6f && tl > 1e-6f) {
+            const float cosYaw = (facing[0]*to[0] + facing[2]*to[2]) / (fl * tl);
+            if (cosYaw < std::cos(a.sightHalfYaw)) return false;
+        }
+    }
+
+    // Line of sight. Both bodies are excluded: the looker's own body is on the
+    // line by construction, and the target's would stop the trace one step
+    // short of the thing being looked for.
+    int exclude[2];
+    size_t excludeCount = 0;
+    if (a.physicsBody >= 0) exclude[excludeCount++] = a.physicsBody;
+    if (b.physicsBody >= 0) exclude[excludeCount++] = b.physicsBody;
+
+    PhysicsWorld::RayHit hit;
+    if (!physics_->RayCast(a.pos, b.pos, hit, false,
+                           excludeCount ? exclude : nullptr, excludeCount))
+        return true;                          // nothing in the way at all
+    return hit.distance >= dist - 1e-3f;      // whatever it hit is past the target
+}
+
+// ENTITY.PO_SetMonsterMovementConst(e, value, flag) - 0x10130920, defaults
+// 0.5 and false. Recorded; what the engine's mover does with them is not
+// established, so nothing here reads them yet.
+int ScriptEngine::L_PO_SetMonsterMovementConst(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e) return 0;
+    e->monsterMoveConst = float(luaL_optnumber(L, 2, 0.5));
+    e->monsterMoveFlag = lua_toboolean(L, 3) != 0;
+    return 0;
+}
+
+// ENTITY.PO_IsOnFloor(e) -> onFloor, nx, ny, nz. Four values (0x101341C0
+// returns 4), and CAiBrain unpacks all four into the floor normal.
+int ScriptEngine::L_PO_IsOnFloor(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const Entity* e = self->Find(HandleArg(L, 1));
+    lua_pushboolean(L, e && e->onFloor);
+    for (int c = 0; c < 3; ++c)
+        lua_pushnumber(L, e ? e->floorNormal[c] : (c == 1 ? 1.0 : 0.0));
+    return 4;
 }
 
 int ScriptEngine::L_PO_Exist(lua_State* L) {
@@ -874,7 +1120,6 @@ int ScriptEngine::L_CAM_GetForwardVector(lua_State* L) {
 // The conversion is its own inverse, which is what the handover in Tick2
 // needs. Verified against CAM.GetForwardVector, which computes the same
 // basis on the C++ side and must agree.
-static constexpr float kPi = 3.14159265358979f;
 
 static float EngineTurn(float camYaw) {
     return camYaw + kPi * 0.5f;
@@ -1367,11 +1612,31 @@ int ScriptEngine::L_MDL_SetAnim(lua_State* L) {
 
     e->animIndex = index;
     e->animTime = 0.f;
-    e->animLoop = lua_toboolean(L, 3) != 0;
+    // Every default here is Engine.dll's own (SetAnim, 0x1013BFC0): looping is
+    // GetBool(3, TRUE), not false - a plain SetAnim(e, "idle") is a looping
+    // idle, and several shipped call sites rely on that by omitting the
+    // argument entirely.
+    e->animLoop = lua_isnil(L, 3) || lua_isnone(L, 3) ? true : lua_toboolean(L, 3) != 0;
     // The template's declared speed. A speed of zero would stall the event
     // loop the moment it started, so an unspecified or zero speed plays at 1.
     const float speed = float(luaL_optnumber(L, 4, 1.0));
     e->animScale = speed > 0.f ? speed : 1.f;
+
+    // The movement curve. Only set when the mask is positive, exactly as the
+    // engine does - it calls SetAnimationMovementCurve only for mcurve > 0 and
+    // otherwise leaves whatever the animation already had.
+    Entity::AnimSlot& slot = e->animSlots[size_t(index)];
+    slot.blend = float(luaL_optnumber(L, 5, 0.2));
+    const uint32_t mask = uint32_t(luaL_optnumber(L, 6, 0));
+    if (mask > 0) {
+        const char* bone = lua_isstring(L, 7) ? lua_tostring(L, 7) : "ROOOT";
+        if (slot.curveMask != mask || slot.curveBone != bone) {
+            slot.curveMask = mask;
+            slot.curveBone = bone;
+            slot.curveBoneIndex = -2;      // resolve against the skeleton lazily
+        }
+    }
+
     lua_pushnumber(L, index);
     return 1;
 }
@@ -1460,25 +1725,86 @@ int ScriptEngine::L_MDL_LoadAnim(lua_State* L) {
     return 1;
 }
 
-// MDL.GetAnimMovement(e, index, delta) -> how far the animation itself moved
-// the actor this frame: root motion, the thing that carries a monster forward
-// during an attack.
+// MDL.GetAnimMovement(e, index, delta) -> how far the animation itself moves
+// the actor over `delta`: root motion, the thing that carries a monster
+// forward during an attack.
 //
-// Zero for now, and that is a placeholder rather than an answer. The real
-// value is the root bone's translation between last frame's time and this
-// one, and the .ani tracks hold it - but WHICH bone is the root, and how the
-// "moving curve" flag in an actor's template selects it, is not established.
-// Guessing at that is how the rotation conventions went wrong. See
-// Docs/Animation.md.
+// Engine.dll answers this by sampling the animation's movement curve twice and
+// subtracting (0x1012C210 -> Model::GetAnimationMovement 0x101DE890 ->
+// FUN_1001BB60):
 //
-// It must still return three numbers: CActor multiplies them the moment it
-// has a moving curve, so returning nothing throws an arithmetic error that
-// aborts the whole tick - which is precisely how this need announced itself.
+//     movement = curve(t + delta * speed) - curve(t)
+//
+// The curve is a NAMED BONE, set by SetAnim's 6th and 7th arguments and
+// defaulting to "ROOOT" in the engine's own argument default - which is the
+// name of bone 0 in the shipped rigs. The mask says which components count;
+// a turn animation asks for ETransX + ETransZ + ERot, deliberately leaving out
+// the vertical so an animation's bob cannot lift the actor off the floor.
+//
+// It must return three numbers whatever happens: CActor multiplies them the
+// moment it has a moving curve, and returning nothing throws an arithmetic
+// error that aborts the whole tick - which is how this need first announced
+// itself.
 int ScriptEngine::L_MDL_GetAnimMovement(lua_State* L) {
-    lua_pushnumber(L, 0);
-    lua_pushnumber(L, 0);
-    lua_pushnumber(L, 0);
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    const int index = int(luaL_optnumber(L, 2, -1));
+    const float delta = float(luaL_optnumber(L, 3, 0));
+
+    float move[3] = {0, 0, 0};
+    if (e && index >= 0 && size_t(index) < e->animSlots.size())
+        self->AnimMovement(*e, index, delta, move);
+
+    for (int c = 0; c < 3; ++c) lua_pushnumber(L, move[c]);
     return 3;
+}
+
+// The bone the movement curve names, looked up once per slot. -1 when the
+// model has no such bone, which is an ordinary answer for a model whose
+// template names a curve bone it does not carry.
+int ScriptEngine::ResolveCurveBone(Entity::AnimSlot& slot,
+                                   const SkeletonCache::Entry& skel) {
+    if (slot.curveBoneIndex == -2) {
+        slot.curveBoneIndex = -1;
+        for (size_t i = 0; i < skel.bones.size(); ++i)
+            if (EqualsCI(skel.bones[i].name, slot.curveBone.c_str())) {
+                slot.curveBoneIndex = int(i);
+                break;
+            }
+    }
+    return slot.curveBoneIndex;
+}
+
+void ScriptEngine::AnimMovement(Entity& e, int index, float delta, float out[3]) {
+    Entity::AnimSlot& slot = e.animSlots[size_t(index)];
+    if (slot.curveMask == 0 || !slot.anim) return;
+
+    const SkeletonCache::Entry* skel = skeletons_.Get(e.source);
+    if (!skel) return;
+
+    if (ResolveCurveBone(slot, *skel) < 0) return;
+
+    // The curve is read off the animation named by this slot, which is not
+    // necessarily the one playing - the scripts pass an explicit index.
+    ResolveAnimTracks(skel->bones, *slot.anim, curveTracks_);
+
+    const float t0 = e.animTime;
+    // Held at the last key rather than wrapped. A looping animation crossing
+    // its own end would otherwise report the whole loop's travel as one
+    // backwards lurch; holding makes that step contribute nothing, which loses
+    // a fraction of a frame of travel instead of teleporting the actor.
+    const float t1 = std::min(t0 + delta * e.animScale, slot.length);
+
+    float a[3], b[3];
+    if (!ComputeBonePositionAtTime(skel->bones, curveTracks_, slot.curveBoneIndex, t0, a) ||
+        !ComputeBonePositionAtTime(skel->bones, curveTracks_, slot.curveBoneIndex, t1, b))
+        return;
+
+    // MovingCurve, Definitions.lua: ETransX 1, ETransY 2, ETransZ 4. ERot (8)
+    // is a rotation channel and does not belong in a translation.
+    static const uint32_t kAxisBit[3] = {1, 2, 4};
+    for (int c = 0; c < 3; ++c)
+        if (slot.curveMask & kAxisBit[c]) out[c] = (b[c] - a[c]) * e.scale;
 }
 
 const std::vector<Mat4>* ScriptEngine::PosedBones(Entity& e) {
@@ -1506,6 +1832,33 @@ const std::vector<Mat4>* ScriptEngine::PosedBones(Entity& e) {
                                e.jointRot.data(), e.jointRot.size());
         e.pose.time = e.animTime;
         e.pose.rotVersion = e.jointRotVersion;
+
+        // Take the root motion back out of the POSE.
+        //
+        // An animation with a movement curve carries its own travel: the walk
+        // cycle slides ROOOT 25.9 model units down +Z, and every bone hangs off
+        // it. That travel is extracted by GetAnimMovement and spent on the
+        // ENTITY, so leaving it in the pose as well moves the actor twice -
+        // the mesh strides ahead of where the monster actually is and snaps
+        // back to it every time the loop wraps.
+        //
+        // Only the axes the curve declares are removed. ETransZ takes the
+        // forward travel out and deliberately leaves the vertical, so the
+        // actor still bobs as it walks.
+        if (anim && e.animIndex >= 0) {
+            Entity::AnimSlot& slot = e.animSlots[size_t(e.animIndex)];
+            if (slot.curveMask != 0 && ResolveCurveBone(slot, *skel) >= 0) {
+                float at[3];
+                if (ComputeBonePositionAtTime(skel->bones, e.pose.tracks,
+                                              slot.curveBoneIndex, e.animTime, at)) {
+                    static const uint32_t kAxisBit[3] = {1, 2, 4};
+                    for (int c = 0; c < 3; ++c)
+                        if (!(slot.curveMask & kAxisBit[c])) at[c] = 0.f;
+                    for (Mat4& m : e.pose.boneWorld)
+                        for (int c = 0; c < 3; ++c) m.m[12 + c] -= at[c];
+                }
+            }
+        }
     }
     return &e.pose.boneWorld;
 }
@@ -1662,6 +2015,26 @@ int ScriptEngine::L_MDL_ApplyJointRotation(lua_State* L) {
 
 // MDL.GetJointRotation(e, joint) -> the bone's world orientation, engine
 // quaternion order (w,x,y,z).
+// MDL.GetVelocitiesFromJoint(e, joint) -> vx,vy,vz,vl, ax,ay,az,al: a ragdoll
+// joint's linear and angular velocity, each with its magnitude.
+//
+// Ragdoll is its own system and has not been built (Docs/Animation.md stage
+// 4), so a joint that no ragdoll is driving has no velocity - and zero is the
+// true answer for that, not a placeholder standing in for one. The scripts
+// read it to decide whether a hanging chain should creak; nothing is swinging,
+// so nothing creaks.
+//
+// It has to return all eight numbers regardless. Returning nothing is what the
+// stub did, and CItem compares the fourth against a threshold the moment an
+// object declares a RagdollCreakSound - so `nil > number` aborted Game_Tick on
+// every pass, 388 times in a 400-frame run of the Prison, and in twelve other
+// levels besides. The guard above it only prints when the joint is missing; it
+// does not stop the timer.
+int ScriptEngine::L_MDL_GetVelocitiesFromJoint(lua_State* L) {
+    for (int i = 0; i < 8; ++i) lua_pushnumber(L, 0);
+    return 8;
+}
+
 int ScriptEngine::L_MDL_GetJointRotation(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
@@ -1965,6 +2338,7 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"MDL", "GetJointName", L_MDL_GetJointName},
         {"MDL", "GetJointRotation", L_MDL_GetJointRotation},
         {"MDL", "ApplyJointRotation", L_MDL_ApplyJointRotation},
+        {"MDL", "GetVelocitiesFromJoint", L_MDL_GetVelocitiesFromJoint},
         {"PARTICLE", "SetFixedTransform", L_NoOpNative},
         {"BILLBOARD", "SetupCorona", L_BILLBOARD_SetupCorona},
         {"ENTITY", "GetVelocity", L_GetVelocity},
@@ -1973,6 +2347,12 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"ENTITY", "PO_Hit", L_PO_Hit},
         {"WORLD", "HitPhysicObject", L_WORLD_HitPhysicObject},
         {"ENTITY", "PO_Create", L_PO_Create},
+        {"ENTITY", "PO_Move", L_PO_Move},
+        {"ENTITY", "PO_SetMonsterType", L_PO_SetMonsterType},
+        {"ENTITY", "PO_SetMonsterMovementConst", L_PO_SetMonsterMovementConst},
+        {"ENTITY", "PO_IsOnFloor", L_PO_IsOnFloor},
+        {"ENTITY", "PO_SetSightParams", L_PO_SetSightParams},
+        {"ENTITY", "SeesEntity", L_SeesEntity},
         {"ENTITY", "PO_Exist", L_PO_Exist},
         {"ENTITY", "PO_GetMaxSphereRay", L_PO_GetMaxSphereRay},
         {"ENTITY", "PO_SetMass", L_PO_SetMass},

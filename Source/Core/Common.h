@@ -6,6 +6,8 @@
 
 namespace painful {
 
+inline constexpr float kPi = 3.14159265358979f;
+
 // PainEngine stores 4x4 affine matrices ROW-MAJOR in ROW-VECTOR convention
 // (v' = v * M), with the translation in row 3. Note that glTF's column-major
 // column-vector layout is the transpose, which means the same 16 floats can be

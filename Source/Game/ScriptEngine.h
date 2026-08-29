@@ -84,6 +84,18 @@ public:
             // The cache owns this and is node-based, so the pointer stays
             // valid as more animations load.
             const Animation* anim = nullptr;
+            // The movement curve: SetAnim's 6th and 7th arguments, which are
+            // how an animation carries the actor that plays it. The mask is
+            // Definitions.lua's MovingCurve (ETransX 1, ETransY 2, ETransZ 4,
+            // ERot 8) and zero means the animation does not move anything;
+            // the bone defaults to "ROOOT", which is Engine.dll's own default
+            // for that argument and the name of bone 0 in the shipped rigs.
+            uint32_t curveMask = 0;
+            std::string curveBone;
+            int curveBoneIndex = -2;      // -2 = not looked up yet, -1 = absent
+            // SetAnim's 5th argument, seconds to blend in over. Recorded from
+            // the scripts but not yet acted on - see Docs/Animation.md.
+            float blend = 0.2f;
         };
         std::vector<AnimSlot> animSlots;
         int animIndex = -1;      // slot now playing, -1 = none
@@ -122,6 +134,37 @@ public:
         // that fire was held this tick.
         uint32_t action = 0;
         bool jumpedLastAction = false;
+
+        // --- monster locomotion -------------------------------------------
+        // ENTITY.PO_SetMonsterType marks an entity the engine MOVES rather
+        // than simulates (Engine.dll 0x101313C0 sets bit 2 of the flags at
+        // PhysicsObject+0x74). Until that flag arrives the body is an ordinary
+        // dynamic prop, which is what a monster is created as.
+        bool isMonster = false;
+        // ENTITY.PO_Move's vector, verbatim. In the original it is a pure
+        // setter - 0x10130D50 writes the three floats to PhysicsObject+0x34
+        // and returns, and the physics step is what consumes them - so it is
+        // stored here and spent in TickMonsters for the same reason.
+        //
+        // It is a VELOCITY, not a step: CActor passes `mv * (1/delta)`.
+        float moveWish[3] = {0, 0, 0};
+        float fallSpeed = 0.f;           // our own, for the gravity the AI does not pass
+        bool onFloor = false;            // PO_IsOnFloor's first return
+        float floorNormal[3] = {0, 1, 0};   // and the three after it
+        // ENTITY.PO_SetMonsterMovementConst's two arguments, engine defaults
+        // (0x10130920: GetFloat(2, 0.5) to +0x6c, GetBool(3, false) to +0x70).
+        // Recorded so the values are not lost; what the engine does with them
+        // is not yet established.
+        float monsterMoveConst = 0.5f;
+        bool monsterMoveFlag = false;
+
+        // ENTITY.PO_SetSightParams, at PhysicsObject+0x24..+0x30. Engine
+        // defaults; the angles are half-angles in radians, converted from the
+        // full spread in degrees the templates declare.
+        float sightRange = 20.f;        // inside the cone
+        float sightRange360 = 2.f;      // in every direction
+        float sightHalfYaw = float(kPi);
+        float sightHalfPitch = float(kPi);
         // ENTITY.Add/RemoveFromIntersectionSolver: whether line traces can
         // see this entity. The scripts bracket a trace with a Remove/Add pair
         // so a shot does not hit whatever fired it - that is what the
@@ -207,6 +250,14 @@ public:
     // once per frame; transient debris and spent projectiles depend on it.
     void TickLifetimes(float dt);
 
+    // Spends what PO_Move stored: walks every monster body by its wish vector
+    // through the same swept sphere the player uses, and reports the floor.
+    void TickMonsters(float dt);
+
+    // A monster's collision radius in world units, from the model's
+    // horizontal extent rather than the prop-shaped body radius.
+    float MonsterRadius(Entity& e, float* centreAboveOrigin = nullptr);
+
     // Advances every entity's animation clock. Call once per frame BEFORE
     // the tick chain: CActor:Tick reads the time the same frame.
     void TickAnimations(float dt);
@@ -266,6 +317,12 @@ private:
     // scripts ask boneless props for joints all the time.
     const std::vector<Mat4>* PosedBones(Entity& e);
 
+    // Root motion for one animation slot over `delta` seconds, masked to the
+    // axes its movement curve declares. Writes nothing when the slot has no
+    // curve, which is the common case.
+    void AnimMovement(Entity& e, int index, float delta, float out[3]);
+    static int ResolveCurveBone(Entity::AnimSlot& slot, const SkeletonCache::Entry& skel);
+
     // Bone-local point to WORLD, through the entity's own transform. Used by
     // every joint query, so they cannot disagree about the entity's placement.
     bool JointToWorld(Entity& e, int joint, const float local[3], float out[3]);
@@ -295,6 +352,15 @@ private:
     void ReleaseEntity(int handle);
     static int L_PO_Create(lua_State* L);
     static int L_PO_Exist(lua_State* L);
+    static int L_PO_Move(lua_State* L);
+    static int L_PO_SetMonsterType(lua_State* L);
+    static int L_PO_SetMonsterMovementConst(lua_State* L);
+    static int L_PO_IsOnFloor(lua_State* L);
+    static int L_PO_SetSightParams(lua_State* L);
+    static int L_SeesEntity(lua_State* L);
+
+    // Can `a` see `b`: range, then the sight cone, then an unobstructed line.
+    bool Sees(Entity& a, Entity& b) const;
     static int L_PO_GetMaxSphereRay(lua_State* L);
     static int L_PO_SetMass(lua_State* L);
     static int L_PO_SetFriction(lua_State* L);
@@ -336,6 +402,7 @@ private:
     static int L_MDL_GetJointName(lua_State* L);
     static int L_MDL_GetJointRotation(lua_State* L);
     static int L_MDL_ApplyJointRotation(lua_State* L);
+    static int L_MDL_GetVelocitiesFromJoint(lua_State* L);
     static const Entity::AnimSlot* AnimSlotArg(const Entity* e, lua_State* L, int arg);
     static int L_INP_Key(lua_State* L);
     static int L_INP_Action(lua_State* L);
@@ -430,6 +497,7 @@ private:
     // Scratch for the per-frame pose push; kept so that posing forty actors
     // does not allocate forty times a frame.
     std::vector<Mat4> skinScratch_;
+    std::vector<const AnimTrack*> curveTracks_;   // scratch for AnimMovement
     std::vector<ScriptBodyPose> poseScratch_;
 };
 

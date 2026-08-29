@@ -103,6 +103,20 @@ public:
     void SetScriptBodyPose(int slot, const float pos[3], const float rotWXYZ[4]);
     // PO_Enable on a prop: wakes or sleeps the body.
     void SetScriptBodyEnabled(int slot, bool enabled);
+
+    // Takes a body out of the dynamic simulation: it still blocks everything
+    // that sweeps against it, but nothing can push it and it cannot tumble.
+    //
+    // This is what a MONSTER is. ENTITY.PO_SetMonsterType sets a flag on the
+    // physics object (Engine.dll 0x101313C0, bit 2 at PhysicsObject+0x74) and
+    // the engine then moves it from the vector PO_Move stores rather than by
+    // simulating it. A monster left dynamic is a barrel with legs - the player
+    // bowls it over and it ends up inside the level.
+    // The radius also gets corrected here, because the shape a prop wants is
+    // not the shape a character wants: CreateScriptBody sizes a sphere by the
+    // LARGEST half-extent, which for a T-posed humanoid is its arm span. Pass
+    // <= 0 to keep the body's existing radius.
+    void SetScriptBodyKinematic(int slot, float radius);
     // ENTITY.SetVelocity / GetVelocity. Setting one wakes the body: a
     // projectile is created, given its velocity and expected to fly.
     void SetScriptBodyVelocity(int slot, const float v[3]);
@@ -131,8 +145,10 @@ public:
     // is a free-camera affordance so it can press into a barrel and have the
     // probe body shove it, and it is why the player used to walk through
     // barrels while still standing on the heavier, pinned coffins.
+    // ignoreSlot passes one script body straight through, for a body that is
+    // sweeping ITSELF through the world (see CameraBlockerFilter).
     void SlideSphere(float pos[3], const float delta[3], float radius,
-                     bool solidProps = false) const;
+                     bool solidProps = false, int ignoreSlot = -1) const;
 
     // True when a sphere at this position overlaps anything solid.
     bool SphereOverlaps(const float pos[3], float radius) const;
@@ -161,7 +177,7 @@ public:
     // a cast that starts inside geometry hits at zero distance whichever way
     // it goes, which is indistinguishable from being wedged for good.
     int Depenetrate(float pos[3], float radius, int iterations = 4,
-                    bool solidProps = false) const;
+                    bool solidProps = false, int ignoreSlot = -1) const;
 
     // The camera's body in the simulation: a kinematic sphere that follows it.
     //

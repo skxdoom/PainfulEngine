@@ -102,13 +102,19 @@ constexpr float kSolidProps = -1.f;
 
 class CameraBlockerFilter final : public JPH::BodyFilter {
 public:
-    CameraBlockerFilter(const JPH::BodyID& ignore, float maxPushMass)
-        : ignore_(ignore), maxPushMass_(maxPushMass) {}
+    // `also` is a second body to pass through. A monster sweeps its own shape
+    // through a world its own body is standing in, so without this it is
+    // wedged inside itself and never moves a millimetre.
+    CameraBlockerFilter(const JPH::BodyID& ignore, float maxPushMass,
+                        const JPH::BodyID& also = JPH::BodyID())
+        : ignore_(ignore), also_(also), maxPushMass_(maxPushMass) {}
 
-    bool ShouldCollide(const JPH::BodyID& id) const override { return id != ignore_; }
+    bool ShouldCollide(const JPH::BodyID& id) const override {
+        return id != ignore_ && id != also_;
+    }
 
     bool ShouldCollideLocked(const JPH::Body& body) const override {
-        if (body.GetID() == ignore_) return false;
+        if (body.GetID() == ignore_ || body.GetID() == also_) return false;
         if (maxPushMass_ < 0.f) return true;
         // The world, and anything pinned in place, always blocks.
         if (body.GetMotionType() != JPH::EMotionType::Dynamic) return true;
@@ -121,6 +127,7 @@ public:
 
 private:
     JPH::BodyID ignore_;
+    JPH::BodyID also_;
     float maxPushMass_;
 };
 
@@ -839,6 +846,29 @@ void PhysicsWorld::SetScriptBodyEnabled(int slot, bool enabled) {
         bodies.DeactivateBody(impl_->scriptBodies[slot].body);
 }
 
+void PhysicsWorld::SetScriptBodyKinematic(int slot, float radius) {
+    if (!ScriptBodyExists(slot)) return;
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    const JPH::BodyID id = impl_->scriptBodies[slot].body;
+
+    if (radius > 0.f && radius != impl_->scriptBodies[slot].radius) {
+        JPH::SphereShapeSettings sphere(radius);
+        sphere.SetEmbedded();
+        JPH::ShapeSettings::ShapeResult shape = sphere.Create();
+        if (!shape.HasError()) {
+            bodies.SetShape(id, shape.Get(), true, JPH::EActivation::Activate);
+            impl_->scriptBodies[slot].radius = radius;
+        }
+    }
+
+    if (bodies.GetMotionType(id) == JPH::EMotionType::Kinematic) return;
+    bodies.SetMotionType(id, JPH::EMotionType::Kinematic, JPH::EActivation::Activate);
+    // Whatever the body picked up while it was still dynamic - a shove from
+    // the player, a fall - must not survive the change, or it carries on
+    // drifting after nothing is pushing it any more.
+    bodies.SetLinearAndAngularVelocity(id, JPH::Vec3::sZero(), JPH::Vec3::sZero());
+}
+
 float PhysicsWorld::ScriptBodyRadius(int slot) const {
     return ScriptBodyExists(slot) ? impl_->scriptBodies[slot].radius : 0.f;
 }
@@ -1042,12 +1072,15 @@ bool PhysicsWorld::SphereOverlaps(const float pos[3], float radius) const {
 }
 
 int PhysicsWorld::Depenetrate(float pos[3], float radius, int iterations,
-                              bool solidProps) const {
+                              bool solidProps, int ignoreSlot) const {
     if (!loaded()) return 0;
 
     const JPH::SphereShape sphere(radius);
     sphere.SetEmbedded();
-    const CameraBlockerFilter blockers(impl_->probe, solidProps ? kSolidProps : maxPushMass_);
+    const CameraBlockerFilter blockers(impl_->probe, solidProps ? kSolidProps : maxPushMass_,
+                                      ScriptBodyExists(ignoreSlot)
+                                          ? impl_->scriptBodies[ignoreSlot].body
+                                          : JPH::BodyID());
 
     int resolved = 0;
     for (int pass = 0; pass < iterations; ++pass) {
@@ -1086,7 +1119,10 @@ int PhysicsWorld::Depenetrate(float pos[3], float radius, int iterations,
 }
 
 void PhysicsWorld::SlideSphere(float pos[3], const float delta[3], float radius,
-                               bool solidProps) const {
+                               bool solidProps, int ignoreSlot) const {
+    const JPH::BodyID self = ScriptBodyExists(ignoreSlot)
+                                 ? impl_->scriptBodies[ignoreSlot].body
+                                 : JPH::BodyID();
     if (!loaded()) {
         for (int c = 0; c < 3; ++c) pos[c] += delta[c];
         return;
@@ -1095,7 +1131,7 @@ void PhysicsWorld::SlideSphere(float pos[3], const float delta[3], float radius,
     // Get out of anything first. A cast that starts inside geometry reports a
     // hit at zero distance in every direction, which is indistinguishable from
     // being wedged - and being wedged for good is exactly what it looks like.
-    Depenetrate(pos, radius, 4, solidProps);
+    Depenetrate(pos, radius, 4, solidProps, ignoreSlot);
 
     JPH::Vec3 at(pos[0], pos[1], pos[2]);
     JPH::Vec3 remaining(delta[0], delta[1], delta[2]);
@@ -1106,7 +1142,8 @@ void PhysicsWorld::SlideSphere(float pos[3], const float delta[3], float radius,
 
     const JPH::SphereShape sphere(radius);
     sphere.SetEmbedded();
-    const CameraBlockerFilter blockers(impl_->probe, solidProps ? kSolidProps : maxPushMass_);
+    const CameraBlockerFilter blockers(impl_->probe, solidProps ? kSolidProps : maxPushMass_,
+                                      self);
 
     // Keeps the sphere just clear of the surface so the next cast starts
     // outside it. The original calls the same idea PhantomTolerance.

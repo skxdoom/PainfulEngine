@@ -182,9 +182,11 @@ plausible:
 - **Continuity across a key.** Sampling either side of a key boundary must
   agree (`evilmonkv2 walk` at 0.49999 and 0.5 give identical bounds). This is
   what catches a transposed quaternion round-trip.
-- **The shape changes the right way.** `evilmonkv2` goes from a flat authored
-  T-pose of 28.72 x 22.91 x 5.87 to a standing 11.81 x 19.52 x 23.23; a weapon
-  keeps its size and moves by a fraction, which is what a recoil should do.
+- **The shape changes the right way.** `evilmonkv2` goes from a bind T-pose of
+  28.72 x 22.91 x 5.87 - arms out along X, 22.91 tall, and thin front-to-back -
+  to 11.81 x 19.52 x 23.23 walking: arms come down, the height survives, and
+  the depth grows as the legs stride and the axe swings. A weapon keeps its
+  size and moves by a fraction, which is what a recoil should do.
 
 This command is also why CPU skinning came first: it is the reference a GPU
 skinning shader gets diffed against, one bone at a time.
@@ -224,14 +226,21 @@ Bones extend along their own local **X**, so X is the twist axis. That matters
 for testing: rotating a joint about X barely moves its children, and a first
 test that used X looked like a failure when it was measuring the wrong thing.
 
+Model space itself is **Y up, Z forward, X lateral**: an idle puts the head at
+Y 8.88 over a root at Y -0.14, and the walk cycle slides the root along +Z.
+The bind pose is a standing T-pose, not a figure lying down.
+
 ### Verifying it without a window
 
 `painful bones <model> [anim] [time] [joint:ax,ay,az]` reports every bone's
 bind and posed model-space origin, and with the fourth argument, which bones a
 joint rotation moves:
 
-- **The chain must be monotonic.** Posed, `evilmonkv2`'s spine climbs
-  13.48 -> 14.77 -> 14.82 -> 15.79 -> 16.37 -> 18.05 -> 20.18 in Z: neck above
+- **The chain must be monotonic.** Read it on an animation that does NOT move
+  the root, or the root's own travel is mistaken for the shape of the spine -
+  this was got wrong once, against `walk`, whose root slides 21.6 units a
+  second and carries every bone with it. Playing `idle`, `evilmonkv2`'s chain
+  climbs -0.14 -> 0.24 -> 2.63 -> 3.79 -> 6.30 -> 8.88 in **Y**: neck above
   shoulders above ribs above root, which is true of a spine in any pose. A
   wrong parent multiply order scatters it.
 - **A rotation moves a bone's descendants and nothing else.** Bending joint 5
@@ -249,6 +258,51 @@ behaviourally identical to the original for all shipped content, and made
 additive a turret would wind up and spin. What is **not** established is
 whether the engine clears these overrides itself on some event; if a bone is
 ever seen holding a rotation it should have dropped, that is the reason.
+
+## Root motion: what Engine.dll actually does
+
+`MDL.GetAnimMovement` was the last placeholder from these stages. Rather than
+infer it, it was read out of the binary — 0x1012C210 into
+`Model::GetAnimationMovement` (0x101DE890) into FUN_1001BB60, which samples one
+curve twice and subtracts:
+
+```
+movement = curve(t + delta * speed) - curve(t)
+```
+
+`SetAnim` (0x1013BFC0) fills in the rest of the picture, and its argument
+defaults are the engine's own:
+
+| arg | meaning | engine default |
+|---:|---|---|
+| 3 | loop | **`true`** |
+| 4 | speed | `1.0` |
+| 5 | blend seconds | `0.2` |
+| 6 | movement-curve mask | `0` (no curve) |
+| 7 | movement-curve **bone** | **`"ROOOT"`** |
+| 8 | moving-curve rotation | `false` |
+
+Two things fell out of that. The curve is a **named bone**, defaulting to
+`ROOOT`, which is the name of bone 0 in the shipped rigs — no guessing about
+"which bone is the root" was needed. And **looping defaults to true**, which
+this port had backwards: a bare `MDL.SetAnim(e, "idle")` is a looping idle, and
+several shipped call sites omit the argument and rely on it.
+
+The mask is `Definitions.lua`'s `MovingCurve`: `ETransX 1, ETransY 2,
+ETransZ 4, ERot 8`. A turn animation asks for `ETransX + ETransZ + ERot` —
+deliberately without the vertical, so an animation's bob cannot lift an actor
+off the floor. `CActor` turns a template's `mcurve = true` into `ETransZ`.
+
+Verified against the data: `evilmonkv2`'s `ROOOT` sits at exactly (0,0,0) for
+every sample of `idle`, slides linearly to +Z 25.88 over the 1.25 s of `walk`
+(21.6 units a second), and lunges non-monotonically 0 -> -2.14 -> +12.16 during
+`atak`. Idle does not move, walking does, and an attack lurches - which is what
+root motion is for. At runtime the Swamp's actors resolve `ROOOT` to bone 0
+with mask 4 and sample it every tick.
+
+A looping animation crossing its own end holds at the last key rather than
+wrapping, so the step across the seam contributes nothing instead of reporting
+the whole loop's travel as one backwards lurch.
 
 ## Order
 
@@ -288,3 +342,32 @@ first:
   in a template's event list and assert it is called at the declared time —
   then a monk's attack event should land damage on the player, which is the
   whole reason this stage matters.
+
+## Root motion has to come OUT of the pose
+
+Reported from play: monsters walked forward, snapped back to where they
+started, and walked the same line again; and while attacking, their facing
+looked erratic.
+
+Both are one mistake. An animation with a movement curve carries its own
+travel - `evilmonkv2`'s walk slides `ROOOT` 25.9 model units down +Z, and every
+bone hangs off it. `GetAnimMovement` extracts that and the scripts spend it on
+the ENTITY, so leaving it in the pose as well moves the actor **twice**: the
+mesh strides ahead of where the monster actually is, and snaps back to it every
+time the loop wraps.
+
+The attack animations do it too - `EvilMonk`'s `atak1` and `atak2` both declare
+`movingcurve = true`, and that curve swings -0.26 to +1.45 world units mid
+swing. A monk lurching a metre and a half along its own facing, out of step
+with where it really is, is what "the direction looks random" was.
+
+So the pose subtracts the curve bone's travel, on the axes the curve declares
+and no others - `ETransZ` takes the forward slide out and deliberately leaves
+the vertical, so the actor still bobs as it walks. Measured with the curve
+forced on: at t=0.07 the walk curve has already travelled +1.47 in Z and the
+posed `ROOOT` comes out at 0.00.
+
+Worth knowing for testing: **a headless run never exercises this.** Monsters
+idle when they cannot see the player, `idle` declares no movement curve, and
+`PosedBones` is only reached when a renderer is attached - so the correction
+has to be forced to be seen outside a real game.
