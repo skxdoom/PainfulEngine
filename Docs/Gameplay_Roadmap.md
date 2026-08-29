@@ -12,19 +12,20 @@ PainfulEngine lua D:/Dev/PKRE/Data 400 C1L1_Cathedral
 
 boots the shipped scripts, loads Cathedral, runs `Game:OnPlay` and ticks 400
 frames, then prints every native the scripts called that we have not written.
-Current reading:
+Current reading, after Stage 7 and the first half of Stage 8:
 
 ```
 boot: 962 files loaded, 0 missing, 0 script errors
-entities: 634 created, 108 released, 574 live
-unimplemented natives hit: 153 distinct, 82843 calls
+entities: 678 created, 108 released, 618 live
+unimplemented natives hit: 134 distinct, 50060 calls
 ```
 
-Zero script errors is the important part: the game's own logic runs end to
-end. What it cannot do is *act*, because the natives that carry action are
-still stubs. Re-run this after every stage; the report is the progress bar.
+against a starting point of 153 distinct / 82,843 calls and 634 entities.
+Zero script errors throughout: the game's own logic runs end to end, and what
+it could not do was *act*, because the natives that carry action were stubs.
+Re-run this after every stage; the report is the progress bar.
 
-## The gap, ranked by what the scripts actually asked for
+## The gap as it stood at the start, ranked by what the scripts asked for
 
 | calls | native | system |
 |------:|--------|--------|
@@ -63,10 +64,10 @@ PLAYER.ExecAction(self._Entity, 0, fv.X,fv.Y,fv.Z, rv.X,rv.Y,rv.Z)
 
 `PLAYER.ExecAction` *is* the entry to `PhysicsObject::PlayerAction`
 (0x10192260) already recovered in [`PlayerMovement.md`](PlayerMovement.md).
-Our `PlayerPawn` currently bypasses this and derives its own wish-direction
-from the C++ camera, which works for walking around and cannot ever produce
-firing, weapon switching, rocket jumps or the bunny-hop windows, because all
-of those live in the bits the script never gets to set.
+`PlayerPawn` used to bypass this and derive its own wish-direction from the
+C++ camera, which works for walking around and can never produce firing,
+weapon switching, rocket jumps or the bunny-hop windows, because all of those
+live in the bits the script never gets to set. Closed in Stage 7.
 
 Supporting facts recovered from the scripts:
 
@@ -106,13 +107,16 @@ and chase and still never hurt anything until the animation clock is real.
 
 ## The stages
 
-### Stage 7 - the player acts — steps 1-5 DONE, step 6 open
+### Stage 7 - the player acts — DONE
 
-Turn the pawn from a camera-driven debug body into the game's own control
-path. Steps 1 to 5 have landed: the report is down to **142 distinct
-natives / 68,110 calls** from 153 / 82,843, and the movement now measures
-against `Tweak.PlayerMove` (7.9999 m/s against `PlayerSpeed` 8.0). The
-camera handover, step 6, is still open.
+Turned the pawn from a camera-driven debug body into the game's own control
+path, all six steps. The report is down to **139 distinct natives / 66,894
+calls** from 153 / 82,843, the movement measures against `Tweak.PlayerMove`
+(7.9999 m/s against `PlayerSpeed` 8.0), and the scripts now steer the view
+through `Game:Tick2`. Air control, pawn height, the step ladder and what the
+player collides with were all corrected against the binary along the way —
+[`PlayerMovement.md`](PlayerMovement.md) and [`LuaHost.md`](LuaHost.md) carry
+the recovered rules.
 
 1. **Input state** - an `Input` service fed from SDL, exposing virtual-key
    state with press-edge tracking. Natives: `INP.Key` (tri-state),
@@ -135,13 +139,14 @@ camera handover, step 6, is still open.
    `MOUSE.SetSensitivity`, so `Game:Tick2` steers the view as the original
    does. Verify against the free check above before trusting it.
 
-Done when: walking, strafing, jumping, bunny-hopping and looking all run
-through the scripts, `N` still drops to the fly camera, and the call report
-loses the `INP` / `PLAYER` / `CAM` block.
+### Stage 8 - weapons fire — traces and the view model DONE
 
-### Stage 8 - weapons fire
+Traces, the intersection solver and the view model have landed (report down
+to **134 distinct / 50,060 calls** from 139 / 66,894). Still open: damage —
+the shot lands, but nothing takes it yet.
 
-`WORLD.LineTrace` / `LineTraceFixedGeom` / `LineTraceHitPlayerBalls` off Jolt;
+Originally scoped as: `WORLD.LineTrace` / `LineTraceFixedGeom` /
+`LineTraceHitPlayerBalls` off Jolt;
 `ENTITY.AddToIntersectionSolver` / `RemoveFromIntersectionSolver` and the
 ragdoll pair (the hit-detection registry, 15 600 calls between them);
 `ENTITY.SetPosAndRotRelativeToCamera` for the view model;

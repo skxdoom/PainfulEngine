@@ -182,6 +182,12 @@ void ParticleRenderer::Build(const Level& level, TemplateCache& templates,
 
             Emitter e;
             e.params = params;
+            // Level placement always emits continuously, whatever the .ini
+            // says: CParticleFX:LoadData follows every load with
+            // PARTICLE.SetEvolve(entity, true). This path is the hand-driven
+            // stand-in for that load, so it makes the same override - a
+            // placed torch burns rather than puffing once.
+            e.evolve = true;
 
             // EmitterDef::SetupTransform (0x101e4a60): the entry's offset is
             // scaled by the parent entity but NOT rotated by it, the
@@ -278,13 +284,21 @@ void ParticleRenderer::TickEmitter(Emitter& e, float dt) {
     const int maxParticles = std::max(1, src.maxParticles);
 
     // ---------------------------------------------------------------- spawn
+    //
+    // Evolve = 0 makes an emitter a one-shot burst of MaxParticles: it emits
+    // that many and never again. That is what an impact effect is, and
+    // without it every bullet hole smokes forever. Level placement never
+    // sees it - CParticleFX:LoadData calls PARTICLE.SetEvolve(entity, true)
+    // right after loading, and Apply calls it again - so a placed torch keeps
+    // burning whatever its .ini says.
     int count = 0;
-    if (src.spawnInterval > 0.f) {
+    const bool exhausted = !e.evolve && e.spawnedTotal >= maxParticles;
+    if (!exhausted && src.spawnInterval > 0.f) {
         e.spawnAccum += dt;
         if (e.spawnAccum >= src.spawnInterval) {
             count = static_cast<int>(e.spawnAccum / src.spawnInterval + 0.5f);
-            const int alive = static_cast<int>(e.particles.size());
-            if (alive + count >= maxParticles) count = maxParticles - alive;
+            const int used = e.evolve ? static_cast<int>(e.particles.size()) : e.spawnedTotal;
+            if (used + count >= maxParticles) count = maxParticles - used;
             if (count < 0) count = 0;
             e.spawnAccum -= count * src.spawnInterval;
         }
@@ -422,12 +436,26 @@ int ParticleRenderer::AddScriptEmitter(const std::string& emitterFile,
     }
     Emitter e;
     e.params = params;
+    e.evolve = params->evolve;
     e.texture = textures.Get(params->texture, levelHint);
     e.blendState = BlendModeState(params->blendMode);
     e.particles.reserve(std::min(params->maxParticles, 4096));
     ApplyScale(e, scaleMultiplier_);
     emitters_.push_back(std::move(e));
     return int(emitters_.size() - 1);
+}
+
+bool ParticleRenderer::ScriptEmitterFinished(int slot) const {
+    if (slot < 0 || size_t(slot) >= emitters_.size()) return true;
+    const Emitter& e = emitters_[slot];
+    if (!e.alive) return true;
+    if (e.evolve) return false;                 // still emitting
+    const int cap = std::max(1, e.params->maxParticles);
+    return e.spawnedTotal >= cap && e.particles.empty();
+}
+
+void ParticleRenderer::SetScriptEmitterEvolve(int slot, bool evolve) {
+    if (slot >= 0 && size_t(slot) < emitters_.size()) emitters_[slot].evolve = evolve;
 }
 
 void ParticleRenderer::SetupScriptEmitter(int slot, float refScale,

@@ -75,4 +75,30 @@ private:
 
 bool ReadFile(const std::string& path, std::vector<uint8_t>& out);
 
+// --- the engine's rotation convention -------------------------------------
+//
+// Quaternions are engine order, (w, x, y, z). These live in Core because both
+// the script layer and the asset layer speak this convention and neither
+// should depend on the other.
+
+// Euler angles (radians) to a quaternion, composed the way the engine does
+// it: qz * qy * qx, so X is applied first. Read out of the native behind
+// 0x1011C390, whose maths is FUN_1011bea0. Single authority - the
+// EulerToQuat the scripts call comes through here.
+void EngineEulerToQuat(float ax, float ay, float az, float out[4]);
+
+// out = a * b. Rotations compose left of right, so a * b applies b first.
+void EngineQuatMul(const float a[4], const float b[4], float out[4]);
+
+// Rotates a vector by a quaternion.
+void EngineQuatRotate(const float q[4], const float v[3], float out[3]);
+
+// Row-vector 3x3 back to a quaternion - the inverse of EngineQuatToRot9, so
+// that a rotation built as "row i is where local axis i lands" can be handed
+// to anything that stores orientation as a quaternion.
+void EngineRot9ToQuat(const float m[9], float out[4]);
+
+// out = a * b as row-vector matrices, i.e. apply a first and then b.
+void EngineRot9Mul(const float a[9], const float b[9], float out[9]);
+
 } // namespace painful

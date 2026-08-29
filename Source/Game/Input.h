@@ -80,6 +80,32 @@ public:
         mouseDx_ = mouseDy_ = 0.f;
     }
 
+    // MOUSE.SetSensitivity(Cfg.MouseSensitivity), which ships at 40.
+    void SetSensitivity(float s) { sensitivity_ = s; }
+    float sensitivity() const { return sensitivity_; }
+
+    // MOUSE.GetDelta() -> look movement in DEGREES, which is the unit the
+    // scripts want: Game:UpdateViewFromPlayer adds the result straight onto
+    // CAM.GetRawRotation's degrees.
+    //
+    // BOTH axes pass through with their sign. X because the engine's turn
+    // runs the same way as our yaw (turn = yaw + pi/2); Y because the
+    // engine's elevation is positive-DOWN, so screen-down and elevation
+    // already agree. Cfg.InvertMouse is applied script-side, not here.
+    //
+    // kDegreesPerPixel is CALIBRATED, not recovered: the sensitivity native
+    // is a registered Lua thunk rather than a named function, so its constant
+    // was not there to read. This value reproduces the feel the free camera
+    // had before the scripts took the view over (0.003 rad per pixel) at the
+    // shipped sensitivity of 40.
+    static constexpr float kDegreesPerPixel = 0.0043f;
+    void TakeLookDegrees(float& dx, float& dy) {
+        TakeMouseDelta(dx, dy);
+        const float k = sensitivity_ * kDegreesPerPixel;
+        dx *= k;
+        dy *= k;
+    }
+
     // INP.LoadBindings(): the bindings live in the scripts' own Cfg table as
     // Cfg.KeyPrimary<Action> / Cfg.KeyAlternative<Action>, holding engine key
     // NAMES ("Left Mouse Button", "Right Ctrl", "Space", "None"). Cfg.lua
@@ -119,6 +145,7 @@ private:
     bool wasDown_[kKeyCount] = {};
     bool pulse_[kKeyCount] = {};
     float mouseDx_ = 0.f, mouseDy_ = 0.f;
+    float sensitivity_ = 40.f;   // Cfg.MouseSensitivity's shipped value
 
     std::vector<Bind> actionBinds_;
     std::vector<Bind> uiBinds_;

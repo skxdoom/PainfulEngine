@@ -618,6 +618,11 @@ static int FitCmd(const char* levelDir, const char* dataRoot) {
 // gets set up headlessly (teleport into a trigger, poke a template).
 static int LuaCmd(const char* dataRoot, int frames, const char* level,
                   const char* exec) {
+    // Unbuffered: this command exists to find out what the scripts did, and a
+    // block-buffered stdout throws away the last few KB - which is precisely
+    // the part that matters when a run dies rather than finishes.
+    setvbuf(stdout, nullptr, _IONBF, 0);
+
     LuaHost host;
     if (!host.Init(dataRoot)) {
         LogInfo("failed to create the Lua state");
@@ -660,6 +665,7 @@ static int LuaCmd(const char* dataRoot, int frames, const char* level,
             physics.Update(1.f / 60.f);
             engine.SyncFromPhysics();
             engine.TickTriggers();
+            engine.TickLifetimes(1.f / 60.f);
         }
     }
     LogInfo("entities: %zu created, %zu released, %zu live; map \"%s\" scale %.2f",
@@ -856,8 +862,16 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
         float dx = 0.f, dy = 0.f;
         window.TakeMouseDelta(dx, dy);
         input.AddMouseDelta(dx, dy);
-        camera.Look(dx * 0.003f, -dy * 0.003f);
         if (window.TakeNoclipToggle()) noclip = !noclip;
+        // Who steers the view. While the player is walking it is the SCRIPTS:
+        // Game:Tick2 calls UpdateViewFromPlayer, which reads MOUSE.GetDelta,
+        // accumulates onto CAM.GetRawRotation and writes back through
+        // CAM.SetPos/SetAng - so the mouse motion above is consumed there,
+        // not here, and the camera adopts the result after the tick. The free
+        // camera keeps its own look.
+        const bool scriptView =
+            engine.playerHandle() != 0 && engine.pawnEnabled() && !noclip;
+        if (!scriptView) camera.Look(dx * 0.003f, -dy * 0.003f);
         const float speed = camera.moveSpeed * (window.IsDown(Key::Fast) ? 4.f : 1.f) * dt;
         float fwd = 0.f, right = 0.f, up = 0.f;
         if (window.IsDown(Key::Forward)) fwd += speed;
@@ -866,8 +880,7 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
         if (window.IsDown(Key::Left))    right -= speed;
         if (window.IsDown(Key::Up))      up += speed;
         if (window.IsDown(Key::Down))    up -= speed;
-        const bool walking =
-            engine.playerHandle() != 0 && engine.pawnEnabled() && !noclip;
+        const bool walking = scriptView;
         if (walking) {
             // Nothing to do here: the pawn moves inside the tick chain, when
             // CPlayer:Tick calls PLAYER.ExecAction with the action mask it
@@ -893,11 +906,12 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
         }
         physics.MoveProbe(camera.pos, !noclip);
 
-        // What the CAM.* reads report while the C++ loop still owns the
-        // view. The scripts derive the player's movement basis from these
-        // (CPlayer:SetupAction off CAM.GetAngRad), so they have to track the
-        // camera every frame, not just at load.
-        engine.SetCameraPose(camera.pos, camera.yaw, camera.pitch);
+        // While the free camera owns the view, the CAM.* reads have to mirror
+        // it - the scripts still derive the player's movement basis from them
+        // (CPlayer:SetupAction off CAM.GetAngRad). Under the script view the
+        // scripts hold that state themselves, and writing it here would fight
+        // the accumulation they do in Tick2.
+        if (!scriptView) engine.SetCameraPose(camera.pos, camera.yaw, camera.pitch);
 
         // A hard landing is fall damage, script-side: the same
         // PLAYER_HIT_GROUND PlayerAction queues, on the pawn's own test.
@@ -914,15 +928,18 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
         const double d[1] = {dt};
         engine.SetFrameDelta(dt);
         host.CallGlobal("Game_Tick", d, 1);
-        // The eye rides the pawn's head, wherever the tick left it.
-        if (walking) for (int c = 0; c < 3; ++c) camera.pos[c] = pawn.headPos()[c];
         physics.Update(dt);
         engine.SyncFromPhysics();
         host.CallGlobal("Game_Tick2", d, 1);
+        // Tick2 is where the view is steered, so take the result: the eye
+        // rides PO_GetPawnHeadPos less PLAYER.GetCameraFix, at the angles the
+        // scripts accumulated from MOUSE.GetDelta.
+        if (scriptView) engine.TakeCameraPose(camera.pos, camera.yaw, camera.pitch);
         host.CallGlobal("Game_Tick3", d, 1);
         // Region transitions feed the message pump the way the engine's
         // phantoms do.
         engine.TickTriggers();
+        engine.TickLifetimes(dt);
         host.CallGlobal("Game_Render", d, 1);
         host.CallGlobal("Game_PostRender", d, 1);
         host.CallGlobal("Game_GC", nullptr, 0);

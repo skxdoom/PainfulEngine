@@ -48,6 +48,14 @@ public:
     // slot, or -1 when the emitter cannot be resolved.
     int AddScriptEmitter(const std::string& emitterFile, EmitterLibrary& library,
                          TextureCache& textures, const std::string& levelHint);
+    // PARTICLE.SetEvolve: level-placed effects force continuous emission,
+    // overriding a one-shot .ini. Applies to every emitter of the entity.
+    void SetScriptEmitterEvolve(int slot, bool evolve);
+    // A one-shot emitter that has spent its budget and outlived its last
+    // particle. An effect whose emitters have all finished is over, and the
+    // entity holding them can go - AddPFX creates one per impact and never
+    // takes it back, so without this every shot leaks an entity.
+    bool ScriptEmitterFinished(int slot) const;
     void SetupScriptEmitter(int slot, float refScale, const float refOffset[3],
                             const float refRotDegrees[3]);
     void SetScriptEmitterOwner(int slot, const float ownerPos[3],
@@ -118,6 +126,12 @@ private:
         // handles remain stable.
         bool alive = true;
         bool visible = true;
+        // General.Evolve. False makes the emitter a ONE-SHOT BURST: it spawns
+        // up to MaxParticles and then stops for good, which is what an impact
+        // effect is. Held per-emitter rather than read from the params
+        // because level-placed effects override it through
+        // PARTICLE.SetEvolve.
+        bool evolve = true;
         float refOffset[3] = {0, 0, 0};
         float refRotDeg[3] = {0, 0, 0};
         float refScale = 1.f;

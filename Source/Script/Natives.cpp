@@ -237,9 +237,16 @@ int L_ReplaceBitFlag(lua_State* L) {
 // bridge stores hkQuaternion (x,y,z,w) into engine order). The scripts pass
 // them as flat multi-values: EulerToQuat(ax,ay,az) -> w,x,y,z.
 //
-// TODO: verify the Euler composition order against the native at 0x1011C390
-// once entity rotation from scripts is visible on screen. X*Y*Z is the
-// engine-family convention assumed here.
+// The composition order is the engine's own, read out of the native behind
+// 0x1011C390 (the work is in FUN_1011bea0). With half-angles it builds
+//
+//   w = cz*cy*cx + sx*sz*sy      x = cz*cy*sx - sz*sy*cx
+//   y = sy*cz*cx + sz*sx*cy      z = sz*cy*cx - sy*sx*cz
+//
+// which is exactly qz * qy * qx, output as [w,x,y,z]. So the rotation is
+// Rz*Ry*Rx - X applied first. This used to compose qx*qy*qz, the reverse,
+// and a reversed quaternion product is a different rotation, not the inverse
+// of one; every scripted Euler rotation was wrong away from the axes.
 
 Quat QuatFromAxisAngle(double angle, double x, double y, double z) {
     const double len = std::sqrt(x * x + y * y + z * z);
@@ -249,20 +256,19 @@ Quat QuatFromAxisAngle(double angle, double x, double y, double z) {
 }
 
 int L_EulerToQuat(lua_State* L) {
-    const double ax = Arg(L, 1), ay = Arg(L, 2), az = Arg(L, 3);
-    const Quat qx = QuatFromAxisAngle(ax, 1, 0, 0);
-    const Quat qy = QuatFromAxisAngle(ay, 0, 1, 0);
-    const Quat qz = QuatFromAxisAngle(az, 0, 0, 1);
-    return PushQuat(L, QuatMul(QuatMul(qx, qy), qz));
+    float q[4];
+    EngineEulerToQuat(float(Arg(L, 1)), float(Arg(L, 2)), float(Arg(L, 3)), q);
+    return PushQuat(L, {q[0], q[1], q[2], q[3]});
 }
 
 int L_QuatToEuler(lua_State* L) {
     const double w = Arg(L, 1), x = Arg(L, 2), y = Arg(L, 3), z = Arg(L, 4);
-    // Inverse of the X*Y*Z composition above.
-    const double sy = 2 * (w * y + x * z);
+    // Inverse of the Rz*Ry*Rx composition above, read off that matrix:
+    // -R20 gives Y, R21/R22 give X and R10/R00 give Z.
+    const double sy = 2 * (w * y - x * z);
     const double ay = std::asin(sy < -1 ? -1.0 : (sy > 1 ? 1.0 : sy));
-    const double ax = std::atan2(2 * (w * x - y * z), 1 - 2 * (x * x + y * y));
-    const double az = std::atan2(2 * (w * z - x * y), 1 - 2 * (y * y + z * z));
+    const double ax = std::atan2(2 * (y * z + w * x), 1 - 2 * (x * x + y * y));
+    const double az = std::atan2(2 * (x * y + w * z), 1 - 2 * (y * y + z * z));
     lua_pushnumber(L, ax);
     lua_pushnumber(L, ay);
     lua_pushnumber(L, az);
@@ -281,8 +287,8 @@ int RotateVector(lua_State* L, bool inverse) {
     return 3;
 }
 
-int L_VectorRotateByQuat(lua_State* L) { return RotateVector(L, false); }
-int L_VectorInverseRotateByQuat(lua_State* L) { return RotateVector(L, true); }
+int L_VectorRotateByQuat(lua_State* L) { return RotateVector(L, true); }
+int L_VectorInverseRotateByQuat(lua_State* L) { return RotateVector(L, false); }
 
 int L_RotateQuatByAxisAngle(lua_State* L) {
     const Quat q = {Arg(L, 1), Arg(L, 2), Arg(L, 3), Arg(L, 4)};
@@ -293,6 +299,13 @@ int L_RotateQuatByAxisAngle(lua_State* L) {
 // NormalNToQuat: the shortest-arc rotation taking basis axis N onto the
 // given normal. The Lua Quaternion class routes all three through the Z
 // variant, so exactness beyond Z matters little.
+//
+// Built in the ENGINE's convention, which rotates a vector as q^-1 * v * q -
+// so this is the conjugate of the textbook shortest arc, and the round trip
+// that matters is `NormalZToQuat(n)` then `TransformVector(0,0,1)` giving
+// back n. Getting it the textbook way round points every shot backwards:
+// the weapons build their fire direction exactly that way, from the player's
+// forward vector.
 int NormalToQuat(lua_State* L, double axisX, double axisY, double axisZ) {
     double nx = Arg(L, 1), ny = Arg(L, 2), nz = Arg(L, 3);
     const double len = std::sqrt(nx * nx + ny * ny + nz * nz);
@@ -307,9 +320,11 @@ int NormalToQuat(lua_State* L, double axisX, double axisY, double axisZ) {
         if (std::abs(axisZ) > 0.9) { px = 1; py = 0; pz = 0; }
         return PushQuat(L, {0, px, py, pz});
     }
-    const double cx = axisY * nz - axisZ * ny;
-    const double cy = axisZ * nx - axisX * nz;
-    const double cz = axisX * ny - axisY * nx;
+    // The cross runs normal-to-axis rather than axis-to-normal, which is the
+    // conjugation.
+    const double cx = ny * axisZ - nz * axisY;
+    const double cy = nz * axisX - nx * axisZ;
+    const double cz = nx * axisY - ny * axisX;
     const double w = std::sqrt((1.0 + d) * 2.0);
     return PushQuat(L, {w * 0.5, cx / w, cy / w, cz / w});
 }

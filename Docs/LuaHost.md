@@ -358,15 +358,172 @@ The order, which `Game_DemoLoadLevel` spells out and the host now follows:
 load the level (unlocked, so it seats the camera) → adopt that pose → lock
 the mouse → `Game:OnPlay`.
 
-## Next stages
+## The camera is the scripts'
 
-1. Finish the camera handover: `MOUSE.GetDelta` fed with real motion,
-   `MOUSE.SetSensitivity` and `CAM.SetPositionDisplacement` (the camera bob)
-   implemented, so `Game:Tick2` steers the view during play as it does at
-   load. The angle conversion above is its own inverse, which is what the
-   handover needs.
-2. Weapons: `WORLD.LineTrace` / `LineTraceFixedGeom` off Jolt, the
-   intersection-solver registry, `ENTITY.SetPosAndRotRelativeToCamera` for
-   the view model.
-3. Animation and the actor clock - see
+`Game:Tick2` steers the view whenever there is a player, `Game.CameraFromPlayer`
+(true by default) and the mouse is locked. `Game:UpdateViewFromPlayer` is the
+whole of it:
+
+```lua
+local mdx,mdy = MOUSE.GetDelta()
+local crx,cry = CAM.GetRawRotation()
+if Cfg.InvertMouse then mdy = -mdy end
+destPos = ENTITY.PO_GetPawnHeadPos(Player._Entity)
+destPos.Y = destPos.Y - PLAYER.GetCameraFix(Player._Entity)
+crx = crx + mdx ; cry = cry + mdy
+CAM.SetPos(destPos.X, destPos.Y, destPos.Z)
+crx = math.mod(crx,360) ; cry = math.mod(cry,360)
+if cry > 80 then cry = 80 end
+if cry < -80 then cry = -80 end
+CAM.SetAng(crx, cry, 0)
+```
+
+So **`MOUSE.GetDelta` returns DEGREES**, not pixels - the results are added
+straight onto `CAM.GetRawRotation`'s degrees. Both axes come back negated
+from ours, because the engine's turn angle runs opposite to our yaw and
+screen-down is a downward look; `Cfg.InvertMouse` is applied script-side and
+must not be applied again in the native. The pitch clamp is the engine's own
+±80°, and the eye is the pawn head less `PLAYER.GetCameraFix` (the bob, still
+0 here). `CAM.SetPositionDisplacement` is an offset added after that, which
+is how the view shakes without moving the player; it is kept apart from the
+camera position so the `CAM.GetPos` the scripts read stays the true eye.
+
+The C++ loop now only follows: it feeds the window's mouse motion to `Input`,
+skips its own look while the scripts own the view, and adopts the pose after
+`Game_Tick2`. The free camera (noclip, or before a player exists) keeps its
+own look and mirrors itself into the `CAM` reads as before, because the
+scripts still derive the movement basis from them.
+
+The pixels-to-degrees constant is **calibrated, not recovered**: the mouse
+natives are registered Lua thunks rather than named functions in `Engine.dll`,
+so there was no constant to read. `Input::kDegreesPerPixel` reproduces the
+free camera's old feel at the shipped `Cfg.MouseSensitivity` of 40.
+
+Verified by injecting a delta headlessly: `MOUSE.GetDelta` returning `2,1`
+advances the reported turn by exactly 2° and the elevation by 1° per frame,
+from the level's own starting angle, and `CAM.GetPos` matches
+`ENTITY.PO_GetPawnHeadPos` exactly.
+
+## Traces, and the intersection solver
+
+`WORLD.LineTrace(x1,y1,z1, x2,y2,z2)` returns ten values, and every caller
+unpacks all of them:
+
+```lua
+local b,d, x,y,z, nx,ny,nz, he,e = WORLD.LineTrace(...)
+```
+
+hit, distance, the hit point, the surface normal, the physics body and the
+entity. A world hit reports entity 0, and that is what makes
+`ENTITY.IsFixedMesh` answer true for it - the test every weapon uses to
+decide between a wall effect and damage. `LineTraceFixedGeom` is the same
+trace restricted to the world mesh, which is what the actors' ground and step
+probes want.
+
+**The "intersection solver" is a trace-visibility set**, not a solver. Every
+trace in the game is bracketed:
+
+```lua
+ENTITY.RemoveFromIntersectionSolver(entity)
+local b,d,... = WORLD.LineTrace(cx,cy,cz, dx,dy,dz)
+ENTITY.AddToIntersectionSolver(entity)
+```
+
+so a shot does not hit the thing that fired it. The pair has to be exact - a
+leaked Remove leaves something permanently unhittable. The ragdoll variants
+say the same about an actor's ragdoll, which is the same body here, and they
+are the busiest natives in the whole report at 15,600 calls in a 400-frame
+run. The camera's own probe body is always excluded, since it sits exactly
+where a shot from the player starts.
+
+Verified by tracing 200 units from the spawn in six directions: the floor
+comes back at **exactly 2.00 below the eye** with normal (0,1,0) - an
+independent confirmation of the pawn height - walls report inward normals at
+1.76 to 32.5, and a prop 111.8 out reports its body and entity with
+`IsFixedMesh` false.
+
+## The view model
+
+`ENTITY.SetPosAndRotRelativeToCamera(e, x,y,z, ax,ay,az)` parks the held
+weapon each frame at a fixed offset in CAMERA space plus Euler angles.
+Camera space is the scripts' own, **-Z forward** - which is what their
+forward vector reduces to at a turn of zero. Measured against the shipped
+offsets: the weapon sits 1.167 ahead, 0.495 down and 0.382 to the side, for
+authored values of 1.2 / 0.49 / 0.39 (the forward difference is the pull-back
+`CWeapon:ClientTick2` applies above 90° FOV).
+
+## The rotation conventions, settled by three findings that agree
+
+Three separate symptoms turned out to be one question - how the engine spells
+a rotation - and the answer only holds together when all three agree.
+
+**1. Euler composition.** `EulerToQuat` had a standing TODO against
+`0x1011C390`. Its maths is `FUN_1011bea0`, and with half-angles it builds
+
+```
+w = cz*cy*cx + sx*sz*sy      x = cz*cy*sx - sz*sy*cx
+y = sy*cz*cx + sz*sx*cy      z = sz*cy*cx - sy*sx*cz
+```
+
+which is **qz * qy * qx** - X applied first, `Rz*Ry*Rx` as a matrix - output
+as `[w,x,y,z]`. The port composed `qx * qy * qz`, the reverse. A reversed
+quaternion product is a different rotation rather than the inverse of one, so
+every scripted Euler rotation was wrong away from the axes. `QuatToEuler` is
+re-derived as its true inverse and the round trip verified exact.
+
+**2. Vector rotation is the CONJUGATE of textbook.** The engine rotates a
+vector as `q^-1 * v * q`, so the scripts' `VectorRotateByQuat` is our inverse
+rotation and vice versa - the two were swapped. This is the same transpose the
+Jolt bridge already had to undo, and it is consistent with `EngineQuatToRot9`
+being applied to ROW vectors: the rows of that matrix are where the local axes
+land.
+
+**3. The turn angle is `yaw + pi/2`, not its negation.** `CAM.GetAng`
+round-tripped either way, so the read/write pair could not settle it. The
+level data could: Cathedral authors `Lev.Ang.X = 91.174`, which is "90 plus a
+small yaw", and under the negated mapping the spawn faced a wall 1.76 away
+with 108 units of open space behind. Un-negated it faces the open space. That
+also made the scripts' own movement basis disagree - until finding 2 fixed the
+rotation direction, at which point camera, movement basis and level angle all
+agree at once. That mutual agreement is the real check, and it is worth
+re-running after any change here: the scripts derive the movement basis from
+`CAM.GetAngRad` in pure Lua, and it must equal `CAM.GetForwardVector`.
+
+**Finding 2 binds every native that PRODUCES a quaternion, not just the ones
+that consume one.** That is the part it is easy to miss, and missing it sent
+every shot backwards: the weapons build their fire direction as
+`Quaternion:New_FromNormalZ(forward)` and then fire along that quaternion's
+local +Z, so `NormalZToQuat` has to return the CONJUGATE of the textbook
+shortest arc for the round trip to come back to the forward vector. The test
+is exactly that round trip - `NormalZToQuat(n)` then `TransformVector(0,0,1)`
+must give back `n`, and its dot with the camera forward must be +1, not -1.
+
+**Finding 4: the engine's ELEVATION is positive-DOWN**, the opposite of our
+pitch. Also not arbitrary - the scripts feed the elevation into the X slot of
+the engine Euler (`FromEuler(elevation, turn, 0)`), and a positive rotation
+about X in a Y-up, Z-forward frame tilts forward toward -Y. Miss this and the
+horizontal aim is perfect while every shot goes as far wrong vertically as
+the player was looking, which is invisible at the spawn pitch of ~0. Test at
+a STEEP pitch or not at all.
+
+Findings 3 and 4 together bind the mouse: `MOUSE.GetDelta` passes BOTH axes
+through with their sign - X because the turn runs the same way as our yaw, Y
+because the engine's elevation and screen-down already agree. Negating either
+inverts that axis of the look.
+
+Because of finding 2, anything composing a rotation has to be careful which
+way round it goes. The view model sidesteps the question entirely: it builds
+the camera's rotation as its basis written out as matrix rows, multiplies in
+row-vector order, and converts once at the end (`EngineRot9ToQuat`).
+
+Still unverified against the binary, and suspect for the same reason:
+`RotateQuatByAxisAngle` composes `r * q`, which under this convention would
+apply them in the other order. Nothing measured has needed it yet.
+
+## Next stages
+2. Damage: the shot lands but nothing takes it yet. `ENTITY.ExplodeItem`,
+   `ENTITY.EnableGunPass`, `ENTITY.SetRotationCAM`, and whatever the hit
+   handlers need to reach an actor's health.
+3. Animation and the actor clock - which is also what gates melee damage and
+   the actors' whole event loop. See
    [`Gameplay_Roadmap.md`](Gameplay_Roadmap.md) for the full order.

@@ -267,18 +267,20 @@ Details, the numbers, and the sizeable list of what is still missing are in
   `Tweak.PlayerMove`: walking settles at 7.9999 m/s against `PlayerSpeed`
   8.0, and a jump rises 0.753 m, which is what the recovered
   `JumpStrength × PlayerSpeed × 0.7` gives under the same semi-implicit
-  step. See [`PlayerMovement.md`](PlayerMovement.md).
+  step. Air control, the step ladder and what the player collides with all
+  come from the binary too — see [`PlayerMovement.md`](PlayerMovement.md).
+- **The scripts own the camera.** `Game:Tick2` reads `MOUSE.GetDelta`,
+  accumulates onto `CAM.GetRawRotation` and writes back through
+  `CAM.SetPos`/`SetAng`; the C++ loop feeds the mouse in and adopts the
+  result. The free camera keeps its own look for noclip and for levels with
+  no player yet.
 
 ### Everything else
 
 - `.pkm` mod packages do not auto-mount yet (their internal format is still an
   open question — `GZipPack` exports hint the engine also reads real ZIPs).
-- The camera is half handed over. `CAM.SetPos`/`SetAng` are honoured, which
-  is what seats the view at level load, but during play the C++ loop still
-  drives and the `CAM` reads mirror it — a faithful no-op, not the real
-  division of work. `MOUSE.GetDelta` still reports no motion, and
-  `MOUSE.SetSensitivity` and `CAM.SetPositionDisplacement` (the camera bob)
-  are stubs.
+- `PLAYER.GetCameraFix` still answers 0, so there is no view bob or crouch
+  offset on the camera yet.
 - Firing has nowhere to land: the fire bits reach the weapon code, but
   `WORLD.LineTrace` and the intersection-solver registry are still stubs.
 - **Nothing is animated.** `MDL.SetAnim` answers -1 and `MDL.GetAnimTimeScale`

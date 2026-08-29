@@ -103,6 +103,10 @@ public:
     void SetScriptBodyPose(int slot, const float pos[3], const float rotWXYZ[4]);
     // PO_Enable on a prop: wakes or sleeps the body.
     void SetScriptBodyEnabled(int slot, bool enabled);
+    // ENTITY.SetVelocity / GetVelocity. Setting one wakes the body: a
+    // projectile is created, given its velocity and expected to fly.
+    void SetScriptBodyVelocity(int slot, const float v[3]);
+    bool GetScriptBodyVelocity(int slot, float out[3]) const;
     // The world-space mesh radius, which is what PO_GetMaxSphereRay reports.
     float ScriptBodyRadius(int slot) const;
     void RemoveScriptBody(int slot);
@@ -129,6 +133,25 @@ public:
 
     // True when a sphere at this position overlaps anything solid.
     bool SphereOverlaps(const float pos[3], float radius) const;
+
+    // What a line trace found. bodySlot is the script body that was hit, or
+    // -1 for the static world - which is what tells WORLD.LineTrace's callers
+    // apart, since ENTITY.IsFixedMesh branches on exactly that.
+    struct RayHit {
+        float distance = 0.f;
+        float point[3] = {0, 0, 0};
+        float normal[3] = {0, 0, 0};
+        int bodySlot = -1;
+    };
+
+    // WORLD.LineTrace and friends. staticOnly restricts it to the world mesh,
+    // which is LineTraceFixedGeom. `exclude` lists script body slots to pass
+    // straight through: the scripts keep that set themselves through
+    // ENTITY.Add/RemoveFromIntersectionSolver, so a projectile does not hit
+    // the thing that fired it.
+    bool RayCast(const float from[3], const float to[3], RayHit& out,
+                 bool staticOnly = false, const int* exclude = nullptr,
+                 size_t excludeCount = 0) const;
 
     // Pushes a sphere out of anything it is inside, and reports how many
     // overlaps it had to resolve. SlideSphere does this before every move:

@@ -15,6 +15,7 @@ extern "C" {
 #include <lua.h>
 }
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -191,34 +192,91 @@ int ScriptEngine::L_Create(lua_State* L) {
     return 1;
 }
 
-int ScriptEngine::L_Release(lua_State* L) {
-    ScriptEngine* self = From(L);
-    const int handle = HandleArg(L, 1);
-    auto it = self->entities_.find(handle);
-    if (it == self->entities_.end()) return 0;   // nil and doubles are routine
-    if (self->renderer_ && it->second.rendererInstance >= 0)
-        self->renderer_->ReleaseScript(it->second.rendererInstance);
-    if (self->physics_ && it->second.physicsBody >= 0) {
-        self->physics_->RemoveScriptBody(it->second.physicsBody);
-        self->bodyToEntity_.erase(it->second.physicsBody);
+void ScriptEngine::ReleaseEntity(int handle) {
+    auto it = entities_.find(handle);
+    if (it == entities_.end()) return;   // nil and doubles are routine
+    if (renderer_ && it->second.rendererInstance >= 0)
+        renderer_->ReleaseScript(it->second.rendererInstance);
+    if (physics_ && it->second.physicsBody >= 0) {
+        physics_->RemoveScriptBody(it->second.physicsBody);
+        bodyToEntity_.erase(it->second.physicsBody);
+        // Anything released mid-trace-bracket would otherwise leave a dead
+        // slot in the exclusion list for good. A projectile does exactly
+        // that: it removes itself from the solver, traces, and dies.
+        excludedSlots_.erase(
+            std::remove(excludedSlots_.begin(), excludedSlots_.end(), it->second.physicsBody),
+            excludedSlots_.end());
     }
-    if (self->billboards_ && it->second.spriteSlot >= 0)
-        self->billboards_->RemoveScriptSprite(it->second.spriteSlot);
-    if (self->particles_)
+    if (billboards_ && it->second.spriteSlot >= 0)
+        billboards_->RemoveScriptSprite(it->second.spriteSlot);
+    if (particles_)
         for (int slot : it->second.emitterSlots)
-            if (slot >= 0) self->particles_->RemoveScriptEmitter(slot);
-    self->entities_.erase(it);
-    ++self->released_;
+            if (slot >= 0) particles_->RemoveScriptEmitter(slot);
+    entities_.erase(it);
+    ++released_;
+}
+
+int ScriptEngine::L_Release(lua_State* L) {
+    From(L)->ReleaseEntity(HandleArg(L, 1));
     return 0;
+}
+
+// ENTITY.SetTimeToDie(e, seconds) - the engine reaps the entity itself once
+// the time is up. Everything transient uses it: shell casings, the stone
+// chips a shotgun knocks off a wall, a spent projectile. Left unimplemented
+// those never go away, and since they are ITEMS with real bodies they pile
+// up as collision the player walks into - which reads as the impact effect
+// itself being solid.
+int ScriptEngine::L_SetTimeToDie(lua_State* L) {
+    if (Entity* e = From(L)->Find(HandleArg(L, 1)))
+        e->timeToDie = float(luaL_optnumber(L, 2, 0));
+    return 0;
+}
+
+void ScriptEngine::TickLifetimes(float dt) {
+    if (dt <= 0.f) return;
+    expired_.clear();
+    for (auto& kv : entities_) {
+        Entity& e = kv.second;
+        if (e.timeToDie >= 0.f) {
+            e.timeToDie -= dt;
+            if (e.timeToDie <= 0.f) {
+                expired_.push_back(kv.first);
+                continue;
+            }
+        }
+        // A spent one-shot effect. AddPFX creates an entity per impact and
+        // never takes it back, so the engine has to: once every emitter has
+        // burnt its budget and its last particle has gone, the effect is
+        // over. A level-placed effect never reaches this, because its
+        // emitters are forced to keep evolving.
+        if (e.type == kParticleFX && particles_ && !e.emitterSlots.empty()) {
+            bool done = true;
+            for (int slot : e.emitterSlots)
+                if (slot >= 0 && !particles_->ScriptEmitterFinished(slot)) done = false;
+            if (done) expired_.push_back(kv.first);
+        }
+    }
+    for (int handle : expired_) ReleaseEntity(handle);
 }
 
 int ScriptEngine::L_SetPosition(lua_State* L) {
     ScriptEngine* self = From(L);
     const int handle = HandleArg(L, 1);
     if (Entity* e = self->Find(handle)) {
-        e->pos[0] = float(luaL_optnumber(L, 2, 0));
-        e->pos[1] = float(luaL_optnumber(L, 3, 0));
-        e->pos[2] = float(luaL_optnumber(L, 4, 0));
+        const float p[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+                            float(luaL_optnumber(L, 4, 0))};
+        // A script can compute a NaN - divide a velocity by its own length
+        // when that length is zero and every coordinate downstream is one -
+        // and handing that to the simulation takes the process down. The
+        // engine survives a script's bad arithmetic; so must this.
+        for (int c = 0; c < 3; ++c) {
+            if (!(p[c] == p[c]) || p[c] > 1e18f || p[c] < -1e18f) {
+                LogWarn("ENTITY.SetPosition(%d): ignoring a non-finite position", handle);
+                return 0;
+            }
+        }
+        for (int c = 0; c < 3; ++c) e->pos[c] = p[c];
         self->SyncPose(*e);
         if (self->physics_ && e->physicsBody >= 0)
             self->physics_->SetScriptBodyPose(e->physicsBody, e->pos, e->rotWXYZ);
@@ -365,12 +423,34 @@ int ScriptEngine::L_EnableDraw(lua_State* L) {
 }
 
 // No physics yet, so entities are at rest.
+// ENTITY.GetVelocity(e) -> vx, vy, vz, speed. The fourth value matters: the
+// projectiles divide by it to get their heading, so answering a flat zero
+// hands them a NaN that then travels through every position they compute.
 int ScriptEngine::L_GetVelocity(lua_State* L) {
-    lua_pushnumber(L, 0);
-    lua_pushnumber(L, 0);
-    lua_pushnumber(L, 0);
-    lua_pushnumber(L, 0);   // scripts read a fourth value: the speed
+    ScriptEngine* self = From(L);
+    const Entity* e = self->Find(HandleArg(L, 1));
+    float v[3] = {0, 0, 0};
+    if (e) {
+        if (!(self->physics_ && e->physicsBody >= 0 &&
+              self->physics_->GetScriptBodyVelocity(e->physicsBody, v)))
+            for (int c = 0; c < 3; ++c) v[c] = e->velocity[c];
+    }
+    for (int c = 0; c < 3; ++c) lua_pushnumber(L, v[c]);
+    lua_pushnumber(L, std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]));
     return 4;
+}
+
+// ENTITY.SetVelocity(e, x, y, z) - how every projectile is launched, and how
+// the rocket jump lifts the player.
+int ScriptEngine::L_SetVelocity(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e) return 0;
+    for (int c = 0; c < 3; ++c)
+        e->velocity[c] = float(luaL_optnumber(L, c + 2, 0));
+    if (self->physics_ && e->physicsBody >= 0)
+        self->physics_->SetScriptBodyVelocity(e->physicsBody, e->velocity);
+    return 0;
 }
 
 // ENTITY.PO_Create(e, bodytype, scale, collisionGroup): CObject:PO_Create
@@ -739,7 +819,22 @@ int ScriptEngine::L_CAM_GetForwardVector(lua_State* L) {
 static constexpr float kPi = 3.14159265358979f;
 
 static float EngineTurn(float camYaw) {
-    return -(camYaw + kPi * 0.5f);
+    return camYaw + kPi * 0.5f;
+}
+
+static float CamYawFromTurn(float turn) {
+    return turn - kPi * 0.5f;
+}
+
+// The engine's elevation runs the OTHER WAY from our pitch: positive is
+// looking DOWN. That is not arbitrary - the scripts feed the elevation into
+// the X slot of the engine Euler (CPlayer:SetupAction builds
+// FromEuler(elevation, turn, 0)), and a positive rotation about X in a
+// Y-up, Z-forward frame tilts forward toward -Y. Report our pitch without
+// this and the horizontal aim is perfect while every shot goes as far wrong
+// vertically as the player was looking. Its own inverse, like the turn.
+static float EngineElevation(float camPitch) {
+    return -camPitch;
 }
 
 // CAM.SetPos / CAM.SetAng - the scripts steering the view. A level seats the
@@ -758,8 +853,8 @@ int ScriptEngine::L_CAM_SetPos(lua_State* L) {
 int ScriptEngine::L_CAM_SetAng(lua_State* L) {
     ScriptEngine* self = From(L);
     const float k = kPi / 180.f;
-    self->camYaw_ = EngineTurn(float(luaL_optnumber(L, 1, 0)) * k);
-    self->camPitch_ = float(luaL_optnumber(L, 2, 0)) * k;
+    self->camYaw_ = CamYawFromTurn(float(luaL_optnumber(L, 1, 0)) * k);
+    self->camPitch_ = EngineElevation(float(luaL_optnumber(L, 2, 0)) * k);
     self->camPoseDirty_ = true;
     return 0;
 }
@@ -767,7 +862,7 @@ int ScriptEngine::L_CAM_SetAng(lua_State* L) {
 bool ScriptEngine::TakeCameraPose(float pos[3], float& yaw, float& pitch) {
     if (!camPoseDirty_) return false;
     camPoseDirty_ = false;
-    for (int i = 0; i < 3; ++i) pos[i] = camPos_[i];
+    for (int i = 0; i < 3; ++i) pos[i] = camPos_[i] + camDisplacement_[i];
     yaw = camYaw_;
     pitch = camPitch_;
     return true;
@@ -777,7 +872,7 @@ int ScriptEngine::L_CAM_GetAng(lua_State* L) {
     ScriptEngine* self = From(L);
     const float k = 180.f / kPi;
     lua_pushnumber(L, EngineTurn(self->camYaw_) * k);
-    lua_pushnumber(L, self->camPitch_ * k);
+    lua_pushnumber(L, EngineElevation(self->camPitch_) * k);
     lua_pushnumber(L, 0);
     return 3;
 }
@@ -785,7 +880,7 @@ int ScriptEngine::L_CAM_GetAng(lua_State* L) {
 int ScriptEngine::L_CAM_GetAngRad(lua_State* L) {
     ScriptEngine* self = From(L);
     lua_pushnumber(L, EngineTurn(self->camYaw_));
-    lua_pushnumber(L, self->camPitch_);
+    lua_pushnumber(L, EngineElevation(self->camPitch_));
     lua_pushnumber(L, 0);
     return 3;
 }
@@ -806,14 +901,38 @@ int ScriptEngine::L_CAM_GetRawRotation(lua_State* L) {
     ScriptEngine* self = From(L);
     const float k = 180.f / kPi;
     lua_pushnumber(L, EngineTurn(self->camYaw_) * k);
-    lua_pushnumber(L, self->camPitch_ * k);
+    lua_pushnumber(L, EngineElevation(self->camPitch_) * k);
     return 2;
 }
 
+// MOUSE.GetDelta() -> look movement in degrees since the last call. This is
+// the whole of the look input: Game:UpdateViewFromPlayer adds it onto
+// CAM.GetRawRotation and writes the result back through CAM.SetAng, so the
+// scripts own the view and the C++ camera follows them.
 int ScriptEngine::L_MOUSE_GetDelta(lua_State* L) {
-    lua_pushnumber(L, 0);
-    lua_pushnumber(L, 0);
+    ScriptEngine* self = From(L);
+    float dx = 0.f, dy = 0.f;
+    if (self->input_) self->input_->TakeLookDegrees(dx, dy);
+    lua_pushnumber(L, dx);
+    lua_pushnumber(L, dy);
     return 2;
+}
+
+int ScriptEngine::L_MOUSE_SetSensitivity(lua_State* L) {
+    if (Input* in = From(L)->input_) in->SetSensitivity(float(luaL_optnumber(L, 1, 40)));
+    return 0;
+}
+
+// CAM.SetPositionDisplacement(x, y, z) - an offset added to the camera
+// position after it is set, which is how the engine shakes the view without
+// disturbing where the player actually is. Held apart from camPos_ so the
+// CAM.GetPos the scripts read stays the true eye position.
+int ScriptEngine::L_CAM_SetPositionDisplacement(lua_State* L) {
+    ScriptEngine* self = From(L);
+    for (int i = 0; i < 3; ++i)
+        self->camDisplacement_[i] = float(luaL_optnumber(L, i + 1, 0));
+    self->camPoseDirty_ = true;
+    return 0;
 }
 
 // ----------------------------------------------------------------- input
@@ -970,6 +1089,172 @@ int ScriptEngine::L_MOUSE_Lock(lua_State* L) {
 
 int ScriptEngine::L_MOUSE_IsLocked(lua_State* L) {
     lua_pushboolean(L, From(L)->mouseLocked_);
+    return 1;
+}
+
+// ---------------------------------------------------------------- traces
+//
+// WORLD.LineTrace(x1,y1,z1, x2,y2,z2) -> hit, distance, hitX,hitY,hitZ,
+// normalX,normalY,normalZ, bodyHandle, entityHandle. That ten-value shape is
+// what every caller unpacks, and the last two are how a hit is identified:
+// the body handle goes to the PHYSICS.GetHavokBody* family, and the entity
+// handle to EntityToObject. A world hit reports entity 0, which is what makes
+// ENTITY.IsFixedMesh answer true for it.
+int ScriptEngine::TraceCommon(lua_State* L, bool staticOnly) {
+    ScriptEngine* self = From(L);
+    const float from[3] = {float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
+                           float(luaL_optnumber(L, 3, 0))};
+    const float to[3] = {float(luaL_optnumber(L, 4, 0)), float(luaL_optnumber(L, 5, 0)),
+                         float(luaL_optnumber(L, 6, 0))};
+
+    PhysicsWorld::RayHit hit;
+    const bool got = self->TraceRay(from, to, hit, staticOnly);
+
+    lua_pushboolean(L, got);
+    lua_pushnumber(L, got ? hit.distance : 0.0);
+    for (int c = 0; c < 3; ++c) lua_pushnumber(L, got ? hit.point[c] : to[c]);
+    for (int c = 0; c < 3; ++c) lua_pushnumber(L, got ? hit.normal[c] : 0.0);
+    lua_pushnumber(L, got ? hit.bodySlot : -1);
+    lua_pushnumber(L, got ? self->EntityForBody(hit.bodySlot) : 0);
+    return 10;
+}
+
+int ScriptEngine::L_WORLD_LineTrace(lua_State* L) {
+    return TraceCommon(L, false);
+}
+
+// LineTraceFixedGeom asks about the world mesh alone. The actors use it for
+// their ground and step probes, where hitting each other would be noise.
+int ScriptEngine::L_WORLD_LineTraceFixedGeom(lua_State* L) {
+    return TraceCommon(L, true);
+}
+
+bool ScriptEngine::TraceRay(const float from[3], const float to[3],
+                            PhysicsWorld::RayHit& hit, bool staticOnly) const {
+    if (!physics_) return false;
+    return physics_->RayCast(from, to, hit, staticOnly,
+                             excludedSlots_.empty() ? nullptr : excludedSlots_.data(),
+                             excludedSlots_.size());
+}
+
+int ScriptEngine::EntityForBody(int bodySlot) const {
+    if (bodySlot < 0) return 0;                  // the world
+    auto it = bodyToEntity_.find(bodySlot);
+    return it == bodyToEntity_.end() ? 0 : it->second;
+}
+
+// ENTITY.RemoveFromIntersectionSolver(e) / AddToIntersectionSolver(e) - take
+// an entity out of the traces and put it back. Always bracketed, so this has
+// to be exact: leaking a Remove would leave something permanently unhittable.
+// The ragdoll variants say the same thing about an actor's ragdoll, which is
+// the same body here.
+int ScriptEngine::L_RemoveFromIntersectionSolver(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e || !e->inSolver) return 0;
+    e->inSolver = false;
+    if (e->physicsBody >= 0) self->excludedSlots_.push_back(e->physicsBody);
+    return 0;
+}
+
+int ScriptEngine::L_AddToIntersectionSolver(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e || e->inSolver) return 0;
+    e->inSolver = true;
+    if (e->physicsBody >= 0) {
+        auto& v = self->excludedSlots_;
+        v.erase(std::remove(v.begin(), v.end(), e->physicsBody), v.end());
+    }
+    return 0;
+}
+
+// ENTITY.IsFixedMesh(e) - is this the immovable world rather than something
+// that can be moved or hurt. A trace into the world reports entity 0, and an
+// entity with no simulated body is fixed in the same sense.
+int ScriptEngine::L_IsFixedMesh(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const int handle = HandleArg(L, 1);
+    if (handle == 0) {
+        lua_pushboolean(L, 1);
+        return 1;
+    }
+    const Entity* e = self->Find(handle);
+    lua_pushboolean(L, e != nullptr && e->physicsBody < 0);
+    return 1;
+}
+
+// ENTITY.SetPosAndRotRelativeToCamera(e, x,y,z, ax,ay,az) - the view model.
+// CWeapon:ClientTick2 parks the held weapon this way every frame, at a fixed
+// offset in CAMERA space (the shipped one is 0.39 right, 0.49 down, 1.2
+// forward) with Euler angles on top.
+//
+// Camera space is the scripts' own: -Z is forward, which is what their
+// forward vector reduces to at a turn of zero. The camera's own orientation
+// is the engine Euler (elevation, turn, 0) - the same pair CAM.GetAngRad
+// reports - so the offset rotates by that and the model's rotation composes
+// after it.
+int ScriptEngine::L_SetPosAndRotRelativeToCamera(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e) return 0;
+
+    const float lx = float(luaL_optnumber(L, 2, 0));
+    const float ly = float(luaL_optnumber(L, 3, 0));
+    const float lz = float(luaL_optnumber(L, 4, 0));
+
+    // Camera space is +X right, +Y up, -Z forward. Placing the offset from
+    // the camera's own basis keeps this independent of how a rotation is
+    // spelled as a quaternion, and that basis is the one already driving both
+    // the view matrix and the player's movement.
+    const float cp = std::cos(self->camPitch_), sp = std::sin(self->camPitch_);
+    const float cy = std::cos(self->camYaw_), sy = std::sin(self->camYaw_);
+    const float fwd[3] = {cy * cp, sp, sy * cp};
+    const float right[3] = {-sy, 0.f, cy};
+    // up = right x forward, which tilts with the pitch as the view does.
+    const float up[3] = {right[1] * fwd[2] - right[2] * fwd[1],
+                         right[2] * fwd[0] - right[0] * fwd[2],
+                         right[0] * fwd[1] - right[1] * fwd[0]};
+    for (int c = 0; c < 3; ++c)
+        e->pos[c] = self->camPos_[c] + right[c] * lx + up[c] * ly - fwd[c] * lz;
+
+    // The orientation, built the same way. EngineQuatToRot9 is applied to ROW
+    // vectors, so its rows are where the local axes land - which means the
+    // camera's rotation is just its basis written out as rows, and there is
+    // no quaternion convention left to get wrong.
+    const float camRot[9] = {right[0], right[1], right[2],
+                             up[0],    up[1],    up[2],
+                             -fwd[0],  -fwd[1],  -fwd[2]};
+    float localQuat[4], localRot[9], worldRot[9];
+    EngineEulerToQuat(float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
+                      float(luaL_optnumber(L, 7, 0)), localQuat);
+    EngineQuatToRot9(localQuat, localRot);
+    // Row-vector order: the weapon's own rotation first, then the camera's.
+    EngineRot9Mul(localRot, camRot, worldRot);
+    EngineRot9ToQuat(worldRot, e->rotWXYZ);
+
+    self->SyncPose(*e);
+    return 0;
+}
+
+// PARTICLE.SetEvolve(e, on) - force continuous emission on every emitter of
+// an effect, overriding a one-shot .ini. CParticleFX:LoadData calls it right
+// after loading and Apply calls it again, which is how a level-placed torch
+// keeps burning while the same emitter data used for an impact fires once.
+int ScriptEngine::L_PARTICLE_SetEvolve(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const Entity* e = self->Find(HandleArg(L, 1));
+    if (!e || !self->particles_) return 0;
+    const bool on = lua_isboolean(L, 2) ? lua_toboolean(L, 2) != 0 : true;
+    for (int slot : e->emitterSlots)
+        if (slot >= 0) self->particles_->SetScriptEmitterEvolve(slot, on);
+    return 0;
+}
+
+// ENTITY.GetType(e) -> the ETypes value it was created with.
+int ScriptEngine::L_GetType(lua_State* L) {
+    const Entity* e = From(L)->Find(HandleArg(L, 1));
+    lua_pushnumber(L, e ? e->type : 0);
     return 1;
 }
 
@@ -1199,10 +1484,12 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"ENTITY", "EnableDraw", L_EnableDraw},
         {"PARTICLE", "AddEmitter", L_PARTICLE_AddEmitter},
         {"PARTICLE", "SetupEmitter", L_PARTICLE_SetupEmitter},
-        {"PARTICLE", "SetEvolve", L_NoOpNative},
+        {"PARTICLE", "SetEvolve", L_PARTICLE_SetEvolve},
         {"PARTICLE", "SetFixedTransform", L_NoOpNative},
         {"BILLBOARD", "SetupCorona", L_BILLBOARD_SetupCorona},
         {"ENTITY", "GetVelocity", L_GetVelocity},
+        {"ENTITY", "SetVelocity", L_SetVelocity},
+        {"ENTITY", "SetTimeToDie", L_SetTimeToDie},
         {"ENTITY", "PO_Create", L_PO_Create},
         {"ENTITY", "PO_Exist", L_PO_Exist},
         {"ENTITY", "PO_GetMaxSphereRay", L_PO_GetMaxSphereRay},
@@ -1221,6 +1508,21 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"ENTITY", "IsDrawEnabled", L_IsDrawEnabled},
         {"PLAYER", "GetDistanceFromPoint", L_PLAYER_GetDistanceFromPoint},
         {"REGION", "BuildFromPoint", L_REGION_BuildFromPoint},
+        {"WORLD", "LineTrace", L_WORLD_LineTrace},
+        {"WORLD", "LineTraceFixedGeom", L_WORLD_LineTraceFixedGeom},
+        // The AI's shot test against the player. Ours is the same trace: the
+        // player has no simulated body to hit yet, so it can only report the
+        // world, which reads as "the shot was blocked".
+        {"WORLD", "LineTraceHitPlayerBalls", L_WORLD_LineTrace},
+        {"ENTITY", "AddToIntersectionSolver", L_AddToIntersectionSolver},
+        {"ENTITY", "RemoveFromIntersectionSolver", L_RemoveFromIntersectionSolver},
+        // An actor's ragdoll is the same body as the actor here, so the
+        // ragdoll pair says the same thing as the plain pair.
+        {"ENTITY", "AddRagdollToIntersectionSolver", L_AddToIntersectionSolver},
+        {"ENTITY", "RemoveRagdollFromIntersectionSolver", L_RemoveFromIntersectionSolver},
+        {"ENTITY", "IsFixedMesh", L_IsFixedMesh},
+        {"ENTITY", "GetType", L_GetType},
+        {"ENTITY", "SetPosAndRotRelativeToCamera", L_SetPosAndRotRelativeToCamera},
         {"MOUSE", "Lock", L_MOUSE_Lock},
         {"MOUSE", "IsLocked", L_MOUSE_IsLocked},
         {"CAM", "GetPos", L_CAM_GetPos},
@@ -1231,6 +1533,8 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"CAM", "GetAngRad", L_CAM_GetAngRad},
         {"CAM", "GetRawRotation", L_CAM_GetRawRotation},
         {"MOUSE", "GetDelta", L_MOUSE_GetDelta},
+        {"MOUSE", "SetSensitivity", L_MOUSE_SetSensitivity},
+        {"CAM", "SetPositionDisplacement", L_CAM_SetPositionDisplacement},
         {"INP", "GetActionStatus", L_INP_GetActionStatus},
         {"INP", "Action", L_INP_Action},
         {"INP", "UIAction", L_INP_UIAction},

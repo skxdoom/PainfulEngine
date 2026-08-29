@@ -14,6 +14,7 @@
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/ScaledShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/Collision/TransformedShape.h>
 #include <Jolt/Physics/PhysicsSettings.h>
@@ -790,6 +791,25 @@ void PhysicsWorld::SetScriptBodyPose(int slot, const float pos[3],
         EngineQuatToJolt(rotWXYZ), JPH::EActivation::Activate);
 }
 
+
+void PhysicsWorld::SetScriptBodyVelocity(int slot, const float v[3]) {
+    if (!ScriptBodyExists(slot)) return;
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    const JPH::BodyID id = impl_->scriptBodies[slot].body;
+    bodies.SetLinearVelocity(id, JPH::Vec3(v[0], v[1], v[2]));
+    // A body given a velocity is meant to move, and a sleeping one would sit
+    // there holding it.
+    if (!bodies.IsActive(id)) bodies.ActivateBody(id);
+}
+
+bool PhysicsWorld::GetScriptBodyVelocity(int slot, float out[3]) const {
+    if (!ScriptBodyExists(slot)) return false;
+    const JPH::Vec3 v =
+        impl_->system.GetBodyInterface().GetLinearVelocity(impl_->scriptBodies[slot].body);
+    for (int c = 0; c < 3; ++c) out[c] = v[c];
+    return true;
+}
+
 void PhysicsWorld::SetScriptBodyEnabled(int slot, bool enabled) {
     if (!ScriptBodyExists(slot)) return;
     JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
@@ -888,6 +908,99 @@ void PhysicsWorld::CollectDebugLines(const float around[3], float radius,
         const uint32_t abgr = bodies.IsActive(prop.body) ? 0xff00ff00u : 0xff00ffffu;
         wireframe(prop.body, JPH::AABox::sBiggest(), abgr);
     }
+}
+
+bool PhysicsWorld::RayCast(const float from[3], const float to[3], RayHit& out,
+                           bool staticOnly, const int* exclude,
+                           size_t excludeCount) const {
+    out = RayHit{};
+    if (!loaded()) return false;
+
+    const JPH::RVec3 start(from[0], from[1], from[2]);
+    const JPH::Vec3 span(to[0] - from[0], to[1] - from[1], to[2] - from[2]);
+    const float length = span.Length();
+    if (length < 1e-6f) return false;
+
+    // Everything the caller has taken out of the intersection solver, plus
+    // the camera's own probe body - which sits where the camera is and would
+    // otherwise swallow every shot fired from there.
+    JPH::IgnoreMultipleBodiesFilter bodies;
+    bodies.Reserve(int(excludeCount) + 1);
+    if (!impl_->probe.IsInvalid()) bodies.IgnoreBody(impl_->probe);
+    for (size_t i = 0; i < excludeCount; ++i) {
+        const int slot = exclude[i];
+        // A removed slot keeps an invalid id so the others stay stable, and
+        // handing one of those to the filter is not survivable.
+        if (slot >= 0 && size_t(slot) < impl_->scriptBodies.size() &&
+            !impl_->scriptBodies[slot].body.IsInvalid())
+            bodies.IgnoreBody(impl_->scriptBodies[slot].body);
+    }
+
+    JPH::RRayCast ray(start, span);
+    JPH::RayCastSettings settings;
+    // The world mesh is authored one-sided and wound the other way round, so
+    // a trace that ignored back faces would pass straight through a wall it
+    // happens to meet from behind - exactly the case a projectile spawned
+    // inside geometry hits.
+    settings.mBackFaceModeTriangles = JPH::EBackFaceMode::CollideWithBackFaces;
+    // A ray that STARTS inside a convex shape must pass through it rather
+    // than report a hit at zero distance. A projectile is spawned inside the
+    // muzzle, overlapping whatever it was fired from; treating that as an
+    // immediate hit detonates it on frame one, and the contact it reports is
+    // degenerate - there is no surface to take a normal from, so the normal
+    // comes back as NaN and the scripts carry it into everything downstream.
+    settings.mTreatConvexAsSolid = false;
+
+    JPH::ClosestHitCollisionCollector<JPH::CastRayCollector> collector;
+    // LineTraceFixedGeom asks about the world mesh alone, which is the
+    // non-moving layer; the actors and props it wants to ignore all live in
+    // the moving one.
+    const JPH::DefaultObjectLayerFilter staticLayer(impl_->objectPairs,
+                                                    Layers::kNonMoving);
+    const JPH::ObjectLayerFilter anyLayer;
+    impl_->system.GetNarrowPhaseQuery().CastRay(
+        ray, settings, collector, {},
+        staticOnly ? static_cast<const JPH::ObjectLayerFilter&>(staticLayer)
+                   : anyLayer,
+        bodies);
+    if (!collector.HadHit()) return false;
+
+    const JPH::RVec3 point = ray.GetPointOnRay(collector.mHit.mFraction);
+    out.distance = collector.mHit.mFraction * length;
+    for (int c = 0; c < 3; ++c) out.point[c] = float(point[c]);
+
+    // The surface normal at the hit, which the scripts use to orient decals
+    // and bounce effects.
+    {
+        JPH::BodyLockRead lock(impl_->system.GetBodyLockInterface(),
+                               collector.mHit.mBodyID);
+        if (lock.Succeeded()) {
+            const JPH::Body& body = lock.GetBody();
+            const JPH::Vec3 normal =
+                body.GetWorldSpaceSurfaceNormal(collector.mHit.mSubShapeID2, point);
+            for (int c = 0; c < 3; ++c) out.normal[c] = normal[c];
+        }
+    }
+
+    // Never hand a degenerate normal back to the scripts. A grazing or
+    // zero-length contact can leave it unnormalisable, and one NaN here
+    // spreads through every effect position, sound and decal the hit
+    // spawns. Facing back down the ray is the honest fallback.
+    const float n2 = out.normal[0] * out.normal[0] + out.normal[1] * out.normal[1] +
+                     out.normal[2] * out.normal[2];
+    if (!(n2 > 1e-8f)) {              // false for NaN as well as for zero
+        for (int c = 0; c < 3; ++c) out.normal[c] = -span[c] / length;
+    }
+
+    // Which script body, if any. Anything that is not one is the world, and
+    // -1 is what makes ENTITY.IsFixedMesh answer true.
+    for (size_t i = 0; i < impl_->scriptBodies.size(); ++i) {
+        if (impl_->scriptBodies[i].body == collector.mHit.mBodyID) {
+            out.bodySlot = int(i);
+            break;
+        }
+    }
+    return true;
 }
 
 bool PhysicsWorld::SphereOverlaps(const float pos[3], float radius) const {

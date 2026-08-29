@@ -63,6 +63,9 @@ public:
         // anyway, so an AABB would be the wrong shape for it regardless.
         bool isRegion = false;
         bool playerInside = false;
+        float velocity[3] = {0, 0, 0};   // ENTITY.SetVelocity, for bodyless entities
+        // ENTITY.SetTimeToDie countdown in seconds; negative means no timer.
+        float timeToDie = -1.f;
         float regionMin[3] = {0, 0, 0};
         float regionMax[3] = {0, 0, 0};
         // The Actions bitmask ENTITY.PO_SetAction stores on the physics
@@ -72,6 +75,11 @@ public:
         // that fire was held this tick.
         uint32_t action = 0;
         bool jumpedLastAction = false;
+        // ENTITY.Add/RemoveFromIntersectionSolver: whether line traces can
+        // see this entity. The scripts bracket a trace with a Remove/Add pair
+        // so a shot does not hit whatever fired it - that is what the
+        // "intersection solver" is, a trace visibility set.
+        bool inSolver = true;
     };
 
     // What the scripts told WORLD.* to set up; the game loop turns this into
@@ -148,6 +156,10 @@ public:
     // Call once per frame after the ticks.
     void TickTriggers();
 
+    // Counts down ENTITY.SetTimeToDie and reaps whatever has run out. Call
+    // once per frame; transient debris and spent projectiles depend on it.
+    void TickLifetimes(float dt);
+
     // MOUSE.Lock(true), which the engine itself does at the play transition
     // (right after seating the camera from Lev.Pos/Lev.Ang). It is not a
     // mirror of the window's capture state: Game:Tick branches on the lock,
@@ -214,6 +226,9 @@ private:
     static int L_NoOpNative(lua_State* L);
     static int L_BILLBOARD_SetupCorona(lua_State* L);
     static int L_GetVelocity(lua_State* L);
+    static int L_SetVelocity(lua_State* L);
+    static int L_SetTimeToDie(lua_State* L);
+    void ReleaseEntity(int handle);
     static int L_PO_Create(lua_State* L);
     static int L_PO_Exist(lua_State* L);
     static int L_PO_GetMaxSphereRay(lua_State* L);
@@ -230,6 +245,18 @@ private:
     static int L_IsDrawEnabled(lua_State* L);
     static int L_PLAYER_GetDistanceFromPoint(lua_State* L);
     static int L_REGION_BuildFromPoint(lua_State* L);
+    static int TraceCommon(lua_State* L, bool staticOnly);
+    bool TraceRay(const float from[3], const float to[3], PhysicsWorld::RayHit& hit,
+                  bool staticOnly) const;
+    int EntityForBody(int bodySlot) const;
+    static int L_WORLD_LineTrace(lua_State* L);
+    static int L_WORLD_LineTraceFixedGeom(lua_State* L);
+    static int L_AddToIntersectionSolver(lua_State* L);
+    static int L_RemoveFromIntersectionSolver(lua_State* L);
+    static int L_IsFixedMesh(lua_State* L);
+    static int L_SetPosAndRotRelativeToCamera(lua_State* L);
+    static int L_GetType(lua_State* L);
+    static int L_PARTICLE_SetEvolve(lua_State* L);
     static int L_INP_Key(lua_State* L);
     static int L_INP_Action(lua_State* L);
     static int L_INP_UIAction(lua_State* L);
@@ -252,6 +279,8 @@ private:
     static int L_CAM_GetAngRad(lua_State* L);
     static int L_CAM_GetRawRotation(lua_State* L);
     static int L_MOUSE_GetDelta(lua_State* L);
+    static int L_MOUSE_SetSensitivity(lua_State* L);
+    static int L_CAM_SetPositionDisplacement(lua_State* L);
     static int L_INP_GetActionStatus(lua_State* L);
     static int L_PLAYER_GetCameraFix(lua_State* L);
     static int L_PO_IsEnabled(lua_State* L);
@@ -303,6 +332,7 @@ private:
     bool camPoseDirty_ = false;
     float camPos_[3] = {0, 0, 0};
     float camYaw_ = 0.f, camPitch_ = 0.f;
+    float camDisplacement_[3] = {0, 0, 0};
     float playerSpeedOverride_ = -1.f;
     float jumpStrengthOverride_ = -1.f;
     std::string dataRoot_;
@@ -310,6 +340,11 @@ private:
     MapMesh map_;
     bool mapLoaded_ = false;
     std::unordered_map<int, int> bodyToEntity_;   // body slot -> entity handle
+    // Body slots currently taken out of the intersection solver. Kept as a
+    // list rather than rebuilt per trace: a shotgun fires a dozen traces in
+    // one frame and the set is only ever a couple of entities deep.
+    std::vector<int> excludedSlots_;
+    std::vector<int> expired_;   // scratch for TickLifetimes
     std::vector<ScriptBodyPose> poseScratch_;
 };
 
