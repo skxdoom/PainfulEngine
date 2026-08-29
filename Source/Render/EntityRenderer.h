@@ -57,11 +57,12 @@ public:
     // rotWXYZ is an engine-order quaternion, converted with the engine's own
     // matrix form (see Properties.cpp ReadRotation).
     void SetScriptPose(int slot, const float pos[3], const float rotWXYZ[4]);
-    // What this instance is playing, from the script side's animation clock.
-    // Passing nullptr returns it to its bind pose. The animation is only
-    // re-resolved against the skeleton when the pointer itself changes, so
-    // calling this every frame with the same animation is cheap.
-    void SetScriptAnim(int slot, const Animation* anim, float time);
+    // This instance's pose for the frame: one skinning matrix per bone, in the
+    // model's own bone order. The script side owns the skeleton and computes
+    // this (see SkeletonCache), because the joint natives have to answer from
+    // the same pose with no window open. Passing null or an empty count
+    // returns the instance to its bind pose.
+    void SetScriptSkinning(int slot, const Mat4* skin, size_t count);
     void SetScriptVisible(int slot, bool visible);
     void ReleaseScript(int slot);
     // World-space size of the instance's model (bind-pose bounds times its
@@ -115,10 +116,8 @@ private:
         // pack meshes the defaultNTU family (cull ccw, like world geometry).
         MaterialState material;
         float bboxLo[3] = {0, 0, 0}, bboxHi[3] = {0, 0, 0};   // local bounds
-        // The skeleton, kept only for a model with skin weights. inverseBind
-        // never changes, so it is computed once at load.
-        std::vector<Bone> bones;
-        std::vector<Mat4> inverseBind;
+        // Whether any part carries skin weights, so a pose pushed at this
+        // model can be used. The skeleton itself belongs to the script side.
         bool skinned = false;
     };
     struct Instance {
@@ -133,13 +132,12 @@ private:
         // Which level entity this came from, so physics can say where it has
         // moved to.
         size_t entity = 0;
-        // What this instance is playing, pushed each frame from the script
-        // side's animation clock. The track pointers are resolved only when
-        // the animation itself changes, because matching bone names to tracks
-        // is a string lookup per bone and would otherwise run every frame.
-        const Animation* anim = nullptr;
-        float animTime = 0.f;
-        std::vector<const AnimTrack*> tracks;
+        // This instance's pose, pushed from the script side each frame:
+        // inverseBind * boneWorld, one per bone. The renderer does not compute
+        // it, because the joint natives need the same pose with no window open
+        // and two copies of that arithmetic could drift apart - a muzzle flash
+        // drawn at one pose and spawned at another.
+        std::vector<Mat4> skin;
         // One posed buffer per part. A pose is per INSTANCE, so these cannot
         // be shared with the model the way the bind-pose buffers are.
         std::vector<bgfx::DynamicVertexBufferHandle> posed;
@@ -169,7 +167,6 @@ private:
     bgfx::ProgramHandle program_ = BGFX_INVALID_HANDLE;
     // Per-frame scratch for CPU skinning, kept here so posing an actor does
     // not allocate every frame.
-    std::vector<Mat4> skinScratch_;
     std::vector<float> vertScratch_;
     std::vector<MeshVertex> posedVerts_;
 

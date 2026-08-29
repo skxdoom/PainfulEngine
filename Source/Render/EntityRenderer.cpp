@@ -179,18 +179,13 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
     }
     if (gpu.parts.empty()) return false;
 
-    // The skeleton, once per model. Bone parents come out of the preorder
-    // ordering and the child counts, and the inverse bind never changes.
-    if (!model.bones.empty()) {
+    // Whether this model can be posed at all. The skeleton itself lives with
+    // the script side now (SkeletonCache): the joint natives have to answer
+    // where a bone is with no window open, and a pose computed twice is a pose
+    // that can disagree with itself.
+    if (!model.bones.empty())
         for (const Part& p : gpu.parts)
             if (p.cpu.hasSkin()) { gpu.skinned = true; break; }
-        if (gpu.skinned) {
-            gpu.bones = model.bones;
-            BuildHierarchy(gpu.bones);
-            std::vector<Mat4> bindWorld;
-            ComputeBindWorld(gpu.bones, bindWorld, gpu.inverseBind);
-        }
-    }
 
     gpu.material = LookupMaterial(shaders_, "palskinned", true, modelName);
     outIndex = models_.size();
@@ -436,16 +431,11 @@ void EntityRenderer::SetScriptPose(int slot, const float pos[3], const float rot
     UpdateBounds(instance, models_[instance.model]);
 }
 
-void EntityRenderer::SetScriptAnim(int slot, const Animation* anim, float time) {
+void EntityRenderer::SetScriptSkinning(int slot, const Mat4* skin, size_t count) {
     if (slot < 0 || size_t(slot) >= instances_.size()) return;
     Instance& inst = instances_[slot];
-    inst.animTime = time;
-    if (inst.anim == anim) return;                 // same track, only the clock moved
-    inst.anim = anim;
-    inst.tracks.clear();
-    if (!anim) return;
-    const GpuModel& model = models_[inst.model];
-    if (model.skinned) ResolveAnimTracks(model.bones, *anim, inst.tracks);
+    if (!skin || count == 0) { inst.skin.clear(); return; }
+    inst.skin.assign(skin, skin + count);
 }
 
 void EntityRenderer::SetScriptVisible(int slot, bool visible) {
@@ -462,8 +452,6 @@ void EntityRenderer::ReleaseScript(int slot) {
     for (bgfx::DynamicVertexBufferHandle h : inst.posed)
         if (bgfx::isValid(h)) bgfx::destroy(h);
     inst.posed.clear();
-    inst.anim = nullptr;
-    inst.tracks.clear();
     inst.alive = false;
 }
 
@@ -563,12 +551,10 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
         // GPU skinning is the end state (see Docs/Animation.md); this exists
         // first because SkinMesh was already checked against a known-good
         // reference, which makes it the oracle to diff a shader against.
-        const bool posing = instance.anim && model.skinned && !instance.tracks.empty();
+        const bool posing = model.skinned && !instance.skin.empty();
         if (posing) {
             ++posedInstances_;
             posedModels_.insert(model.name);
-            ComputeSkinningMatricesAtTime(model.bones, model.inverseBind, instance.tracks,
-                                          instance.animTime, skinScratch_);
             instance.posed.resize(model.parts.size(), BGFX_INVALID_HANDLE);
             for (size_t i = 0; i < model.parts.size(); ++i) {
                 const Part& part = model.parts[i];
@@ -579,7 +565,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
                 // skinned today, and this keeps it that way rather than
                 // reading off the end if one ever is.
                 if (!part.ownsVbo) continue;
-                SkinMeshVertices(part.cpu, skinScratch_, vertScratch_);
+                SkinMeshVertices(part.cpu, instance.skin, vertScratch_);
                 const uint32_t bytes =
                     uint32_t(part.cpu.vertexCount() * sizeof(MeshVertex));
                 if (!bgfx::isValid(instance.posed[i]))

@@ -171,13 +171,13 @@ Mat4 BlendPose(const Mat4& a, const Mat4& b, float u) {
 
 } // namespace
 
-void ComputeSkinningMatricesAtTime(const std::vector<Bone>& bones,
-                                   const std::vector<Mat4>& inverseBind,
-                                   const std::vector<const AnimTrack*>& tracks,
-                                   float time,
-                                   std::vector<Mat4>& outSkin) {
-    std::vector<Mat4> animWorld(bones.size());
-    outSkin.assign(bones.size(), Mat4{});
+void ComputeBoneWorldAtTime(const std::vector<Bone>& bones,
+                            const std::vector<const AnimTrack*>& tracks,
+                            float time,
+                            std::vector<Mat4>& outWorld,
+                            const JointOverride* overrides,
+                            size_t overrideCount) {
+    outWorld.assign(bones.size(), Mat4{});
     for (size_t i = 0; i < bones.size(); ++i) {
         // A bone the animation does not drive keeps its bind pose, which is
         // what leaves an unanimated arm attached instead of at the origin.
@@ -197,10 +197,49 @@ void ComputeSkinningMatricesAtTime(const std::vector<Bone>& bones,
                 local = keys[k].pose;      // past the last key, hold it
             }
         }
+        // A script's own rotation on top of the animation. `local` maps this
+        // bone's space into its parent's, so pre-multiplying applies the turn
+        // in the BONE's frame - the head turns where it sits. Post-multiplying
+        // would apply it in the parent's frame and swing the head around the
+        // neck instead.
+        for (size_t o = 0; o < overrideCount; ++o) {
+            if (overrides[o].bone != int(i)) continue;
+            const float* e = overrides[o].euler;
+            if (e[0] == 0.f && e[1] == 0.f && e[2] == 0.f) break;
+            float q[4], rot[9];
+            EngineEulerToQuat(e[0], e[1], e[2], q);
+            EngineQuatToRot9(q, rot);
+            Mat4 r;
+            for (int rr = 0; rr < 3; ++rr)
+                for (int cc = 0; cc < 3; ++cc) r.m[rr * 4 + cc] = rot[rr * 3 + cc];
+            local = Mat4::Mul(r, local);
+            break;
+        }
+
+        // Bones are stored in preorder, so a parent is always already done.
         const int par = bones[i].parent;
-        animWorld[i] = (par >= 0) ? Mat4::Mul(local, animWorld[par]) : local;
-        outSkin[i] = Mat4::Mul(inverseBind[i], animWorld[i]);
+        outWorld[i] = (par >= 0) ? Mat4::Mul(local, outWorld[par]) : local;
     }
+}
+
+void BoneWorldToSkinning(const std::vector<Mat4>& inverseBind,
+                         const std::vector<Mat4>& boneWorld,
+                         std::vector<Mat4>& outSkin) {
+    const size_t n = boneWorld.size() < inverseBind.size() ? boneWorld.size()
+                                                           : inverseBind.size();
+    outSkin.assign(boneWorld.size(), Mat4{});
+    for (size_t i = 0; i < n; ++i)
+        outSkin[i] = Mat4::Mul(inverseBind[i], boneWorld[i]);
+}
+
+void ComputeSkinningMatricesAtTime(const std::vector<Bone>& bones,
+                                   const std::vector<Mat4>& inverseBind,
+                                   const std::vector<const AnimTrack*>& tracks,
+                                   float time,
+                                   std::vector<Mat4>& outSkin) {
+    std::vector<Mat4> boneWorld;
+    ComputeBoneWorldAtTime(bones, tracks, time, boneWorld);
+    BoneWorldToSkinning(inverseBind, boneWorld, outSkin);
 }
 
 void SkinMeshVertices(const ModelMesh& mesh, const std::vector<Mat4>& skin,

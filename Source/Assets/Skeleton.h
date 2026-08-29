@@ -39,12 +39,43 @@ void SkinMesh(const ModelMesh& mesh,
 void ResolveAnimTracks(const std::vector<Bone>& bones, const Animation& anim,
                        std::vector<const AnimTrack*>& outTracks);
 
-// Skinning matrices at a playback TIME rather than a key index.
+// An extra rotation laid on one bone on top of whatever the animation says -
+// MDL.ApplyJointRotation, which is how a monster's head follows the player and
+// how a gun's barrel pitches. Euler angles in RADIANS (the shipped scripts
+// clamp a barrel to math.pi/3), engine order, applied in the bone's OWN space
+// so the bone turns where it is instead of swinging about its parent.
+struct JointOverride {
+    int bone = -1;
+    float euler[3] = {0, 0, 0};
+};
+
+// Where every bone IS at a playback time: bone-local to MODEL space, before
+// the bind pose is divided out. This is what a joint query wants - "where is
+// the hand" is this matrix, not a skinning matrix, which only makes sense
+// applied to a vertex that started in the bind pose.
 //
-// The key is chosen by floor - the last one at or before `time` - with no
-// interpolation between keys. The .ani carries a fixed frameTime, so the keys
-// are evenly spaced and this is what the data was authored for; if it ever
-// visibly steps, interpolate here and nowhere else.
+// Keys are interpolated. A .ani holds a whole parent-relative matrix per key
+// at 25-30 keys a second, which visibly steps if the nearest one is held, so
+// the rotation is recovered and blended through a quaternion; see BlendPose.
+//
+// Bones the animation does not drive keep their bind pose, which is what
+// leaves an unanimated arm attached to the shoulder instead of at the origin.
+void ComputeBoneWorldAtTime(const std::vector<Bone>& bones,
+                            const std::vector<const AnimTrack*>& tracks,
+                            float time,
+                            std::vector<Mat4>& outWorld,
+                            const JointOverride* overrides = nullptr,
+                            size_t overrideCount = 0);
+
+// skin[b] = inverseBind[b] * boneWorld[b]. Split from the above because the
+// renderer wants this and the joint natives want the bone world matrices, and
+// both must come from ONE pose or a muzzle flash drifts off the barrel it is
+// drawn on.
+void BoneWorldToSkinning(const std::vector<Mat4>& inverseBind,
+                         const std::vector<Mat4>& boneWorld,
+                         std::vector<Mat4>& outSkin);
+
+// The two above in one step, for a caller that only draws.
 void ComputeSkinningMatricesAtTime(const std::vector<Bone>& bones,
                                    const std::vector<Mat4>& inverseBind,
                                    const std::vector<const AnimTrack*>& tracks,

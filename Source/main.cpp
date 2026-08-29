@@ -59,6 +59,7 @@ static int Usage() {
     LogInfo("  PainfulEngine map   <file.mpk>");
     LogInfo("  PainfulEngine model <file.pkmdl>");
     LogInfo("  PainfulEngine pose  <file.pkmdl> <anim> [time]      skinning, checked numerically");
+    LogInfo("  PainfulEngine bones <file.pkmdl> [anim] [time] [joint:ax,ay,az]");
     return 1;
 }
 
@@ -1475,7 +1476,8 @@ static int ScaleCmd(const char* levelDir, const char* dataRoot) {
 }
 
 // Diagnostic: do the bone bind matrices carry a scale the raw mesh lacks?
-static int BonesCmd(const char* path) {
+static int BonesCmd(const char* path, const char* animName, const char* timeArg,
+                    const char* rotArg) {
     Model m;
     if (!Model::Load(path, m)) { LogInfo("failed"); return 2; }
     LogInfo("%s: %zu bones", path, m.bones.size());
@@ -1514,6 +1516,74 @@ static int BonesCmd(const char* path) {
             bhi[0]-blo[0], bhi[1]-blo[1], bhi[2]-blo[2]);
     LogInfo("  mesh extent     : %.2f x %.2f x %.2f",
             mhi[0]-mlo[0], mhi[1]-mlo[1], mhi[2]-mlo[2]);
+    // Named joints, posed. This is the joint natives' own arithmetic - what
+    // MDL.GetJointPos answers before the entity transform is applied - so a
+    // bone that ends up in the wrong place shows here rather than only as a
+    // muzzle flash in the wrong spot.
+    if (animName) {
+        std::string dir = path, base = path;
+        const size_t slash = base.find_last_of("/\\");
+        if (slash != std::string::npos) { dir = base.substr(0, slash); base = base.substr(slash + 1); }
+        else dir = ".";
+        const size_t dot = base.find_last_of('.');
+        if (dot != std::string::npos) base = base.substr(0, dot);
+
+        AnimationCache cache;
+        cache.SetRoot(dir);
+        const Animation* anim = cache.Get(base, animName);
+        if (!anim) {
+            LogInfo("  no animation %s.%s.ani in %s", base.c_str(), animName, dir.c_str());
+            return 0;
+        }
+        std::vector<Bone> bones = m.bones;
+        BuildHierarchy(bones);
+        std::vector<Mat4> bw, ib;
+        ComputeBindWorld(bones, bw, ib);
+        std::vector<const AnimTrack*> tracks;
+        ResolveAnimTracks(bones, *anim, tracks);
+        const float t = timeArg ? float(std::atof(timeArg)) : anim->duration() * 0.5f;
+        std::vector<Mat4> posed;
+        ComputeBoneWorldAtTime(bones, tracks, t, posed);
+
+        // "<joint>:<ax>,<ay>,<az>" applies MDL.ApplyJointRotation's own
+        // override and reports which bones moved. A rotation at one joint must
+        // move that bone's descendants and NOTHING else - the check that it
+        // turns where it sits rather than swinging about its parent.
+        if (rotArg) {
+            JointOverride ov;
+            if (std::sscanf(rotArg, "%d:%f,%f,%f", &ov.bone, &ov.euler[0], &ov.euler[1],
+                            &ov.euler[2]) == 4) {
+                std::vector<Mat4> turned;
+                ComputeBoneWorldAtTime(bones, tracks, t, turned, &ov, 1);
+                LogInfo("  joint %d turned by (%.3f %.3f %.3f) rad:", ov.bone,
+                        ov.euler[0], ov.euler[1], ov.euler[2]);
+                for (size_t i = 0; i < bones.size(); ++i) {
+                    float d = 0.f;
+                    for (int c = 0; c < 3; ++c)
+                        d = std::max(d, std::fabs(turned[i].m[12 + c] - posed[i].m[12 + c]));
+                    if (d > 1e-4f)
+                        LogInfo("    [%2zu] %-20s parent=%-3d moved %.3f",
+                                i, bones[i].name.c_str(), bones[i].parent, d);
+                }
+                return 0;
+            }
+            LogInfo("  could not read \"%s\" as <joint>:<ax>,<ay>,<az>", rotArg);
+        }
+
+        LogInfo("  joints at t=%.3f of %.3f, model space (bind -> posed):", t, anim->duration());
+        // The root chain is what a reader needs: it must rise monotonically in
+        // both columns, because a spine is a spine in any pose. A 111-bone
+        // weapon would bury that under its own hardware.
+        const size_t kShown = 12;
+        for (size_t i = 0; i < bones.size() && i < kShown; ++i)
+            LogInfo("    [%2zu] %-20s (%7.2f %7.2f %7.2f) -> (%7.2f %7.2f %7.2f)",
+                    i, bones[i].name.c_str(),
+                    bw[i].m[12], bw[i].m[13], bw[i].m[14],
+                    posed[i].m[12], posed[i].m[13], posed[i].m[14]);
+        if (bones.size() > kShown)
+            LogInfo("    ... and %zu more not shown", bones.size() - kShown);
+    }
+
     if (bhi[1] - blo[1] > 1e-6) {
         LogInfo("  mesh / skeleton height ratio: %.3f", (mhi[1]-mlo[1]) / (bhi[1]-blo[1]));
     }
@@ -2235,7 +2305,9 @@ int main(int argc, char** argv) {
     if (cmd == "resolve" && argc >= 4) return ResolveCmd(argv[2], argv[3]);
     if (cmd == "texdump" && argc >= 4) return TexDumpCmd(argv[2], argv[3], argc >= 5 ? argv[4] : "");
     if (cmd == "skytex" && argc >= 4) return SkyTexCmd(argv[2], argv[3]);
-    if (cmd == "bones") return BonesCmd(argv[2]);
+    if (cmd == "bones")
+        return BonesCmd(argv[2], argc >= 4 ? argv[3] : nullptr,
+                        argc >= 5 ? argv[4] : nullptr, argc >= 6 ? argv[5] : nullptr);
     if (cmd == "scale" && argc >= 4) return ScaleCmd(argv[2], argv[3]);
     if (cmd == "zones" && argc >= 4) {
         float zp[3];

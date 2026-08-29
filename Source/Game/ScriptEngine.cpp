@@ -1,6 +1,8 @@
 #include "ScriptEngine.h"
 
 #include "../Assets/Emitter.h"
+#include "../Assets/Properties.h"
+#include "../Assets/Skeleton.h"
 #include "../Core/Common.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
@@ -24,6 +26,28 @@ extern "C" {
 namespace painful {
 
 namespace {
+
+// Bone names come from the model file, the names to match come from a
+// template's aiParams, and the two do not agree on case.
+bool EqualsCI(const std::string& a, const char* b) {
+    size_t i = 0;
+    for (; i < a.size() && b[i]; ++i)
+        if (std::tolower(static_cast<unsigned char>(a[i])) !=
+            std::tolower(static_cast<unsigned char>(b[i])))
+            return false;
+    return i == a.size() && !b[i];
+}
+
+// A posed bone can carry scale; EngineRot9ToQuat needs a pure rotation, and
+// would otherwise fold the scale into the quaternion as a bogus twist.
+void Normalize3x3Rows(float m[9]) {
+    for (int r = 0; r < 3; ++r) {
+        float* row = &m[r * 3];
+        const float len = std::sqrt(row[0]*row[0] + row[1]*row[1] + row[2]*row[2]);
+        if (len > 1e-8f) { row[0] /= len; row[1] /= len; row[2] /= len; }
+        else             { row[0] = row[1] = row[2] = 0.f; row[r] = 1.f; }
+    }
+}
 
 bool StartsWithCI(const std::string& s, const std::string& prefix) {
     if (s.size() < prefix.size()) return false;
@@ -63,12 +87,14 @@ void ScriptEngine::AttachRenderer(EntityRenderer* entities, TextureCache* textur
     textures_ = textures;
     dataRoot_ = dataRoot;
     animations_.SetRoot(dataRoot + "/Models");
+    skeletons_.SetRoot(dataRoot + "/Models");
 }
 
 void ScriptEngine::AttachPhysics(PhysicsWorld* physics, const std::string& dataRoot) {
     physics_ = physics;
     dataRoot_ = dataRoot;
     animations_.SetRoot(dataRoot + "/Models");
+    skeletons_.SetRoot(dataRoot + "/Models");
 }
 
 void ScriptEngine::AttachParticles(ParticleRenderer* particles, EmitterLibrary* library) {
@@ -1455,38 +1481,206 @@ int ScriptEngine::L_MDL_GetAnimMovement(lua_State* L) {
     return 3;
 }
 
-// MDL.TransformPointByJoint(e, joint, x,y,z, ...) -> a point carried by a
-// bone, plus that bone's rotation: x,y,z,rw,rx,ry,rz. It is how a muzzle
-// flash sits at the barrel and how anything else rides a skeleton.
+const std::vector<Mat4>* ScriptEngine::PosedBones(Entity& e) {
+    if (e.type != kModel || e.source.empty()) return nullptr;
+    const SkeletonCache::Entry* skel = skeletons_.Get(e.source);
+    if (!skel || skel->bones.empty()) return nullptr;
+
+    const Animation* anim = (e.animIndex >= 0 && size_t(e.animIndex) < e.animSlots.size())
+                                ? e.animSlots[size_t(e.animIndex)].anim
+                                : nullptr;
+
+    // Matching bone names to tracks is a string lookup per bone, so it happens
+    // only when the animation itself changes - not on every query, and not on
+    // every frame.
+    if (e.pose.anim != anim || e.pose.tracks.size() != skel->bones.size()) {
+        e.pose.anim = anim;
+        if (anim) ResolveAnimTracks(skel->bones, *anim, e.pose.tracks);
+        else      e.pose.tracks.assign(skel->bones.size(), nullptr);
+        e.pose.time = -1.f;                      // force a rebuild below
+    }
+
+    if (e.pose.time != e.animTime || e.pose.rotVersion != e.jointRotVersion ||
+        e.pose.boneWorld.size() != skel->bones.size()) {
+        ComputeBoneWorldAtTime(skel->bones, e.pose.tracks, e.animTime, e.pose.boneWorld,
+                               e.jointRot.data(), e.jointRot.size());
+        e.pose.time = e.animTime;
+        e.pose.rotVersion = e.jointRotVersion;
+    }
+    return &e.pose.boneWorld;
+}
+
+bool ScriptEngine::JointToWorld(Entity& e, int joint, const float local[3],
+                                float out[3]) {
+    const std::vector<Mat4>* bones = PosedBones(e);
+    if (!bones || joint < 0 || size_t(joint) >= bones->size()) return false;
+
+    // Bone-local -> model space by the posed bone, then model -> world by the
+    // entity's own transform, built exactly as the renderer builds it
+    // (Properties.cpp ReadRotation's matrix form, scaled by the entity scale
+    // the scripts' *0.1 rule already produced). If these two ever disagree, a
+    // muzzle flash drifts off the barrel it is drawn on.
+    float model[3];
+    (*bones)[size_t(joint)].TransformPoint(local[0], local[1], local[2], model);
+
+    float rot[9];
+    EngineQuatToRot9(e.rotWXYZ, rot);
+    for (int c = 0; c < 3; ++c)
+        out[c] = e.pos[c] + e.scale * (model[0] * rot[0 * 3 + c] +
+                                       model[1] * rot[1 * 3 + c] +
+                                       model[2] * rot[2 * 3 + c]);
+    return true;
+}
+
+// MDL.GetJointIndex(e, name) -> the bone's index, or -1.
 //
-// The joint stage has not been built (Docs/Animation.md), so this answers
-// with the ENTITY's own position and an identity rotation. That is a
-// placeholder, and a deliberately visible one - effects land on the object
-// rather than at its barrel, instead of at the world origin.
+// The scripts hold onto what this returns (aiParams.weaponBindPos names the
+// bone a weapon rides) and pass it back to every other joint call, so the
+// index has to be the bone's own position in the model's bone list.
+int ScriptEngine::L_MDL_GetJointIndex(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    const char* name = lua_tostring(L, 2);
+    lua_pushnumber(L, -1);
+    if (!e || !name || e->type != kModel) return 1;
+
+    const SkeletonCache::Entry* skel = self->skeletons_.Get(e->source);
+    if (!skel) return 1;
+    for (size_t i = 0; i < skel->bones.size(); ++i)
+        if (EqualsCI(skel->bones[i].name, name)) {
+            lua_pop(L, 1);
+            lua_pushnumber(L, double(i));
+            return 1;
+        }
+    return 1;   // -1: a model without that bone is an answer the scripts test
+}
+
+// MDL.GetJointName(e, joint) -> the bone's name, or nothing.
+int ScriptEngine::L_MDL_GetJointName(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    const int joint = int(lua_tonumber(L, 2));
+    const SkeletonCache::Entry* skel =
+        (e && e->type == kModel) ? self->skeletons_.Get(e->source) : nullptr;
+    if (!skel || joint < 0 || size_t(joint) >= skel->bones.size()) {
+        lua_pushstring(L, "");
+        return 1;
+    }
+    lua_pushstring(L, skel->bones[size_t(joint)].name.c_str());
+    return 1;
+}
+
+// MDL.TransformPointByJoint(e, joint, x,y,z) -> a point carried by a bone,
+// plus that bone's rotation: x,y,z,rw,rx,ry,rz. It is how a muzzle flash sits
+// at the barrel and how anything else rides a skeleton.
 //
-// It has to return all seven values regardless. Returning nothing is what the
-// stub did, and once the animation clock let weapons reach this at all, the
-// nils flowed into Vector:New and threw an error that aborted Game_Tick
-// entirely - taking the whole actor update with it, every frame a weapon
-// fired.
+// The point arrives in the BONE's own space, which is why the scripts treat
+// TransformPointByJoint(e, j, 0,0,0) and GetJointPos(e, j) as the same
+// question - and they say so, in a comment at CActor's own call site.
+//
+// It has to return all seven values whatever happens. Returning nothing is
+// what the stub did, and once the animation clock let weapons reach this at
+// all, the nils flowed into Vector:New and threw an error that aborted
+// Game_Tick entirely - every frame a weapon fired.
 int ScriptEngine::L_MDL_TransformPointByJoint(lua_State* L) {
     ScriptEngine* self = From(L);
-    const Entity* e = self->Find(HandleArg(L, 1));
-    for (int c = 0; c < 3; ++c) lua_pushnumber(L, e ? e->pos[c] : 0.0);
-    lua_pushnumber(L, 1);   // identity quaternion, engine order (w,x,y,z)
-    lua_pushnumber(L, 0);
-    lua_pushnumber(L, 0);
-    lua_pushnumber(L, 0);
+    Entity* e = self->Find(HandleArg(L, 1));
+    const int joint = int(lua_tonumber(L, 2));
+    const float local[3] = {float(lua_tonumber(L, 3)), float(lua_tonumber(L, 4)),
+                            float(lua_tonumber(L, 5))};
+
+    float world[3];
+    if (!e || !self->JointToWorld(*e, joint, local, world))
+        for (int c = 0; c < 3; ++c) world[c] = e ? e->pos[c] : 0.f;
+    for (int c = 0; c < 3; ++c) lua_pushnumber(L, world[c]);
+
+    // The bone's orientation, composed with the entity's own so the result is
+    // a world rotation - which is what the callers hand to ENTITY.SetRotation.
+    float quat[4] = {1, 0, 0, 0};
+    const std::vector<Mat4>* bones = e ? self->PosedBones(*e) : nullptr;
+    if (bones && joint >= 0 && size_t(joint) < bones->size()) {
+        const Mat4& m = (*bones)[size_t(joint)];
+        float rot[9];
+        for (int r = 0; r < 3; ++r)
+            for (int c = 0; c < 3; ++c) rot[r * 3 + c] = m.m[r * 4 + c];
+        Normalize3x3Rows(rot);
+        float boneQuat[4];
+        EngineRot9ToQuat(rot, boneQuat);
+        EngineQuatMul(e->rotWXYZ, boneQuat, quat);
+    }
+    for (int c = 0; c < 4; ++c) lua_pushnumber(L, quat[c]);
     return 7;
 }
 
-// MDL.GetJointPos(e, joint) -> where a bone is. Same placeholder, same
-// reason.
+// MDL.GetJointPos(e, joint) -> where a bone is, in world space. The bone's
+// own origin, which is TransformPointByJoint with a zero point.
 int ScriptEngine::L_MDL_GetJointPos(lua_State* L) {
     ScriptEngine* self = From(L);
-    const Entity* e = self->Find(HandleArg(L, 1));
-    for (int c = 0; c < 3; ++c) lua_pushnumber(L, e ? e->pos[c] : 0.0);
+    Entity* e = self->Find(HandleArg(L, 1));
+    const int joint = int(lua_tonumber(L, 2));
+    const float origin[3] = {0, 0, 0};
+
+    float world[3];
+    if (!e || !self->JointToWorld(*e, joint, origin, world))
+        for (int c = 0; c < 3; ++c) world[c] = e ? e->pos[c] : 0.f;
+    for (int c = 0; c < 3; ++c) lua_pushnumber(L, world[c]);
     return 3;
+}
+
+// MDL.ApplyJointRotation(e, joint, ax, ay, az) - turns one bone on top of the
+// animation. Radians: the shipped gun clamps its barrel to math.pi/3 before
+// passing it here.
+//
+// This SETS the bone's rotation rather than accumulating, because every
+// shipped caller recomputes an absolute angle each tick and passes it again -
+// a turret's _barrelPitch, an actor's head angle toward the player. Made
+// additive, a turret would wind up and spin.
+int ScriptEngine::L_MDL_ApplyJointRotation(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    const int joint = int(lua_tonumber(L, 2));
+    if (!e || joint < 0) return 0;
+
+    const float euler[3] = {float(lua_tonumber(L, 3)), float(lua_tonumber(L, 4)),
+                            float(lua_tonumber(L, 5))};
+    for (JointOverride& o : e->jointRot) {
+        if (o.bone != joint) continue;
+        if (o.euler[0] == euler[0] && o.euler[1] == euler[1] && o.euler[2] == euler[2])
+            return 0;                     // unchanged: leave the cached pose alone
+        for (int c = 0; c < 3; ++c) o.euler[c] = euler[c];
+        ++e->jointRotVersion;
+        return 0;
+    }
+
+    JointOverride add;
+    add.bone = joint;
+    for (int c = 0; c < 3; ++c) add.euler[c] = euler[c];
+    e->jointRot.push_back(add);
+    ++e->jointRotVersion;
+    return 0;
+}
+
+// MDL.GetJointRotation(e, joint) -> the bone's world orientation, engine
+// quaternion order (w,x,y,z).
+int ScriptEngine::L_MDL_GetJointRotation(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    const int joint = int(lua_tonumber(L, 2));
+
+    float quat[4] = {1, 0, 0, 0};
+    const std::vector<Mat4>* bones = e ? self->PosedBones(*e) : nullptr;
+    if (bones && joint >= 0 && size_t(joint) < bones->size()) {
+        const Mat4& m = (*bones)[size_t(joint)];
+        float rot[9];
+        for (int r = 0; r < 3; ++r)
+            for (int c = 0; c < 3; ++c) rot[r * 3 + c] = m.m[r * 4 + c];
+        Normalize3x3Rows(rot);
+        float boneQuat[4];
+        EngineRot9ToQuat(rot, boneQuat);
+        EngineQuatMul(e->rotWXYZ, boneQuat, quat);
+    }
+    for (int c = 0; c < 4; ++c) lua_pushnumber(L, quat[c]);
+    return 4;
 }
 
 void ScriptEngine::TickAnimations(float dt) {
@@ -1509,9 +1703,23 @@ void ScriptEngine::TickAnimations(float dt) {
 
         // Hand the pose to the renderer. Headless runs have none attached,
         // which is why the clock is useful on its own.
-        if (renderer_ && e.rendererInstance >= 0)
-            renderer_->SetScriptAnim(e.rendererInstance,
-                                     e.animSlots[size_t(e.animIndex)].anim, e.animTime);
+        //
+        // The bones are posed HERE rather than in the renderer so that a joint
+        // query and the drawn mesh cannot disagree. It costs one pass over the
+        // skeleton per animated entity - about forty of them in a level, sixty
+        // bones each - while the expensive half, deforming the vertices, stays
+        // behind the renderer's frustum test where an actor across the map
+        // still costs nothing.
+        if (renderer_ && e.rendererInstance >= 0) {
+            const std::vector<Mat4>* boneWorld = PosedBones(e);
+            const SkeletonCache::Entry* skel =
+                boneWorld ? skeletons_.Get(e.source) : nullptr;
+            if (skel) {
+                BoneWorldToSkinning(skel->inverseBind, *boneWorld, skinScratch_);
+                renderer_->SetScriptSkinning(e.rendererInstance, skinScratch_.data(),
+                                             skinScratch_.size());
+            }
+        }
     }
 }
 
@@ -1753,6 +1961,10 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"MDL", "GetAnimMovement", L_MDL_GetAnimMovement},
         {"MDL", "TransformPointByJoint", L_MDL_TransformPointByJoint},
         {"MDL", "GetJointPos", L_MDL_GetJointPos},
+        {"MDL", "GetJointIndex", L_MDL_GetJointIndex},
+        {"MDL", "GetJointName", L_MDL_GetJointName},
+        {"MDL", "GetJointRotation", L_MDL_GetJointRotation},
+        {"MDL", "ApplyJointRotation", L_MDL_ApplyJointRotation},
         {"PARTICLE", "SetFixedTransform", L_NoOpNative},
         {"BILLBOARD", "SetupCorona", L_BILLBOARD_SetupCorona},
         {"ENTITY", "GetVelocity", L_GetVelocity},

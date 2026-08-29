@@ -189,6 +189,67 @@ plausible:
 This command is also why CPU skinning came first: it is the reference a GPU
 skinning shader gets diffed against, one bone at a time.
 
+## Stage 3 landed: the skeleton answers questions
+
+Four natives were returning the entity's own position for every joint, and one
+was returning -1 for every lookup. Those are the dangerous kind of stub: they
+return a plausible value, so nothing errors and a muzzle flash simply appears
+at a monster's feet.
+
+`SkeletonCache` now loads bones, bind-pose world matrices and their inverses
+per model, and the pose moved **out of the renderer onto the entity**. That
+was the one structural decision this stage forced, and it went the way it did
+for two reasons: the joint natives have to answer with no window open, which
+is how everything here gets verified; and a pose computed in two places is a
+pose that can disagree with itself, which shows up as a flash drawn at one
+pose and spawned at another. The renderer is now handed `SetScriptSkinning`
+and does no posing of its own.
+
+The cost of posing every animated entity rather than only the visible ones is
+one pass over a skeleton - about forty actors at sixty bones in a level. The
+expensive half, deforming vertices, stays behind the frustum test, so an actor
+across the map still costs nothing. Measured: unchanged at 120 fps.
+
+### What the bone names settled
+
+The rig is Polish, and reading it answers questions that would otherwise be
+guesses. `evilmonkv2`'s spine runs `root -> k_ogo -> k_zebra -> k_ramiona ->
+k_szyja -> k_glowa` (tail, ribs, shoulders, neck, head), and the templates'
+`weaponBindPos = "k_ogo"` carries the comment *skad wylatuja pociski* - "where
+the projectiles fly out from". So a weapon bind joint is the muzzle, and
+`ApplyJointRotation` arriving with joint 5 is the scripts turning a **neck**,
+which is what a head-look should do.
+
+Bones extend along their own local **X**, so X is the twist axis. That matters
+for testing: rotating a joint about X barely moves its children, and a first
+test that used X looked like a failure when it was measuring the wrong thing.
+
+### Verifying it without a window
+
+`painful bones <model> [anim] [time] [joint:ax,ay,az]` reports every bone's
+bind and posed model-space origin, and with the fourth argument, which bones a
+joint rotation moves:
+
+- **The chain must be monotonic.** Posed, `evilmonkv2`'s spine climbs
+  13.48 -> 14.77 -> 14.82 -> 15.79 -> 16.37 -> 18.05 -> 20.18 in Z: neck above
+  shoulders above ribs above root, which is true of a spine in any pose. A
+  wrong parent multiply order scatters it.
+- **A rotation moves a bone's descendants and nothing else.** Bending joint 5
+  moves 6 and 7 and leaves 5 itself where it was. That is the check that the
+  turn is applied in the bone's OWN frame: post-multiplying instead would
+  apply it in the parent's frame and move bone 5 too, swinging the head off
+  the neck.
+
+### Left open, deliberately
+
+`ApplyJointRotation` SETS a bone's rotation rather than accumulating. Every
+shipped caller recomputes an absolute angle each tick and passes it again - a
+turret's `_barrelPitch`, an actor's head angle - so set-and-hold is
+behaviourally identical to the original for all shipped content, and made
+additive a turret would wind up and spin. What is **not** established is
+whether the engine clears these overrides itself on some event; if a bone is
+ever seen holding a rotation it should have dropped, that is the reason.
+
 ## Order
 
 1. ~~**The clock.**~~ **Done.** `SetAnim` returning a real per-entity index, `GetAnimTime`,
@@ -197,8 +258,9 @@ skinning shader gets diffed against, one bone at a time.
 2. ~~**Skinned rendering.**~~ **Done.** Time-based sampling with interpolation,
    retained CPU mesh for skinned parts only, per-instance dynamic buffer,
    posing each frame for visible animated instances.
-3. **Joints.** `GetJointIndex`, `GetJointPos`, `TransformPointByJoint` off the
-   posed skeleton from (2) — this is what puts a weapon in a hand.
+3. ~~**Joints.**~~ **Done.** `GetJointIndex`, `GetJointName`, `GetJointPos`,
+   `GetJointRotation`, `TransformPointByJoint` and `ApplyJointRotation`, off a
+   pose that now lives on the script side.
 4. **Ragdoll.** Its own system, on Jolt, and its own scope document.
 
 ## Unknowns to settle rather than guess

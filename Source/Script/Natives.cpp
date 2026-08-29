@@ -547,16 +547,6 @@ int L_MaterialSize(lua_State* L) {
     return 2;
 }
 
-// MDL.GetJointIndex(e, name) -> the joint's index, -1 when the skeleton has
-// no such joint. Same value as SetAnim's "no such track" for now, but a
-// different question with a different answer once skinning lands - and
-// leaving it as the missing-joint convention matters: the scripts branch on
-// it, and an error here silently aborted GObjects:Apply mid-level.
-int L_MDL_GetJointIndex(lua_State* L) {
-    lua_pushnumber(L, -1);
-    return 1;
-}
-
 // FS.FindFiles(pattern, wantFiles, wantDirs) -> array of bare child names.
 // Non-recursive - PreloadTemplates does its own recursion - and the mask
 // follows FindFirstFile semantics, where "*.*" matches names without a dot.
@@ -701,7 +691,6 @@ const ModuleImpl kModuleImpls[] = {
     {"PMENU", "GetLoadingScreenOverall", L_Zero},
     // Same "missing" convention as SetAnim: joints resolve once skeletal
     // animation lands, and the scripts handle -1 as "no such joint".
-    {"MDL", "GetJointIndex", L_MDL_GetJointIndex},
     // 0 = "not animating", which skips the animation-event loop cleanly.
     // Material dimensions for HUD layout; real when the HUD renderer lands.
     {"MATERIAL", "Size", L_MaterialSize},

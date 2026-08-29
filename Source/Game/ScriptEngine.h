@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "../Assets/AnimationCache.h"
+#include "../Assets/SkeletonCache.h"
 #include "../Assets/Mpk.h"
 #include "../Script/LuaHost.h"
 #include "../World/Level.h"
@@ -89,6 +90,29 @@ public:
         float animTime = 0.f;    // seconds into it
         float animScale = 1.f;   // MDL.Get/SetAnimTimeScale; 0 pauses
         bool animLoop = false;
+
+        // Where this entity's bones are, in MODEL space, for the animation
+        // and time above. Built on demand and only when something asks: most
+        // entities are never queried for a joint, and an actor is queried
+        // several times in one tick, so it is cached against what produced it
+        // rather than recomputed per call or pushed every frame.
+        struct Pose {
+            const Animation* anim = nullptr;   // what `tracks` was resolved against
+            float time = -1.f;                 // what `boneWorld` was built at
+            int rotVersion = -1;               // jointRotVersion it was built at
+            std::vector<const AnimTrack*> tracks;
+            std::vector<Mat4> boneWorld;
+        };
+        Pose pose;
+
+        // MDL.ApplyJointRotation, one entry per bone the scripts steer. They
+        // pass an absolute angle every frame (a gun recomputes its barrel
+        // pitch from scratch each tick), so a call SETS the bone's rotation
+        // rather than adding to it. The version bumps on any change, which is
+        // what tells the cached pose above to rebuild even though the
+        // animation and its time have not moved.
+        std::vector<JointOverride> jointRot;
+        int jointRotVersion = 0;
         float regionMin[3] = {0, 0, 0};
         float regionMax[3] = {0, 0, 0};
         // The Actions bitmask ENTITY.PO_SetAction stores on the physics
@@ -234,6 +258,17 @@ private:
     Entity* Find(int handle);
     void SyncPose(Entity& e);
     void CreateRendererInstance(Entity& e);
+
+    // The entity's bones in model space at its current animation time,
+    // rebuilding only when the animation or the time has moved. Null when the
+    // entity has no model, the model has no skeleton, or nothing is playing -
+    // all ordinary answers, and every caller has to handle them because the
+    // scripts ask boneless props for joints all the time.
+    const std::vector<Mat4>* PosedBones(Entity& e);
+
+    // Bone-local point to WORLD, through the entity's own transform. Used by
+    // every joint query, so they cannot disagree about the entity's placement.
+    bool JointToWorld(Entity& e, int joint, const float local[3], float out[3]);
     void UpdateAttachments(Entity& e);
     bool SplitPackSource(const std::string& source, std::string& packName) const;
 
@@ -297,6 +332,10 @@ private:
     static int L_MDL_GetAnimMovement(lua_State* L);
     static int L_MDL_TransformPointByJoint(lua_State* L);
     static int L_MDL_GetJointPos(lua_State* L);
+    static int L_MDL_GetJointIndex(lua_State* L);
+    static int L_MDL_GetJointName(lua_State* L);
+    static int L_MDL_GetJointRotation(lua_State* L);
+    static int L_MDL_ApplyJointRotation(lua_State* L);
     static const Entity::AnimSlot* AnimSlotArg(const Entity* e, lua_State* L, int arg);
     static int L_INP_Key(lua_State* L);
     static int L_INP_Action(lua_State* L);
@@ -387,6 +426,10 @@ private:
     std::vector<int> excludedSlots_;
     std::vector<int> expired_;   // scratch for TickLifetimes
     AnimationCache animations_;
+    SkeletonCache skeletons_;
+    // Scratch for the per-frame pose push; kept so that posing forty actors
+    // does not allocate forty times a frame.
+    std::vector<Mat4> skinScratch_;
     std::vector<ScriptBodyPose> poseScratch_;
 };
 
