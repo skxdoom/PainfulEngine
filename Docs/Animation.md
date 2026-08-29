@@ -148,13 +148,55 @@ registry at startup, before any script runs. (Lua 5.0's `debug.traceback` also
 takes the message ALONE; the level argument only arrived in 5.1, and passing
 one appends it to the text.)
 
+## Stage 2 landed: the pose reaches the screen
+
+`ScriptEngine::TickAnimations` pushes what the clock is playing at the
+renderer, which resolves the animation's tracks against the skeleton once,
+poses every **visible** animated instance each frame, and draws it from a
+per-instance dynamic vertex buffer. Measured on Cathedral: 4 instances CPU
+skinned per frame (`EvilMonkV2` and the player's `KK2`) out of 81 entity
+draws, at 120 fps — unchanged from before the work, because culling runs
+first and an actor across the level costs nothing.
+
+### The keys are matrices, so the pose had to be interpolated
+
+`.ani` stores a whole parent-relative matrix per key, not a
+translation/rotation/scale triple, at **25–30 keys a second**. Holding the
+floor key visibly steps at any real frame rate, so `BlendPose` recovers the
+rotation before blending: the rows of the 3x3 are basis vectors, their lengths
+carry per-axis scale and lerp on their own, and what is left is a pure
+rotation that goes through the quaternion. Blending the matrices entry by
+entry instead would shrink a bone as it turns and shear it through a large
+rotation.
+
+### Verifying it without a window
+
+`painful pose <model> <anim> [time]` reports bind-pose bounds against posed
+bounds, and this is the check that the maths is right rather than merely
+plausible:
+
+- **The unanimated identity.** With no track bound to any bone, every skinning
+  matrix is `inverseBind * bindWorld`, which must come out exactly identity.
+  It does, to 1e-6 across every model tried. A reversed multiply order shows
+  up **only** here — the animated numbers would still look reasonable.
+- **Continuity across a key.** Sampling either side of a key boundary must
+  agree (`evilmonkv2 walk` at 0.49999 and 0.5 give identical bounds). This is
+  what catches a transposed quaternion round-trip.
+- **The shape changes the right way.** `evilmonkv2` goes from a flat authored
+  T-pose of 28.72 x 22.91 x 5.87 to a standing 11.81 x 19.52 x 23.23; a weapon
+  keeps its size and moves by a fraction, which is what a recoil should do.
+
+This command is also why CPU skinning came first: it is the reference a GPU
+skinning shader gets diffed against, one bone at a time.
+
 ## Order
 
 1. ~~**The clock.**~~ **Done.** `SetAnim` returning a real per-entity index, `GetAnimTime`,
    `GetAnimLength`, `Get/SetAnimTimeScale`, `SetAnimTime`, `ResetFrame`,
    `LoadAnim`. An animation cache keyed by (model, anim). No rendering.
-2. **Skinned rendering.** Time-based sampling, retained CPU mesh, per-instance
-   dynamic buffer, `SkinMesh` each frame for visible animated instances.
+2. ~~**Skinned rendering.**~~ **Done.** Time-based sampling with interpolation,
+   retained CPU mesh for skinned parts only, per-instance dynamic buffer,
+   posing each frame for visible animated instances.
 3. **Joints.** `GetJointIndex`, `GetJointPos`, `TransformPointByJoint` off the
    posed skeleton from (2) — this is what puts a weapon in a hand.
 4. **Ragdoll.** Its own system, on Jolt, and its own scope document.

@@ -1335,7 +1335,7 @@ int ScriptEngine::L_MDL_SetAnim(lua_State* L) {
         }
     }
     if (index < 0) {
-        e->animSlots.push_back({name, anim->duration()});
+        e->animSlots.push_back({name, anim->duration(), anim});
         index = int(e->animSlots.size()) - 1;
     }
 
@@ -1428,7 +1428,8 @@ int ScriptEngine::L_MDL_LoadAnim(lua_State* L) {
             lua_pushnumber(L, double(i));
             return 1;
         }
-    e->animSlots.push_back({name, self->animations_.Get(e->source, name)->duration()});
+    const Animation* loaded = self->animations_.Get(e->source, name);
+    e->animSlots.push_back({name, loaded->duration(), loaded});
     lua_pushnumber(L, double(e->animSlots.size() - 1));
     return 1;
 }
@@ -1505,6 +1506,12 @@ void ScriptEngine::TickAnimations(float dt) {
             // the whole list again on every pass.
             e.animTime = length;
         }
+
+        // Hand the pose to the renderer. Headless runs have none attached,
+        // which is why the clock is useful on its own.
+        if (renderer_ && e.rendererInstance >= 0)
+            renderer_->SetScriptAnim(e.rendererInstance,
+                                     e.animSlots[size_t(e.animIndex)].anim, e.animTime);
     }
 }
 

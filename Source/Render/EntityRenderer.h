@@ -1,6 +1,8 @@
 #pragma once
 #include "../Assets/Dat.h"
 #include "../Assets/Pkmdl.h"
+#include "../Assets/Skeleton.h"
+#include "MeshVertex.h"
 #include "../Assets/ShaderScript.h"
 #include "MaterialState.h"
 #include "../World/Level.h"
@@ -9,6 +11,7 @@
 #include "TextureCache.h"
 #include <bgfx/bgfx.h>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -54,6 +57,11 @@ public:
     // rotWXYZ is an engine-order quaternion, converted with the engine's own
     // matrix form (see Properties.cpp ReadRotation).
     void SetScriptPose(int slot, const float pos[3], const float rotWXYZ[4]);
+    // What this instance is playing, from the script side's animation clock.
+    // Passing nullptr returns it to its bind pose. The animation is only
+    // re-resolved against the skeleton when the pointer itself changes, so
+    // calling this every frame with the same animation is cheap.
+    void SetScriptAnim(int slot, const Animation* anim, float time);
     void SetScriptVisible(int slot, bool visible);
     void ReleaseScript(int slot);
     // World-space size of the instance's model (bind-pose bounds times its
@@ -66,6 +74,11 @@ public:
     size_t packed() const { return packed_; }
     size_t hidden() const { return hidden_; }
     size_t drawCalls() const { return drawCalls_; }
+    // Instances that were CPU-skinned this frame (visible, animated, skinned).
+    size_t posedInstances() const { return posedInstances_; }
+    // Which models those were - the check that actors animate, not just the
+    // weapon in the player's hands.
+    const std::set<std::string>& posedModels() const { return posedModels_; }
 
     // Diagnostic override: 0 = CCW, 1 = CW, 2 = none.
     void SetCullMode(int mode) { cullMode_ = mode; }
@@ -77,6 +90,10 @@ public:
 
 private:
     struct Part {                          // one mesh (or material run) of a model
+        // The CPU-side mesh, retained ONLY for a skinned model: posing it each
+        // frame needs the bind-pose vertices and the bone weights back.
+        // Everything else drops its copy once the data is on the GPU.
+        ModelMesh cpu;
         bgfx::VertexBufferHandle vbo = BGFX_INVALID_HANDLE;
         bgfx::IndexBufferHandle ibo = BGFX_INVALID_HANDLE;
         bgfx::TextureHandle diffuse = BGFX_INVALID_HANDLE;
@@ -92,11 +109,17 @@ private:
         std::vector<Part> parts;
         // Largest bind-pose dimension, in the model file's own units.
         float extent = 1.f;
+        std::string name;                  // for diagnostics only
         // From the game's .shader scripts: models use the palskinned family
         // (cull cw - the Maya exporter's winding is authored, not guessed),
         // pack meshes the defaultNTU family (cull ccw, like world geometry).
         MaterialState material;
         float bboxLo[3] = {0, 0, 0}, bboxHi[3] = {0, 0, 0};   // local bounds
+        // The skeleton, kept only for a model with skin weights. inverseBind
+        // never changes, so it is computed once at load.
+        std::vector<Bone> bones;
+        std::vector<Mat4> inverseBind;
+        bool skinned = false;
     };
     struct Instance {
         size_t model = 0;
@@ -110,6 +133,16 @@ private:
         // Which level entity this came from, so physics can say where it has
         // moved to.
         size_t entity = 0;
+        // What this instance is playing, pushed each frame from the script
+        // side's animation clock. The track pointers are resolved only when
+        // the animation itself changes, because matching bone names to tracks
+        // is a string lookup per bone and would otherwise run every frame.
+        const Animation* anim = nullptr;
+        float animTime = 0.f;
+        std::vector<const AnimTrack*> tracks;
+        // One posed buffer per part. A pose is per INSTANCE, so these cannot
+        // be shared with the model the way the bind-pose buffers are.
+        std::vector<bgfx::DynamicVertexBufferHandle> posed;
         // Script-driven instances are created and released at runtime; slots
         // stay put so handles remain stable, and Draw skips the dead and the
         // hidden.
@@ -134,6 +167,12 @@ private:
 
     bgfx::VertexLayout layout_;
     bgfx::ProgramHandle program_ = BGFX_INVALID_HANDLE;
+    // Per-frame scratch for CPU skinning, kept here so posing an actor does
+    // not allocate every frame.
+    std::vector<Mat4> skinScratch_;
+    std::vector<float> vertScratch_;
+    std::vector<MeshVertex> posedVerts_;
+
     bgfx::UniformHandle sDiffuse_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle sLightmap_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle uParams_ = BGFX_INVALID_HANDLE;
@@ -150,7 +189,8 @@ private:
     bgfx::UniformHandle uUv1_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle uTile_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle white_ = BGFX_INVALID_HANDLE;
-    size_t unresolved_ = 0, packed_ = 0, hidden_ = 0, drawCalls_ = 0;
+    size_t unresolved_ = 0, packed_ = 0, hidden_ = 0, drawCalls_ = 0, posedInstances_ = 0;
+    std::set<std::string> posedModels_;
     // Models wind the OPPOSITE way to world meshes: .pkmdl comes from the Maya
     // exporter, .mpk from ase2mpk. Verified visually - CCW turns models inside out.
     int cullMode_ = 1;

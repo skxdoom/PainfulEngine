@@ -58,6 +58,7 @@ static int Usage() {
     LogInfo("  PainfulEngine game  <DataRoot> [level] [--shot f]  script-driven windowed run");
     LogInfo("  PainfulEngine map   <file.mpk>");
     LogInfo("  PainfulEngine model <file.pkmdl>");
+    LogInfo("  PainfulEngine pose  <file.pkmdl> <anim> [time]      skinning, checked numerically");
     return 1;
 }
 
@@ -974,8 +975,9 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
         renderer.DebugText(2, "%s   map %s   %zu script entities (%zu created, %zu released)",
                            levelName, info.mapFile.c_str(), engine.entities().size(),
                            engine.created(), engine.released());
-        renderer.DebugText(3, "%zu world draws, %zu entity draws, zones %zu/%zu",
+        renderer.DebugText(3, "%zu world draws, %zu entity draws (%zu skinned), zones %zu/%zu",
                            worldReady ? world.drawCalls() : 0, entities.drawCalls(),
+                           entities.posedInstances(),
                            worldReady ? world.zonesVisible() : 0,
                            worldReady ? world.zoneCount() : 0);
         renderer.DebugText(4, "pos %.1f %.1f %.1f   rot %.2f %.2f   %s", camera.pos[0],
@@ -1001,7 +1003,18 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
             ++frame;
             int shotFrame = 30;
             if (const char* e = getenv("PAINFUL_SHOT_FRAME")) shotFrame = std::atoi(e);
-            if (frame == shotFrame) renderer.RequestScreenshot(shotPath);
+            if (frame == shotFrame) {
+                renderer.RequestScreenshot(shotPath);
+                // The numbers behind the picture, so a shot can be judged
+                // without opening it.
+                std::string posed;
+                for (const std::string& m : entities.posedModels())
+                    posed += (posed.empty() ? "" : ", ") + m;
+                LogInfo("frame %d: %zu entity draws, %zu of them CPU-skinned, "
+                        "%zu script entities", frame, entities.drawCalls(),
+                        entities.posedInstances(), engine.entities().size());
+                LogInfo("  posing: %s", posed.empty() ? "(nothing)" : posed.c_str());
+            }
             if (frame >= shotFrame + 4) break;
         }
     }
@@ -1923,6 +1936,112 @@ static int BillboardsCmd(const char* levelDir, const char* dataRoot) {
     return 0;
 }
 
+// Poses a model by one of its animations and reports what moved. This is the
+// check that CPU skinning is right, without a window and without a screenshot:
+// a bind pose and a posed pose have very different bounds, and a model that
+// silently failed to skin reports them identical.
+//
+// It is also the oracle the GPU skinning path will be diffed against, one
+// bone at a time - which is the reason CPU skinning was built first at all.
+static int PoseCmd(const char* modelPath, const char* animName, const char* timeArg) {
+    Model model;
+    if (!Model::Load(modelPath, model) || model.meshes.empty()) {
+        LogInfo("failed to load %s", modelPath);
+        return 2;
+    }
+    if (model.bones.empty()) {
+        LogInfo("%s has no skeleton", modelPath);
+        return 2;
+    }
+
+    // <Model>.<anim>.ani beside the model, the engine's own naming.
+    std::string dir = modelPath, base = modelPath;
+    const size_t slash = base.find_last_of("/\\");
+    if (slash != std::string::npos) { dir = base.substr(0, slash); base = base.substr(slash + 1); }
+    else dir = ".";
+    const size_t dot = base.find_last_of('.');
+    if (dot != std::string::npos) base = base.substr(0, dot);
+
+    AnimationCache cache;
+    cache.SetRoot(dir);
+    const Animation* anim = cache.Get(base, animName);
+    if (!anim) {
+        LogInfo("no animation %s.%s.ani in %s", base.c_str(), animName, dir.c_str());
+        return 2;
+    }
+
+    std::vector<Bone> bones = model.bones;
+    BuildHierarchy(bones);
+    std::vector<Mat4> bindWorld, inverseBind;
+    ComputeBindWorld(bones, bindWorld, inverseBind);
+
+    std::vector<const AnimTrack*> tracks;
+    ResolveAnimTracks(bones, *anim, tracks);
+    size_t driven = 0;
+    for (const AnimTrack* t : tracks) if (t) ++driven;
+
+    const float duration = anim->duration();
+    const float time = timeArg ? float(std::atof(timeArg)) : duration * 0.5f;
+
+    std::vector<Mat4> skin;
+
+    // Self-test, and the reason the numbers below can be trusted: with no
+    // track bound to any bone, every skinning matrix is inverseBind*bindWorld,
+    // which must come out exactly identity. A reversed multiply order shows up
+    // here and nowhere else - the animated bounds would still look plausible.
+    const std::vector<const AnimTrack*> noTracks(bones.size(), nullptr);
+    ComputeSkinningMatricesAtTime(bones, inverseBind, noTracks, 0.f, skin);
+    float identityError = 0.f;
+    static const float kIdentity[16] = {1, 0, 0, 0, 0, 1, 0, 0,
+                                        0, 0, 1, 0, 0, 0, 0, 1};
+    for (const Mat4& m : skin)
+        for (int c = 0; c < 16; ++c)
+            identityError = std::max(identityError, std::fabs(m[c] - kIdentity[c]));
+
+    ComputeSkinningMatricesAtTime(bones, inverseBind, tracks, time, skin);
+
+    auto bounds = [](const std::vector<float>& v, size_t stride, float lo[3], float hi[3]) {
+        for (int c = 0; c < 3; ++c) { lo[c] = 1e30f; hi[c] = -1e30f; }
+        for (size_t i = 0; i + stride <= v.size(); i += stride)
+            for (int c = 0; c < 3; ++c) {
+                lo[c] = std::min(lo[c], v[i + c]);
+                hi[c] = std::max(hi[c], v[i + c]);
+            }
+    };
+
+    float bLo[3], bHi[3], pLo[3], pHi[3];
+    for (int c = 0; c < 3; ++c) { bLo[c] = pLo[c] = 1e30f; bHi[c] = pHi[c] = -1e30f; }
+    std::vector<float> posed;
+    size_t skinnedMeshes = 0;
+    for (const ModelMesh& mesh : model.meshes) {
+        if (mesh.vertexCount() == 0) continue;
+        float lo[3], hi[3];
+        bounds(mesh.verts, 8, lo, hi);
+        for (int c = 0; c < 3; ++c) { bLo[c] = std::min(bLo[c], lo[c]); bHi[c] = std::max(bHi[c], hi[c]); }
+        if (!mesh.hasSkin()) continue;
+        ++skinnedMeshes;
+        SkinMeshVertices(mesh, skin, posed);
+        bounds(posed, 8, lo, hi);
+        for (int c = 0; c < 3; ++c) { pLo[c] = std::min(pLo[c], lo[c]); pHi[c] = std::max(pHi[c], hi[c]); }
+    }
+
+    LogInfo("%s posed by \"%s\" at t=%.3f of %.3f", modelPath, animName, time, duration);
+    size_t maxKeys = 0;
+    for (const AnimTrack& t : anim->tracks) maxKeys = std::max(maxKeys, t.keys.size());
+    LogInfo("  %zu keys on the densest track (%.1f per second)", maxKeys,
+            duration > 0.f ? float(maxKeys) / duration : 0.f);
+    LogInfo("  %zu bones, %zu driven by this animation, %zu skinned meshes",
+            bones.size(), driven, skinnedMeshes);
+    LogInfo("  bind  %6.2f x %6.2f x %6.2f   (unanimated identity error %.6f)",
+            bHi[0]-bLo[0], bHi[1]-bLo[1], bHi[2]-bLo[2], identityError);
+    if (skinnedMeshes == 0) {
+        LogInfo("  posed: nothing is skinned - the model draws in bind pose");
+        return 0;
+    }
+    LogInfo("  posed %6.2f x %6.2f x %6.2f", pHi[0]-pLo[0], pHi[1]-pLo[1], pHi[2]-pLo[2]);
+    return 0;
+}
+
 static int ModelCmd(const char* path) {
     Model model;
     if (!Model::Load(path, model)) { LogInfo("failed to load %s", path); return 2; }
@@ -2130,6 +2249,8 @@ int main(int argc, char** argv) {
     if (cmd == "dat") return DatCmd(argv[2]);
     if (cmd == "textures" && argc >= 5) return TexturesCmd(argv[2], argv[3], argv[4]);
     if (cmd == "model") return ModelCmd(argv[2]);
+    if (cmd == "pose" && argc >= 4)
+        return PoseCmd(argv[2], argv[3], argc >= 5 ? argv[4] : nullptr);
     if (cmd == "particles" && argc >= 4) return ParticlesCmd(argv[2], argv[3]);
     if (cmd == "billboards" && argc >= 4) return BillboardsCmd(argv[2], argv[3]);
     if (cmd == "physics" && argc >= 4) return PhysicsCmd(argv[2], argv[3]);

@@ -158,6 +158,10 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
         }
 
         Part part;
+        // Keep the source mesh only when it is actually skinned: posing needs
+        // the bind-pose vertices and the weights back, and an unskinned model
+        // would be paying for a copy nothing ever reads.
+        if (mesh.hasSkin()) part.cpu = mesh;
         part.indexCount = uint32_t(mesh.indices.size());
         part.vbo = bgfx::createVertexBuffer(
             bgfx::copy(verts.data(), uint32_t(verts.size() * sizeof(MeshVertex))), layout_);
@@ -175,6 +179,19 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
     }
     if (gpu.parts.empty()) return false;
 
+    // The skeleton, once per model. Bone parents come out of the preorder
+    // ordering and the child counts, and the inverse bind never changes.
+    if (!model.bones.empty()) {
+        for (const Part& p : gpu.parts)
+            if (p.cpu.hasSkin()) { gpu.skinned = true; break; }
+        if (gpu.skinned) {
+            gpu.bones = model.bones;
+            BuildHierarchy(gpu.bones);
+            std::vector<Mat4> bindWorld;
+            ComputeBindWorld(gpu.bones, bindWorld, gpu.inverseBind);
+        }
+    }
+
     gpu.material = LookupMaterial(shaders_, "palskinned", true, modelName);
     outIndex = models_.size();
     // Bind-pose extent, used to interpret o.Scale as a real-world size.
@@ -185,6 +202,7 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
         gpu.bboxHi[a] = hi[a];
     }
     gpu.extent = extent > 1e-4f ? extent : 1.f;
+    gpu.name = modelName;
     models_.push_back(std::move(gpu));
     modelIndex_[modelName] = outIndex;
     return true;
@@ -288,6 +306,7 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
         gpu.bboxHi[a] = hi[a];
     }
     outIndex = models_.size();
+    gpu.name = key;
     models_.push_back(std::move(gpu));
     modelIndex_[key] = outIndex;
     return true;
@@ -417,6 +436,18 @@ void EntityRenderer::SetScriptPose(int slot, const float pos[3], const float rot
     UpdateBounds(instance, models_[instance.model]);
 }
 
+void EntityRenderer::SetScriptAnim(int slot, const Animation* anim, float time) {
+    if (slot < 0 || size_t(slot) >= instances_.size()) return;
+    Instance& inst = instances_[slot];
+    inst.animTime = time;
+    if (inst.anim == anim) return;                 // same track, only the clock moved
+    inst.anim = anim;
+    inst.tracks.clear();
+    if (!anim) return;
+    const GpuModel& model = models_[inst.model];
+    if (model.skinned) ResolveAnimTracks(model.bones, *anim, inst.tracks);
+}
+
 void EntityRenderer::SetScriptVisible(int slot, bool visible) {
     if (slot < 0 || size_t(slot) >= instances_.size()) return;
     instances_[slot].visible = visible;
@@ -424,7 +455,16 @@ void EntityRenderer::SetScriptVisible(int slot, bool visible) {
 
 void EntityRenderer::ReleaseScript(int slot) {
     if (slot < 0 || size_t(slot) >= instances_.size()) return;
-    instances_[slot].alive = false;
+    Instance& inst = instances_[slot];
+    // A posed buffer belongs to the instance, so it dies with it. Slots are
+    // reused, and leaving these behind would leak one buffer per projectile
+    // and per corpse for the life of the level.
+    for (bgfx::DynamicVertexBufferHandle h : inst.posed)
+        if (bgfx::isValid(h)) bgfx::destroy(h);
+    inst.posed.clear();
+    inst.anim = nullptr;
+    inst.tracks.clear();
+    inst.alive = false;
 }
 
 bool EntityRenderer::GetScriptDimensions(int slot, float out[3]) const {
@@ -487,6 +527,8 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
                           const LevelInfo& info, float timeSeconds) {
     const float* ambient = info.ambient;
     drawCalls_ = 0;
+    posedInstances_ = 0;
+    posedModels_.clear();
     if (!bgfx::isValid(program_) || instances_.empty()) return;
 
     // Same view setup as the world pass, rebuilt here for the frustum.
@@ -508,10 +550,61 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
                                 info.fogDensity};
     bgfx::setUniform(uFog_, fogParams);
 
-    for (const Instance& instance : instances_) {
+    for (Instance& instance : instances_) {
         if (!instance.alive || !instance.visible) continue;
         if (visCulling_ && !frustum.VisibleAabb(instance.aabbLo, instance.aabbHi)) continue;
         const GpuModel& model = models_[instance.model];
+
+        // Pose it, if it is playing something. This is CPU skinning: the
+        // matrices are built once per instance and each part is deformed into
+        // a buffer of its own. Only instances that survived the frustum test
+        // get here, so an actor across the level costs nothing.
+        //
+        // GPU skinning is the end state (see Docs/Animation.md); this exists
+        // first because SkinMesh was already checked against a known-good
+        // reference, which makes it the oracle to diff a shader against.
+        const bool posing = instance.anim && model.skinned && !instance.tracks.empty();
+        if (posing) {
+            ++posedInstances_;
+            posedModels_.insert(model.name);
+            ComputeSkinningMatricesAtTime(model.bones, model.inverseBind, instance.tracks,
+                                          instance.animTime, skinScratch_);
+            instance.posed.resize(model.parts.size(), BGFX_INVALID_HANDLE);
+            for (size_t i = 0; i < model.parts.size(); ++i) {
+                const Part& part = model.parts[i];
+                if (!part.cpu.hasSkin()) continue;
+                // A posed buffer holds this part's vertices alone, so its
+                // indices must start at zero. Parts of a .dat pack object share
+                // one buffer and index into the middle of it - those are never
+                // skinned today, and this keeps it that way rather than
+                // reading off the end if one ever is.
+                if (!part.ownsVbo) continue;
+                SkinMeshVertices(part.cpu, skinScratch_, vertScratch_);
+                const uint32_t bytes =
+                    uint32_t(part.cpu.vertexCount() * sizeof(MeshVertex));
+                if (!bgfx::isValid(instance.posed[i]))
+                    instance.posed[i] = bgfx::createDynamicVertexBuffer(
+                        uint32_t(part.cpu.vertexCount()), layout_);
+                // vertScratch_ is the source layout - 8 floats per vertex,
+                // which is exactly MeshVertex minus the duplicated second UV
+                // set, so it is rebuilt rather than memcpy'd.
+                posedVerts_.resize(part.cpu.vertexCount());
+                for (size_t v = 0; v < part.cpu.vertexCount(); ++v) {
+                    MeshVertex& out = posedVerts_[v];
+                    out.x  = vertScratch_[v * 8 + 0];
+                    out.y  = vertScratch_[v * 8 + 1];
+                    out.z  = vertScratch_[v * 8 + 2];
+                    out.nx = vertScratch_[v * 8 + 3];
+                    out.ny = vertScratch_[v * 8 + 4];
+                    out.nz = vertScratch_[v * 8 + 5];
+                    out.u0 = out.u1 = vertScratch_[v * 8 + 6];
+                    out.v0 = out.v1 = vertScratch_[v * 8 + 7];
+                }
+                bgfx::update(instance.posed[i], 0,
+                             bgfx::copy(posedVerts_.data(), bytes));
+            }
+        }
+        size_t partIndex = 0;
         const float detail[4] = {1.f, 1.f, 0.f, 0.f};
         // Identity UV transform: entity meshes carry no per-slot xform.
         const float identityUv[4] = {1.f, 1.f, 0.f, 0.f};
@@ -542,7 +635,14 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
             bgfx::setUniform(uUv1_, identityUv);
             bgfx::setUniform(uTile_, tile);
             bgfx::setTransform(instance.transform.m);
-            bgfx::setVertexBuffer(0, part.vbo);
+            // The posed buffer when there is one, the shared bind-pose buffer
+            // otherwise. Indices never change: skinning moves vertices, it
+            // does not retopologise.
+            const bool usePosed = posing && partIndex < instance.posed.size() &&
+                                  bgfx::isValid(instance.posed[partIndex]);
+            if (usePosed) bgfx::setVertexBuffer(0, instance.posed[partIndex]);
+            else          bgfx::setVertexBuffer(0, part.vbo);
+            ++partIndex;
             bgfx::setIndexBuffer(part.ibo, 0, part.indexCount);
             bgfx::setTexture(0, sDiffuse_, part.diffuse, mat.sampler[0]);
             bgfx::setTexture(1, sLightmap_, white_);

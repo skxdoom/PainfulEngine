@@ -80,6 +80,9 @@ public:
         struct AnimSlot {
             std::string name;
             float length = 0.f;
+            // The cache owns this and is node-based, so the pointer stays
+            // valid as more animations load.
+            const Animation* anim = nullptr;
         };
         std::vector<AnimSlot> animSlots;
         int animIndex = -1;      // slot now playing, -1 = none
