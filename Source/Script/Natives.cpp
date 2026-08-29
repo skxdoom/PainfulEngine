@@ -452,11 +452,85 @@ int L_MOUSE_GetPos(lua_State* L) {
     return 2;
 }
 
+// FS.GetBaseObjInfo(path): pre-scans an instance file for its BaseObj
+// assignment and sets it on the global `o`. Load-bearing: instance files
+// reference template fields on their FIRST line (o.Explosion.Range = ...)
+// while declaring `o.BaseObj = "Explosion.CAction"` at the bottom, so LoadObj
+// must know the base to clone BEFORE running the file.
+int L_FS_GetBaseObjInfo(lua_State* L) {
+    const std::string path = LuaHost::FromState(L)->ResolvePath(luaL_checkstring(L, 1));
+    std::vector<uint8_t> bytes;
+    if (!ReadFile(path, bytes)) return 0;
+    const std::string text(bytes.begin(), bytes.end());
+
+    const std::string key = "BaseObj";
+    for (size_t at = text.find(key); at != std::string::npos;
+         at = text.find(key, at + key.size())) {
+        size_t p = at + key.size();
+        while (p < text.size() && (text[p] == ' ' || text[p] == '\t')) ++p;
+        if (p >= text.size() || text[p] != '=') continue;
+        ++p;
+        while (p < text.size() && (text[p] == ' ' || text[p] == '\t')) ++p;
+        if (p >= text.size() || text[p] != '"') continue;
+        const size_t end = text.find('"', p + 1);
+        if (end == std::string::npos) continue;
+
+        lua_getglobal(L, "o");
+        if (lua_istable(L, -1)) {
+            lua_pushstring(L, "BaseObj");
+            lua_pushlstring(L, text.data() + p + 1, end - p - 1);
+            lua_settable(L, -3);
+        }
+        lua_pop(L, 1);
+        break;
+    }
+    return 0;
+}
+
+// Camera reads: benign defaults until the game loop wires the real camera in.
+int L_CAM_GetPos(lua_State* L) {
+    lua_pushnumber(L, 0);
+    lua_pushnumber(L, 0);
+    lua_pushnumber(L, 0);
+    return 3;
+}
+
+int L_CAM_GetForwardVector(lua_State* L) {
+    lua_pushnumber(L, 0);
+    lua_pushnumber(L, 0);
+    lua_pushnumber(L, 1);
+    return 3;
+}
+
+// CAM.GetAng() -> angles in degrees (CActor converts with -x * 3.14/180).
+int L_CAM_GetAng(lua_State* L) {
+    lua_pushnumber(L, 0);
+    lua_pushnumber(L, 0);
+    lua_pushnumber(L, 0);
+    return 3;
+}
+
 // WORLD.LoadSky(mapPath) -> number of sky-dome layers. Zero means "no sky",
 // which CLevel:ReloadSky handles as the low-quality/absent path. Returns the
 // real count once the script layer drives the renderer.
 int L_WORLD_LoadSky(lua_State* L) {
     lua_pushnumber(L, 0);
+    return 1;
+}
+
+// The loading-screen progress counter; Cache:PrecacheLevel does arithmetic
+// on it. Real once PMENU exists.
+int L_Zero(lua_State* L) {
+    lua_pushnumber(L, 0);
+    return 1;
+}
+
+// MDL.SetAnim(e, anim, loop, speed, blend, mcurve, hasMovingCurveRot) -> the
+// animation index, negative when the track does not exist - which the
+// scripts handle as "keep going without it". The honest answer until
+// animation playback lands.
+int L_MDL_SetAnim(lua_State* L) {
+    lua_pushnumber(L, -1);
     return 1;
 }
 
@@ -572,8 +646,12 @@ const luaL_reg kGlobalImpls[] = {
 // Module tables the vote could not derive from the generated list but the
 // scripts demonstrably use: SOUND2D mirrors SOUND3D's instance API for
 // unpositioned sounds, EDITOR backs the in-game editor scripts, LANG is the
-// localisation loader.
-const char* const kExtraModules[] = {"SOUND2D", "EDITOR", "LANG"};
+// localisation loader, and the rest surfaced one by one as level loading
+// reached them (billboards, menu, trigger regions, vertex arrays, fog
+// volumes, AI floors).
+const char* const kExtraModules[] = {"SOUND2D", "EDITOR", "LANG",   "BILLBOARD",
+                                     "MENU",    "VARRAY", "REGION", "FOGVOL",
+                                     "FLOOR"};
 
 // Real module-function implementations; installed over their stubs.
 struct ModuleImpl {
@@ -591,11 +669,35 @@ const ModuleImpl kModuleImpls[] = {
     {"R3D", "ScreenSize", L_R3D_ScreenSize},
     {"MOUSE", "GetPos", L_MOUSE_GetPos},
     {"FS", "FindFiles", L_FS_FindFiles},
+    {"FS", "GetBaseObjInfo", L_FS_GetBaseObjInfo},
+    {"CAM", "GetPos", L_CAM_GetPos},
+    {"CAM", "GetForwardVector", L_CAM_GetForwardVector},
+    {"CAM", "GetAng", L_CAM_GetAng},
     {"WORLD", "LoadSky", L_WORLD_LoadSky},
     {"WORLD", "LoadLowQualitySky", L_WORLD_LoadSky},
+    {"PMENU", "GetLoadingScreenOverall", L_Zero},
+    {"MDL", "SetAnim", L_MDL_SetAnim},
+    {"MDL", "GetAnimLength", L_Zero},
 };
 
 } // namespace
+
+void LuaHost::RegisterNative(const char* module, const char* name,
+                             int (*fn)(lua_State*), void* ctx) {
+    lua_State* L = L_;
+    lua_pushlightuserdata(L, ctx);
+    lua_pushcclosure(L, fn, 1);
+    if (module) {
+        GetOrCreateModule(L, module);
+        lua_insert(L, -2);            // table below the closure
+        lua_pushstring(L, name);
+        lua_insert(L, -2);            // table, key, closure
+        lua_rawset(L, -3);
+        lua_pop(L, 1);
+    } else {
+        lua_setglobal(L, name);
+    }
+}
 
 void RegisterNatives(LuaHost& host) {
     lua_State* L = host.state();

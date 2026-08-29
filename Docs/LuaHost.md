@@ -124,25 +124,66 @@ FindFirstFile mask semantics where `*.*` matches everything),
 version/edition/CD flags. `WORLD.LoadSky`/`LoadLowQualitySky` return a real
 layer count of 0 until the renderer is wired in.
 
-## Signatures recovered by instrumentation (so far)
+## Script-driven level loading (Source/Game)
+
+`ScriptEngine` is the seam where the natives meet the engine subsystems: the
+entity registry behind `ENTITY.*` (integer handles - scripts store them in
+`self._Entity`, key `EntityToObject` with them, and pass them back as every
+native's first argument) and the world state `WORLD.*` accumulates. It is
+headless-safe: with no renderer attached the registry still hands out real
+handles, which is what `lua <DataRoot> [frames] [level]` exercises; the
+windowed path attaches `EntityRenderer` and the same natives put things on
+screen.
 
 ```
-WORLD.LoadMap("../Data/Maps/<map>", levelName, scale, bool, bool, 128, 24)
-WORLD.Init(1, 0.5, 0.5, 5, 0.3)
-WORLD.SetupFog(mode [, start, end, density, packedColor])
+PainfulEngine game <DataRoot> [level] [--shot f]
+```
+
+boots the scripts, calls `Game:Init()` and `Game:LoadLevel(level)`, and
+renders what they built: the map they asked for via `WORLD.LoadMap`, fog and
+ambient from `WORLD.SetupFog`/`AmbientColor`, and every entity the class
+scripts created. On Cathedral: 958 files, **631 entities created by the
+scripts** (571 live after the cache pass), zero script errors, from the
+archives or a loose tree alike. Not yet on this path: physics (items sit at
+authored positions un-settled), sky, particles, billboards, sound, player.
+
+`Game:LoadLevel`'s own pipeline (all script-side, Game.lua:933): find the
+`.CLevel` via `FS.FindFiles`, `LoadObj` it, preload the level's templates,
+`LoadObjectsDirectory` over the entity instance dirs, `Lev:Apply()`,
+`GObjects:Apply()`, `SetupMapEntities` (binds `EMesh` scripts to named world
+objects via `WORLD.FindEntityByName`). `LoadObj` works by setting the global
+`o` and `DoFile`-ing the property file - instance files ARE Lua. It depends
+on `FS.GetBaseObjInfo(path)`, which pre-scans the file for its `BaseObj`
+line: instances reference template fields on line 1 while declaring the base
+at the bottom, so the clone must happen before the file runs.
+
+## Signatures recovered (authority: call sites + instrumentation)
+
+```
+WORLD.LoadMap("../Data/Maps/"..map, name, scale, overbright, rtCubeMap, shadowSize, shadowCount)
+WORLD.Init(activeMeshesMassScale, defMeshFriction, defMeshRestitution, deactDelay, deactMaxPosDiff)
+WORLD.SetupFog(mode, start, end, density, packedColor)   -- start/end pre-scaled by Cfg.ClipPlane
 WORLD.SetFarClipDist(dist)
-WORLD.BloomFXParams(0.25, 1, <packedColor>, 0.8)
-WPT.Load("../Data/Maps/<map>")
-ENTITY.Create(etype, model, "name:tag", scale) -> handle
-FS.FindFiles(pattern, wantFiles, wantDirs) -> {names}
-LANG.ParseLangFile(path) -- calls Languages_ParseLangLine per line
+WORLD.AmbientColor(r, g, b, gunAmbientMultiplier)        -- 0-255
+WORLD.SetDirLight(dx, dy, dz, packedColor, intensity)
+WORLD.LoadSky(path) -> layerCount ; WORLD.AddEntity(e, hidden)
+WORLD.FindEntityByName(name) -> handle
+ENTITY.Create(etype, source, nameTagOrMesh, scale [, translateToZero]) -> handle
+ENTITY.SetRotationQ(e, w, x, y, z) / GetRotationQ(e) -> w,x,y,z
+ENTITY.GetVelocity(e) -> vx,vy,vz,speed
+MDL.SetAnim(e, anim, loop, speed, blend, mcurve, hasMovingCurveRot) -> animIndex (<0 = missing)
+MESH.SetDefaultDetailMaps(tex, tileU, tileV)
+FS.FindFiles(pattern, wantFiles, wantDirs) -> {bare child names}
+FS.GetBaseObjInfo(path)          -- sets o.BaseObj from the file
+LANG.ParseLangFile(path)         -- calls Languages_ParseLangLine per line
+Color:Compose() == R3D.RGBA(r,g,b,a)  -- packing is ours on both ends
 ```
 
 ## Next stages
 
-1. Wire `WORLD.*` / `ENTITY.*` / `CAM.*` to the existing renderer, level and
-   physics subsystems, so `Game:LoadLevel` drives the same pipeline `run`
-   drives by hand today.
-2. `Game_GetMsg` events from physics (collisions, regions) and
-   `CreatePlayer` + the player controller.
-3. `PMENU` against a real menu renderer; `SOUND` when audio lands.
+1. Physics into the script path: `ENTITY.PO_*` against Jolt, so items settle
+   and `Game_GetMsg` gets its collision/region events.
+2. Sky, particles and billboards on the `game` path (the script state for
+   them is already flowing through stubs).
+3. `CreatePlayer` + the player controller; `CAM.*` becomes the player camera.
+4. `PMENU` against a real menu renderer; `SOUND` when audio lands.

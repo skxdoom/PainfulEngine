@@ -375,6 +375,82 @@ void EntityRenderer::Build(const Level& level, TemplateCache& templates,
     }
 }
 
+namespace {
+// Engine-order (w,x,y,z) quaternion to the row-vector rotation the instance
+// transform wants - the same textbook form ReadRotation uses, straight from
+// the engine's own conversion (FUN_1000bb90).
+void QuatToRot9(const float q[4], float out[9]) {
+    const float n = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+    if (n < 1e-6f) {
+        const float identity[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+        std::memcpy(out, identity, sizeof(identity));
+        return;
+    }
+    const float w = q[0] / n, x = q[1] / n, y = q[2] / n, z = q[3] / n;
+    out[0] = 1 - 2 * (y * y + z * z);
+    out[1] = 2 * (x * y - z * w);
+    out[2] = 2 * (x * z + y * w);
+    out[3] = 2 * (x * y + z * w);
+    out[4] = 1 - 2 * (x * x + z * z);
+    out[5] = 2 * (y * z - x * w);
+    out[6] = 2 * (x * z - y * w);
+    out[7] = 2 * (y * z + x * w);
+    out[8] = 1 - 2 * (x * x + y * y);
+}
+} // namespace
+
+int EntityRenderer::CreateScriptModel(const std::string& modelName, float scale,
+                                      TextureCache& textures,
+                                      const std::string& modelsRoot) {
+    size_t slot = 0;
+    if (modelName.empty() || !GetModel(modelName, textures, modelsRoot, slot))
+        return -1;
+    Instance instance;
+    instance.model = slot;
+    instance.scale = scale;
+    instance.entity = SIZE_MAX;
+    instance.transform = MakeTransform(instance.pos, instance.rot, scale);
+    UpdateBounds(instance, models_[slot]);
+    instances_.push_back(instance);
+    return int(instances_.size() - 1);
+}
+
+int EntityRenderer::CreateScriptPack(const std::string& packName,
+                                     const std::string& meshName, float scale,
+                                     TextureCache& textures,
+                                     const std::string& itemsRoot) {
+    size_t slot = 0;
+    if (packName.empty() || !GetPack(packName, meshName, textures, itemsRoot, slot))
+        return -1;
+    Instance instance;
+    instance.model = slot;
+    instance.scale = scale;
+    instance.entity = SIZE_MAX;
+    instance.transform = MakeTransform(instance.pos, instance.rot, scale);
+    UpdateBounds(instance, models_[slot]);
+    instances_.push_back(instance);
+    return int(instances_.size() - 1);
+}
+
+void EntityRenderer::SetScriptPose(int slot, const float pos[3], const float rotWXYZ[4]) {
+    if (slot < 0 || size_t(slot) >= instances_.size()) return;
+    Instance& instance = instances_[slot];
+    for (int c = 0; c < 3; ++c) instance.pos[c] = pos[c];
+    QuatToRot9(rotWXYZ, instance.rot);
+    instance.transform = MakeTransform(instance.pos, instance.rot, instance.scale);
+    UpdateBounds(instance, models_[instance.model]);
+}
+
+void EntityRenderer::SetScriptVisible(int slot, bool visible) {
+    if (slot < 0 || size_t(slot) >= instances_.size()) return;
+    instances_[slot].visible = visible;
+}
+
+void EntityRenderer::ReleaseScript(int slot) {
+    if (slot < 0 || size_t(slot) >= instances_.size()) return;
+    instances_[slot].alive = false;
+}
+
 void EntityRenderer::SetEntityPose(size_t entityIndex, const float pos[3], const float rot[9]) {
     for (Instance& instance : instances_) {
         if (instance.entity != entityIndex) continue;
@@ -448,6 +524,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
     bgfx::setUniform(uFog_, fogParams);
 
     for (const Instance& instance : instances_) {
+        if (!instance.alive || !instance.visible) continue;
         if (visCulling_ && !frustum.VisibleAabb(instance.aabbLo, instance.aabbHi)) continue;
         const GpuModel& model = models_[instance.model];
         const float detail[4] = {1.f, 1.f, 0.f, 0.f};

@@ -41,6 +41,22 @@ public:
     // position the level authored.
     void SetEntityPose(size_t entityIndex, const float pos[3], const float rot[9]);
 
+    // --- script-driven instances (the ENTITY.* native path) ---
+    // Creates one instance of a .pkmdl model (the scale arrives with the
+    // scripts' own *0.1 rule already applied) or of an object inside a .dat
+    // pack. Returns the instance slot, or -1 when the source cannot be
+    // resolved.
+    int CreateScriptModel(const std::string& modelName, float scale,
+                          TextureCache& textures, const std::string& modelsRoot);
+    int CreateScriptPack(const std::string& packName, const std::string& meshName,
+                         float scale, TextureCache& textures,
+                         const std::string& itemsRoot);
+    // rotWXYZ is an engine-order quaternion, converted with the engine's own
+    // matrix form (see Properties.cpp ReadRotation).
+    void SetScriptPose(int slot, const float pos[3], const float rotWXYZ[4]);
+    void SetScriptVisible(int slot, bool visible);
+    void ReleaseScript(int slot);
+
     size_t placed() const { return instances_.size(); }
     size_t distinctModels() const { return models_.size(); }
     size_t unresolved() const { return unresolved_; }
@@ -91,6 +107,11 @@ private:
         // Which level entity this came from, so physics can say where it has
         // moved to.
         size_t entity = 0;
+        // Script-driven instances are created and released at runtime; slots
+        // stay put so handles remain stable, and Draw skips the dead and the
+        // hidden.
+        bool alive = true;
+        bool visible = true;
     };
 
     // Recomputes the instance's world-space bounds from its model's bbox.

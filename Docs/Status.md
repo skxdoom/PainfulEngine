@@ -20,6 +20,8 @@ Source/
   Script/   LuaHost           Lua 5.0.2 state, boot, the engine->Lua frame contract
             Natives           the native API: module tables, stubs, real impls
             NativeList.inc    generated from Docs/Engine_LuaAPI.md + script usage
+  Game/     ScriptEngine      the seam: entity registry + world state behind
+                              the ENTITY.*/WORLD.* natives, renderer optional
   Assets/   Mpk               world meshes, materials, per-slot UV transforms
             Dat               item mesh packs (the o.Pack containers)
             Pkmdl             models: geometry, skeleton, skin weights
@@ -215,15 +217,22 @@ Details, the numbers, and the sizeable list of what is still missing are in
 - A few `.mpk` per-object trailing bytes are still unparsed; they appear to
   hold extra blend-layer materials.
 
-### Script layer (first stage)
+### Script layer
 
 - The Lua 5.0.2 host boots the real game scripts: `Loader.lua` (68 files),
-  `Game:Init()` — 1054 templates preloaded, the empty "NoName" level created
-  and applied — and the per-frame `Game_Tick*/Render/GC` chain, with zero
-  script errors, from the archives or a loose tree alike
-  (`PainfulEngine lua <DataRoot> [frames]`). Unimplemented natives are
-  instrumented stubs that report what the scripts call, which is how the
-  remaining API gets recovered. See [`LuaHost.md`](LuaHost.md).
+  `Game:Init()` — 1054 templates preloaded — and the per-frame
+  `Game_Tick*/Render/GC` chain, with zero script errors, from the archives or
+  a loose tree alike (`PainfulEngine lua <DataRoot> [frames] [level]`).
+  Unimplemented natives are instrumented stubs that report what the scripts
+  call, which is how the remaining API gets recovered.
+- **Script-driven level loading works**: `Game:LoadLevel` runs its own
+  pipeline — `.CLevel` via LoadObj, level templates, every entity instance
+  file, `Lev:Apply()`, `GObjects:Apply()` — and the `ENTITY.*`/`WORLD.*`
+  natives land in a real registry (`Source/Game/ScriptEngine`).
+  `PainfulEngine game <DataRoot> [level]` renders the result: on Cathedral
+  the scripts create 631 entities and the window shows the world, fog and
+  models they asked for. Not yet on this path: physics settling, sky,
+  particles, billboards, player. See [`LuaHost.md`](LuaHost.md).
 
 ### Everything else
 

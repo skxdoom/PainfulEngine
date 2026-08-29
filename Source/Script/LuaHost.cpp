@@ -163,8 +163,8 @@ bool LuaHost::CallGlobal(const char* name, const double* args, int nargs) {
     return true;
 }
 
-bool LuaHost::CallGameInit() {
-    // Method call: Game:Init() - getglobal Game, fetch Init, pass Game as self.
+// Method call on the global Game object: Game:<method>(stringArg?).
+bool LuaHost::CallGameMethod(const char* method, const char* stringArg) {
     lua_pushcfunction(L_, Traceback);
     lua_getglobal(L_, "Game");
     if (!lua_istable(L_, -1)) {
@@ -172,22 +172,33 @@ bool LuaHost::CallGameInit() {
         LogWarn("no Game object - boot did not complete");
         return false;
     }
-    lua_pushstring(L_, "Init");
+    lua_pushstring(L_, method);
     lua_gettable(L_, -2);
     if (!lua_isfunction(L_, -1)) {
         lua_pop(L_, 3);
-        LogWarn("Game.Init is missing");
+        LogWarn("Game.%s is missing", method);
         return false;
     }
     lua_insert(L_, -2);          // function below its self argument
-    if (lua_pcall(L_, 1, 0, -3) != 0) {
-        LogWarn("Game:Init: %s", lua_tostring(L_, -1));
+    int nargs = 1;
+    if (stringArg) {
+        lua_pushstring(L_, stringArg);
+        nargs = 2;
+    }
+    if (lua_pcall(L_, nargs, 0, -nargs - 2) != 0) {
+        LogWarn("Game:%s: %s", method, lua_tostring(L_, -1));
         lua_pop(L_, 2);
         ++scriptErrors_;
         return false;
     }
     lua_pop(L_, 1);
     return true;
+}
+
+bool LuaHost::CallGameInit() { return CallGameMethod("Init", nullptr); }
+
+bool LuaHost::CallGameLoadLevel(const std::string& levelName) {
+    return CallGameMethod("LoadLevel", levelName.c_str());
 }
 
 void LuaHost::FrameTick(double delta) {
@@ -215,6 +226,24 @@ bool LuaHost::PostMsg(const char* msg) {
         return false;
     }
     lua_pop(L_, 1);
+    return true;
+}
+
+bool LuaHost::ReadVec3(const char* globalName, const char* field, float out[3]) {
+    lua_getglobal(L_, globalName);
+    if (!lua_istable(L_, -1)) { lua_pop(L_, 1); return false; }
+    lua_pushstring(L_, field);
+    lua_gettable(L_, -2);
+    if (!lua_istable(L_, -1)) { lua_pop(L_, 2); return false; }
+    const char* axes[3] = {"X", "Y", "Z"};
+    for (int i = 0; i < 3; ++i) {
+        lua_pushstring(L_, axes[i]);
+        lua_gettable(L_, -2);
+        if (!lua_isnumber(L_, -1)) { lua_pop(L_, 3); return false; }
+        out[i] = float(lua_tonumber(L_, -1));
+        lua_pop(L_, 1);
+    }
+    lua_pop(L_, 2);
     return true;
 }
 

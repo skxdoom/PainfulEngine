@@ -107,7 +107,8 @@ so a change can be checked without opening a window.
 | `skydump <file.mpk>` | dome shells, UV ranges, material slots |
 | `skytex <levelDir> <DataRoot>` | sky layer textures and whether they resolve |
 | `shaders <DataRoot> [name]` | material scripts; one name prints it resolved |
-| `lua <DataRoot> [frames]` | boot the script layer, tick N frames, report native calls |
+| `lua <DataRoot> [frames] [level]` | boot the script layer (optionally load a level), tick, report native calls |
+| `game <DataRoot> [level] [--shot f]` | script-driven windowed run: the game's Lua loads the level |
 | `textures <file.mpk> <DataRoot> <hint>` | which map textures resolve |
 | `resolve <DataRoot> <name>` | where a texture reference resolves |
 | `texdump <DataRoot> <name> [out.tga]` | decode a texture, print corner pixels |
@@ -117,10 +118,12 @@ so a change can be checked without opening a window.
 Asset formats, `.pak` reading (a vanilla install runs untouched), static world
 rendering, portal/zone visibility, entity placement, layered skies, particle
 effects, light coronas and world collision all work. The Lua 5.0.2 host boots
-the real game scripts — `Loader.lua`, `Game:Init()` with all 1054 templates,
-and the per-frame tick chain run without errors — but its natives do not
-drive the engine yet. Not yet: skeletal animation playback, water and
-post-processing, script-driven gameplay, sound and UI.
+the real game scripts and **script-driven level loading works**:
+`PainfulEngine game <DataRoot> <level>` has `Game:LoadLevel` read the level,
+create its 631 entities through the native API, and the window renders what
+the scripts built. Not yet: physics/sky/particles on the script path,
+skeletal animation playback, water and post-processing, the player and AI,
+sound and UI.
 
 The full inventory, with the authority cited for each rule, is in
 [`Docs/Status.md`](Docs/Status.md).

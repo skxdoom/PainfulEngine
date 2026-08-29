@@ -11,6 +11,7 @@
 #include "Assets/Skeleton.h"
 #include "Core/FileSystem.h"
 #include "Core/Log.h"
+#include "Game/ScriptEngine.h"
 #include "Script/LuaHost.h"
 #include "Render/Renderer.h"
 #include "Render/SkyRenderer.h"
@@ -52,7 +53,8 @@ static int Usage() {
     LogInfo("  PainfulEngine level <Data/Levels/NAME> <DataRoot>  headless report");
     LogInfo("  PainfulEngine physics <Data/Levels/NAME> <DataRoot> physics world probe");
     LogInfo("  PainfulEngine levels <DataRoot>                    list levels");
-    LogInfo("  PainfulEngine lua   <DataRoot> [frames]            boot the script layer");
+    LogInfo("  PainfulEngine lua   <DataRoot> [frames] [level]    boot the script layer");
+    LogInfo("  PainfulEngine game  <DataRoot> [level] [--shot f]  script-driven windowed run");
     LogInfo("  PainfulEngine map   <file.mpk>");
     LogInfo("  PainfulEngine model <file.pkmdl>");
     return 1;
@@ -606,20 +608,178 @@ static int FitCmd(const char* levelDir, const char* dataRoot) {
 // engine's own sequence - Game:Init() and per-frame ticks - and prints what
 // the scripts actually called. This is the recovery loop for the native API:
 // boot, read the report, implement what the game hit, repeat.
-static int LuaCmd(const char* dataRoot, int frames) {
+static int LuaCmd(const char* dataRoot, int frames, const char* level) {
     LuaHost host;
     if (!host.Init(dataRoot)) {
         LogInfo("failed to create the Lua state");
         return 2;
     }
+    ScriptEngine engine;    // headless: real registry, no renderer attached
+    engine.Bind(host);
     const bool ok = host.Boot();
     if (ok) {
         host.CallGameInit();
+        if (level && level[0]) host.CallGameLoadLevel(level);
         for (int i = 0; i < frames && !host.quitRequested(); ++i)
             host.FrameTick(1.0 / 60.0);
     }
-    host.PrintCallReport(40);
+    LogInfo("entities: %zu created, %zu released, %zu live; map \"%s\" scale %.2f",
+            engine.created(), engine.released(), engine.entities().size(),
+            engine.world().mapPath.c_str(), engine.world().scale);
+    host.PrintCallReport(60);
     return ok && host.scriptErrors() == 0 ? 0 : 3;
+}
+
+// Script-driven windowed run: the game's own Lua loads the level and creates
+// every entity through the native API; the C++ side supplies the window, the
+// renderer and a free camera. The counterpart to `run`, which drives the
+// same subsystems by hand - as natives grow real, this path takes over.
+static int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
+                   const std::string& shotPath) {
+    const std::string root = dataRoot;
+    const std::string shaderDir = ShaderDirFor(exePath);
+
+    Window window;
+    if (!window.Open("PainfulEngine", 1280, 720)) return 3;
+    Renderer renderer;
+    if (!renderer.Init(window)) return 3;
+    LogInfo("renderer: %s", renderer.BackendName().c_str());
+
+    TextureCache textures;
+    textures.Init(root + "/Textures");
+    ShaderLibrary shaderScripts;
+    if (!shaderScripts.LoadDirectory(root + "/Shaders/Scripts")) {
+        for (const std::string& e : shaderScripts.errors()) LogWarn("%s", e.c_str());
+    }
+
+    EntityRenderer entities;
+    entities.SetCullMode(1);   // .pkmdl winding; pack meshes carry their own state
+    if (!entities.Init(shaderDir)) return 3;
+
+    // Boot the scripts with the renderer attached, then let them load the
+    // level: every ENTITY.Create lands in the renderer as it happens.
+    LuaHost host;
+    if (!host.Init(root)) return 3;
+    ScriptEngine engine;
+    engine.Bind(host);
+    engine.AttachRenderer(&entities, &textures, root);
+    if (!host.Boot()) return 3;
+    host.CallGameInit();
+    host.CallGameLoadLevel(levelName);
+
+    // Turn the recorded WORLD.* state into renderer state.
+    const ScriptEngine::WorldState& ws = engine.world();
+    LevelInfo info;
+    info.scale = ws.scale;
+    info.overbright = ws.overbright;
+    info.fogMode = ws.fogMode;
+    info.fogStart = ws.fogStart;
+    info.fogEnd = ws.fogEnd;
+    info.fogDensity = ws.fogDensity;
+    for (int i = 0; i < 3; ++i) {
+        info.fogColor[i] = ws.fogColor[i];
+        info.ambient[i] = ws.ambient[i];
+    }
+    info.farClip = ws.farClip;
+    info.detailTex = ws.detailTex;
+    info.detailTileU = ws.detailTileU;
+    info.detailTileV = ws.detailTileV;
+    const size_t slash = ws.mapPath.find_last_of("/\\");
+    info.mapFile = slash == std::string::npos ? ws.mapPath : ws.mapPath.substr(slash + 1);
+
+    MapMesh map;
+    WorldRenderer world;
+    bool worldReady = false;
+    if (ws.loadRequested) {
+        const std::string mapPath = host.ResolvePath(ws.mapPath);
+        if (MapMesh::Load(mapPath, map)) {
+            if (world.Init(shaderDir)) {
+                world.Upload(map, textures, MapNameWithoutExtension(info.mapFile), info,
+                             &shaderScripts);
+                worldReady = true;
+            }
+        } else {
+            LogWarn("map failed: %s (%s)", mapPath.c_str(), map.error.c_str());
+        }
+    } else {
+        LogWarn("the scripts never asked for a map - is '%s' a level?", levelName);
+    }
+
+    Camera camera;
+    float startPos[3];
+    if (host.ReadVec3("Lev", "Pos", startPos)) {
+        camera.pos[0] = startPos[0];
+        camera.pos[1] = startPos[1];
+        camera.pos[2] = startPos[2];
+    }
+    camera.farPlane = info.farClip;
+    if (info.fogMode != 0)
+        renderer.SetClearColor(info.fogColor[0] / 255.f, info.fogColor[1] / 255.f,
+                               info.fogColor[2] / 255.f);
+
+    LogInfo("script world: map %s scale %.2f, %zu entities live",
+            info.mapFile.c_str(), info.scale, engine.entities().size());
+
+    auto previous = std::chrono::steady_clock::now();
+    const auto startTime = previous;
+    int frame = 0;
+    while (window.PumpEvents() && !host.quitRequested()) {
+        if (window.TakeResized()) renderer.Resize(window.width(), window.height());
+        const auto now = std::chrono::steady_clock::now();
+        const float dt = std::chrono::duration<float>(now - previous).count();
+        previous = now;
+        const float elapsed = std::chrono::duration<float>(now - startTime).count();
+
+        float dx = 0.f, dy = 0.f;
+        window.TakeMouseDelta(dx, dy);
+        camera.Look(dx * 0.003f, -dy * 0.003f);
+        const float speed = camera.moveSpeed * (window.IsDown(Key::Fast) ? 4.f : 1.f) * dt;
+        float fwd = 0.f, right = 0.f, up = 0.f;
+        if (window.IsDown(Key::Forward)) fwd += speed;
+        if (window.IsDown(Key::Back))    fwd -= speed;
+        if (window.IsDown(Key::Right))   right += speed;
+        if (window.IsDown(Key::Left))    right -= speed;
+        if (window.IsDown(Key::Up))      up += speed;
+        if (window.IsDown(Key::Down))    up -= speed;
+        camera.Move(fwd, right, up);
+
+        // The engine's frame order; physics and world steps slot in between
+        // once they hook into this path.
+        host.FrameTick(dt);
+        // Entities the scripts spawned this frame get their renderer slots.
+        engine.FlushToRenderer();
+
+        renderer.BeginFrame();
+        if (worldReady)
+            world.Draw(Renderer::kWorldView, camera, window.width(), window.height(),
+                       info, elapsed);
+        entities.Draw(Renderer::kWorldView, camera, window.width(), window.height(),
+                      info, elapsed);
+
+        renderer.DebugText(1, "PainfulEngine (script-driven)  -  %s  -  %.1f fps",
+                           renderer.BackendName().c_str(), dt > 0.f ? 1.f / dt : 0.f);
+        renderer.DebugText(2, "%s   map %s   %zu script entities (%zu created, %zu released)",
+                           levelName, info.mapFile.c_str(), engine.entities().size(),
+                           engine.created(), engine.released());
+        renderer.DebugText(3, "%zu world draws, %zu entity draws, zones %zu/%zu",
+                           worldReady ? world.drawCalls() : 0, entities.drawCalls(),
+                           worldReady ? world.zonesVisible() : 0,
+                           worldReady ? world.zoneCount() : 0);
+        renderer.DebugText(4, "pos %.1f %.1f %.1f   rot %.2f %.2f", camera.pos[0],
+                           camera.pos[1], camera.pos[2], camera.yaw, camera.pitch);
+        renderer.DebugText(6, "%s - WASD move, shift fast, space/ctrl up-down, esc release",
+                           window.mouseCaptured() ? "mouse captured" : "click to capture mouse");
+        renderer.EndFrame();
+
+        if (!shotPath.empty()) {
+            ++frame;
+            int shotFrame = 30;
+            if (const char* e = getenv("PAINFUL_SHOT_FRAME")) shotFrame = std::atoi(e);
+            if (frame == shotFrame) renderer.RequestScreenshot(shotPath);
+            if (frame >= shotFrame + 4) break;
+        }
+    }
+    return 0;
 }
 
 // Lists the levels available for the in-engine selector.
@@ -1661,7 +1821,7 @@ int main(int argc, char** argv) {
             "run",   "level",  "entities", "fit",       "skytex",     "scale",
             "zones", "ground", "textures", "particles", "billboards", "physics"};
         static const std::set<std::string> rootAt2 = {"levels", "resolve", "texdump",
-                                                      "shaders", "lua"};
+                                                      "shaders", "lua", "game"};
         if (rootAt3.count(cmd) && argc >= 4) MountRoot(argv[3]);
         else if (rootAt2.count(cmd)) MountRoot(argv[2]);
         else MountForPath(argv[2], argv[0]);
@@ -1710,7 +1870,15 @@ int main(int argc, char** argv) {
     if (cmd == "entities" && argc >= 4) return EntitiesCmd(argv[2], argv[3]);
     if (cmd == "fit" && argc >= 4) return FitCmd(argv[2], argv[3]);
     if (cmd == "levels") return LevelsCmd(argv[2]);
-    if (cmd == "lua") return LuaCmd(argv[2], argc >= 4 ? std::atoi(argv[3]) : 10);
+    if (cmd == "lua")
+        return LuaCmd(argv[2], argc >= 4 ? std::atoi(argv[3]) : 10,
+                      argc >= 5 ? argv[4] : nullptr);
+    if (cmd == "game") {
+        std::string shot;
+        for (int i = 4; i < argc; ++i)
+            if (std::string(argv[i]) == "--shot" && i + 1 < argc) shot = argv[++i];
+        return GameCmd(argv[2], argc >= 4 ? argv[3] : "C1L1_Cathedral", argv[0], shot);
+    }
     if (cmd == "map")   return MapCmd(argv[2]);
     if (cmd == "mats")  return MatsCmd(argv[2], argc >= 4 ? argv[3] : "");
     if (cmd == "resolve" && argc >= 4) return ResolveCmd(argv[2], argv[3]);

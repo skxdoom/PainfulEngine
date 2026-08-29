@@ -174,10 +174,16 @@ add_library(painful_render STATIC
 # the already-loaded image_decode.obj and bimg's copy stays out.
 target_link_libraries(painful_render PUBLIC painful_world SDL3::SDL3-static bgfx bimg_decode bimg bx)
 
+# The game layer: the seam where script natives meet the engine subsystems.
+add_library(painful_game STATIC
+  Source/Game/ScriptEngine.cpp
+)
+target_link_libraries(painful_game PUBLIC painful_script painful_render)
+
 # WIN32: a GUI-subsystem executable, so double-clicking it opens no console.
 # main() is kept as the entry point via the WinMain shim in main.cpp.
 add_executable(PainfulEngine WIN32 Source/main.cpp)
-target_link_libraries(PainfulEngine PRIVATE painful_render painful_script)
+target_link_libraries(PainfulEngine PRIVATE painful_game)
 
 # Compile the shaders whenever their sources change, into the shaders folder
 # next to the executable. Depends on the shaderc tool built from bgfx.

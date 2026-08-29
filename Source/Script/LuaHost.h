@@ -53,6 +53,11 @@ public:
     // empty "NoName" level, loads config/bindings, applies settings.
     bool CallGameInit();
 
+    // Game:LoadLevel(name) - the script-side level load: reads the .CLevel,
+    // preloads the level's templates, LoadObj's every entity instance file,
+    // then Apply()s the level and every object through the native API.
+    bool CallGameLoadLevel(const std::string& levelName);
+
     // One frame of the script layer, in the engine's documented order:
     // Game_Tick (before physics), Game_Tick2 (after physics, before world
     // tick), Game_Tick3 (after world tick), Game_Render, Game_PostRender,
@@ -70,11 +75,22 @@ public:
     // logged and counted, never propagated.
     bool CallGlobal(const char* name, const double* args, int nargs);
 
+    // Reads <global>.<field>.{X,Y,Z} - e.g. Lev.Pos, the level's authored
+    // start position. False when any link of the chain is missing.
+    bool ReadVec3(const char* globalName, const char* field, float out[3]);
+
     lua_State* state() const { return L_; }
     const std::string& dataRoot() const { return dataRoot_; }
 
     // Recovers the host from a lua_State inside a lua_CFunction.
     static LuaHost* FromState(lua_State* L);
+
+    // Installs a real native over its stub: a module-table function, or a
+    // global when module is null. ctx (may be null) reaches fn as
+    // light-userdata upvalue 1 - the pattern the binding layers use to reach
+    // their engine-side state.
+    void RegisterNative(const char* module, const char* name, int (*fn)(lua_State*),
+                        void* ctx);
 
     void RequestQuit() { quit_ = true; }
     bool quitRequested() const { return quit_; }
@@ -90,6 +106,8 @@ public:
     size_t scriptErrors() const { return scriptErrors_; }
 
 private:
+    bool CallGameMethod(const char* method, const char* stringArg);
+
     lua_State* L_ = nullptr;
     std::string dataRoot_;
     bool quit_ = false;
