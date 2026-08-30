@@ -514,9 +514,21 @@ static JPH::ShapeSettings::ShapeResult BuildScaledPropShape(MeshPoints& mesh,
     JPH::ShapeSettings::ShapeResult shape;
     if (bodyType == 4 || bodyType == 5 || bodyType == 7 || bodyType == 11) {
         Thin(mesh);
-        JPH::ConvexHullShapeSettings hull(mesh.points);
-        hull.SetEmbedded();
-        shape = hull.Create();
+        // A hull needs four points and a real volume. Debris packs are full of
+        // pieces that have neither: a barrel's lid measures 2.18 x 0.15 x 2.18
+        // and a stave is a plank, and Thin() can leave a nearly coplanar set
+        // behind. Ask for a hull only when one can exist, and take the sphere
+        // when the hull cannot be built - a wrong shape beats a dead load.
+        if (mesh.points.size() >= 4) {
+            JPH::ConvexHullShapeSettings hull(mesh.points);
+            hull.SetEmbedded();
+            shape = hull.Create();
+        }
+        if (mesh.points.size() < 4 || shape.HasError()) {
+            JPH::SphereShapeSettings sphere(std::max(0.05f, mesh.radius()));
+            sphere.SetEmbedded();
+            shape = sphere.Create();
+        }
     } else {
         JPH::SphereShapeSettings sphere(std::max(0.05f, mesh.radius()));
         sphere.SetEmbedded();
@@ -1016,6 +1028,13 @@ public:
     }
 };
 
+// Shared by every query. Jolt's default filter is `{}`, which accepts every
+// layer - and the pawn finds its ground, its steps and its walls with SHAPE
+// queries, not rays. Fixing only the ray left a stake that had nailed itself
+// to a wall still solid enough to stand on, because nothing the player walks
+// with was ever asking about layers.
+const SolidLayerFilter kSolidLayer;
+
 bool PhysicsWorld::RayCast(const float from[3], const float to[3], RayHit& out,
                            bool staticOnly, const int* exclude,
                            size_t excludeCount) const {
@@ -1123,7 +1142,7 @@ bool PhysicsWorld::SphereOverlaps(const float pos[3], float radius) const {
     impl_->system.GetNarrowPhaseQuery().CollideShape(
         &sphere, JPH::Vec3::sOne(),
         JPH::RMat44::sTranslation(JPH::RVec3(pos[0], pos[1], pos[2])), settings,
-        JPH::RVec3::sZero(), collector, {}, {}, blockers);
+        JPH::RVec3::sZero(), collector, {}, kSolidLayer, blockers);
     return collector.HadHit();
 }
 
@@ -1148,7 +1167,7 @@ int PhysicsWorld::Depenetrate(float pos[3], float radius, int iterations,
         impl_->system.GetNarrowPhaseQuery().CollideShape(
             &sphere, JPH::Vec3::sOne(),
             JPH::RMat44::sTranslation(JPH::RVec3(pos[0], pos[1], pos[2])), settings,
-            JPH::RVec3::sZero(), collector, {}, {}, blockers);
+            JPH::RVec3::sZero(), collector, {}, kSolidLayer, blockers);
         if (collector.mHits.empty()) break;
 
         // ONE overlap per pass - the deepest - and then look again.
@@ -1223,7 +1242,7 @@ void PhysicsWorld::SlideSphere(float pos[3], const float delta[3], float radius,
         // sphere of its own radius and stops dead at the first step - the
         // camera collides with itself and cannot move at all.
         impl_->system.GetNarrowPhaseQuery().CastShape(cast, settings, JPH::RVec3::sZero(),
-                                                      collector, {}, {}, blockers);
+                                                      collector, {}, kSolidLayer, blockers);
         if (!collector.HadHit()) {
             at += remaining;
             break;

@@ -1,5 +1,6 @@
 #include "ScriptEngine.h"
 
+#include "../Assets/Dat.h"
 #include "../Assets/Emitter.h"
 #include "../Assets/Properties.h"
 #include "../Assets/Skeleton.h"
@@ -293,6 +294,153 @@ int ScriptEngine::L_WORLD_HitPhysicObject(lua_State* L) {
     // -1 is what a trace reports for the world itself, which cannot be moved.
     ApplyHitImpulse(L, self->physics_, int(luaL_optnumber(L, 1, -1)));
     return 0;
+}
+
+// WORLD.GetLastExplodedEntities(item) -> the debris ExplodeItem just made.
+//
+// IT MUST RETURN A TABLE, EVEN AN EMPTY ONE. CItem:DestroyItemFX walks the
+// answer on the very next line - `for i,o in parts do` - and iterating nil is
+// an error in Lua 5.0. Returning nothing did not merely lose the parts: the
+// error unwound out of CObject:TickTimers through table.foreachi, which
+// abandons the REST OF THE OBJECT LIST for that frame. Every item after the
+// one that exploded stopped ticking, so ammo could no longer be picked up and
+// the level came apart around one missing return value.
+//
+// The table is empty until ExplodeItem spawns anything, which is honest rather
+// than convenient: no parts exist yet, and the scripts read the emptiness
+// correctly.
+int ScriptEngine::L_WORLD_GetLastExplodedEntities(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const int handle = HandleArg(L, 1);
+    lua_newtable(L);
+    const auto it = self->lastExploded_.find(handle);
+    if (it == self->lastExploded_.end()) return 1;
+    int index = 1;
+    for (const int part : it->second) {
+        lua_pushnumber(L, index++);
+        lua_pushnumber(L, part);
+        lua_settable(L, -3);
+    }
+    return 1;
+}
+
+// ENTITY.ExplodeItem(item, pack, strength, radius, lifetime, _, bindTo, noSelf)
+//
+// The item becomes its own wreckage: one entity per object in the DestroyPack,
+// standing where the item stood and thrown outward. CItem:DestroyItemFX turns
+// the item's physics off, calls this, and then immediately asks
+// GetLastExplodedEntities for the parts so it can texture them and set the
+// burning ones alight - so they have to exist by the time this returns.
+int ScriptEngine::L_ENTITY_ExplodeItem(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const int srcHandle = HandleArg(L, 1);
+    Entity* src = self->Find(srcHandle);
+    const char* packArg = lua_isstring(L, 2) ? lua_tostring(L, 2) : nullptr;
+    if (!src || !packArg || !*packArg) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+    const float strength = float(luaL_optnumber(L, 3, 0));
+    const float lifetime = float(luaL_optnumber(L, 5, 0));
+
+    DatPack pack;
+    if (!DatPack::Load(self->host_->ResolvePath(packArg), pack) || pack.objects.empty()) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+
+    // Taken before the registry grows: the parts inherit the item's pose.
+    const std::string source = packArg;
+    const float scale = src->scale;
+    float pos[3], rot[4];
+    for (int c = 0; c < 3; ++c) pos[c] = src->pos[c];
+    for (int c = 0; c < 4; ++c) rot[c] = src->rotWXYZ[c];
+
+    std::string packName;
+    const bool haveShape = self->SplitPackSource(source, packName);
+
+    std::vector<int>& parts = self->lastExploded_[srcHandle];
+    parts.clear();
+    parts.reserve(pack.objects.size());
+
+    for (const MapObject& object : pack.objects) {
+        Entity part;
+        part.type = kMesh;
+        part.source = source;
+        part.mesh = object.name;
+        part.scale = scale;
+        for (int c = 0; c < 3; ++c) part.pos[c] = pos[c];
+        for (int c = 0; c < 4; ++c) part.rotWXYZ[c] = rot[c];
+        part.inWorld = true;
+        // LifetimeAfterExplosion. Without it the debris is permanent, and it
+        // is debris with real bodies - it would pile up as collision.
+        part.timeToDie = lifetime > 0.f ? lifetime : 3.f;
+
+        // Which way a piece goes: its own offset inside the pack. The parts are
+        // modelled in place - a barrel's staves sit where they were before it
+        // came apart - so each centre already points away from the middle, and
+        // the wreck separates the way it was assembled.
+        float dir[3] = {0, 0, 0};
+        float len = 0.f;
+        for (int c = 0; c < 3; ++c) {
+            dir[c] = 0.5f * (object.bboxMin[c] + object.bboxMax[c]);
+            len += dir[c] * dir[c];
+        }
+        len = std::sqrt(len);
+        if (len > 1e-4f) for (int c = 0; c < 3; ++c) dir[c] /= len;
+        else            { dir[0] = 0.f; dir[1] = 1.f; dir[2] = 0.f; }
+
+        // Destroy.Strength runs from 1 to 50 across the shipped items. How the
+        // engine turns that into a speed has NOT been recovered from the binary
+        // yet, so this is an approximation with a lift on it - enough that the
+        // pieces leave the ground rather than sliding apart along the floor.
+        const float speed = 0.5f + strength * 0.05f;
+        for (int c = 0; c < 3; ++c) part.velocity[c] = dir[c] * speed;
+        part.velocity[1] += speed * 0.5f;
+
+        const int handle = self->nextHandle_++;
+        Entity& live = self->entities_.emplace(handle, part).first->second;
+        ++self->created_;
+        self->CreateRendererInstance(live);
+
+        // A real body, so the wreckage falls, bounces and settles instead of
+        // hanging where the item was.
+        //
+        // BodyTypes.FromMesh (4), NOT Default (0).
+        //
+        // Nothing in a .dat carries collision - an object is geometry, a
+        // material and a bbox - so the shape is derived, and Default derives a
+        // SPHERE sized by the largest half-extent. For a barrel stave measuring
+        // 0.50 x 3.84 x 1.12 that is a ball of radius 1.9 wrapped around a
+        // plank: the wreckage rolls like barrels because every piece of it
+        // literally is one. FromMesh takes the convex hull instead, which for
+        // these parts is 50-70 points apiece.
+        if (self->physics_ && haveShape) {
+            const int slot = self->physics_->CreateScriptBody(
+                4, "", packName, live.mesh, live.scale, live.pos, live.rotWXYZ,
+                self->dataRoot_, 3 /* ECollisionGroups.Normal */);
+            if (slot >= 0) {
+                live.physicsBody = slot;
+                self->bodyToEntity_[slot] = handle;
+                self->physics_->SetScriptBodyVelocity(slot, live.velocity);
+            }
+        }
+        parts.push_back(handle);
+    }
+
+    // What is left standing is the debris, not the item - and the item has to
+    // stop being SOLID as well as stop being drawn. DestroyItemFX turns its
+    // physics off just before calling this, but PO_Enable(false) only sleeps a
+    // body, and a sleeping body still collides. Hiding it alone left an
+    // invisible barrel standing exactly where the barrel had been, which reads
+    // as the debris having inherited the whole item's collision.
+    src->visible = false;
+    self->SyncPose(*src);
+    if (self->physics_ && src->physicsBody >= 0)
+        self->physics_->MakeScriptBodyNonColliding(src->physicsBody);
+
+    lua_pushboolean(L, 1);
+    return 1;
 }
 
 // ENTITY.SetTimeToDie(e, seconds) - the engine reaps the entity itself once
@@ -4086,8 +4234,10 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"ENTITY", "SetVelocity", L_SetVelocity},
         {"ENTITY", "SetAngularVelocity", L_SetAngularVelocity},
         {"ENTITY", "SetTimeToDie", L_SetTimeToDie},
+        {"ENTITY", "ExplodeItem", L_ENTITY_ExplodeItem},
         {"ENTITY", "PO_Hit", L_PO_Hit},
         {"WORLD", "HitPhysicObject", L_WORLD_HitPhysicObject},
+        {"WORLD", "GetLastExplodedEntities", L_WORLD_GetLastExplodedEntities},
         {"ENTITY", "PO_Create", L_PO_Create},
         {"ENTITY", "PO_Move", L_PO_Move},
         {"ENTITY", "PO_SetMonsterType", L_PO_SetMonsterType},

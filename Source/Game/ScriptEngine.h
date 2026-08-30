@@ -438,6 +438,8 @@ private:
     static int L_SetTimeToDie(lua_State* L);
     static int L_PO_Hit(lua_State* L);
     static int L_WORLD_HitPhysicObject(lua_State* L);
+    static int L_WORLD_GetLastExplodedEntities(lua_State* L);
+    static int L_ENTITY_ExplodeItem(lua_State* L);
     void ReleaseEntity(int handle);
     static int L_PO_Create(lua_State* L);
     static int L_PO_Exist(lua_State* L);
@@ -682,6 +684,10 @@ private:
     MapMesh map_;
     bool mapLoaded_ = false;
     std::unordered_map<int, int> bodyToEntity_;   // body slot -> entity handle
+    // The debris ExplodeItem made, per item that blew up. CItem:DestroyItemFX
+    // asks for it by the ITEM's handle straight after exploding it, and walks
+    // the answer to texture the parts and set them alight.
+    std::unordered_map<int, std::vector<int>> lastExploded_;
     // Body slots currently taken out of the intersection solver. Kept as a
     // list rather than rebuilt per trace: a shotgun fires a dozen traces in
     // one frame and the set is only ever a couple of entities deep.
