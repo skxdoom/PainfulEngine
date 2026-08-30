@@ -93,9 +93,6 @@ public:
             uint32_t curveMask = 0;
             std::string curveBone;
             int curveBoneIndex = -2;      // -2 = not looked up yet, -1 = absent
-            // SetAnim's 5th argument, seconds to blend in over. Recorded from
-            // the scripts but not yet acted on - see Docs/Animation.md.
-            float blend = 0.2f;
         };
         std::vector<AnimSlot> animSlots;
         int animIndex = -1;      // slot now playing, -1 = none
@@ -112,10 +109,22 @@ public:
             const Animation* anim = nullptr;   // what `tracks` was resolved against
             float time = -1.f;                 // what `boneWorld` was built at
             int rotVersion = -1;               // jointRotVersion it was built at
+            float blendU = -1.f;               // cross-fade weight it was built at
             std::vector<const AnimTrack*> tracks;
             std::vector<Mat4> boneWorld;
         };
         Pose pose;
+
+        // The animation being faded OUT of, frozen at the moment the new one
+        // started. MDL.SetAnim's fifth argument is how long that fade lasts -
+        // the templates carry one per animation, and CActor falls back to
+        // 0.201 s - and without it an actor snaps from walking to attacking
+        // inside a single frame.
+        const Animation* blendFrom = nullptr;
+        float blendFromTime = 0.f;
+        std::vector<const AnimTrack*> blendFromTracks;
+        float blendLeft = 0.f;      // seconds still to fade
+        float blendTotal = 0.f;     // what it started at, for the weight
 
         // MDL.ApplyJointRotation, one entry per bone the scripts steer. They
         // pass an absolute angle every frame (a gun recomputes its barrel
@@ -149,6 +158,8 @@ public:
         // It is a VELOCITY, not a step: CActor passes `mv * (1/delta)`.
         float moveWish[3] = {0, 0, 0};
         float fallSpeed = 0.f;           // our own, for the gravity the AI does not pass
+        // Motion asked for but not yet worth sweeping; see TickMonsters.
+        float moveResidual[3] = {0, 0, 0};
         bool onFloor = false;            // PO_IsOnFloor's first return
         float floorNormal[3] = {0, 1, 0};   // and the three after it
         // ENTITY.PO_SetMonsterMovementConst's two arguments, engine defaults
@@ -494,6 +505,7 @@ private:
     std::vector<int> expired_;   // scratch for TickLifetimes
     AnimationCache animations_;
     SkeletonCache skeletons_;
+    bool playerSpotDone_ = false;
     // Scratch for the per-frame pose push; kept so that posing forty actors
     // does not allocate forty times a frame.
     std::vector<Mat4> skinScratch_;

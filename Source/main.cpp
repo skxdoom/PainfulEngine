@@ -1478,6 +1478,75 @@ static int ScaleCmd(const char* levelDir, const char* dataRoot) {
 }
 
 // Diagnostic: do the bone bind matrices carry a scale the raw mesh lacks?
+// Cross-fades one animation into another and reports where a bone ends up at
+// each weight. This is how the blend MDL.SetAnim asks for gets checked: the
+// intermediate poses must move monotonically from one animation to the other,
+// and a bone must not change length on the way.
+static int BlendCmd(const char* path, const char* animA, const char* animB,
+                    const char* timeArg) {
+    Model model;
+    if (!Model::Load(path, model) || model.bones.empty()) {
+        LogInfo("failed to load %s, or it has no skeleton", path);
+        return 2;
+    }
+
+    std::string dir = path, base = path;
+    const size_t slash = base.find_last_of("/\\");
+    if (slash != std::string::npos) { dir = base.substr(0, slash); base = base.substr(slash + 1); }
+    else dir = ".";
+    const size_t dot = base.find_last_of('.');
+    if (dot != std::string::npos) base = base.substr(0, dot);
+
+    AnimationCache cache;
+    cache.SetRoot(dir);
+    const Animation* a = cache.Get(base, animA);
+    const Animation* b = cache.Get(base, animB);
+    if (!a || !b) {
+        LogInfo("missing %s.%s.ani or %s.%s.ani", base.c_str(), animA, base.c_str(), animB);
+        return 2;
+    }
+
+    std::vector<Bone> bones = model.bones;
+    BuildHierarchy(bones);
+    std::vector<Mat4> bw, ib;
+    ComputeBindWorld(bones, bw, ib);
+    std::vector<const AnimTrack*> ta, tb;
+    ResolveAnimTracks(bones, *a, ta);
+    ResolveAnimTracks(bones, *b, tb);
+
+    const float t = timeArg ? float(std::atof(timeArg)) : 0.f;
+    // A bone deep enough in the chain that a bad blend shows: the head.
+    const size_t probe = bones.size() > 6 ? 6 : bones.size() - 1;
+    LogInfo("%s: %s -> %s at t=%.3f, bone [%zu] %s", path, animA, animB, t,
+            probe, bones[probe].name.c_str());
+
+    std::vector<Mat4> world;
+    float prev[3] = {0, 0, 0};
+    for (int step = 0; step <= 4; ++step) {
+        const float u = float(step) * 0.25f;
+        ComputeBoneWorldBlended(bones, ta, t, tb, t, u, world);
+        const float* m = world[probe].m;
+        // Bone length from its parent: a blend that lerped matrices instead of
+        // rotations would shorten this in the middle.
+        const int par = bones[probe].parent;
+        float len = 0.f;
+        if (par >= 0) {
+            const float* p = world[size_t(par)].m;
+            for (int c = 0; c < 3; ++c) {
+                const float d = m[12 + c] - p[12 + c];
+                len += d * d;
+            }
+            len = std::sqrt(len);
+        }
+        LogInfo("  u=%.2f  pos %7.3f %7.3f %7.3f   from parent %.4f%s", u,
+                m[12], m[13], m[14], len,
+                step == 0 ? "" : (std::fabs(m[12]-prev[0]) + std::fabs(m[13]-prev[1]) +
+                                  std::fabs(m[14]-prev[2]) > 1e-5f ? "  (moved)" : "  (STUCK)"));
+        for (int c = 0; c < 3; ++c) prev[c] = m[12 + c];
+    }
+    return 0;
+}
+
 static int BonesCmd(const char* path, const char* animName, const char* timeArg,
                     const char* rotArg) {
     Model m;
@@ -2307,6 +2376,8 @@ int main(int argc, char** argv) {
     if (cmd == "resolve" && argc >= 4) return ResolveCmd(argv[2], argv[3]);
     if (cmd == "texdump" && argc >= 4) return TexDumpCmd(argv[2], argv[3], argc >= 5 ? argv[4] : "");
     if (cmd == "skytex" && argc >= 4) return SkyTexCmd(argv[2], argv[3]);
+    if (cmd == "blend" && argc >= 5)
+        return BlendCmd(argv[2], argv[3], argv[4], argc >= 6 ? argv[5] : nullptr);
     if (cmd == "bones")
         return BonesCmd(argv[2], argc >= 4 ? argv[3] : nullptr,
                         argc >= 5 ? argv[4] : nullptr, argc >= 6 ? argv[5] : nullptr);

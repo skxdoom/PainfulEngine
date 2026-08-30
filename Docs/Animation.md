@@ -371,3 +371,31 @@ Worth knowing for testing: **a headless run never exercises this.** Monsters
 idle when they cannot see the player, `idle` declares no movement curve, and
 `PosedBones` is only reached when a renderer is attached - so the correction
 has to be forced to be seen outside a real game.
+
+## Blending: the fifth argument, finally used
+
+Reported from play: transitions between a monster's animations were abrupt.
+`MDL.SetAnim`'s fifth argument is a blend time - the templates carry one per
+animation in `Animations[anim][4]` and `CActor` falls back to **0.201 s** - and
+it was being recorded and ignored, so an actor snapped from walking to
+attacking inside a single frame.
+
+`SetAnim` now freezes the outgoing animation and its time, and the pose
+cross-fades from it. Two things worth keeping:
+
+**The blend is on each bone's LOCAL transform, before the hierarchy composes.**
+Blending world matrices instead lets a child drift off its parent - two
+independently blended world transforms need not agree about where the joint
+between them is, so the model comes apart at the seams exactly while it is most
+visible.
+
+**The fade only restarts when the animation actually changes.** `CActor` re-sets
+the same animation constantly; restarting on every call would leave an actor
+permanently half-way between a pose and itself.
+
+Checked with `painful blend <model> <animA> <animB> [time]`, which reports a
+bone at five weights. Fading `evilmonkv2` from `idle` into `atak`, the head
+travels smoothly from (0.644, 8.116, 2.645) to (1.498, 7.664, 1.813) - and its
+distance from its parent reads **2.5932 at every weight**. That constant is the
+real test: a blend that lerped the matrices entry by entry would shorten the
+bone through the middle of the fade, and going through the quaternion does not.

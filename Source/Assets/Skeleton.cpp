@@ -173,6 +173,28 @@ Mat4 BlendPose(const Mat4& a, const Mat4& b, float u) {
 
 namespace {
 
+// A script's own rotation on top of the animation. `local` maps this bone's
+// space into its parent's, so PRE-multiplying applies the turn in the BONE's
+// frame - the head turns where it sits. Post-multiplying would apply it in the
+// parent's frame and swing the head around the neck instead.
+Mat4 ApplyJointOverride(Mat4 local, size_t bone,
+                        const JointOverride* overrides, size_t overrideCount) {
+    for (size_t o = 0; o < overrideCount; ++o) {
+        if (overrides[o].bone != int(bone)) continue;
+        const float* e = overrides[o].euler;
+        if (e[0] == 0.f && e[1] == 0.f && e[2] == 0.f) break;
+        float q[4], rot[9];
+        EngineEulerToQuat(e[0], e[1], e[2], q);
+        EngineQuatToRot9(q, rot);
+        Mat4 r;
+        for (int rr = 0; rr < 3; ++rr)
+            for (int cc = 0; cc < 3; ++cc) r.m[rr * 4 + cc] = rot[rr * 3 + cc];
+        local = Mat4::Mul(r, local);
+        break;
+    }
+    return local;
+}
+
 // One bone's parent-relative matrix at a playback time: the animation's if it
 // drives this bone, its bind pose otherwise, plus any script rotation.
 Mat4 LocalAtTime(const std::vector<Bone>& bones,
@@ -230,6 +252,29 @@ void ComputeBoneWorldAtTime(const std::vector<Bone>& bones,
     for (size_t i = 0; i < bones.size(); ++i) {
         const Mat4 local = LocalAtTime(bones, tracks, i, time, overrides, overrideCount);
         // Bones are stored in preorder, so a parent is always already done.
+        const int par = bones[i].parent;
+        outWorld[i] = (par >= 0) ? Mat4::Mul(local, outWorld[par]) : local;
+    }
+}
+
+void ComputeBoneWorldBlended(const std::vector<Bone>& bones,
+                             const std::vector<const AnimTrack*>& tracksA, float timeA,
+                             const std::vector<const AnimTrack*>& tracksB, float timeB,
+                             float u,
+                             std::vector<Mat4>& outWorld,
+                             const JointOverride* overrides,
+                             size_t overrideCount) {
+    u = std::min(1.f, std::max(0.f, u));
+    outWorld.assign(bones.size(), Mat4{});
+    for (size_t i = 0; i < bones.size(); ++i) {
+        // The script's own joint rotation goes on AFTER the cross-fade, not
+        // into either side of it: a head turned to follow the player is
+        // turned by that much throughout the blend, not faded in with it.
+        const Mat4 a = LocalAtTime(bones, tracksA, i, timeA, nullptr, 0);
+        const Mat4 b = LocalAtTime(bones, tracksB, i, timeB, nullptr, 0);
+        Mat4 local = BlendPose(a, b, u);
+        local = ApplyJointOverride(local, i, overrides, overrideCount);
+
         const int par = bones[i].parent;
         outWorld[i] = (par >= 0) ? Mat4::Mul(local, outWorld[par]) : local;
     }

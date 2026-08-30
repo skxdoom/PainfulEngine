@@ -21,6 +21,7 @@ extern "C" {
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 
 namespace painful {
@@ -335,10 +336,26 @@ float ScriptEngine::MonsterRadius(Entity& e, float* centreAboveOrigin) {
 void ScriptEngine::TickMonsters(float dt) {
     if (dt <= 0.f || !physics_) return;
 
+    // PAINFUL_PLAYER_AT lands HERE rather than at spawn: the scripts place the
+    // player themselves during level load, so an override applied any earlier
+    // is simply overwritten before the first frame.
+    if (!playerSpotDone_ && pawn_ && playerHandle_) {
+        playerSpotDone_ = true;
+        float at[3];
+        const char* spot = getenv("PAINFUL_PLAYER_AT");
+        if (spot && std::sscanf(spot, "%f,%f,%f", &at[0], &at[1], &at[2]) == 3) {
+            pawn_->Spawn(at);
+            LogInfo("player moved to %.1f %.1f %.1f (PAINFUL_PLAYER_AT)", at[0], at[1], at[2]);
+        }
+    }
+
+
     for (auto& kv : entities_) {
         Entity& e = kv.second;
         if (!e.isMonster || e.physicsBody < 0) continue;
 
+        // Comfortably above SlideSphere's own 0.02 skin.
+        static constexpr float kSweepSkin = 0.05f;
         float lift = 0.f;
         const float radius = MonsterRadius(e, &lift);
         if (radius <= 0.f) continue;
@@ -349,9 +366,29 @@ void ScriptEngine::TickMonsters(float dt) {
         // the physics step this stands in for.
         e.fallSpeed = e.onFloor ? 0.f : e.fallSpeed + physics_->settings().gravity * dt;
 
-        const float step[3] = {e.moveWish[0] * dt,
-                               e.moveWish[1] * dt - e.fallSpeed * dt,
-                               e.moveWish[2] * dt};
+        // Carry the step forward until it is worth sweeping.
+        //
+        // SlideSphere keeps a 0.02 skin off every surface and advances by
+        // `length - skin`, so a step SHORTER than the skin advances by nothing
+        // at all. The player never meets that - it moves 0.13 units a frame -
+        // but an actor damps its speed down as it closes on its target, and at
+        // 0.46 units a second a 60 Hz step is 0.008 units. Swept one frame at a
+        // time it is frozen forever, however long it walks.
+        //
+        // So the step accumulates and is spent in one go once it clears the
+        // skin. Nothing is lost: the distance is the same, it just arrives
+        // every third frame instead of every frame.
+        for (int c = 0; c < 3; ++c) {
+            e.moveResidual[c] += e.moveWish[c] * dt;
+            if (c == 1) e.moveResidual[c] -= e.fallSpeed * dt;
+        }
+        const float carried = std::sqrt(e.moveResidual[0] * e.moveResidual[0] +
+                                        e.moveResidual[1] * e.moveResidual[1] +
+                                        e.moveResidual[2] * e.moveResidual[2]);
+        if (carried < kSweepSkin) continue;
+
+        const float step[3] = {e.moveResidual[0], e.moveResidual[1], e.moveResidual[2]};
+        for (int c = 0; c < 3; ++c) e.moveResidual[c] = 0.f;
 
         // The SAME swept sphere the player moves with, so a monster is stopped
         // by exactly the geometry the player is stopped by. solidProps=true
@@ -362,6 +399,7 @@ void ScriptEngine::TickMonsters(float dt) {
         // the origin afterwards; MonsterRadius works that offset out from the
         // model's own bounds.
         float pos[3] = {e.pos[0], e.pos[1] + lift, e.pos[2]};
+        physics_->SlideSphere(pos, step, radius, true, e.physicsBody);
 
         // Floor state, for PO_IsOnFloor. A short probe straight down: far
         // enough to survive the gap a slide leaves, short enough not to claim
@@ -754,15 +792,20 @@ bool ScriptEngine::Sees(Entity& a, Entity& b) const {
 
     // Line of sight. Both bodies are excluded: the looker's own body is on the
     // line by construction, and the target's would stop the trace one step
-    // short of the thing being looked for.
-    int exclude[2];
-    size_t excludeCount = 0;
-    if (a.physicsBody >= 0) exclude[excludeCount++] = a.physicsBody;
-    if (b.physicsBody >= 0) exclude[excludeCount++] = b.physicsBody;
-
+    // Against the WORLD only, not against other bodies.
+    //
+    // Engine.dll's CalculatePawnToEntityVisibility (0x10198D30) takes both
+    // pawns' head positions, checks the range at PhysicsObject+0x24 and the
+    // pitch cone at +0x30, and then resolves the rest through
+    // World::FindZone - the zone graph. Visibility there is a question about
+    // level geometry, not about what happens to be standing in the way.
+    //
+    // Measured, and the difference is the whole behaviour of a crowd: 16 monks
+    // spawned four deep in front of the player, tracing against bodies, leaves
+    // 9 of 16 ever seeing him - only the front rank, because each rank blinds
+    // the one behind it. Against the world alone all 16 see, walk and arrive.
     PhysicsWorld::RayHit hit;
-    if (!physics_->RayCast(a.pos, b.pos, hit, false,
-                           excludeCount ? exclude : nullptr, excludeCount))
+    if (!physics_->RayCast(a.pos, b.pos, hit, true))
         return true;                          // nothing in the way at all
     return hit.distance >= dist - 1e-3f;      // whatever it hit is past the target
 }
@@ -874,8 +917,8 @@ int ScriptEngine::L_CreatePlayer(lua_State* L) {
     self->playerHandle_ = handle;
     self->pawnEnabled_ = true;
     if (self->pawn_) {
-        const float zero[3] = {0, 0, 0};
-        self->pawn_->Spawn(zero);
+        const float at[3] = {0, 0, 0};
+        self->pawn_->Spawn(at);
     }
     lua_pushnumber(L, handle);
     return 1;
@@ -1610,6 +1653,22 @@ int ScriptEngine::L_MDL_SetAnim(lua_State* L) {
         index = int(e->animSlots.size()) - 1;
     }
 
+    // Start the cross-fade out of whatever was playing, before the index moves.
+    // Only when the animation actually changes: CActor re-sets the same
+    // animation constantly, and restarting the fade every tick would leave an
+    // actor permanently half-way between a pose and itself.
+    const Animation* previous =
+        (e->animIndex >= 0 && size_t(e->animIndex) < e->animSlots.size())
+            ? e->animSlots[size_t(e->animIndex)].anim
+            : nullptr;
+    if (previous && previous != anim) {
+        e->blendFrom = previous;
+        e->blendFromTime = e->animTime;
+        e->blendFromTracks.clear();      // resolved lazily against the skeleton
+        e->blendTotal = float(luaL_optnumber(L, 5, 0.201));
+        e->blendLeft = e->blendTotal;
+    }
+
     e->animIndex = index;
     e->animTime = 0.f;
     // Every default here is Engine.dll's own (SetAnim, 0x1013BFC0): looping is
@@ -1626,7 +1685,6 @@ int ScriptEngine::L_MDL_SetAnim(lua_State* L) {
     // engine does - it calls SetAnimationMovementCurve only for mcurve > 0 and
     // otherwise leaves whatever the animation already had.
     Entity::AnimSlot& slot = e->animSlots[size_t(index)];
-    slot.blend = float(luaL_optnumber(L, 5, 0.2));
     const uint32_t mask = uint32_t(luaL_optnumber(L, 6, 0));
     if (mask > 0) {
         const char* bone = lua_isstring(L, 7) ? lua_tostring(L, 7) : "ROOOT";
@@ -1826,12 +1884,26 @@ const std::vector<Mat4>* ScriptEngine::PosedBones(Entity& e) {
         e.pose.time = -1.f;                      // force a rebuild below
     }
 
+    // The weight is 0 at the moment of the switch and 1 when the fade is done.
+    const float blendU = (e.blendFrom && e.blendTotal > 1e-6f)
+                             ? 1.f - e.blendLeft / e.blendTotal
+                             : 1.f;
+
     if (e.pose.time != e.animTime || e.pose.rotVersion != e.jointRotVersion ||
-        e.pose.boneWorld.size() != skel->bones.size()) {
-        ComputeBoneWorldAtTime(skel->bones, e.pose.tracks, e.animTime, e.pose.boneWorld,
-                               e.jointRot.data(), e.jointRot.size());
+        e.pose.blendU != blendU || e.pose.boneWorld.size() != skel->bones.size()) {
+        if (e.blendFrom && blendU < 1.f) {
+            if (e.blendFromTracks.size() != skel->bones.size())
+                ResolveAnimTracks(skel->bones, *e.blendFrom, e.blendFromTracks);
+            ComputeBoneWorldBlended(skel->bones, e.blendFromTracks, e.blendFromTime,
+                                    e.pose.tracks, e.animTime, blendU, e.pose.boneWorld,
+                                    e.jointRot.data(), e.jointRot.size());
+        } else {
+            ComputeBoneWorldAtTime(skel->bones, e.pose.tracks, e.animTime, e.pose.boneWorld,
+                                   e.jointRot.data(), e.jointRot.size());
+        }
         e.pose.time = e.animTime;
         e.pose.rotVersion = e.jointRotVersion;
+        e.pose.blendU = blendU;
 
         // Take the root motion back out of the POSE.
         //
@@ -2072,6 +2144,18 @@ void ScriptEngine::TickAnimations(float dt) {
             // loop walks forward through the declared times and would fire
             // the whole list again on every pass.
             e.animTime = length;
+        }
+
+        // Run the cross-fade down. It is spent in real seconds, not animation
+        // time, so a blend lasts as long as the template says whatever speed
+        // the outgoing animation was playing at.
+        if (e.blendLeft > 0.f) {
+            e.blendLeft -= dt;
+            if (e.blendLeft <= 0.f) {
+                e.blendLeft = 0.f;
+                e.blendFrom = nullptr;
+                e.blendFromTracks.clear();
+            }
         }
 
         // Hand the pose to the renderer. Headless runs have none attached,

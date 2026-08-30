@@ -290,6 +290,51 @@ int RotateVector(lua_State* L, bool inverse) {
 int L_VectorRotateByQuat(lua_State* L) { return RotateVector(L, true); }
 int L_VectorInverseRotateByQuat(lua_State* L) { return RotateVector(L, false); }
 
+// ---------------------------------------------------------------- paths
+//
+// PATH.* is the waypoint pathfinder an actor walks with. `CActor:StartWalking`
+// asks it for a route and `NextPoint` follows it, and every level ships the
+// graph beside its map as a .wps file - so this is a real system still to be
+// built, not a stub to leave behind.
+//
+// Until it is, the honest answer is the one Engine.dll already gives for a
+// path it cannot use. IsFinished (0x1013AA20) starts with "finished" and only
+// clears it if PeekPos finds a point; a null path falls straight through to
+// the return, so **no path means finished**. And "finished" is not a dead end
+// in CActor - it is the branch that walks STRAIGHT AT THE DESTINATION:
+//
+//     if PATH.IsFinished(self._Path) == 1 then   -- nie ma wiecej WP
+//         self:RotateToVector(self._destx, 0, self._destz)
+//         self._forceMove = true
+//
+// So actors move, by the engine's own fallback, in straight lines. What they
+// cannot yet do is round a corner they cannot see past; that needs the .wps
+// graph. Monsters whose template sets `onlyWPmove` deliberately stay put,
+// which is also the original's behaviour with no path.
+int L_PATH_Create(lua_State* L) {
+    // Any non-nil handle will do: the scripts only ever pass it back here, and
+    // CActor keeps it in `_Path` and tests it for nil before creating another.
+    // Returning nothing made every actor build a new path every single tick.
+    lua_pushnumber(L, 1);
+    return 1;
+}
+
+int L_PATH_Release(lua_State*) { return 0; }
+
+int L_PATH_GetShortest(lua_State*) { return 0; }   // no graph to search yet
+
+int L_PATH_IsFinished(lua_State* L) {
+    lua_pushnumber(L, 1);
+    return 1;
+}
+
+// Never reached while IsFinished always answers 1, but it has to return three
+// numbers if it ever is: CActor feeds them straight into Dist3D.
+int L_PATH_GetNextPoint(lua_State* L) {
+    for (int i = 0; i < 3; ++i) lua_pushnumber(L, 0);
+    return 3;
+}
+
 // VectorRotate(x,y,z, ax,ay,az) -> the vector turned by Euler angles.
 //
 // Engine.dll (0x1013B660) builds a matrix from the three angles and pushes the
@@ -702,6 +747,11 @@ struct ModuleImpl {
     lua_CFunction fn;
 };
 const ModuleImpl kModuleImpls[] = {
+    {"PATH", "Create", L_PATH_Create},
+    {"PATH", "Release", L_PATH_Release},
+    {"PATH", "GetShortest", L_PATH_GetShortest},
+    {"PATH", "IsFinished", L_PATH_IsFinished},
+    {"PATH", "GetNextPoint", L_PATH_GetNextPoint},
     {"LANG", "ParseLangFile", L_LANG_ParseLangFile},
     {"R3D", "RGB", L_R3D_RGB},
     {"R3D", "RGBA", L_R3D_RGBA},

@@ -67,6 +67,25 @@ void ComputeBoneWorldAtTime(const std::vector<Bone>& bones,
                             const JointOverride* overrides = nullptr,
                             size_t overrideCount = 0);
 
+// Two animations at once, cross-faded: u = 0 is entirely A, u = 1 entirely B.
+//
+// MDL.SetAnim's fifth argument is a blend time - the templates carry one per
+// animation and CActor falls back to 0.201 s - and without it an actor snaps
+// from walking to attacking in a single frame.
+//
+// The blend happens on each bone's LOCAL transform, before the hierarchy is
+// composed. Blending the world matrices instead lets a child drift off its
+// parent: two independently blended world transforms need not agree about
+// where the joint between them is, so the model comes apart at the seams
+// exactly while it is most visible.
+void ComputeBoneWorldBlended(const std::vector<Bone>& bones,
+                             const std::vector<const AnimTrack*>& tracksA, float timeA,
+                             const std::vector<const AnimTrack*>& tracksB, float timeB,
+                             float u,
+                             std::vector<Mat4>& outWorld,
+                             const JointOverride* overrides = nullptr,
+                             size_t overrideCount = 0);
+
 // One bone's model-space position at a playback time, walking only its own
 // ancestors. Root motion asks this twice per actor per tick and reads a single
 // bone, so posing the whole skeleton for it would cost more than the animation
