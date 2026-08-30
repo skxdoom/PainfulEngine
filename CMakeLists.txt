@@ -177,13 +177,19 @@ add_library(painful_render STATIC
 # the already-loaded image_decode.obj and bimg's copy stays out.
 target_link_libraries(painful_render PUBLIC painful_world SDL3::SDL3-static bgfx bimg_decode bimg bx)
 
+# The sound system: one mixed device stream behind SOUND / SOUND2D / SOUND3D.
+add_library(painful_audio STATIC
+  Source/Audio/AudioEngine.cpp
+)
+target_link_libraries(painful_audio PUBLIC painful_core SDL3::SDL3-static)
+
 # The game layer: the seam where script natives meet the engine subsystems.
 add_library(painful_game STATIC
   Source/Game/ScriptEngine.cpp
   Source/Game/PlayerPawn.cpp
   Source/Game/Input.cpp
 )
-target_link_libraries(painful_game PUBLIC painful_script painful_render)
+target_link_libraries(painful_game PUBLIC painful_script painful_render painful_audio)
 
 # WIN32: a GUI-subsystem executable, so double-clicking it opens no console.
 # main() is kept as the entry point via the WinMain shim in main.cpp.

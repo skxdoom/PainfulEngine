@@ -10,6 +10,7 @@
 #include "../Render/EntityRenderer.h"
 #include "../Render/ParticleRenderer.h"
 #include "../Render/TextureCache.h"
+#include "../Audio/AudioEngine.h"
 #include "PlayerPawn.h"
 
 extern "C" {
@@ -733,6 +734,198 @@ int ScriptEngine::L_PO_SetMonsterType(lua_State* L) {
     if (self->physics_ && e->physicsBody >= 0)
         self->physics_->SetScriptBodyKinematic(e->physicsBody, self->MonsterRadius(*e));
     return 0;
+}
+
+// ------------------------------------------------------------------ sound
+//
+// Three families, and the split is by how the scripts hold them rather than by
+// what they sound like:
+//
+//   SOUND.Play2D / Play3D   fire and forget; the handle comes back but most
+//                           callers drop it
+//   SOUND2D.*               a handle kept and driven - a bullet-time loop
+//   SOUND3D.*               the same, at a world position - a flamethrower,
+//                           an elevator
+//
+// Volume arrives as 0..100 (CObject:GetSndInfo defaults to 100), and the
+// hearing distances default to 15 and 40 there, so a script that names only a
+// sample still gets sensible falloff.
+
+// The sample name the scripts build is a path under Sounds without the
+// extension, and CObject:GetSndInfo joins it as `path.."/"..name`, which
+// leaves a leading slash when the definition has no path. Trim it rather than
+// failing to find the file.
+static std::string SoundName(lua_State* L, int index) {
+    const char* raw = lua_isstring(L, index) ? lua_tostring(L, index) : nullptr;
+    if (!raw) return std::string();
+    std::string name = raw;
+    while (!name.empty() && (name.front() == '/' || name.front() == '\\'))
+        name.erase(name.begin());
+    return name;
+}
+
+static float SoundVolume(lua_State* L, int index) {
+    // 0..100 from the scripts; anything absent means full.
+    const double v = luaL_optnumber(L, index, 100.0);
+    return float(v) * 0.01f;
+}
+
+int ScriptEngine::L_SOUND_Play2D(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (!self->audio_) return 0;
+    const int v = self->audio_->Play2D(SoundName(L, 1), SoundVolume(L, 2),
+                                       lua_toboolean(L, 3) != 0,
+                                       lua_toboolean(L, 4) != 0);
+    lua_pushnumber(L, v);
+    return 1;
+}
+
+int ScriptEngine::L_SOUND_Play3D(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (!self->audio_) return 0;
+    const float pos[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+                          float(luaL_optnumber(L, 4, 0))};
+    const int v = self->audio_->Play3D(SoundName(L, 1), pos,
+                                       float(luaL_optnumber(L, 5, 15.0)),
+                                       float(luaL_optnumber(L, 6, 40.0)),
+                                       lua_toboolean(L, 7) != 0);
+    lua_pushnumber(L, v);
+    return 1;
+}
+
+// SOUND2D.Create(name, loop) / SOUND3D.Create(name) -> a handle the script
+// keeps. Created stopped: the scripts call Play when they want it.
+int ScriptEngine::L_SND_Create2D(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (!self->audio_) return 0;
+    const int v = self->audio_->Create(SoundName(L, 1), false);
+    if (v && lua_toboolean(L, 2)) self->audio_->SetLoopCount(v, -1);
+    lua_pushnumber(L, v);
+    return 1;
+}
+
+int ScriptEngine::L_SND_Create3D(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (!self->audio_) return 0;
+    const int v = self->audio_->Create(SoundName(L, 1), true);
+    if (v && lua_toboolean(L, 2)) self->audio_->SetLoopCount(v, -1);
+    lua_pushnumber(L, v);
+    return 1;
+}
+
+int ScriptEngine::L_SND_Play(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (self->audio_) self->audio_->Start(int(luaL_optnumber(L, 1, 0)));
+    return 0;
+}
+
+int ScriptEngine::L_SND_Stop(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (self->audio_) self->audio_->Stop(int(luaL_optnumber(L, 1, 0)));
+    return 0;
+}
+
+int ScriptEngine::L_SND_Pause(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (self->audio_) self->audio_->Pause(int(luaL_optnumber(L, 1, 0)), true);
+    return 0;
+}
+
+int ScriptEngine::L_SND_IsPlaying(lua_State* L) {
+    ScriptEngine* self = From(L);
+    lua_pushboolean(L, self->audio_ &&
+                           self->audio_->IsPlaying(int(luaL_optnumber(L, 1, 0))));
+    return 1;
+}
+
+int ScriptEngine::L_SND_SetVolume(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (self->audio_)
+        self->audio_->SetVolume(int(luaL_optnumber(L, 1, 0)), SoundVolume(L, 2));
+    return 0;
+}
+
+int ScriptEngine::L_SND_SetLoopCount(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (self->audio_)
+        self->audio_->SetLoopCount(int(luaL_optnumber(L, 1, 0)),
+                                   int(luaL_optnumber(L, 2, 0)));
+    return 0;
+}
+
+int ScriptEngine::L_SND_SetPosition(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (!self->audio_) return 0;
+    const float pos[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+                          float(luaL_optnumber(L, 4, 0))};
+    self->audio_->SetPosition(int(luaL_optnumber(L, 1, 0)), pos);
+    return 0;
+}
+
+int ScriptEngine::L_SND_SetHearingDistance(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (self->audio_)
+        self->audio_->SetHearingDistance(int(luaL_optnumber(L, 1, 0)),
+                                         float(luaL_optnumber(L, 2, 15.0)),
+                                         float(luaL_optnumber(L, 3, 40.0)));
+    return 0;
+}
+
+int ScriptEngine::L_SND_SetSoundSpeed(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (self->audio_)
+        self->audio_->SetSpeed(int(luaL_optnumber(L, 1, 0)),
+                               float(luaL_optnumber(L, 2, 1.0)));
+    return 0;
+}
+
+// Delete stops it; Forget lets it finish and stops caring. Both hand the slot
+// back, which is what keeps a level's worth of one-shots from filling the pool.
+int ScriptEngine::L_SND_Delete(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (self->audio_) self->audio_->Release(int(luaL_optnumber(L, 1, 0)), false);
+    return 0;
+}
+
+int ScriptEngine::L_SND_Forget(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (self->audio_) self->audio_->Release(int(luaL_optnumber(L, 1, 0)), true);
+    return 0;
+}
+
+// SOUND.SetPlayerPos / SetPlayerOrientation - the listener, pushed every frame
+// by CPlayer. Without the orientation everything would still attenuate with
+// distance but nothing would come from a side.
+int ScriptEngine::L_SOUND_SetPlayerPos(lua_State* L) {
+    ScriptEngine* self = From(L);
+    for (int c = 0; c < 3; ++c)
+        self->listenerPos_[c] = float(luaL_optnumber(L, c + 1, 0));
+    self->PushListener();
+    return 0;
+}
+
+int ScriptEngine::L_SOUND_SetPlayerOrientation(lua_State* L) {
+    ScriptEngine* self = From(L);
+    for (int c = 0; c < 3; ++c)
+        self->listenerFwd_[c] = float(luaL_optnumber(L, c + 1, 0));
+    self->PushListener();
+    return 0;
+}
+
+void ScriptEngine::PushListener() {
+    if (!audio_) return;
+    // Right = forward x up. The scripts only hand over a forward vector, and
+    // panning needs a side.
+    const float* f = listenerFwd_;
+    float right[3] = {f[1] * 0.f - f[2] * 1.f, f[2] * 0.f - f[0] * 0.f,
+                      f[0] * 1.f - f[1] * 0.f};
+    const float l = std::sqrt(right[0] * right[0] + right[1] * right[1] + right[2] * right[2]);
+    if (l > 1e-5f) {
+        for (int c = 0; c < 3; ++c) right[c] /= l;
+    } else {
+        right[0] = 1.f; right[1] = 0.f; right[2] = 0.f;
+    }
+    audio_->SetListener(listenerPos_, listenerFwd_, right);
 }
 
 // WPT.Load(dir, mergeFlag) - the navigation graph.
@@ -2600,6 +2793,30 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"ENTITY", "PO_IsOnFloor", L_PO_IsOnFloor},
         {"ENTITY", "PO_SetSightParams", L_PO_SetSightParams},
         {"ENTITY", "SeesEntity", L_SeesEntity},
+        {"SOUND", "Play2D", L_SOUND_Play2D},
+        {"SOUND", "Play3D", L_SOUND_Play3D},
+        {"SOUND", "SetPlayerPos", L_SOUND_SetPlayerPos},
+        {"SOUND", "SetPlayerOrientation", L_SOUND_SetPlayerOrientation},
+        {"SOUND2D", "Create", L_SND_Create2D},
+        {"SOUND2D", "Play", L_SND_Play},
+        {"SOUND2D", "Stop", L_SND_Stop},
+        {"SOUND2D", "Pause", L_SND_Pause},
+        {"SOUND2D", "IsPlaying", L_SND_IsPlaying},
+        {"SOUND2D", "SetVolume", L_SND_SetVolume},
+        {"SOUND2D", "SetLoopCount", L_SND_SetLoopCount},
+        {"SOUND2D", "SetSoundSpeed", L_SND_SetSoundSpeed},
+        {"SOUND2D", "Delete", L_SND_Delete},
+        {"SOUND2D", "Forget", L_SND_Forget},
+        {"SOUND3D", "Create", L_SND_Create3D},
+        {"SOUND3D", "Play", L_SND_Play},
+        {"SOUND3D", "Stop", L_SND_Stop},
+        {"SOUND3D", "IsPlaying", L_SND_IsPlaying},
+        {"SOUND3D", "SetVolume", L_SND_SetVolume},
+        {"SOUND3D", "SetLoopCount", L_SND_SetLoopCount},
+        {"SOUND3D", "SetPosition", L_SND_SetPosition},
+        {"SOUND3D", "SetHearingDistance", L_SND_SetHearingDistance},
+        {"SOUND3D", "Delete", L_SND_Delete},
+        {"SOUND3D", "Forget", L_SND_Forget},
         {"WPT", "Load", L_WPT_Load},
         {"PATH", "Create", L_PATH_Create},
         {"PATH", "Release", L_PATH_Release},

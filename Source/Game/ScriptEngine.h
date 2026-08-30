@@ -20,6 +20,7 @@ class EntityRenderer;
 class ParticleRenderer;
 class PlayerPawn;
 class TextureCache;
+class AudioEngine;
 
 // The engine-side state behind the script natives: the entity registry that
 // ENTITY.* manipulates and the world state WORLD.* accumulates. This is the
@@ -231,6 +232,10 @@ public:
     void AttachParticles(ParticleRenderer* particles, EmitterLibrary* library);
     void AttachBillboards(BillboardRenderer* billboards);
 
+    // The sound system. Without it every SOUND native is a silent no-op,
+    // which is what a headless run wants.
+    void AttachAudio(AudioEngine* audio) { audio_ = audio; }
+
     // Attaches the player pawn: CreatePlayer and the PO_ pawn family become
     // real, and the game loop can walk.
     void AttachPlayer(PlayerPawn* pawn);
@@ -370,6 +375,24 @@ private:
     static int L_PO_IsOnFloor(lua_State* L);
     static int L_PO_SetSightParams(lua_State* L);
     static int L_SeesEntity(lua_State* L);
+    static int L_SOUND_Play2D(lua_State* L);
+    static int L_SOUND_Play3D(lua_State* L);
+    static int L_SND_Create2D(lua_State* L);
+    static int L_SND_Create3D(lua_State* L);
+    static int L_SND_Play(lua_State* L);
+    static int L_SND_Stop(lua_State* L);
+    static int L_SND_Pause(lua_State* L);
+    static int L_SND_IsPlaying(lua_State* L);
+    static int L_SND_SetVolume(lua_State* L);
+    static int L_SND_SetLoopCount(lua_State* L);
+    static int L_SND_SetPosition(lua_State* L);
+    static int L_SND_SetHearingDistance(lua_State* L);
+    static int L_SND_SetSoundSpeed(lua_State* L);
+    static int L_SND_Delete(lua_State* L);
+    static int L_SND_Forget(lua_State* L);
+    static int L_SOUND_SetPlayerPos(lua_State* L);
+    static int L_SOUND_SetPlayerOrientation(lua_State* L);
+    void PushListener();
     static int L_WPT_Load(lua_State* L);
     static int L_PATH_Create(lua_State* L);
     static int L_PATH_Release(lua_State* L);
@@ -517,6 +540,10 @@ private:
     // and the routes PATH.* hands the scripts over it. A path is a queue of
     // points an actor walks in order; the scripts hold an index into `paths_`
     // and pass it back to every PATH call.
+    AudioEngine* audio_ = nullptr;
+    float listenerPos_[3] = {0, 0, 0};
+    float listenerFwd_[3] = {0, 0, 1};
+
     WaypointSet waypoints_;
     struct Route {
         std::vector<float> points;   // xyz triples, front first

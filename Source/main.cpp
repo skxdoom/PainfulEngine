@@ -13,6 +13,8 @@
 #include "Core/FileSystem.h"
 #include "Core/Log.h"
 #include "Game/PlayerPawn.h"
+#include "Audio/AudioEngine.h"
+#include <SDL3/SDL.h>
 #include "Game/ScriptEngine.h"
 #include "Script/LuaHost.h"
 #include "Render/Renderer.h"
@@ -731,6 +733,10 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     engine.AttachPhysics(&physics, root);
     if (particlesReady) engine.AttachParticles(&particles, &emitterScripts);
     if (billboardsReady) engine.AttachBillboards(&billboards);
+
+    // Sound. A machine with no output device still plays the game, silently.
+    AudioEngine audio;
+    if (audio.Init(root + "/Sounds")) engine.AttachAudio(&audio);
     engine.AttachPlayer(&pawn);
     engine.AttachInput(&input);
     if (!host.Boot()) return 3;
@@ -937,6 +943,7 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
 
         engine.TickAnimations(dt);
         engine.TickMonsters(dt);
+        audio.Update();
         host.CallGlobal("Game_Tick", d, 1);
         physics.Update(dt);
         engine.SyncFromPhysics();
@@ -1019,6 +1026,9 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
                         "%zu script entities", frame, entities.drawCalls(),
                         entities.posedInstances(), engine.entities().size());
                 LogInfo("  posing: %s", posed.empty() ? "(nothing)" : posed.c_str());
+                LogInfo("  audio: %zu playing, %zu started, %zu reaped, %zu samples, %zu missing",
+                        audio.voicesPlaying(), audio.voicesStarted(), audio.voicesReaped(),
+                        audio.samplesLoaded(), audio.samplesMissing());
             }
             if (frame >= shotFrame + 4) break;
         }
@@ -1662,6 +1672,40 @@ static int WpsCmd(const char* path) {
                     na, nb);
         }
     }
+    return 0;
+}
+
+// Plays one sample through the engine and waits, so the audio path can be
+// tested without the game around it. `painful sound Sounds/misc/gas-outflow-5sec`
+// - if this is silent but the mixer reports signal, the problem is SDL's
+// delivery rather than anything the engine computes.
+static int SoundCmd(const char* root, const char* name, const char* seconds) {
+    AudioEngine audio;
+    if (!audio.Init(std::string(root) + "/Sounds")) {
+        LogInfo("no audio device");
+        return 2;
+    }
+    const float listener[3] = {0, 0, 0};
+    const float fwd[3] = {0, 0, 1};
+    const float right[3] = {1, 0, 0};
+    audio.SetListener(listener, fwd, right);
+
+    // 2D at full volume: no distance, no panning, nothing to get wrong.
+    const int v = audio.Play2D(name, 100.f, false, true);
+    if (!v) {
+        LogInfo("could not play %s (missing %zu)", name, audio.samplesMissing());
+        return 2;
+    }
+    LogInfo("playing %s ...", name);
+
+    const double total = seconds ? std::atof(seconds) : 4.0;
+    const Uint64 start = SDL_GetTicks();
+    while ((SDL_GetTicks() - start) < Uint64(total * 1000.0)) {
+        audio.Update();
+        SDL_Delay(50);
+    }
+    LogInfo("done: %zu started, %zu playing at the end", audio.voicesStarted(),
+            audio.voicesPlaying());
     return 0;
 }
 
@@ -2430,7 +2474,7 @@ int main(int argc, char** argv) {
         static const std::set<std::string> rootAt3 = {
             "run",   "level",  "entities", "fit",       "skytex",     "scale",
             "zones", "ground", "textures", "particles", "billboards", "physics"};
-        static const std::set<std::string> rootAt2 = {"levels", "resolve", "texdump",
+        static const std::set<std::string> rootAt2 = {"levels", "resolve", "texdump", "sound",
                                                       "shaders", "lua", "game"};
         if (rootAt3.count(cmd) && argc >= 4) MountRoot(argv[3]);
         else if (rootAt2.count(cmd)) MountRoot(argv[2]);
@@ -2497,6 +2541,8 @@ int main(int argc, char** argv) {
     if (cmd == "blend" && argc >= 5)
         return BlendCmd(argv[2], argv[3], argv[4], argc >= 6 ? argv[5] : nullptr);
     if (cmd == "wps") return WpsCmd(argv[2]);
+    if (cmd == "sound" && argc >= 4)
+        return SoundCmd(argv[2], argv[3], argc >= 5 ? argv[4] : nullptr);
     if (cmd == "bones")
         return BonesCmd(argv[2], argc >= 4 ? argv[3] : nullptr,
                         argc >= 5 ? argv[4] : nullptr, argc >= 6 ? argv[5] : nullptr);

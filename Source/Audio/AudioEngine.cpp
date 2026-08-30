@@ -1,0 +1,442 @@
+#include "AudioEngine.h"
+
+#include "../Core/Common.h"
+#include "../Core/FileSystem.h"
+#include "../Core/Log.h"
+
+#include <SDL3/SDL.h>
+
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+
+namespace painful {
+
+namespace {
+
+// Two different limits, because a handle and a mixing slot are not the same
+// thing. The scripts CREATE a sound long before they play it - a flamethrower
+// loop, an elevator, a torch - and hold that handle for the life of the
+// entity. Cathedral alone holds ninety-odd at once, none of them audible.
+// Those cost nothing to mix, so the slot table is generous...
+constexpr size_t kMaxVoices = 512;
+// ...while what actually costs something, sounds being mixed this instant, is
+// capped separately. Past this a new one-shot is dropped rather than stealing
+// from something already audible.
+constexpr size_t kMaxPlaying = 64;
+constexpr int kChannels = 2;
+
+} // namespace
+
+AudioEngine::~AudioEngine() { Shutdown(); }
+
+void AudioEngine::SDLCALLBACK(void* userdata, SDL_AudioStream* stream, int more, int) {
+    AudioEngine* self = static_cast<AudioEngine*>(userdata);
+    if (more <= 0) return;
+
+    const int frames = more / int(sizeof(float) * kChannels);
+    if (frames <= 0) return;
+
+    // The callback runs on SDL's audio thread. It takes the lock, mixes, and
+    // gets out; everything expensive - loading, distance maths, reaping - is
+    // done on the game thread in Update().
+    std::lock_guard<std::mutex> guard(self->lock_);
+    if (self->scratch_.size() < size_t(frames) * kChannels)
+        self->scratch_.assign(size_t(frames) * kChannels, 0.f);
+    else
+        std::fill(self->scratch_.begin(),
+                  self->scratch_.begin() + ptrdiff_t(size_t(frames) * kChannels), 0.f);
+
+    self->Mix(self->scratch_.data(), frames);
+    SDL_PutAudioStreamData(stream, self->scratch_.data(),
+                           frames * int(sizeof(float)) * kChannels);
+}
+
+bool AudioEngine::Init(const std::string& soundsRoot) {
+    root_ = soundsRoot;
+    voices_.assign(kMaxVoices, Playing{});
+
+    if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
+        LogWarn("audio: SDL_InitSubSystem failed: %s", SDL_GetError());
+        return false;
+    }
+
+    SDL_AudioSpec spec{};
+    spec.format = SDL_AUDIO_F32;
+    spec.channels = kChannels;
+    spec.freq = rate_;
+
+    stream_ = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec,
+                                        &AudioEngine::SDLCALLBACK, this);
+    if (!stream_) {
+        // A machine with no audio device is not a broken game.
+        LogWarn("audio: no output device (%s); the game runs silent", SDL_GetError());
+        return false;
+    }
+    SDL_ResumeAudioStreamDevice(stream_);
+
+    // What SDL actually opened, which is not necessarily what was asked for.
+    // Worth printing: a device that came up at a surprising rate, or a driver
+    // that is not the one the machine plays everything else through, is the
+    // difference between silence and sound and is invisible otherwise.
+    const SDL_AudioDeviceID dev = SDL_GetAudioStreamDevice(stream_);
+    SDL_AudioSpec got{};
+    int frames = 0;
+    if (SDL_GetAudioDeviceFormat(dev, &got, &frames)) {
+        LogInfo("audio: driver '%s', device %u at %d Hz x%d, %d-frame buffer",
+                SDL_GetCurrentAudioDriver() ? SDL_GetCurrentAudioDriver() : "?",
+                unsigned(dev), got.freq, got.channels, frames);
+    }
+    LogInfo("audio: mixing %d Hz stereo, up to %zu voices", rate_, kMaxVoices);
+    return true;
+}
+
+void AudioEngine::Shutdown() {
+    if (stream_) {
+        SDL_DestroyAudioStream(stream_);
+        stream_ = nullptr;
+        SDL_QuitSubSystem(SDL_INIT_AUDIO);
+    }
+    {
+        std::lock_guard<std::mutex> guard(lock_);
+        voices_.clear();
+    }
+    cache_.clear();
+}
+
+const AudioEngine::Sample* AudioEngine::Load(const std::string& name) {
+    auto it = cache_.find(name);
+    if (it != cache_.end()) return it->second.ok ? &it->second : nullptr;
+
+    Sample& s = cache_[name];
+    const std::string path = root_ + "/" + name + ".wav";
+
+    // Through the engine's VFS, NOT SDL_LoadWAV's own file opening. The
+    // shipped game reads its data out of .pak archives, and a loader that
+    // takes a filesystem path finds nothing there: every sound in the game
+    // goes missing and the whole thing is silent, while a loose-file data root
+    // works perfectly and hides it.
+    std::vector<uint8_t> file;
+    if (!ReadFile(path, file) || file.empty()) {
+        // A named sample the game does not ship is an ordinary answer - the
+        // scripts name plenty that only exist in other builds - so it is
+        // counted rather than shouted about, and cached as a miss so a looping
+        // caller does not probe for it every frame.
+        ++missing_;
+        s.ok = false;
+        return nullptr;
+    }
+
+    SDL_AudioSpec have{};
+    Uint8* raw = nullptr;
+    Uint32 rawLen = 0;
+    SDL_IOStream* io = SDL_IOFromConstMem(file.data(), file.size());
+    if (!io || !SDL_LoadWAV_IO(io, true, &have, &raw, &rawLen)) {
+        if (io) SDL_CloseIO(io);
+        // Present but unreadable is a different thing from absent, and worth
+        // saying out loud.
+        LogWarn("audio: %s is not a WAV this build can read: %s", name.c_str(),
+                SDL_GetError());
+        ++missing_;
+        s.ok = false;
+        return nullptr;
+    }
+
+    // Convert once, at load, into the device's own format and rate. Mixing
+    // then costs an add per sample instead of a resample per sample.
+    SDL_AudioSpec want{};
+    want.format = SDL_AUDIO_F32;
+    want.channels = have.channels > 1 ? 2 : 1;   // mono stays mono, so it pans
+    want.freq = rate_;
+
+    Uint8* converted = nullptr;
+    int convertedLen = 0;
+    if (!SDL_ConvertAudioSamples(&have, raw, int(rawLen), &want, &converted, &convertedLen)) {
+        LogWarn("audio: cannot convert %s: %s", name.c_str(), SDL_GetError());
+        SDL_free(raw);
+        ++missing_;
+        s.ok = false;
+        return nullptr;
+    }
+    SDL_free(raw);
+
+    s.channels = want.channels;
+    s.pcm.resize(size_t(convertedLen) / sizeof(float));
+    std::memcpy(s.pcm.data(), converted, size_t(convertedLen));
+    SDL_free(converted);
+    s.ok = !s.pcm.empty();
+    return s.ok ? &s : nullptr;
+}
+
+void AudioEngine::ComputeGains(Playing& p) const {
+    if (!p.positional) {
+        p.gain[0] = p.gain[1] = p.volume;
+        return;
+    }
+
+    float to[3];
+    for (int c = 0; c < 3; ++c) to[c] = p.pos[c] - listener_[c];
+    const float dist = std::sqrt(to[0] * to[0] + to[1] * to[1] + to[2] * to[2]);
+
+    // dist1 is where it starts to fade, dist2 where it is gone. The soundsDef
+    // files give both per sound, which is why this is not one global falloff.
+    float attenuation = 1.f;
+    if (p.dist2 > p.dist1 && dist > p.dist1)
+        attenuation = std::max(0.f, 1.f - (dist - p.dist1) / (p.dist2 - p.dist1));
+    else if (p.dist2 <= p.dist1 && dist > p.dist2 && p.dist2 > 0.f)
+        attenuation = 0.f;
+
+    const float level = p.volume * attenuation;
+    if (dist < 1e-3f) {
+        p.gain[0] = p.gain[1] = level;
+        return;
+    }
+
+    // Pan by which side of the listener it is on. Constant-power, so a sound
+    // crossing in front does not dip in the middle.
+    const float side = (to[0] * right_[0] + to[1] * right_[1] + to[2] * right_[2]) / dist;
+    const float pan = std::max(-1.f, std::min(1.f, side));
+    const float angle = (pan + 1.f) * 0.25f * 3.14159265358979f;
+    p.gain[0] = level * std::cos(angle);
+    p.gain[1] = level * std::sin(angle);
+}
+
+void AudioEngine::Mix(float* out, int frames) {
+    for (Playing& p : voices_) {
+        if (!p.used || !p.playing || p.paused || !p.sample) continue;
+
+        const Sample& s = *p.sample;
+        const size_t total = s.pcm.size() / size_t(s.channels);
+        for (int f = 0; f < frames; ++f) {
+            size_t idx = size_t(p.cursor);
+            if (idx >= total) {
+                if (p.loopsLeft < 0 || p.loopsLeft > 1) {
+                    if (p.loopsLeft > 1) --p.loopsLeft;
+                    p.cursor = 0.0;
+                    idx = 0;
+                } else {
+                    p.playing = false;
+                    break;
+                }
+            }
+            const float* src = &s.pcm[idx * size_t(s.channels)];
+            const float l = src[0];
+            const float r = s.channels > 1 ? src[1] : l;
+            out[f * kChannels + 0] += l * p.gain[0];
+            out[f * kChannels + 1] += r * p.gain[1];
+            p.cursor += p.speed;
+        }
+    }
+
+    // One soft clip at the end rather than per voice: a dozen sounds at once
+    // will exceed 1.0 and hard clipping crackles.
+    const int n = frames * kChannels;
+    for (int i = 0; i < n; ++i) {
+        float v = out[i] * masterVolume_;
+        if (v > 1.f) v = 1.f;
+        else if (v < -1.f) v = -1.f;
+        out[i] = v;
+    }
+}
+
+AudioEngine::Playing* AudioEngine::Resolve(Voice v) {
+    if (v <= 0) return nullptr;
+    const size_t index = size_t(uint32_t(v) & 0xffffu);
+    const uint16_t gen = uint16_t(uint32_t(v) >> 16);
+    if (index == 0 || index > voices_.size()) return nullptr;
+    Playing& p = voices_[index - 1];
+    if (!p.used || p.generation != gen) return nullptr;
+    return &p;
+}
+
+const AudioEngine::Playing* AudioEngine::Resolve(Voice v) const {
+    return const_cast<AudioEngine*>(this)->Resolve(v);
+}
+
+AudioEngine::Voice AudioEngine::Open(const std::string& name, bool positional, bool held) {
+    if (!stream_) return 0;
+    const Sample* s = Load(name);
+    if (!s) return 0;
+
+    std::lock_guard<std::mutex> guard(lock_);
+    for (size_t i = 0; i < voices_.size(); ++i) {
+        Playing& p = voices_[i];
+        if (p.used) continue;
+        const uint16_t gen = uint16_t(p.generation + 1 ? p.generation + 1 : 1);
+        p = Playing{};
+        p.generation = gen;
+        p.sample = s;
+        p.positional = positional;
+        p.used = true;
+        p.held = held;
+        p.volume = 1.f;
+        p.gain[0] = p.gain[1] = 1.f;
+        ++started_;
+        return MakeHandle(i, gen);
+    }
+    return 0;                       // every voice busy: drop it, do not steal
+}
+
+AudioEngine::Voice AudioEngine::Create(const std::string& name, bool positional) {
+    return Open(name, positional, true);
+}
+
+// Play2D/Play3D are FIRE AND FORGET. Almost every caller drops the handle
+// without ever telling us, so these must not be held: a held voice keeps its
+// slot after it finishes, and ninety-six dropped one-shots later nothing can
+// play at all. The handle still works for the few callers that keep it - it
+// just stops being valid once the sound ends, which is exactly what those
+// callers are asking IsPlaying about.
+AudioEngine::Voice AudioEngine::Play2D(const std::string& name, float volume, bool loop,
+                                       bool noPitch) {
+    if (PlayingCount() >= kMaxPlaying) return 0;
+    const Voice v = Open(name, false, false);
+    if (!v) return 0;
+    std::lock_guard<std::mutex> guard(lock_);
+    Playing* p = Resolve(v);
+    if (!p) return 0;
+    p->volume = volume > 0.f ? volume : 1.f;
+    p->gain[0] = p->gain[1] = p->volume;
+    p->loopsLeft = loop ? -1 : 0;
+    // A touch of pitch variation stops a repeated footfall sounding like a
+    // machine; the soundsDef sets disablePitch where that would be wrong.
+    p->speed = noPitch ? 1.0 : 0.95 + 0.1 * (double(SDL_rand(1000)) / 1000.0);
+    p->playing = true;
+    return v;
+}
+
+AudioEngine::Voice AudioEngine::Play3D(const std::string& name, const float pos[3],
+                                       float dist1, float dist2, bool noPitch) {
+    if (PlayingCount() >= kMaxPlaying) return 0;
+    const Voice v = Open(name, true, false);
+    if (!v) return 0;
+    std::lock_guard<std::mutex> guard(lock_);
+    Playing* p = Resolve(v);
+    if (!p) return 0;
+    for (int c = 0; c < 3; ++c) p->pos[c] = pos[c];
+    p->dist1 = dist1;
+    p->dist2 = dist2;
+    p->speed = noPitch ? 1.0 : 0.95 + 0.1 * (double(SDL_rand(1000)) / 1000.0);
+    ComputeGains(*p);
+    p->playing = true;
+    return v;
+}
+
+// The setters all take the lock because the mixing callback reads what they
+// write. They are short enough that the audio thread never waits long.
+#define PAINFUL_VOICE(v)                                                     \
+    if ((v) <= 0) return;                                                    \
+    std::lock_guard<std::mutex> guard(lock_);                                \
+    if (size_t(v) > voices_.size()) return;                                  \
+    Playing& p = voices_[size_t(v) - 1];                                     \
+    if (!p.used) return;
+
+void AudioEngine::Start(Voice v) {
+    PAINFUL_VOICE(v)
+    p.cursor = 0.0;
+    p.playing = true;
+    p.paused = false;
+}
+
+void AudioEngine::Stop(Voice v) {
+    PAINFUL_VOICE(v)
+    p.playing = false;
+}
+
+void AudioEngine::Pause(Voice v, bool paused) {
+    PAINFUL_VOICE(v)
+    p.paused = paused;
+}
+
+void AudioEngine::SetVolume(Voice v, float volume) {
+    PAINFUL_VOICE(v)
+    p.volume = volume;
+    ComputeGains(p);
+}
+
+void AudioEngine::SetPosition(Voice v, const float pos[3]) {
+    PAINFUL_VOICE(v)
+    for (int c = 0; c < 3; ++c) p.pos[c] = pos[c];
+    ComputeGains(p);
+}
+
+void AudioEngine::SetHearingDistance(Voice v, float dist1, float dist2) {
+    PAINFUL_VOICE(v)
+    p.dist1 = dist1;
+    p.dist2 = dist2;
+    ComputeGains(p);
+}
+
+void AudioEngine::SetLoopCount(Voice v, int count) {
+    PAINFUL_VOICE(v)
+    p.loopsLeft = count;
+}
+
+void AudioEngine::SetSpeed(Voice v, float speed) {
+    PAINFUL_VOICE(v)
+    if (speed > 0.f) p.speed = double(speed);
+}
+
+void AudioEngine::Release(Voice v, bool letFinish) {
+    PAINFUL_VOICE(v)
+    p.held = false;
+    if (!letFinish) {
+        p.playing = false;
+        p.used = false;
+    }
+}
+
+#undef PAINFUL_VOICE
+
+bool AudioEngine::IsPlaying(Voice v) const {
+    std::lock_guard<std::mutex> guard(lock_);
+    const Playing* p = Resolve(v);
+    return p && p->playing && !p->paused;
+}
+
+void AudioEngine::SetListener(const float pos[3], const float forward[3],
+                              const float right[3]) {
+    std::lock_guard<std::mutex> guard(lock_);
+    for (int c = 0; c < 3; ++c) {
+        listener_[c] = pos[c];
+        forward_[c] = forward[c];
+        right_[c] = right[c];
+    }
+}
+
+void AudioEngine::Update() {
+    if (!stream_) return;
+    std::lock_guard<std::mutex> guard(lock_);
+    for (Playing& p : voices_) {
+        if (!p.used) continue;
+        // A voice nobody holds any more, that has finished, is free. One the
+        // scripts still hold stays put: they are entitled to ask IsPlaying
+        // about it, and to start it again.
+        if (!p.held && !p.playing) {
+            ++reaped_;
+            const uint16_t gen = p.generation;
+            p = Playing{};
+            p.generation = gen;      // Open bumps it; keep the slot's history
+            continue;
+        }
+        if (p.playing && p.positional) ComputeGains(p);
+    }
+}
+
+size_t AudioEngine::PlayingCount() const {
+    std::lock_guard<std::mutex> guard(lock_);
+    size_t n = 0;
+    for (const Playing& p : voices_)
+        if (p.used && p.playing && !p.paused) ++n;
+    return n;
+}
+
+size_t AudioEngine::voicesPlaying() const {
+    std::lock_guard<std::mutex> guard(lock_);
+    size_t n = 0;
+    for (const Playing& p : voices_)
+        if (p.used && p.playing && !p.paused) ++n;
+    return n;
+}
+
+} // namespace painful
