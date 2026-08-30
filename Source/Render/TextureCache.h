@@ -40,10 +40,17 @@ public:
     // Exposed for diagnostics: which file does a reference map to?
     std::string Resolve(const std::string& reference, const std::string& levelHint) const;
 
+    // The texture's pixel size, for MATERIAL.Size. False when the reference
+    // has not been loaded, or resolved to the white fallback.
+    bool Size(const std::string& reference, int& w, int& h) const;
+
 private:
 
     std::map<std::string, std::string> index_;              // key -> absolute path
     std::map<std::string, bgfx::TextureHandle> cache_;      // reference -> handle
+    // Pixel dimensions, kept because MATERIAL.Size is how every HUD script
+    // lays itself out: it asks an image how big it is and scales from there.
+    std::map<std::string, std::pair<int, int>> sizes_;
     bgfx::TextureHandle white_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle whiteCube_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle transparent_ = BGFX_INVALID_HANDLE;

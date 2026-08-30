@@ -26,6 +26,7 @@ namespace painful { extern bx::DefaultAllocator g_allocator; }
 #include <algorithm>
 #include "Render/EntityRenderer.h"
 #include "Render/BillboardRenderer.h"
+#include "Render/HudRenderer.h"
 #include "Render/ParticleRenderer.h"
 #include "Render/WorldRenderer.h"
 #include "Render/DebugLines.h"
@@ -689,7 +690,7 @@ static int LuaCmd(const char* dataRoot, int frames, const char* level,
 // renderer and a free camera. The counterpart to `run`, which drives the
 // same subsystems by hand - as natives grow real, this path takes over.
 static int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
-                   const std::string& shotPath) {
+                   const std::string& shotPath, const char* exec) {
     const std::string root = dataRoot;
     const std::string shaderDir = ShaderDirFor(exePath);
 
@@ -737,11 +738,22 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     // Sound. A machine with no output device still plays the game, silently.
     AudioEngine audio;
     if (audio.Init(root + "/Sounds")) engine.AttachAudio(&audio);
+
+    // The 2D layer. The scripts draw the whole interface through it during
+    // Game_Render, so it has to be attached before the level loads - the
+    // loading screen is itself a HUD script.
+    HudRenderer hud;
+    const bool hudReady = hud.Init(shaderDir, root + "/Fonts");
+    if (hudReady) engine.AttachHud(&hud, &textures);
+    engine.SetScreenSize(window.width(), window.height());
     engine.AttachPlayer(&pawn);
     engine.AttachInput(&input);
     if (!host.Boot()) return 3;
     host.CallGameInit();
     host.CallGameLoadLevel(levelName);
+    // One chunk of Lua after the level is up, for turning on whatever a run is
+    // meant to look at - Cfg.ShowFPS, a spawn, a camera placement.
+    if (exec && exec[0]) host.RunString(exec);
 
     // Let the props settle before the first frame, the same fixed steps the
     // hand-driven path takes, and draw them where they came to rest - all of
@@ -851,7 +863,10 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     int frame = 0;
     bool noclip = false;
     while (window.PumpEvents() && !host.quitRequested()) {
-        if (window.TakeResized()) renderer.Resize(window.width(), window.height());
+        if (window.TakeResized()) {
+            renderer.Resize(window.width(), window.height());
+            engine.SetScreenSize(window.width(), window.height());
+        }
         const auto now = std::chrono::steady_clock::now();
         const float dt = std::chrono::duration<float>(now - previous).count();
         previous = now;
@@ -957,6 +972,10 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
         // phantoms do.
         engine.TickTriggers();
         engine.TickLifetimes(dt);
+        // Opened before the render callbacks and closed after the world is
+        // drawn: everything the scripts ask for lands in one batch, in the
+        // order they asked, and is submitted over the finished 3D frame.
+        if (hudReady) hud.Begin(Renderer::kHudView, window.width(), window.height());
         host.CallGlobal("Game_Render", d, 1);
         host.CallGlobal("Game_PostRender", d, 1);
         host.CallGlobal("Game_GC", nullptr, 0);
@@ -982,11 +1001,16 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
             billboards.Draw(Renderer::kWorldView, camera);
         }
 
+        if (hudReady) hud.End();
+
         renderer.DebugText(1, "PainfulEngine (script-driven)  -  %s  -  %.1f fps",
                            renderer.BackendName().c_str(), dt > 0.f ? 1.f / dt : 0.f);
         renderer.DebugText(2, "%s   map %s   %zu script entities (%zu created, %zu released)",
                            levelName, info.mapFile.c_str(), engine.entities().size(),
                            engine.created(), engine.released());
+        renderer.DebugText(7, "hud: %s, %zu quads in %zu draws, %zu fonts baked",
+                           hudReady ? "on" : "OFF", hud.quadsThisFrame(), hud.drawCalls(),
+                           hud.fonts().baked());
         renderer.DebugText(3, "%zu world draws, %zu entity draws (%zu skinned), zones %zu/%zu",
                            worldReady ? world.drawCalls() : 0, entities.drawCalls(),
                            entities.posedInstances(),
@@ -1029,6 +1053,9 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
                 LogInfo("  audio: %zu playing, %zu started, %zu reaped, %zu samples, %zu missing",
                         audio.voicesPlaying(), audio.voicesStarted(), audio.voicesReaped(),
                         audio.samplesLoaded(), audio.samplesMissing());
+                LogInfo("  hud: %s, %zu quads in %zu draws, %zu fonts baked",
+                        hudReady ? "on" : "OFF", hud.quadsThisFrame(), hud.drawCalls(),
+                        hud.fonts().baked());
             }
             if (frame >= shotFrame + 4) break;
         }
@@ -2458,7 +2485,7 @@ static int DefaultRun(const char* exePath) {
     // you walk. `run` is the older hand-driven loader, which builds the same
     // world without a Lua host - so it has no player and only ever gives a
     // free camera. It stays as a diagnostic, not as the way in.
-    return GameCmd(root.c_str(), level.c_str(), exePath, "");
+    return GameCmd(root.c_str(), level.c_str(), exePath, "", nullptr);
 }
 
 int main(int argc, char** argv) {
@@ -2531,7 +2558,10 @@ int main(int argc, char** argv) {
         std::string shot;
         for (int i = 4; i < argc; ++i)
             if (std::string(argv[i]) == "--shot" && i + 1 < argc) shot = argv[++i];
-        return GameCmd(argv[2], argc >= 4 ? argv[3] : "C1L1_Cathedral", argv[0], shot);
+        const char* exec = nullptr;
+        for (int i = 4; i < argc; ++i)
+            if (std::string(argv[i]) == "--exec" && i + 1 < argc) exec = argv[++i];
+        return GameCmd(argv[2], argc >= 4 ? argv[3] : "C1L1_Cathedral", argv[0], shot, exec);
     }
     if (cmd == "map")   return MapCmd(argv[2]);
     if (cmd == "mats")  return MatsCmd(argv[2], argc >= 4 ? argv[3] : "");

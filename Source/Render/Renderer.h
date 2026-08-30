@@ -14,6 +14,8 @@ public:
     // Sky is drawn first and owns the clear; the world paints over it.
     static constexpr bgfx::ViewId kSkyView = 0;
     static constexpr bgfx::ViewId kWorldView = 1;
+    // The 2D layer, drawn over everything: no depth, in submission order.
+    static constexpr bgfx::ViewId kHudView = 2;
 
     ~Renderer() { Shutdown(); }
 

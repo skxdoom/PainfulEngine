@@ -483,9 +483,10 @@ int L_INP_GetTimeMultiplier(lua_State* L) {
 }
 
 int L_R3D_ScreenSize(lua_State* L) {
-    // HUD layout reference size; tracks the window once render hooks in.
-    lua_pushnumber(L, 1280);
-    lua_pushnumber(L, 720);
+    // The resolution the shipped interface was authored at. ScriptEngine::Bind
+    // replaces this with the real window size.
+    lua_pushnumber(L, 1024);
+    lua_pushnumber(L, 768);
     return 2;
 }
 
@@ -568,10 +569,13 @@ int L_Zero(lua_State* L) {
     return 1;
 }
 
-// MATERIAL.Size(mat) -> width, height. The HUD divides by these for layout.
+// MATERIAL.Size(mat) -> width, height. The bare host has no texture cache,
+// so it answers what the original answers for a null material: -1, -1. A
+// script that lays itself out against that is then visibly wrong rather than
+// subtly wrong. ScriptEngine::Bind replaces this with the real sizes.
 int L_MaterialSize(lua_State* L) {
-    lua_pushnumber(L, 256);
-    lua_pushnumber(L, 256);
+    lua_pushnumber(L, -1);
+    lua_pushnumber(L, -1);
     return 2;
 }
 
