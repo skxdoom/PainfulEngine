@@ -1912,24 +1912,41 @@ int ScriptEngine::L_SetPosAndRotRelativeToCamera(lua_State* L) {
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e) return 0;
 
-    const float lx = float(luaL_optnumber(L, 2, 0));
-    const float ly = float(luaL_optnumber(L, 3, 0));
-    const float lz = float(luaL_optnumber(L, 4, 0));
+    e->viewAttached = true;
+    for (int c = 0; c < 3; ++c) {
+        e->viewOffset[c] = float(luaL_optnumber(L, c + 2, 0));
+        e->viewAngles[c] = float(luaL_optnumber(L, c + 5, 0));
+    }
+    self->PlaceViewAttached(*e);
+    return 0;
+}
+
+// The camera-space placement itself, shared by the native above and by
+// UpdateViewAttached.
+void ScriptEngine::PlaceViewAttached(Entity& entity) {
+    Entity* e = &entity;
+    const float lx = e->viewOffset[0], ly = e->viewOffset[1], lz = e->viewOffset[2];
 
     // Camera space is +X right, +Y up, -Z forward. Placing the offset from
     // the camera's own basis keeps this independent of how a rotation is
     // spelled as a quaternion, and that basis is the one already driving both
     // the view matrix and the player's movement.
-    const float cp = std::cos(self->camPitch_), sp = std::sin(self->camPitch_);
-    const float cy = std::cos(self->camYaw_), sy = std::sin(self->camYaw_);
+    const float cp = std::cos(camPitch_), sp = std::sin(camPitch_);
+    const float cy = std::cos(camYaw_), sy = std::sin(camYaw_);
     const float fwd[3] = {cy * cp, sp, sy * cp};
     const float right[3] = {-sy, 0.f, cy};
     // up = right x forward, which tilts with the pitch as the view does.
     const float up[3] = {right[1] * fwd[2] - right[2] * fwd[1],
                          right[2] * fwd[0] - right[0] * fwd[2],
                          right[0] * fwd[1] - right[1] * fwd[0]};
+    // Anchored to the DISPLACED eye, which is the one actually rendered:
+    // TakeCameraPose hands the renderer camPos_ + camDisplacement_, and
+    // CPlayer drives the head bob through CAM.SetPositionDisplacement. Hung off
+    // camPos_ alone the weapon sits still while the view bobs around it, and
+    // the difference reads as the gun swinging hard with every step.
     for (int c = 0; c < 3; ++c)
-        e->pos[c] = self->camPos_[c] + right[c] * lx + up[c] * ly - fwd[c] * lz;
+        e->pos[c] = camPos_[c] + camDisplacement_[c] + right[c] * lx + up[c] * ly -
+                    fwd[c] * lz;
 
     // The orientation, built the same way. EngineQuatToRot9 is applied to ROW
     // vectors, so its rows are where the local axes land - which means the
@@ -1946,15 +1963,18 @@ int ScriptEngine::L_SetPosAndRotRelativeToCamera(lua_State* L) {
     // holes punched through a solid model. Nothing was missing - all sixteen
     // meshes draw, all 3137 triangles - it was simply turned around.
     float localQuat[4], localRot[9], worldRot[9];
-    EngineEulerToQuat(float(luaL_optnumber(L, 5, 0)), -float(luaL_optnumber(L, 6, 0)),
-                      float(luaL_optnumber(L, 7, 0)), localQuat);
+    EngineEulerToQuat(e->viewAngles[0], -e->viewAngles[1], e->viewAngles[2], localQuat);
     EngineQuatToRot9(localQuat, localRot);
     // Row-vector order: the weapon's own rotation first, then the camera's.
     EngineRot9Mul(localRot, camRot, worldRot);
     EngineRot9ToQuat(worldRot, e->rotWXYZ);
 
-    self->SyncPose(*e);
-    return 0;
+    SyncPose(*e);
+}
+
+void ScriptEngine::UpdateViewAttached() {
+    for (auto& kv : entities_)
+        if (kv.second.viewAttached) PlaceViewAttached(kv.second);
 }
 
 // PARTICLE.SetEvolve(e, on) - force continuous emission on every emitter of
@@ -3881,6 +3901,36 @@ int ScriptEngine::L_ENTITY_RemoveFromIntersectionSolver(lua_State* L) {
     return 0;
 }
 
+
+// R3D.DrawSprite(x, y, z, size, rot, colour, texture)
+//
+// One camera-facing sprite, this frame only. This is the MUZZLE FLASH: the
+// MuzzleFlash CProcess in CWeapon.lua lives 0.14s and calls this from Render
+// every frame, picking a random texture ("Items/1".."Items/3") and a random
+// angle each time. It is also how the item glows are drawn.
+//
+// The colour arrives packed the way R3D.RGBA builds it, and the rotation is in
+// radians about the view axis.
+int ScriptEngine::L_R3D_DrawSprite(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (!self->billboards_ || !self->hudTextures_) return 0;
+    const float pos[3] = {float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
+                          float(luaL_optnumber(L, 3, 0))};
+    const float size = float(luaL_optnumber(L, 4, 1.0));
+    const float rot = float(luaL_optnumber(L, 5, 0.0));
+    const uint32_t argb = uint32_t(int64_t(luaL_optnumber(L, 6, -1)));
+    const char* texture = luaL_optstring(L, 7, "");
+    if (!texture || !*texture || size <= 0.f) return 0;
+
+    const uint32_t a = (argb >> 24) & 0xFF, r = (argb >> 16) & 0xFF;
+    const uint32_t g = (argb >> 8) & 0xFF, b = argb & 0xFF;
+    const uint32_t abgr = (a << 24) | (b << 16) | (g << 8) | r;
+
+    self->billboards_->DrawImmediate(pos, size, rot, abgr,
+                                     self->hudTextures_->Get(texture, ""));
+    return 0;
+}
+
 // ---------------------------------------------------------------- binding
 
 void ScriptEngine::Bind(LuaHost& host) {
@@ -4056,6 +4106,7 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"R3D", "ScreenSize", L_R3D_ScreenSize},
         {"R3D", "GetFPS", L_R3D_GetFPS},
         {"R3D", "GetAvailableResolutions", L_R3D_GetAvailableResolutions},
+        {"R3D", "DrawSprite", L_R3D_DrawSprite},
         {"ENTITY", "RegisterChild", L_ENTITY_RegisterChild},
         {"ENTITY", "GetChildByName", L_ENTITY_GetChildByName},
         {"ENTITY", "KillAllChildrenByName", L_ENTITY_KillAllChildrenByName},

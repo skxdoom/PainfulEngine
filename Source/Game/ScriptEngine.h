@@ -79,6 +79,14 @@ public:
         // this is moved along its velocity by TickProjectiles rather than
         // simulated. The scripts find their own hits with a line trace.
         bool isProjectile = false;
+        // ENTITY.SetPosAndRotRelativeToCamera: a viewmodel, held in CAMERA
+        // space. The world pose is re-derived from the final camera each frame
+        // rather than baked once during the tick - the shake moves the eye
+        // after the scripts have run, and a weapon placed from the older eye
+        // jitters against the view by exactly the shake.
+        bool viewAttached = false;
+        float viewOffset[3] = {0, 0, 0};
+        float viewAngles[3] = {0, 0, 0};
         // ENTITY.SetTimeToDie countdown in seconds; negative means no timer.
         float timeToDie = -1.f;
 
@@ -304,6 +312,10 @@ public:
     // speed, no solver - which is why every shot in the original lands the
     // same way.
     void TickProjectiles(float dt);
+    // Re-places every view-attached entity from the camera as it will actually
+    // be rendered. Called after the tick chain has settled the camera.
+    void UpdateViewAttached();
+    void PlaceViewAttached(Entity& entity);
     void TickTriggers();
 
     // Counts down ENTITY.SetTimeToDie and reaps whatever has run out. Call
@@ -583,6 +595,7 @@ private:
     static int L_PMENU_SetBorderColCount(lua_State* L);
     static int L_PMENU_SetBorderColumn(lua_State* L);
     static int L_R3D_GetAvailableResolutions(lua_State* L);
+    static int L_R3D_DrawSprite(lua_State* L);
     static int L_ENTITY_RegisterChild(lua_State* L);
     static int L_ENTITY_GetChildByName(lua_State* L);
     static int L_ENTITY_KillAllChildrenByName(lua_State* L);

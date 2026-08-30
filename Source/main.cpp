@@ -1006,6 +1006,11 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
             // phantoms do.
             engine.TickTriggers();
             engine.TickLifetimes(dt);
+            // Last, once the camera has settled: a view-attached weapon is
+            // re-placed from the eye that will actually be rendered. Baked
+            // during the tick it lags the shake by a frame, and the weapon
+            // visibly jitters against the view by exactly the shake amount.
+            engine.UpdateViewAttached();
         }
         // Opened before the render callbacks and closed after the world is
         // drawn: everything the scripts ask for lands in one batch, in the

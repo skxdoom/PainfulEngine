@@ -50,6 +50,13 @@ public:
                           uint32_t packedColor, int blendMode, bool spriteOnly,
                           TextureCache& textures, const std::string& levelHint);
     void SetScriptSpritePos(int slot, const float pos[3]);
+
+    // R3D.DrawSprite: one billboard, this frame only. The muzzle flash is a
+    // CProcess that calls it from Render every frame it lives, so there is no
+    // slot to keep - and unlike a corona it carries a ROTATION, which is what
+    // stops four shots in a row looking like the same picture.
+    void DrawImmediate(const float pos[3], float size, float rot, uint32_t abgr,
+                       bgfx::TextureHandle texture);
     void RemoveScriptSprite(int slot);
 
     // Distance, occlusion tracing and fading, all of which the original does
@@ -97,6 +104,15 @@ private:
         // stay put so handles remain stable.
         bool alive = true;
     };
+
+    struct Immediate {
+        float pos[3];
+        float size;
+        float rot;
+        uint32_t abgr;
+        bgfx::TextureHandle texture;
+    };
+    std::vector<Immediate> immediate_;
 
     void FadeTick(Sprite& s, bool nowVisible, float dt) const;
 

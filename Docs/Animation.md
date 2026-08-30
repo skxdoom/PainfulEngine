@@ -399,3 +399,59 @@ travels smoothly from (0.644, 8.116, 2.645) to (1.498, 7.664, 1.813) - and its
 distance from its parent reads **2.5932 at every weight**. That constant is the
 real test: a blend that lerped the matrices entry by entry would shorten the
 bone through the middle of the fade, and going through the quaternion does not.
+
+## A `.ani` is a slice of a longer take, and keeps that take's clock
+
+Reported as "the Painkiller's blades spin up and then freeze on the last
+frame". The script side was blameless: driving the real input path with fire
+held, `CWeapon:InterpretAction` fires, `StartFireSFX` sets the one-shot
+`rozkrecenie`, `OnFinishAnim` catches its end, and `PainKiller:OnFinishAnim`
+hands off to the looping `obrot`, whose `GetAnimTime` then advances every
+frame. Every observable the scripts have said the blades were turning.
+
+The pose said otherwise. Sampling all 21 joints of the weapon at two instants
+two seconds apart returned **bit-identical** positions. The animation clock ran;
+the skeleton did not move.
+
+The keys explain it. `PKW.obrot` has nine keys and they run from **2.84 to
+3.16** — the animation does not start at zero. Played from `t=0` it spends
+2.84 seconds clamped to its first key, reaches the real motion for the final
+0.32, loops, and freezes again. That is the freeze, exactly.
+
+This is not one odd file. Of the **1228** shipped animations, **103** begin at a
+nonzero time, among them `PKW.idle`, `PainKiller.idle`, `PLcam.shake2`/`shake3`,
+thirteen `skull` animations, ten `RTF` ones, and most of the doors, lifts, fans,
+chains, catapults and cars. Every one was frozen or partly frozen.
+
+Each `.ani` is a **slice cut from a longer authored take**, exported with the
+take's own timestamps rather than rebased to zero.
+
+Engine.dll's loader (the `Animation` vtable's `Load`, `0x10049310`) rebases it:
+
+```c
+fVar3 = **(float **)(iVar2 + 0x10);          // first key of the FIRST track
+...  for every track, for every key (stride 0xa0):
+       *pfVar5 = *pfVar1 - fVar3;
+...
+*puStack_d8 = *(float*)(keyCount*0xa0 - 0xa0 + track0keys);  // last rebased key
+```
+
+Two things follow, and we had both wrong:
+
+- **Key times are origin-relative and must be rebased at load**, by the first
+  key of track 0 — not per track, so tracks stay in sync with each other.
+- **The length is the last rebased key** (`last - first`), which is what
+  `Model::GetAnimationTotalTime` (`0x101de730`) returns from `anim + 0x10`. We
+  had been returning the largest raw key time: 3.16 for `obrot` instead of 0.32.
+
+The header float is **not** the length. It is the authored total including one
+trailing frame step — 0.36 against `obrot`'s 0.32, 0.52 against
+`rozkrecenie`'s 0.48. Reporting it would break every script that ends a
+one-shot with `MDL.GetAnimTime(...) == self._CurAnimLength`, because the clock
+clamps at the last key and would never reach it. Across a 40-animation sample
+the relation `duration == header * (keys-1) / keys` holds exactly, which is
+also the check that track 0 is representative of the file.
+
+Verify with `painful pose <model> <anim> [time]`: `PKW.obrot` now reports a
+length of 0.320 and sweeps a full blade rotation across it, where before it
+reported 3.160 and returned the same pose at every time up to 2.84.

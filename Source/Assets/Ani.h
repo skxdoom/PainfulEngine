@@ -15,7 +15,7 @@ struct AnimTrack {
 
 // PainEngine .ani skeletal animation.
 //   char[4] "skel"
-//   f32     frameTime
+//   f32     length   (the authored total, one frame step longer than the keys span)
 //   u32     boneCount
 //   per bone: u32 nameLen (NOT including a NUL, unlike .pkmdl), name,
 //             u32 keyCount, then keyCount * 68-byte keys of [f32 time][f32 m[16]]
@@ -23,7 +23,8 @@ struct AnimTrack {
 // Every bone carries its own key count, so tracks are variable length and file
 // sizes never factor into boneCount * frames * stride.
 struct Animation {
-    float frameTime = 0;
+    float frameTime = 0;   // the header float; see the note in Load - NOT the playback length
+    float startTime = 0;   // the take-relative time Load rebased away
     uint32_t boneCount = 0;
     std::vector<AnimTrack> tracks;
     std::string error;

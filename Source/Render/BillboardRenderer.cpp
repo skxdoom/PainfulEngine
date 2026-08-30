@@ -343,9 +343,23 @@ void BillboardRenderer::Update(const Camera& camera, float dt, const CollisionMe
     }
 }
 
+void BillboardRenderer::DrawImmediate(const float pos[3], float size, float rot,
+                                      uint32_t abgr, bgfx::TextureHandle texture) {
+    Immediate s;
+    for (int c = 0; c < 3; ++c) s.pos[c] = pos[c];
+    s.size = size;
+    s.rot = rot;
+    s.abgr = abgr;
+    s.texture = texture;
+    immediate_.push_back(s);
+}
+
 void BillboardRenderer::Draw(bgfx::ViewId view, const Camera& camera) {
     drawCalls_ = 0;
-    if (!bgfx::isValid(program_) || sprites_.empty()) return;
+    if (!bgfx::isValid(program_) || (sprites_.empty() && immediate_.empty())) {
+        immediate_.clear();
+        return;
+    }
 
     float forward[3], right[3], up[3];
     camera.Forward(forward);
@@ -404,6 +418,57 @@ void BillboardRenderer::Draw(bgfx::ViewId view, const Camera& camera) {
         bgfx::submit(view, program_);
         ++drawCalls_;
     }
+
+    // The immediate sprites, drawn once and forgotten. A muzzle flash is the
+    // caller: R3D.DrawSprite from a CProcess's Render, alive for 0.14s.
+    for (const Immediate& s : immediate_) {
+        if (bgfx::getAvailTransientVertexBuffer(4, layout_) < 4) break;
+        if (bgfx::getAvailTransientIndexBuffer(6) < 6) break;
+
+        bgfx::TransientVertexBuffer tvb;
+        bgfx::TransientIndexBuffer tib;
+        bgfx::allocTransientVertexBuffer(&tvb, 4, layout_);
+        bgfx::allocTransientIndexBuffer(&tib, 6);
+        BillboardVertex* v = reinterpret_cast<BillboardVertex*>(tvb.data);
+        uint16_t* idx = reinterpret_cast<uint16_t*>(tib.data);
+
+        // The quad's axes are the camera's, turned by the sprite's own angle
+        // in the view plane - which is the whole point of the rotation the
+        // script passes: consecutive flashes are the same texture at a
+        // different angle, and without it a burst looks like one frozen image.
+        const float c = std::cos(s.rot), sn = std::sin(s.rot);
+        float rx[3], uy[3];
+        for (int k = 0; k < 3; ++k) {
+            rx[k] = (right[k] * c + up[k] * sn) * s.size;
+            uy[k] = (up[k] * c - right[k] * sn) * s.size;
+        }
+        v[0] = {s.pos[0] - rx[0] + uy[0], s.pos[1] - rx[1] + uy[1], s.pos[2] - rx[2] + uy[2],
+                s.abgr, 0.f, 1.f};
+        v[1] = {s.pos[0] + rx[0] + uy[0], s.pos[1] + rx[1] + uy[1], s.pos[2] + rx[2] + uy[2],
+                s.abgr, 1.f, 1.f};
+        v[2] = {s.pos[0] + rx[0] - uy[0], s.pos[1] + rx[1] - uy[1], s.pos[2] + rx[2] - uy[2],
+                s.abgr, 1.f, 0.f};
+        v[3] = {s.pos[0] - rx[0] - uy[0], s.pos[1] - rx[1] - uy[1], s.pos[2] - rx[2] - uy[2],
+                s.abgr, 0.f, 0.f};
+        idx[0] = 0; idx[1] = 1; idx[2] = 2;
+        idx[3] = 0; idx[4] = 2; idx[5] = 3;
+
+        // kBlendAlpha - SRC_ALPHA, ONE - which is the mode the particles use and
+        // the one the sprite art is authored for: additive, but WEIGHTED BY
+        // ALPHA, so the transparent part of a flash contributes nothing. Plain
+        // additive (ONE, ONE) ignores the alpha channel outright and the
+        // texture's whole square shows.
+        //
+        // Depth-tested: a flash is still hidden by a wall in front of it.
+        bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_MSAA | BGFX_STATE_DEPTH_TEST_LESS |
+                       BlendModeState(kBlendAlpha));
+        bgfx::setVertexBuffer(0, &tvb);
+        bgfx::setIndexBuffer(&tib);
+        bgfx::setTexture(0, sDiffuse_, s.texture);
+        bgfx::submit(view, program_);
+        ++drawCalls_;
+    }
+    immediate_.clear();
 }
 
 } // namespace painful
