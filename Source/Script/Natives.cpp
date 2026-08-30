@@ -20,8 +20,8 @@ extern "C" {
 // The native surface the shipped scripts call. Module tables of plain
 // functions taking an entity handle first (ENTITY.SetVelocity(e, x, y, z)),
 // plus bare globals - the same shape Engine.dll registers. The full function
-// list is generated into NativeList.inc from Docs/Engine_LuaAPI.md; module
-// names were recovered by usage vote over the scripts (see
+// list is generated into NativeList.inc from the recovered Lua API listing;
+// module names were recovered by usage vote over the scripts (see
 // Tools/GenNativeList.ps1).
 //
 // Everything unimplemented is an instrumented stub via LuaHost::RecordNativeCall.

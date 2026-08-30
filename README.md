@@ -186,8 +186,6 @@ only reveals itself deep into a playthrough.
 | [`Docs/Menu.md`](Docs/Menu.md) | the retained widget model behind PMENU, and the staging |
 | [`Docs/Levels.md`](Docs/Levels.md) | what a level is made of, and writing one from code |
 | [`Docs/Sound.md`](Docs/Sound.md) | the mixer, the voice pool and the SOUND natives |
-| [`Docs/Engine_API.md`](Docs/Engine_API.md) | the C++ surface of `Engine.dll` |
-| [`Docs/Engine_LuaAPI.md`](Docs/Engine_LuaAPI.md) | the native API the scripts call |
 | [`Docs/native_priority.tsv`](Docs/native_priority.tsv) | that API ranked by call count — the work queue |
 
 ## Licence

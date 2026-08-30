@@ -71,9 +71,10 @@ local i = MDL.SetAnim(self._Entity, "idle", true)
 (Note the `Scale*0.1` — the model-scale rule found empirically in the renderer
 is written in the scripts.)
 
-The 941 recovered natives (`Docs/Engine_LuaAPI.md`) are grouped by
-registration table; the binary stores only table addresses, so the Lua-visible
-names were recovered by majority vote over the shipped scripts'
+The 941 natives recovered from `Engine.dll` (the listing is kept with the RE
+material, outside this repository) are grouped by registration table; the
+binary stores only table addresses, so the Lua-visible names were recovered by
+majority vote over the shipped scripts'
 `PREFIX.Function` usages (`Tools/GenNativeList.ps1` →
 `Source/Script/NativeList.inc`). The vote is decisive everywhere it matters:
 

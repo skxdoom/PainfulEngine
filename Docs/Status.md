@@ -19,7 +19,7 @@ Source/
             FileSystem        the mounted view: archives shadow loose files
   Script/   LuaHost           Lua 5.0.2 state, boot, the engine->Lua frame contract
             Natives           the native API: module tables, stubs, real impls
-            NativeList.inc    generated from Docs/Engine_LuaAPI.md + script usage
+            NativeList.inc    generated from the recovered native list + script usage
   Game/     ScriptEngine      the seam: entity registry + world state behind
                               the ENTITY.*/WORLD.* natives, renderer optional
   Assets/   Mpk               world meshes, materials, per-slot UV transforms
