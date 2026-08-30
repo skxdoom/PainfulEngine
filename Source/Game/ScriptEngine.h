@@ -21,6 +21,7 @@ class ParticleRenderer;
 class PlayerPawn;
 class TextureCache;
 class AudioEngine;
+class HudRenderer;
 
 // The engine-side state behind the script natives: the entity registry that
 // ENTITY.* manipulates and the world state WORLD.* accumulates. This is the
@@ -235,6 +236,19 @@ public:
     // The sound system. Without it every SOUND native is a silent no-op,
     // which is what a headless run wants.
     void AttachAudio(AudioEngine* audio) { audio_ = audio; }
+
+    // The 2D layer. Without it every HUD.* and MATERIAL.* native draws
+    // nothing, which is what the original does too: each of them opens with a
+    // `if (GEngine->renderer != 0)` guard and returns having done nothing.
+    void AttachHud(HudRenderer* hud, TextureCache* textures) {
+        hud_ = hud;
+        hudTextures_ = textures;
+    }
+    // The screen size the scripts read back from R3D.ScreenSize, and the size
+    // the font scale is measured against.
+    void SetScreenSize(int w, int h) { screenW_ = w; screenH_ = h; }
+    int screenWidth() const { return screenW_; }
+    int screenHeight() const { return screenH_; }
 
     // Attaches the player pawn: CreatePlayer and the PO_ pawn family become
     // real, and the game loop can walk.
@@ -487,6 +501,27 @@ private:
     static int L_WORLD_SetupSkyLayer(lua_State* L);
     static int L_MESH_SetDefaultDetailMaps(lua_State* L);
 
+    // The 2D layer. Argument order, defaults and colour packing all follow
+    // the shipped Engine.dll; see Docs/Hud.md for where each came from.
+    static int L_MATERIAL_Create(lua_State* L);
+    static int L_MATERIAL_Release(lua_State* L);
+    static int L_MATERIAL_Size(lua_State* L);
+    static int L_HUD_PrintXY(lua_State* L);
+    static int L_HUD_DrawQuad(lua_State* L);
+    static int L_HUD_DrawQuadRGBA(lua_State* L);
+    static int L_HUD_DrawQuadRotated(lua_State* L);
+    static int L_HUD_DrawRect(lua_State* L);
+    static int L_HUD_DrawBorder(lua_State* L);
+    static int L_HUD_SetFont(lua_State* L);
+    static int L_HUD_GetTextWidth(lua_State* L);
+    static int L_HUD_GetTextHeight(lua_State* L);
+    static int L_HUD_SetTransparency(lua_State* L);
+    static int L_HUD_GetTransparency(lua_State* L);
+    static int L_HUD_StripColorInfo(lua_State* L);
+    static int L_HUD_ColorSubstr(lua_State* L);
+    static int L_R3D_ScreenSize(lua_State* L);
+    static int L_R3D_GetFPS(lua_State* L);
+
     LuaHost* host_ = nullptr;
     std::unordered_map<int, Entity> entities_;
     int nextHandle_ = 1;
@@ -541,6 +576,34 @@ private:
     // points an actor walks in order; the scripts hold an index into `paths_`
     // and pass it back to every PATH call.
     AudioEngine* audio_ = nullptr;
+
+    // --- the 2D layer -----------------------------------------------------
+    HudRenderer* hud_ = nullptr;
+    TextureCache* hudTextures_ = nullptr;
+    // 1024x768 is what the shipped interface was authored at and what
+    // HUD::SetFont measures its scale against. Until a window says otherwise
+    // this is also what R3D.ScreenSize answers.
+    int screenW_ = 1024, screenH_ = 768;
+    // What HUD.SetFont selected. PrintXY overrides it per call, so this is
+    // only what GetTextWidth / GetTextHeight measure against.
+    std::string hudFont_ = "timesbd";
+    int hudFontSize_ = 16;
+    // HUD.SetTransparency, stored as 0-255 for the scripts to read back. It is
+    // not applied to anything the engine draws - see L_HUD_SetTransparency.
+    int hudAlpha_ = 255;
+
+    // A script's font size in pixels. The original computes
+    // round(size * (H/768 + W/1024) * 0.5) - the mean of the vertical and
+    // horizontal scale against the reference resolution - so the interface
+    // keeps its proportions at any window size, while the x/y coordinates the
+    // scripts pass stay the raw pixels they scaled themselves.
+    int HudFontPixels(int size) const;
+    // The font a call draws with. A named font wins; an empty name is
+    // PrintXY's `SetFont(0)`, which selects slot 0 - the default - and NOT
+    // whatever HUD.SetFont last set.
+    void HudResolveFont(const char* name, int size, std::string& outName,
+                        int& outPixels) const;
+
     float listenerPos_[3] = {0, 0, 0};
     float listenerFwd_[3] = {0, 0, 1};
 

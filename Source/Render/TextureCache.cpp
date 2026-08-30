@@ -83,6 +83,14 @@ void TextureCache::Shutdown() {
     if (bgfx::isValid(transparent_)) { bgfx::destroy(transparent_); transparent_ = BGFX_INVALID_HANDLE; }
 }
 
+bool TextureCache::Size(const std::string& reference, int& w, int& h) const {
+    auto it = sizes_.find(reference);
+    if (it == sizes_.end()) return false;
+    w = it->second.first;
+    h = it->second.second;
+    return true;
+}
+
 std::string TextureCache::Resolve(const std::string& reference,
                                   const std::string& levelHint) const {
     std::string key = StripExtension(Lower(reference));
@@ -129,6 +137,7 @@ bgfx::TextureHandle TextureCache::Get(const std::string& reference,
                 image->m_numMips > 1, image->m_numLayers,
                 bgfx::TextureFormat::Enum(image->m_format),
                 BGFX_SAMPLER_NONE, mem);
+            sizes_[reference] = {int(image->m_width), int(image->m_height)};
             bimg::imageFree(image);
             if (bgfx::isValid(handle)) ++loaded_;
             else handle = white_;

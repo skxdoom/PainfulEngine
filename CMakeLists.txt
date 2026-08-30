@@ -167,6 +167,8 @@ add_library(painful_render STATIC
   Source/Render/ParticleRenderer.cpp
   Source/Render/BillboardRenderer.cpp
   Source/Render/DebugLines.cpp
+  Source/Render/FontCache.cpp
+  Source/Render/HudRenderer.cpp
 )
 # bimg_decode provides imageParse (DDS/PNG/etc); bimg alone is just the core.
 # bimg_decode must come BEFORE bimg: both ship the miniz symbols (bimg in a
@@ -176,6 +178,12 @@ add_library(painful_render STATIC
 # symbol is defined twice. Searched in this order, the reference resolves from
 # the already-loaded image_decode.obj and bimg's copy stays out.
 target_link_libraries(painful_render PUBLIC painful_world SDL3::SDL3-static bgfx bimg_decode bimg bx)
+
+# stb_truetype and stb_rect_pack, for the HUD's text. Both already ship
+# inside bgfx's third-party tree, so the font rasteriser needs no new
+# dependency - only the include path to reach them.
+target_include_directories(painful_render PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/External/bgfx/bgfx/3rdparty/stb)
 
 # The sound system: one mixed device stream behind SOUND / SOUND2D / SOUND3D.
 add_library(painful_audio STATIC
@@ -227,6 +235,8 @@ add_shader(vs_particle v s_5_0)
 add_shader(fs_particle f s_5_0)
 add_shader(vs_debug    v s_5_0)
 add_shader(fs_debug    f s_5_0)
+add_shader(vs_hud      v s_5_0)
+add_shader(fs_hud      f s_5_0)
 add_shader(vs_water    v s_5_0)
 add_shader(fs_water    f s_5_0)
 
