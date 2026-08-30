@@ -151,7 +151,15 @@ void ScriptEngine::SyncFromPhysics(bool activeOnly) {
         // and its body is carried along behind. Reading the body back here
         // would put the two in a tug of war - each frame the walk would be
         // half undone by whatever the kinematic body had drifted to.
-        if (e->isMonster) continue;
+        //
+        // A projectile is the same division and was missing from it. Its body
+        // is kinematic and carries the velocity SetVelocity gave it, so the
+        // physics step moves it too - and reading that back ADDED a second
+        // advance on top of the one TickProjectiles had already made. A stake
+        // configured for 70 m/s flew at 140, and every distance-dependent
+        // thing in the scripts came out at half the range: Stake:Tick's arc
+        // starts on a timer, so it began its dive 28m out instead of 14.
+        if (e->isMonster || e->isProjectile) continue;
                 for (int c = 0; c < 3; ++c) e->pos[c] = pose.pos[c];
         for (int c = 0; c < 4; ++c) e->rotWXYZ[c] = pose.quatWXYZ[c];
         SyncPose(*e);
@@ -653,7 +661,15 @@ int ScriptEngine::L_GetVelocity(lua_State* L) {
     if (self->pawn_ && handle == self->playerHandle_ && self->playerHandle_) {
         self->pawn_->Velocity(v);
     } else if (const Entity* e = self->Find(handle)) {
-        if (!(self->physics_ && e->physicsBody >= 0 &&
+        // A projectile's velocity lives in the entity store, for the same
+        // reason its position does: TickProjectiles owns it, and gravity is
+        // integrated there. The body still holds whatever SetVelocity launched
+        // it with and never hears about the arc, so reading the body back gave
+        // a stake that was visibly falling a velocity that was still dead
+        // level - and Stake:Tick builds both its trace direction and its
+        // tumble axis out of that vector.
+        if (e->isProjectile ||
+            !(self->physics_ && e->physicsBody >= 0 &&
               self->physics_->GetScriptBodyVelocity(e->physicsBody, v)))
             for (int c = 0; c < 3; ++c) v[c] = e->velocity[c];
     }
@@ -672,6 +688,23 @@ int ScriptEngine::L_SetVelocity(lua_State* L) {
         e->velocity[c] = float(luaL_optnumber(L, c + 2, 0));
     if (self->physics_ && e->physicsBody >= 0)
         self->physics_->SetScriptBodyVelocity(e->physicsBody, e->velocity);
+    return 0;
+}
+
+// ENTITY.SetAngularVelocity(e, x, y, z)
+//
+// A world-space axis scaled by radians per second: the native reads three
+// floats from arguments 2..4 and hands them straight to
+// PhysicsObject::SetAngularVel (0x10132260). Stake:Tick is the caller that
+// matters - the moment the stake starts to fall it spins it about the
+// horizontal axis across its own travel, which is what turns the arc into a
+// stake going nose-first into the floor rather than sliding down flat.
+int ScriptEngine::L_SetAngularVelocity(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e) return 0;
+    for (int c = 0; c < 3; ++c)
+        e->angVel[c] = float(luaL_optnumber(L, c + 2, 0));
     return 0;
 }
 
@@ -1324,7 +1357,7 @@ int ScriptEngine::L_PO_IsEnabled(lua_State* L) {
         return 1;
     }
     const Entity* e = self->Find(handle);
-    lua_pushboolean(L, e && self->physics_ && e->physicsBody >= 0 &&
+    lua_pushboolean(L, e && e->poEnabled && self->physics_ && e->physicsBody >= 0 &&
                            self->physics_->ScriptBodyExists(e->physicsBody));
     return 1;
 }
@@ -1337,9 +1370,21 @@ int ScriptEngine::L_PO_Enable(lua_State* L) {
         self->pawnEnabled_ = enable;
         return 0;
     }
-    if (const Entity* e = self->Find(handle))
-        if (self->physics_ && e->physicsBody >= 0)
+    if (Entity* e = self->Find(handle)) {
+        e->poEnabled = enable;
+        if (self->physics_ && e->physicsBody >= 0) {
             self->physics_->SetScriptBodyEnabled(e->physicsBody, enable);
+            // A stake that has struck home is scenery. Deactivating the body
+            // only puts it to sleep, and a sleeping body still collides - so
+            // the stake stayed solid where it stopped, something to bump into
+            // in mid-air. Take it out of collision outright.
+            //
+            // Projectiles only: this is one-way, and a prop that is disabled
+            // and later re-enabled has to come back solid.
+            if (!enable && e->isProjectile)
+                self->physics_->MakeScriptBodyNonColliding(e->physicsBody);
+        }
+    }
     return 0;
 }
 
@@ -1823,12 +1868,34 @@ int ScriptEngine::TraceCommon(lua_State* L, bool staticOnly) {
     PhysicsWorld::RayHit hit;
     const bool got = self->TraceRay(from, to, hit, staticOnly);
 
+    // A MISS RETURNS ONE VALUE. The engine pushes the boolean and stops
+    // (0x1012cea0: PushBool(0) then return 1), so a script reading
+    //     local b,d,tx,ty,tz,nx,ny,nz,he,e = WORLD.LineTrace(...)
+    // gets false and nine nils. We used to return all ten every time, with 0
+    // for the entity and -1 for the body - and 0 IS TRUE IN LUA. Stake:Tick
+    // asks `if e then` right after its trace, so every clear shot read as an
+    // impact: the stake killed itself on its first tick and left the entity
+    // flying on as a ghost that passed through walls. The same `if e then`
+    // appears in every projectile script, so this was all of them.
     lua_pushboolean(L, got);
-    lua_pushnumber(L, got ? hit.distance : 0.0);
-    for (int c = 0; c < 3; ++c) lua_pushnumber(L, got ? hit.point[c] : to[c]);
-    for (int c = 0; c < 3; ++c) lua_pushnumber(L, got ? hit.normal[c] : 0.0);
-    lua_pushnumber(L, got ? hit.bodySlot : -1);
-    lua_pushnumber(L, got ? self->EntityForBody(hit.bodySlot) : 0);
+    if (!got) return 1;
+
+    lua_pushnumber(L, hit.distance);
+    for (int c = 0; c < 3; ++c) lua_pushnumber(L, hit.point[c]);
+    for (int c = 0; c < 3; ++c) lua_pushnumber(L, hit.normal[c]);
+    lua_pushnumber(L, hit.bodySlot);
+    // A WORLD HIT REPORTS ENTITY 0, NOT NIL - see IsFixedMesh, which answers
+    // true for exactly that handle.
+    //
+    // The engine does have a push-nil branch here, for a body whose owner is
+    // null. That is not the world: in PainEngine level geometry is made of
+    // entities (the scripts ask GetType(e) == ETypes.Mesh and IsFixedMesh(e)
+    // about what they hit), so a wall trace there yields a real handle. Ours
+    // is one anonymous collision body, and 0 is the stand-in - truthy, which
+    // is what the scripts need, because the whole impact-and-nail path in
+    // Stake:Tick sits inside `if e then`. Pushing nil here skipped it, and the
+    // stake registered a hit on a wall and flew straight on through it.
+    lua_pushnumber(L, self->EntityForBody(hit.bodySlot));
     return 10;
 }
 
@@ -3851,9 +3918,15 @@ int ScriptEngine::L_SND_Setup3D(lua_State* L) {
 int ScriptEngine::L_PO_EnableGravity(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
-    if (!e || !self->physics_ || e->physicsBody < 0) return 0;
+    if (!e) return 0;
     const bool on = lua_isnoneornil(L, 2) ? true : (lua_toboolean(L, 2) != 0);
-    self->physics_->SetScriptBodyGravityFactor(e->physicsBody, on ? 1.f : 0.f);
+    // A projectile never reaches the solver, so setting only the body's
+    // gravity factor was a value nothing read. Stake:Tick turns gravity ON
+    // 0.2s after the shot and that has to reach TickProjectiles, or the stake
+    // flies dead flat until it times out.
+    e->gravityOn = on;
+    if (self->physics_ && e->physicsBody >= 0)
+        self->physics_->SetScriptBodyGravityFactor(e->physicsBody, on ? 1.f : 0.f);
     return 0;
 }
 
@@ -3866,16 +3939,54 @@ int ScriptEngine::L_PO_EnableGravity(lua_State* L) {
 //
 // Constant speed along a straight line is exactly why the original's shots are
 // identical every time.
+// Straight is the DEFAULT, not the whole story. A stake leaves the barrel at
+// 70 m/s with gravity off and flies flat; 0.2s later Stake:Tick turns gravity
+// back on and gives it a spin, and it noses over into the floor. Driven still
+// means driven - the arc is one accumulator here, not a solver - but "moved
+// along a constant velocity" was only ever the first two tenths of a second.
 void ScriptEngine::TickProjectiles(float dt) {
     if (dt <= 0.f) return;
+    const float gravity = physics_ ? physics_->settings().gravity : 2.f * 9.81f;
     for (auto& kv : entities_) {
         Entity& e = kv.second;
         if (!e.isProjectile) continue;
+        // A stake that has struck something turns its physics object off and
+        // expects to stay exactly where it was put. Carrying it on regardless
+        // is what sent it through the floor and out of the level after a hit
+        // it had already registered.
+        if (!e.poEnabled) continue;
+
+        if (e.gravityOn) e.velocity[1] -= gravity * dt;
+
         const float speedSq = e.velocity[0] * e.velocity[0] +
                               e.velocity[1] * e.velocity[1] +
                               e.velocity[2] * e.velocity[2];
-        if (speedSq <= 1e-6f) continue;
+        const float spinSq = e.angVel[0] * e.angVel[0] +
+                             e.angVel[1] * e.angVel[1] +
+                             e.angVel[2] * e.angVel[2];
+        if (speedSq <= 1e-6f && spinSq <= 1e-12f) continue;
+
         for (int c = 0; c < 3; ++c) e.pos[c] += e.velocity[c] * dt;
+
+        // The tumble. The axis is in WORLD space, so the step composes on the
+        // side that applies it after the current orientation - which under the
+        // engine's q^-1*v*q convention is the right-hand side, the opposite of
+        // the textbook order. Renormalised because this integrates every frame
+        // for the whole flight and a drifting quaternion shears the model.
+        if (spinSq > 1e-12f) {
+            const float w = std::sqrt(spinSq);
+            const float half = 0.5f * w * dt;
+            const float s = std::sin(half) / w;
+            const float step[4] = {std::cos(half), e.angVel[0] * s,
+                                   e.angVel[1] * s, e.angVel[2] * s};
+            float out[4];
+            EngineQuatMul(e.rotWXYZ, step, out);
+            const float len = std::sqrt(out[0]*out[0] + out[1]*out[1] +
+                                        out[2]*out[2] + out[3]*out[3]);
+            if (len > 1e-8f)
+                for (int c = 0; c < 4; ++c) e.rotWXYZ[c] = out[c] / len;
+        }
+
         // The body follows so the model draws in the right place and any query
         // against it answers truthfully; it is a carrier, not a simulation.
         if (physics_ && e.physicsBody >= 0)
@@ -3973,6 +4084,7 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"BILLBOARD", "SetupCorona", L_BILLBOARD_SetupCorona},
         {"ENTITY", "GetVelocity", L_GetVelocity},
         {"ENTITY", "SetVelocity", L_SetVelocity},
+        {"ENTITY", "SetAngularVelocity", L_SetAngularVelocity},
         {"ENTITY", "SetTimeToDie", L_SetTimeToDie},
         {"ENTITY", "PO_Hit", L_PO_Hit},
         {"WORLD", "HitPhysicObject", L_WORLD_HitPhysicObject},

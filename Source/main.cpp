@@ -2669,20 +2669,22 @@ static int ModelCmd(const char* path) {
 
 // Locates the game data next to the executable. The engine is meant to sit in
 // the game's Bin folder, like the original Painkiller.exe, so the data root is
-// a sibling of the exe's directory. The shipped Data folder (read straight
-// from its .pak archives) is preferred; a loose Data_Extracted tree still
-// works as a fallback.
+// a sibling of the exe's directory.
+//
+// Data, and ONLY Data. A loose tree of unpacked assets is reference material
+// for reading formats by hand, not something the engine may run against: the
+// moment it is a fallback, a missing or misnamed .pak stops being an error and
+// silently becomes a different code path, and a diagnostic can pass against
+// files the shipped game never reads. If Data is not there, say so and stop.
 static std::string FindDataRoot(const char* exePath) {
     namespace fs = std::filesystem;
     std::error_code ec;
     fs::path dir = fs::absolute(exePath, ec).parent_path();
     for (int depth = 0; depth < 2 && !dir.empty(); ++depth, dir = dir.parent_path()) {
-        for (const char* name : {"Data", "Data_Extracted"}) {
-            fs::path candidate = dir / name;
-            if (fs::exists(candidate / "Levels.pak", ec) ||
-                fs::exists(candidate / "Levels", ec))
-                return candidate.string();
-        }
+        fs::path candidate = dir / "Data";
+        if (fs::exists(candidate / "Levels.pak", ec) ||
+            fs::exists(candidate / "Levels", ec))
+            return candidate.string();
     }
     return {};
 }
@@ -2722,8 +2724,7 @@ static int DefaultRun(const char* exePath) {
     const std::string root = FindDataRoot(exePath);
     if (root.empty()) {
         LogInfo("no game data found. Place PainfulEngine.exe in the game's Bin");
-        LogInfo("folder, next to the Data directory with the .pak archives (or");
-        LogInfo("a Data_Extracted directory with the unpacked assets).");
+        LogInfo("folder, next to the Data directory with the .pak archives.");
         return 2;
     }
     MountRoot(root.c_str());

@@ -1000,6 +1000,22 @@ void PhysicsWorld::CollectDebugLines(const float around[3], float radius,
     }
 }
 
+// Everything a trace may hit: the world and ordinary bodies, but never a
+// Noncolliding one.
+//
+// The scripts put projectiles in ECollisionGroups.Noncolliding exactly so that
+// nothing traces against them. Jolt's default object-layer filter accepts every
+// layer, so ours were hittable - and a stake's own forward trace hit the stake.
+// Stake:Tick reads the collision group of whatever it hit, sees 7 and returns
+// early; with the self-hit always nearest it did that on EVERY frame, so every
+// real hit behind it was never reached and shots went through walls.
+class SolidLayerFilter final : public JPH::ObjectLayerFilter {
+public:
+    bool ShouldCollide(JPH::ObjectLayer layer) const override {
+        return layer != Layers::kNoCollide;
+    }
+};
+
 bool PhysicsWorld::RayCast(const float from[3], const float to[3], RayHit& out,
                            bool staticOnly, const int* exclude,
                            size_t excludeCount) const {
@@ -1047,11 +1063,11 @@ bool PhysicsWorld::RayCast(const float from[3], const float to[3], RayHit& out,
     // the moving one.
     const JPH::DefaultObjectLayerFilter staticLayer(impl_->objectPairs,
                                                     Layers::kNonMoving);
-    const JPH::ObjectLayerFilter anyLayer;
+    const SolidLayerFilter solidLayer;
     impl_->system.GetNarrowPhaseQuery().CastRay(
         ray, settings, collector, {},
         staticOnly ? static_cast<const JPH::ObjectLayerFilter&>(staticLayer)
-                   : anyLayer,
+                   : solidLayer,
         bodies);
     if (!collector.HadHit()) return false;
 

@@ -1,6 +1,7 @@
 #include "Window.h"
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include "../Core/Log.h"
 #include <SDL3/SDL.h>
 
@@ -90,7 +91,16 @@ bool Window::Open(const std::string& title, int width, int height) {
         LogWarn("SDL_Init failed: %s", SDL_GetError());
         return false;
     }
-    window_ = SDL_CreateWindow(title.c_str(), width, height, SDL_WINDOW_RESIZABLE);
+    // PAINFUL_HIDDEN keeps the window off the screen. Automated runs still
+    // need a real window - bgfx wants a native handle and the frame has to be
+    // rendered for a screenshot to mean anything - but a scripted test popping
+    // a window onto the desktop, stealing focus and vanishing is noise when a
+    // batch of them runs back to back.
+    SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE;
+    if (const char* hidden = std::getenv("PAINFUL_HIDDEN"))
+        if (*hidden && *hidden != '0') flags |= SDL_WINDOW_HIDDEN;
+
+    window_ = SDL_CreateWindow(title.c_str(), width, height, flags);
     if (!window_) {
         LogWarn("SDL_CreateWindow failed: %s", SDL_GetError());
         return false;

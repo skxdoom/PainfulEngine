@@ -113,7 +113,7 @@ LuaHost* LuaHost::FromState(lua_State* L) {
 std::string LuaHost::ResolvePath(const std::string& scriptPath) const {
     // The original engine's working directory is Bin/, so scripts say
     // "../Data/LScripts/...". The "../Data" component maps onto the mounted
-    // root - which keeps a Data_Extracted root working with the same scripts.
+    // root, wherever the shipped Data folder happens to live.
     if (StartsWithCI(scriptPath, "../data/"))
         return dataRoot_ + "/" + scriptPath.substr(8);
     if (StartsWithCI(scriptPath, "../data") && scriptPath.size() == 7)

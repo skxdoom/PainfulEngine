@@ -79,6 +79,22 @@ public:
         // this is moved along its velocity by TickProjectiles rather than
         // simulated. The scripts find their own hits with a line trace.
         bool isProjectile = false;
+        // ENTITY.PO_EnableGravity. A projectile is not in the solver, so the
+        // body's gravity factor is a value nothing reads - TickProjectiles has
+        // to integrate this itself, or Stake:Tick's arc never happens.
+        bool gravityOn = false;
+        // ENTITY.PO_Enable / PO_IsEnabled. This is how a projectile STOPS:
+        // Stake:Tick answers a hit with PO_Enable(false), moves itself half a
+        // length back into the surface and returns, and every later tick exits
+        // at its opening PO_IsEnabled check until TimeToLive removes it. That
+        // is the whole of "the stake nails to the wall". Deactivating the Jolt
+        // body is not enough to express it - the body still exists, so the
+        // question came back true and the stake sailed on through the floor.
+        bool poEnabled = true;
+        // ENTITY.SetAngularVelocity: a world-space axis scaled by radians per
+        // second (PhysicsObject::SetAngularVel, 0x10132260). The stake tumbles
+        // nose-down with this once it starts to fall.
+        float angVel[3] = {0, 0, 0};
         // ENTITY.SetPosAndRotRelativeToCamera: a viewmodel, held in CAMERA
         // space. The world pose is re-derived from the final camera each frame
         // rather than baked once during the tick - the shake moves the eye
@@ -418,6 +434,7 @@ private:
     static int L_BILLBOARD_SetupCorona(lua_State* L);
     static int L_GetVelocity(lua_State* L);
     static int L_SetVelocity(lua_State* L);
+    static int L_SetAngularVelocity(lua_State* L);
     static int L_SetTimeToDie(lua_State* L);
     static int L_PO_Hit(lua_State* L);
     static int L_WORLD_HitPhysicObject(lua_State* L);

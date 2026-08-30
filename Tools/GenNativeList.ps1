@@ -13,15 +13,15 @@
 #
 # Usage:  powershell -File Tools/GenNativeList.ps1 [-LScripts <dir>]
 param(
-  [string]$ApiDoc   = "$PSScriptRoot\..\..\RE\Engine_LuaAPI.md",
-  [string]$LScripts = "$PSScriptRoot\..\..\Data_Extracted\LScripts",
+  [string]$ApiDoc   = "$PSScriptRoot\..\..\PainfulEngineHelpers\Engine_LuaAPI.md",
+  [string]$LScripts = "$PSScriptRoot\..\..\PainfulEngineHelpers\Data_Extracted\LScripts",
   [string]$Out      = "$PSScriptRoot\..\Source\Script\NativeList.inc"
 )
 
 # --- 1. usage index: (prefix, function) -> call-site count --------------------
 $usage = @{}
 $rx = [regex]'(?<![\w.])([A-Z][A-Z0-9_]{1,12})\.([A-Za-z_][A-Za-z0-9_]*)'
-foreach ($f in Get-ChildItem $LScripts -Recurse -File -Include *.lua, *.editor, *.xbox) {
+  [string]$LScripts = "$PSScriptRoot\..\..\PainfulEngineHelpers\Data_Extracted\LScripts",
   foreach ($m in $rx.Matches((Get-Content $f.FullName -Raw))) {
     $key = "$($m.Groups[1].Value).$($m.Groups[2].Value)"
     $usage[$key] = 1 + $usage[$key]
@@ -31,7 +31,7 @@ foreach ($f in Get-ChildItem $LScripts -Recurse -File -Include *.lua, *.editor, 
 # --- 2. parse the API doc into groups ----------------------------------------
 $groups = @()   # list of @{ Label; Addr; Fns }
 $cur = $null
-foreach ($line in Get-Content $ApiDoc) {
+  [string]$ApiDoc   = "$PSScriptRoot\..\..\PainfulEngineHelpers\Engine_LuaAPI.md",
   if ($line -match '^### (.+?) - (\d+) functions(?: \(table at (0x[0-9A-Fa-f]+)\))?') {
     $cur = @{ Label = $Matches[1]; Addr = $Matches[3]; Fns = @() }
     $groups += $cur

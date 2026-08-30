@@ -11,7 +11,7 @@ That inversion is the whole shape of the work. There is no `PMENU.Draw`.
 ## How it fits together
 
 A menu screen is a plain Lua table of data
-([MainMenu.lua](../../Data_Extracted/LScripts/HUD/Menu/MainMenu.lua)):
+(`LScripts/HUD/Menu/MainMenu.lua`, in the shipped scripts):
 
 ```lua
 MainMenu = {
