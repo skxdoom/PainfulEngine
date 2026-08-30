@@ -70,6 +70,15 @@ public:
         bool isRegion = false;
         bool playerInside = false;
         float velocity[3] = {0, 0, 0};   // ENTITY.SetVelocity, for bodyless entities
+        // ENTITY.RegisterChild: entities bound to this one, chiefly the looping
+        // sounds BindSoundToEntity attaches. GetChildByName searches these by
+        // SOUND name, which SND.Setup3D is what supplies.
+        std::vector<int> children;
+        std::string soundName;
+        // A projectile: PO_Create was given ECollisionGroups.Noncolliding, so
+        // this is moved along its velocity by TickProjectiles rather than
+        // simulated. The scripts find their own hits with a line trace.
+        bool isProjectile = false;
         // ENTITY.SetTimeToDie countdown in seconds; negative means no timer.
         float timeToDie = -1.f;
 
@@ -291,6 +300,10 @@ public:
     // Tests the player against every region volume and posts
     // REGION_ENTERED / REGION_LEFT into Game_GetMsg on the transitions.
     // Call once per frame after the ticks.
+    // Advances every projectile along its own velocity. Straight line, constant
+    // speed, no solver - which is why every shot in the original lands the
+    // same way.
+    void TickProjectiles(float dt);
     void TickTriggers();
 
     // Counts down ENTITY.SetTimeToDie and reaps whatever has run out. Call
@@ -570,6 +583,14 @@ private:
     static int L_PMENU_SetBorderColCount(lua_State* L);
     static int L_PMENU_SetBorderColumn(lua_State* L);
     static int L_R3D_GetAvailableResolutions(lua_State* L);
+    static int L_ENTITY_RegisterChild(lua_State* L);
+    static int L_ENTITY_GetChildByName(lua_State* L);
+    static int L_ENTITY_KillAllChildrenByName(lua_State* L);
+    static int L_ENTITY_KillAllChildren(lua_State* L);
+    static int L_ENTITY_UnregisterAllChildren(lua_State* L);
+    static int L_SND_Setup3D(lua_State* L);
+    static int L_PO_EnableGravity(lua_State* L);
+    static int L_ENTITY_RemoveFromIntersectionSolver(lua_State* L);
     static int L_PMENU_AddStaticText(lua_State* L);
     static int L_PMENU_AddTextButton(lua_State* L);
     static int L_PMENU_SetItemText(lua_State* L);

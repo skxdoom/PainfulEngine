@@ -44,7 +44,14 @@ namespace {
 namespace Layers {
 constexpr JPH::ObjectLayer kNonMoving = 0;
 constexpr JPH::ObjectLayer kMoving = 1;
-constexpr JPH::ObjectLayer kCount = 2;
+// ECollisionGroups.Noncolliding (7). A projectile is NOT a rigid body in this
+// engine: Stake:OnCreateEntity asks for PO_Create(..., Noncolliding), gives it
+// a constant velocity with gravity off, and finds its own hits with
+// Stake:Trace. The body exists only to carry a position and a model, so it has
+// to touch nothing - a colliding one stops dead against the first thing it
+// meets, which is exactly what ours did.
+constexpr JPH::ObjectLayer kNoCollide = 2;
+constexpr JPH::ObjectLayer kCount = 3;
 } // namespace Layers
 
 namespace BroadPhase {
@@ -56,6 +63,8 @@ constexpr JPH::uint kCount = 2;
 class ObjectLayerPairFilterImpl final : public JPH::ObjectLayerPairFilter {
 public:
     bool ShouldCollide(JPH::ObjectLayer a, JPH::ObjectLayer b) const override {
+        // A non-colliding body pairs with nothing at all.
+        if (a == Layers::kNoCollide || b == Layers::kNoCollide) return false;
         // Static against static is never interesting.
         return a == Layers::kMoving || b == Layers::kMoving;
     }
@@ -66,7 +75,7 @@ public:
     JPH::uint GetNumBroadPhaseLayers() const override { return BroadPhase::kCount; }
 
     JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer layer) const override {
-        return layer == Layers::kMoving ? BroadPhase::kMoving : BroadPhase::kNonMoving;
+        return layer == Layers::kNonMoving ? BroadPhase::kNonMoving : BroadPhase::kMoving;
     }
 
 #if defined(JPH_EXTERNAL_PROFILE) || defined(JPH_PROFILE_ENABLED)
@@ -79,6 +88,9 @@ public:
 class ObjectVsBroadPhaseLayerFilterImpl final : public JPH::ObjectVsBroadPhaseLayerFilter {
 public:
     bool ShouldCollide(JPH::ObjectLayer layer, JPH::BroadPhaseLayer broad) const override {
+        // Rejected here as well as in the narrow phase, so a projectile costs
+        // nothing in the broadphase either.
+        if (layer == Layers::kNoCollide) return false;
         return layer == Layers::kMoving || broad == BroadPhase::kMoving;
     }
 };
@@ -717,7 +729,7 @@ int PhysicsWorld::CreateScriptBody(int bodyType, const std::string& modelName,
                                    const std::string& packName,
                                    const std::string& packMesh, float scale,
                                    const float pos[3], const float rotWXYZ[4],
-                                   const std::string& dataRoot) {
+                                   const std::string& dataRoot, int collisionGroup) {
     if (impl_->worldBody.IsInvalid()) return -1;   // no world, nothing to rest on
 
     MeshPoints mesh;
@@ -735,9 +747,20 @@ int PhysicsWorld::CreateScriptBody(int bodyType, const std::string& modelName,
 
     // The same body configuration LoadProps uses; mass, friction and the
     // rest arrive through the PO_Set* calls CObject:PO_Create makes next.
+    // ECollisionGroups.Noncolliding (7) is the projectile case, and it is not a
+    // simulated body at all - it is KINEMATIC, moved by the engine along a
+    // straight line, exactly as a monster is moved rather than simulated.
+    //
+    // That is what makes every shot identical. Left dynamic, the solver owns it
+    // and it stops for reasons that have nothing to do with the shot: ours lost
+    // its velocity inside a single step with gravity off and nothing to collide
+    // against. A projectile has no business being integrated.
+    const bool projectile = collisionGroup == 7;
     JPH::BodyCreationSettings body(shape.Get(), JPH::RVec3(pos[0], pos[1], pos[2]),
-                                   EngineQuatToJolt(rotWXYZ), JPH::EMotionType::Dynamic,
-                                   Layers::kMoving);
+                                   EngineQuatToJolt(rotWXYZ),
+                                   projectile ? JPH::EMotionType::Kinematic
+                                              : JPH::EMotionType::Dynamic,
+                                   projectile ? Layers::kNoCollide : Layers::kMoving);
     body.mMotionQuality = JPH::EMotionQuality::LinearCast;
 
     JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
@@ -780,6 +803,23 @@ void PhysicsWorld::SetScriptBodyLinearDamping(int slot, float damping) {
                             impl_->scriptBodies[slot].body);
     if (lock.Succeeded() && lock.GetBody().IsDynamic())
         lock.GetBody().GetMotionProperties()->SetLinearDamping(damping);
+}
+
+void PhysicsWorld::MakeScriptBodyNonColliding(int slot) {
+    if (!ScriptBodyExists(slot)) return;
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    const JPH::BodyID id = impl_->scriptBodies[slot].body;
+    bodies.SetObjectLayer(id, Layers::kNoCollide);
+    if (bodies.GetMotionType(id) != JPH::EMotionType::Kinematic)
+        bodies.SetMotionType(id, JPH::EMotionType::Kinematic, JPH::EActivation::Activate);
+}
+
+void PhysicsWorld::SetScriptBodyGravityFactor(int slot, float factor) {
+    if (!ScriptBodyExists(slot)) return;
+    JPH::BodyLockWrite lock(impl_->system.GetBodyLockInterface(),
+                            impl_->scriptBodies[slot].body);
+    if (lock.Succeeded() && lock.GetBody().IsDynamic())
+        lock.GetBody().GetMotionProperties()->SetGravityFactor(factor);
 }
 
 void PhysicsWorld::SetScriptBodyAngularDamping(int slot, float damping) {

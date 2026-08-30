@@ -152,7 +152,7 @@ void ScriptEngine::SyncFromPhysics(bool activeOnly) {
         // would put the two in a tug of war - each frame the walk would be
         // half undone by whatever the kinematic body had drifted to.
         if (e->isMonster) continue;
-        for (int c = 0; c < 3; ++c) e->pos[c] = pose.pos[c];
+                for (int c = 0; c < 3; ++c) e->pos[c] = pose.pos[c];
         for (int c = 0; c < 4; ++c) e->rotWXYZ[c] = pose.quatWXYZ[c];
         SyncPose(*e);
     }
@@ -699,10 +699,20 @@ int ScriptEngine::L_PO_Create(lua_State* L) {
         return 0;
     }
 
+    // Argument 4 is the ECollisionGroups value, and it decides whether this is
+    // a rigid body at all: Noncolliding (7) is how every projectile is made.
+    const int collisionGroup = int(luaL_optnumber(L, 4, 0));
     const int slot = self->physics_->CreateScriptBody(
-        bodyType, model, pack, e->mesh, scale, e->pos, e->rotWXYZ, self->dataRoot_);
+        bodyType, model, pack, e->mesh, scale, e->pos, e->rotWXYZ, self->dataRoot_,
+        collisionGroup);
     if (slot >= 0) {
         e->physicsBody = slot;
+        // Noncolliding (7) only. That group means "touches nothing", which is
+        // what the stake, the bolt and the electro disk are made with, and it
+        // is the one unambiguous signal. Particles (8) is NOT included: shell
+        // casings live there too, and they are meant to tumble. Anything else
+        // that is driven says so through RemoveFromIntersectionSolver.
+        e->isProjectile = collisionGroup == 7;
         self->bodyToEntity_[slot] = HandleArg(L, 1);
     }
     return 0;
@@ -3720,6 +3730,157 @@ int ScriptEngine::L_R3D_GetAvailableResolutions(lua_State* L) {
     return 1;
 }
 
+
+// --- entity children -------------------------------------------------------
+//
+// BindSoundToEntity creates a Sound entity, names it through SND.Setup3D and
+// hangs it off its owner with RegisterChild; the Quad and WeaponModifier
+// pickups use that to give the player a looping sound while the powerup runs,
+// and remove it by name when it expires.
+//
+// GetChildByName returning NOTHING was a real bug rather than a missing
+// feature. QuadSound runs on every shot and tests `if quad ~= 0`, and in Lua
+// `nil ~= 0` is TRUE - so a stub that returned nothing announced that the
+// player was holding every powerup, and the damage loop played on every shot.
+// A native whose absence inverts a script's test is worse than one that does
+// nothing, because the script takes the wrong branch confidently.
+int ScriptEngine::L_ENTITY_RegisterChild(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* parent = self->Find(HandleArg(L, 1));
+    const int child = HandleArg(L, 2);
+    if (!parent || child == 0 || !self->Find(child)) return 0;
+    if (std::find(parent->children.begin(), parent->children.end(), child) ==
+        parent->children.end())
+        parent->children.push_back(child);
+    return 0;
+}
+
+// Returns the child handle, or 0 for "no such child" - the value the scripts
+// actually compare against.
+int ScriptEngine::L_ENTITY_GetChildByName(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const Entity* parent = self->Find(HandleArg(L, 1));
+    const char* name = luaL_optstring(L, 2, "");
+    int found = 0;
+    if (parent && name && *name) {
+        for (int handle : parent->children) {
+            const Entity* c = self->Find(handle);
+            if (c && (c->soundName == name || c->name == name)) {
+                found = handle;
+                break;
+            }
+        }
+    }
+    lua_pushnumber(L, found);
+    return 1;
+}
+
+int ScriptEngine::L_ENTITY_KillAllChildrenByName(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* parent = self->Find(HandleArg(L, 1));
+    const char* name = luaL_optstring(L, 2, "");
+    if (!parent || !name || !*name) return 0;
+    for (size_t i = parent->children.size(); i-- > 0;) {
+        const Entity* c = self->Find(parent->children[i]);
+        if (!c || (c->soundName != name && c->name != name)) continue;
+        self->ReleaseEntity(parent->children[i]);
+        parent->children.erase(parent->children.begin() + long(i));
+    }
+    return 0;
+}
+
+int ScriptEngine::L_ENTITY_KillAllChildren(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* parent = self->Find(HandleArg(L, 1));
+    if (!parent) return 0;
+    const std::vector<int> kids = parent->children;
+    parent->children.clear();
+    for (int handle : kids) self->ReleaseEntity(handle);
+    return 0;
+}
+
+// Forgets the children without destroying them, which is what the scripts want
+// when an owner dies but its effects should finish on their own.
+int ScriptEngine::L_ENTITY_UnregisterAllChildren(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (Entity* parent = self->Find(HandleArg(L, 1))) parent->children.clear();
+    return 0;
+}
+
+// SND.Setup3D(entity, soundName, ...) - names a Sound entity. The audio itself
+// is stage 2 of the sound work; the NAME is what the child lookup above needs,
+// and storing it is what lets a powerup's loop be found and removed by name.
+int ScriptEngine::L_SND_Setup3D(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (Entity* e = self->Find(HandleArg(L, 1))) e->soundName = luaL_optstring(L, 2, "");
+    return 0;
+}
+
+
+// ENTITY.PO_EnableGravity(entity, on)
+//
+// The original does not make a projectile a different KIND of object - it
+// turns that body's gravity off. PhysicsObject::EnableGravity (0x1018c4e0)
+// sets the body's own gravity to the world vector when on and to zero when
+// off, which is Jolt's gravity factor.
+//
+// This is what a stake, a rocket and a shuriken all rely on: the weapon
+// scripts set a velocity and then call this with false, and the thing flies
+// straight. Without it they arc to the floor and behave like dropped props,
+// which is exactly how they looked.
+int ScriptEngine::L_PO_EnableGravity(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e || !self->physics_ || e->physicsBody < 0) return 0;
+    const bool on = lua_isnoneornil(L, 2) ? true : (lua_toboolean(L, 2) != 0);
+    self->physics_->SetScriptBodyGravityFactor(e->physicsBody, on ? 1.f : 0.f);
+    return 0;
+}
+
+
+// Projectiles are MOVED, not simulated - the same division the engine already
+// makes for monsters. Stake:OnCreateEntity asks PO_Create for
+// ECollisionGroups.Noncolliding, sets a velocity, turns gravity off and then
+// looks for its own hits with Stake:Trace. Nothing about that wants a solver,
+// and handing it to one is what made every shot behave differently.
+//
+// Constant speed along a straight line is exactly why the original's shots are
+// identical every time.
+void ScriptEngine::TickProjectiles(float dt) {
+    if (dt <= 0.f) return;
+    for (auto& kv : entities_) {
+        Entity& e = kv.second;
+        if (!e.isProjectile) continue;
+        const float speedSq = e.velocity[0] * e.velocity[0] +
+                              e.velocity[1] * e.velocity[1] +
+                              e.velocity[2] * e.velocity[2];
+        if (speedSq <= 1e-6f) continue;
+        for (int c = 0; c < 3; ++c) e.pos[c] += e.velocity[c] * dt;
+        // The body follows so the model draws in the right place and any query
+        // against it answers truthfully; it is a carrier, not a simulation.
+        if (physics_ && e.physicsBody >= 0)
+            physics_->SetScriptBodyPose(e.physicsBody, e.pos, e.rotWXYZ);
+        SyncPose(e);
+    }
+}
+
+
+// ENTITY.RemoveFromIntersectionSolver(e)
+//
+// The scripts' way of saying "this is driven, not simulated". Rocket:
+// OnCreateEntity asks for it outright, having made its body in the Particles
+// group, and BoltStick does the same. Taking it at its word is what turns a
+// rocket from a prop that falls over into something that flies.
+int ScriptEngine::L_ENTITY_RemoveFromIntersectionSolver(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e) return 0;
+    e->isProjectile = true;
+    if (self->physics_ && e->physicsBody >= 0)
+        self->physics_->MakeScriptBodyNonColliding(e->physicsBody);
+    return 0;
+}
+
 // ---------------------------------------------------------------- binding
 
 void ScriptEngine::Bind(LuaHost& host) {
@@ -3895,6 +4056,14 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"R3D", "ScreenSize", L_R3D_ScreenSize},
         {"R3D", "GetFPS", L_R3D_GetFPS},
         {"R3D", "GetAvailableResolutions", L_R3D_GetAvailableResolutions},
+        {"ENTITY", "RegisterChild", L_ENTITY_RegisterChild},
+        {"ENTITY", "GetChildByName", L_ENTITY_GetChildByName},
+        {"ENTITY", "KillAllChildrenByName", L_ENTITY_KillAllChildrenByName},
+        {"ENTITY", "KillAllChildren", L_ENTITY_KillAllChildren},
+        {"ENTITY", "UnregisterAllChildren", L_ENTITY_UnregisterAllChildren},
+        {"SND", "Setup3D", L_SND_Setup3D},
+        {"ENTITY", "PO_EnableGravity", L_PO_EnableGravity},
+        {"ENTITY", "RemoveFromIntersectionSolver", L_ENTITY_RemoveFromIntersectionSolver},
         {"MOUSE", "GetPos", L_MOUSE_GetPos},
         {"PMENU", "Activate", L_PMENU_Activate},
         {"PMENU", "Active", L_PMENU_Active},

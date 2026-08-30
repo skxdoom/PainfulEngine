@@ -92,13 +92,26 @@ public:
     int CreateScriptBody(int bodyType, const std::string& modelName,
                          const std::string& packName, const std::string& packMesh,
                          float scale, const float pos[3], const float rotWXYZ[4],
-                         const std::string& dataRoot);
+                         const std::string& dataRoot,
+                         // ECollisionGroups from Definitions.lua. 7 is
+                         // Noncolliding - a projectile, which must touch
+                         // nothing - and 0 means the script named none.
+                         int collisionGroup = 0);
     bool ScriptBodyExists(int slot) const;
     void SetScriptBodyMass(int slot, float mass);
     void SetScriptBodyFriction(int slot, float friction);
     void SetScriptBodyRestitution(int slot, float restitution);
     void SetScriptBodyLinearDamping(int slot, float damping);
     void SetScriptBodyAngularDamping(int slot, float damping);
+    // ENTITY.PO_EnableGravity. PhysicsObject::EnableGravity (0x1018c4e0) sets
+    // the body's OWN gravity - the world vector when on, zero when off - which
+    // is Jolt's gravity factor. A projectile flies straight by turning it off.
+    void SetScriptBodyGravityFactor(int slot, float factor);
+    // Takes a body out of the solver: kinematic, and in the layer that pairs
+    // with nothing. ENTITY.RemoveFromIntersectionSolver is the scripts' way of
+    // saying a thing is driven rather than simulated - the rocket asks for it
+    // explicitly, having been created in the Particles group.
+    void MakeScriptBodyNonColliding(int slot);
     // Teleports the body where the scripts put the entity.
     void SetScriptBodyPose(int slot, const float pos[3], const float rotWXYZ[4]);
     // PO_Enable on a prop: wakes or sleeps the body.
