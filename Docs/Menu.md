@@ -190,12 +190,50 @@ arguments are indistinguishable in the decompile. The call site is the
 authority for argument *meaning*; the binary is the authority for argument
 *count* and for behaviour. Both are needed.
 
-### Stage 2 - the input widgets
+**The cursor is `HUD/kursor`** - Polish for cursor, 32x32, and named in
+Engine.dll rather than in any script, which is why no amount of grepping the
+Lua turns it up. `PMENU.ShowMouse` at `0x10075540` only sets a byte at
+`MenuScreen + 0x3ad`; the drawing is the engine's. The same string table gives
+`HUD/border` and `HUD/blachy_menu` for stage 3, and `HUD/loading` for stage 4.
 
-`AddCheckbox`, `AddSlider`, `AddSliderImage`, `AddNumRange`, `AddNumEdit`,
-`AddTextEdit`, and `AddTextButtonEx` - the left/right value cycler that most
-Options rows actually are - plus their accessors (`GetSliderValue`,
-`IsItemChecked`, `GetTextEditValue`, `ChangeTextButtonExValue`).
+**The pause is engine-owned too.** `WORLD.SetGamePaused` exists in the native
+table beside `IsGamePaused`, and **no shipped script ever calls it** - the
+scripts only ever ask (`PainKiller.lua` guards its tick on `IsGamePaused`).
+Engine.dll keeps the flag as a byte on the World object at `+0x10`. So the
+same transition that raises the menu freezes the world, and it belongs on the
+transition rather than on the Escape handler: a script forcing the menu up on
+a dropped connection has to pause as well.
+
+Paused freezes the simulation and nothing else - no actor tick, no physics
+step, no animation - while rendering and the render callbacks carry on, so the
+HUD still draws behind the menu. Verified by dropping the player from a height
+with the menu up: the camera stays at `0.00 2.00 0.00` at frames 100 and 400,
+where an unpaused run falls to `2.02`.
+
+### Stage 2 - the input widgets — **done**
+
+`AddCheckbox`, `AddSlider`, `AddNumRange`, `AddTextEdit` and `AddTextButtonEx`,
+plus the accessors (`GetSliderValue`, `IsItemChecked`, `SetCheckboxValue`,
+`GetNumRangeValue`, `GetTextEditValue`, `IsSliderFloat`,
+`ChangeTextButtonExValue`). Left and right adjust the focused widget.
+
+The round trip that matters is `option`: a row declares `option =
+"MasterVolume"`, `PainMenu:AddItem` seeds the widget from `Cfg[option]`, and
+`PainMenu:ApplySettings` reads it back through the accessors and writes `Cfg`.
+Both halves verified against the shipped `SoundOptions`:
+
+```
+before Cfg.MasterVolume=10 slider=10
+after  Cfg.EAXAcoustics=false          -- after SetCheckboxValue + ApplySettings
+```
+
+**`AddTextButtonEx` holds no list.** The row whose value cycles through a set -
+resolution, texture quality, speaker setup - keeps that set in the SCRIPT. The
+engine stores only the current label; adjusting the row runs its action, and
+the action pushes the next label back through `ChangeTextButtonExValue`. So
+the widget is a caption, not a combo box.
+
+`AddSliderImage`, `AddNumEdit` and `AddPassword` still fall through to stubs.
 
 Ends at: the Options screens work and write back to `Cfg`.
 

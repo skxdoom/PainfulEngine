@@ -25,10 +25,29 @@ class MenuSystem {
 public:
     static constexpr int kAlignNone = 1, kAlignLeft = 2, kAlignRight = 3, kAlignCenter = 4;
 
+    // Definitions.lua MenuItemTypes, for the kinds we draw. The numbering
+    // there is the script's; this is our own, because most of the 24 types are
+    // not implemented and a sparse enum would invite the zero-based mistake
+    // MenuAlign already cost once.
     enum class Kind {
-        StaticText,   // a caption; never focusable
-        TextButton,   // the ordinary menu row
+        StaticText,    // a caption; never focusable
+        TextButton,    // the ordinary menu row
+        Checkbox,      // On/Off
+        Slider,        // a numeric range, dragged or arrowed
+        NumRange,      // integer steps, arrowed only
+        TextButtonEx,  // a row whose VALUE is one of a list the script owns
+        TextEdit,      // free text, and NumEdit which is the same with digits
     };
+
+    // Whether a kind carries a value the arrows change. TextButton does not:
+    // it is chosen, not adjusted.
+    // Everything but a caption can take focus.
+    static bool Focusable(Kind k) { return k != Kind::StaticText; }
+
+    static bool HasValue(Kind k) {
+        return k == Kind::Checkbox || k == Kind::Slider || k == Kind::NumRange ||
+               k == Kind::TextButtonEx;
+    }
 
     struct Item {
         Kind kind = Kind::TextButton;
@@ -54,6 +73,19 @@ public:
         std::string sndLightOn;      // played when focus arrives
         bool visible = true;
         bool disabled = false;
+
+        // --- the value a widget carries ------------------------------------
+        // One number covers checkbox (0/1), slider and num-range, because the
+        // scripts read them all back as numbers. `valueText` is what a
+        // TextButtonEx shows, which the SCRIPT owns - it holds the list and
+        // pushes the new label through ChangeTextButtonExValue - and is also
+        // the buffer a TextEdit accumulates.
+        double value = 0.0;
+        double minValue = 0.0, maxValue = 100.0;
+        bool isFloat = false;
+        std::string valueText;
+        size_t maxLength = 0;        // TextEdit / NumEdit character cap
+        float sliderWidth = 340.f;   // in 1024-wide authoring units
         // Declaration order, so keyboard navigation walks the screen the way
         // the script wrote it rather than the way a map happens to sort.
         int order = 0;
@@ -74,6 +106,17 @@ public:
     void SetSoundPlayer(std::function<void(const std::string&)> play) {
         playSound_ = std::move(play);
     }
+    // Freezing the world is part of the TRANSITION, not of the key that
+    // triggered it: a script forcing the menu up on a dropped connection has
+    // to pause too, and hanging this off the Escape handler misses that.
+    void SetPauseHandler(std::function<void(bool)> pause) {
+        setPaused_ = std::move(pause);
+    }
+    // Reads one TXT.* entry out of the script layer, for the words a widget
+    // draws itself - a checkbox's On and Off.
+    void SetTextReader(std::function<std::string(const std::string&)> read) {
+        readText_ = std::move(read);
+    }
 
     // --- screen lifecycle -------------------------------------------------
     // What the Escape key does. The engine drives this, not the scripts:
@@ -92,6 +135,12 @@ public:
     void SetTopPosition(float y) { topPosition_ = y; }
     void ShowMouse(bool on) { showMouse_ = on; }
     bool mouseShown() const { return showMouse_; }
+    // TXT.On and TXT.Off, handed down from the script layer so a checkbox
+    // reads in the player's language rather than in hardcoded English.
+    void SetOnOffText(const std::string& on, const std::string& off) {
+        onText_ = on;
+        offText_ = off;
+    }
 
     // --- items ------------------------------------------------------------
     Item& Add(const std::string& name, Kind kind);
@@ -105,6 +154,11 @@ public:
     void NavUp();
     void NavDown();
     void NavActivate();
+    // Left and right adjust the focused widget. A TextButtonEx has no value of
+    // its own - the SCRIPT owns the list - so adjusting one just runs its
+    // action, which pushes the next label back through
+    // ChangeTextButtonExValue. That is how the original cycles one.
+    void NavAdjust(int direction);
     void Draw(int screenW, int screenH);
 
     const std::string& focusedName() const { return focused_; }
@@ -118,6 +172,8 @@ private:
     float sy() const { return float(screenH_) / 768.f; }
 
     std::vector<Item*> Ordered();
+    void DrawValue(const Item& item, float x, float y, int size, uint32_t colour);
+    void DrawCursor();
     void MoveFocus(int delta);
     void Choose(const Item& item);
 
@@ -125,6 +181,8 @@ private:
     TextureCache* textures_ = nullptr;
     std::function<void(const std::string&)> runAction_;
     std::function<void(const std::string&)> playSound_;
+    std::function<void(bool)> setPaused_;
+    std::function<std::string(const std::string&)> readText_;
 
     std::map<std::string, Item> items_;
     int nextOrder_ = 0;
@@ -132,9 +190,14 @@ private:
     std::string background_;
     int backgroundType_ = 0;
     int backgroundMaterial_ = 0;     // HudRenderer material handle
+    // HUD/kursor - the engine draws the pointer itself, from a name held in
+    // Engine.dll rather than in any script. 32x32, and Polish for "cursor".
+    int cursorMaterial_ = -1;
+    float mouseX_ = 0.f, mouseY_ = 0.f;
     float menuWidth_ = 0.f, topPosition_ = 0.f;
     bool active_ = false;
     bool showMouse_ = true;
+    std::string onText_ = "On", offText_ = "Off";
     int screenW_ = 1024, screenH_ = 768;
     // An action can activate a different screen, which clears the items out
     // from under the loop that is walking them. So actions are deferred to the

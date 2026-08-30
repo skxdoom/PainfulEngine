@@ -133,12 +133,14 @@ level's own waypoint graph, sound mixes through one SDL3 stream, and the
 **HUD draws itself from the shipped Lua** — health, ammo, the compass and the
 tarot board, with text rasterised from the game's own TrueType. Levels are
 authorable from code: `mklevel` writes a complete one, world mesh included.
-The **menu is up to Stage 1** — the real main menu and options screens draw
-from the shipped scripts, navigable by mouse and keyboard, running the real
-`action` strings. Localization works in all eight shipped languages.
+The **menu is up to Stage 2** — the real main menu and Options screens draw
+from the shipped scripts, navigable by mouse and keyboard with the game's own
+cursor, running the real `action` strings; Escape opens it and pauses the
+world, and the sliders and checkboxes round-trip through `Cfg` to
+`config.ini`. Localization works in all eight shipped languages.
 
-Not yet: menu input widgets (sliders, checkboxes, lists), water and
-post-processing, save/load, and multiplayer.
+Not yet: menu lists and the carved frames, water and post-processing,
+save/load, and multiplayer.
 
 The full inventory, with the authority cited for each rule, is in
 [`Docs/Status.md`](Docs/Status.md).
@@ -149,9 +151,10 @@ Rendering comes first: it has a ground truth — the original renders the same
 level, so screenshots can be compared directly — while gameplay correctness
 only reveals itself deep into a playthrough.
 
-1. The menu, stages 2–4: the input widgets (sliders, checkboxes, lists) so the
-   Options screens write back to `Cfg`, then the chrome and the campaign flow.
-   The staging and what the binary said are in [`Docs/Menu.md`](Docs/Menu.md).
+1. The menu, stages 3–4: lists and scrollers, then `MenuItemBorder` — the
+   carved stone frame `HUD.DrawBorder` still approximates with an outline —
+   then the campaign map and the loading screen. The staging and what the
+   binary said are in [`Docs/Menu.md`](Docs/Menu.md).
 2. Save/load, which is the last of the engine skeleton.
 3. Water (`FXWater`), which needs a render-target pass — shared with:
 4. Bloom and the rest of the `.fxo` post chain.

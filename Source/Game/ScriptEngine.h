@@ -245,10 +245,16 @@ public:
         hud_ = hud;
         hudTextures_ = textures;
         menu_.Attach(hud, textures);
+        menu_.SetPauseHandler([this](bool p) { gamePaused_ = p; });
     }
 
     // The menu owns its own widget tree; the game loop drives and draws it.
     MenuSystem& menu() { return menu_; }
+
+    // Whether the simulation is frozen. The game loop skips the actor tick and
+    // the physics step while this holds, and keeps drawing.
+    bool gamePaused() const { return gamePaused_; }
+    void SetGamePaused(bool p) { gamePaused_ = p; }
     // The screen size the scripts read back from R3D.ScreenSize, and the size
     // the font scale is measured against.
     void SetScreenSize(int w, int h) { screenW_ = w; screenH_ = h; }
@@ -538,6 +544,20 @@ private:
     static int L_PMENU_ShowMouse(lua_State* L);
     static int L_PMENU_ShowMenu(lua_State* L);
     static int L_PMENU_ReturnToGame(lua_State* L);
+    static int L_WORLD_SetGamePaused(lua_State* L);
+    static int L_WORLD_IsGamePaused(lua_State* L);
+    static int L_PMENU_AddCheckbox(lua_State* L);
+    static int L_PMENU_AddSlider(lua_State* L);
+    static int L_PMENU_AddNumRange(lua_State* L);
+    static int L_PMENU_AddTextButtonEx(lua_State* L);
+    static int L_PMENU_ChangeTextButtonExValue(lua_State* L);
+    static int L_PMENU_AddTextEdit(lua_State* L);
+    static int L_PMENU_GetSliderValue(lua_State* L);
+    static int L_PMENU_IsSliderFloat(lua_State* L);
+    static int L_PMENU_GetNumRangeValue(lua_State* L);
+    static int L_PMENU_IsItemChecked(lua_State* L);
+    static int L_PMENU_SetCheckboxValue(lua_State* L);
+    static int L_PMENU_GetTextEditValue(lua_State* L);
     static int L_PMENU_AddStaticText(lua_State* L);
     static int L_PMENU_AddTextButton(lua_State* L);
     static int L_PMENU_SetItemText(lua_State* L);
@@ -615,6 +635,10 @@ private:
     HudRenderer* hud_ = nullptr;
     TextureCache* hudTextures_ = nullptr;
     MenuSystem menu_;
+    // WORLD.IsGamePaused reads this; Engine.dll keeps the same byte on the
+    // World object at +0x10. No shipped script ever calls SetGamePaused, so
+    // the engine is what writes it - which is why the menu owns it here.
+    bool gamePaused_ = false;
     // 1024x768 is what the shipped interface was authored at and what
     // HUD::SetFont measures its scale against. Until a window says otherwise
     // this is also what R3D.ScreenSize answers.

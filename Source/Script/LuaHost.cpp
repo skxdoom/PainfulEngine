@@ -192,6 +192,21 @@ bool LuaHost::Boot() {
     return DoFile("../Data/LScripts/Loader.lua");
 }
 
+std::string LuaHost::GetTextField(const char* table, const std::string& field) const {
+    if (!L_) return {};
+    lua_getglobal(L_, table);
+    if (!lua_istable(L_, -1)) {
+        lua_pop(L_, 1);
+        return {};
+    }
+    lua_pushlstring(L_, field.data(), field.size());
+    lua_gettable(L_, -2);
+    const char* s = lua_tostring(L_, -1);
+    std::string out = s ? s : "";
+    lua_pop(L_, 2);
+    return out;
+}
+
 bool LuaHost::RunString(const std::string& chunk) {
     if (luaL_loadbuffer(L_, chunk.data(), chunk.size(), "@exec") != 0) {
         LogWarn("exec parse error: %s", lua_tostring(L_, -1));

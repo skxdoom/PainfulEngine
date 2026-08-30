@@ -53,6 +53,11 @@ public:
     // Where bare relative paths resolve - the original's working directory.
     void SetHomeDir(const std::string& dir) { homeDir_ = dir; }
 
+    // One string field out of a global table, e.g. GetTextField("TXT", "On").
+    // Empty when the table or the field is absent, which is what a caller
+    // wants: it falls back to its own default rather than drawing nothing.
+    std::string GetTextField(const char* table, const std::string& field) const;
+
     // --- the engine -> Lua contract (names recovered from Engine.dll's
     // string table; definitions in Game.lua / HUD.lua) ---
 

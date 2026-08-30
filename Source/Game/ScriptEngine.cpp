@@ -3240,6 +3240,20 @@ int ScriptEngine::L_PMENU_ReturnToGame(lua_State* L) {
     return 0;
 }
 
+// WORLD.SetGamePaused(bool) / IsGamePaused(). Engine.dll keeps this as a byte
+// on the World object; no shipped script ever SETS it, which is what says the
+// engine owns the pause - the scripts only ask (PainKiller.lua guards its
+// tick on it). The menu sets it on the way in and clears it on the way out.
+int ScriptEngine::L_WORLD_SetGamePaused(lua_State* L) {
+    From(L)->gamePaused_ = lua_isnil(L, 1) ? true : (lua_toboolean(L, 1) != 0);
+    return 0;
+}
+
+int ScriptEngine::L_WORLD_IsGamePaused(lua_State* L) {
+    lua_pushboolean(L, From(L)->gamePaused_ ? 1 : 0);
+    return 1;
+}
+
 // PMENU.AddStaticText(name, text) and AddTextButton(name, text, desc).
 //
 // The third argument of AddTextButton is the DESCRIPTION, not the action -
@@ -3427,6 +3441,152 @@ int ScriptEngine::L_SOUND_SetMasterVolume(lua_State* L) {
     return 0;
 }
 
+
+// --- stage 2: the widgets that carry a value -------------------------------
+//
+// The Options screens are almost entirely these. Each declares `option =
+// "MasterVolume"`, PainMenu:AddItem seeds it from Cfg[option], and
+// PainMenu:ApplySettings reads it back through the accessors below and writes
+// Cfg. So getting the accessors right is what makes the settings round-trip.
+
+// PMENU.AddCheckbox(name, text, desc, value)
+int ScriptEngine::L_PMENU_AddCheckbox(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const char* name = luaL_optstring(L, 1, nullptr);
+    if (!name || !*name) return 0;
+    MenuSystem::Item& item = self->menu_.Add(name, MenuSystem::Kind::Checkbox);
+    item.text = luaL_optstring(L, 2, "");
+    item.desc = luaL_optstring(L, 3, "");
+    // The script seeds this from Cfg, where a flag is a real Lua boolean.
+    item.value = (lua_isboolean(L, 4) ? lua_toboolean(L, 4) != 0
+                                      : luaL_optnumber(L, 4, 0) != 0)
+                     ? 1.0 : 0.0;
+    return 0;
+}
+
+// PMENU.AddSlider(name, text, desc, min, max, isFloat, value, width, ctrlWidth)
+//
+// PainMenu multiplies a float slider's bounds AND value by 100 before calling
+// this, then divides on the way back out, so what arrives here is always in
+// the same units whichever kind it is.
+int ScriptEngine::L_PMENU_AddSlider(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const char* name = luaL_optstring(L, 1, nullptr);
+    if (!name || !*name) return 0;
+    MenuSystem::Item& item = self->menu_.Add(name, MenuSystem::Kind::Slider);
+    item.text = luaL_optstring(L, 2, "");
+    item.desc = luaL_optstring(L, 3, "");
+    item.minValue = luaL_optnumber(L, 4, 0);
+    item.maxValue = luaL_optnumber(L, 5, 100);
+    item.isFloat = lua_isboolean(L, 6) ? lua_toboolean(L, 6) != 0
+                                       : luaL_optnumber(L, 6, 0) != 0;
+    item.value = luaL_optnumber(L, 7, item.minValue);
+    if (const double w = luaL_optnumber(L, 8, 0); w > 0) item.sliderWidth = float(w);
+    return 0;
+}
+
+// PMENU.AddNumRange(name, text, desc, min, max, value). A maximum of -1 means
+// unbounded, which is how the scripts spell "no frag limit".
+int ScriptEngine::L_PMENU_AddNumRange(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const char* name = luaL_optstring(L, 1, nullptr);
+    if (!name || !*name) return 0;
+    MenuSystem::Item& item = self->menu_.Add(name, MenuSystem::Kind::NumRange);
+    item.text = luaL_optstring(L, 2, "");
+    item.desc = luaL_optstring(L, 3, "");
+    item.minValue = luaL_optnumber(L, 4, 0);
+    item.maxValue = luaL_optnumber(L, 5, -1);
+    item.value = luaL_optnumber(L, 6, item.minValue);
+    return 0;
+}
+
+// PMENU.AddTextButtonEx(name, text, desc, valueLabel)
+//
+// The row whose value is one of a list - resolution, texture quality, speaker
+// setup. The ENGINE does not hold the list: the script keeps it, and every
+// change runs the item's action, which calls ChangeTextButtonExValue with the
+// next label. So this stores a caption and nothing more.
+int ScriptEngine::L_PMENU_AddTextButtonEx(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const char* name = luaL_optstring(L, 1, nullptr);
+    if (!name || !*name) return 0;
+    MenuSystem::Item& item = self->menu_.Add(name, MenuSystem::Kind::TextButtonEx);
+    item.text = luaL_optstring(L, 2, "");
+    item.desc = luaL_optstring(L, 3, "");
+    item.valueText = luaL_optstring(L, 4, "");
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_ChangeTextButtonExValue(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu))
+        item->valueText = luaL_optstring(L, 2, "");
+    return 0;
+}
+
+// PMENU.AddTextEdit(name, text, desc, maxLength, value), and AddNumEdit which
+// is the same field restricted to digits.
+int ScriptEngine::L_PMENU_AddTextEdit(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const char* name = luaL_optstring(L, 1, nullptr);
+    if (!name || !*name) return 0;
+    MenuSystem::Item& item = self->menu_.Add(name, MenuSystem::Kind::TextEdit);
+    item.text = luaL_optstring(L, 2, "");
+    item.desc = luaL_optstring(L, 3, "");
+    item.maxLength = size_t(luaL_optnumber(L, 4, 0));
+    item.valueText = luaL_optstring(L, 5, "");
+    return 0;
+}
+
+// --- reading the values back ----------------------------------------------
+
+int ScriptEngine::L_PMENU_GetSliderValue(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    const MenuSystem::Item* item = MenuItemArg(From(L), L, &menu);
+    lua_pushnumber(L, item ? item->value : 0.0);
+    return 1;
+}
+
+int ScriptEngine::L_PMENU_IsSliderFloat(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    const MenuSystem::Item* item = MenuItemArg(From(L), L, &menu);
+    lua_pushboolean(L, (item && item->isFloat) ? 1 : 0);
+    return 1;
+}
+
+int ScriptEngine::L_PMENU_GetNumRangeValue(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    const MenuSystem::Item* item = MenuItemArg(From(L), L, &menu);
+    lua_pushnumber(L, item ? item->value : 0.0);
+    return 1;
+}
+
+// Returns a BOOLEAN: PainMenu:ApplyCheckbox assigns it straight into Cfg,
+// where the shipped config.ini writes true/false rather than 1/0.
+int ScriptEngine::L_PMENU_IsItemChecked(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    const MenuSystem::Item* item = MenuItemArg(From(L), L, &menu);
+    lua_pushboolean(L, (item && item->value != 0.0) ? 1 : 0);
+    return 1;
+}
+
+int ScriptEngine::L_PMENU_SetCheckboxValue(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu))
+        item->value = (lua_isboolean(L, 2) ? lua_toboolean(L, 2) != 0
+                                           : luaL_optnumber(L, 2, 0) != 0)
+                          ? 1.0 : 0.0;
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_GetTextEditValue(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    const MenuSystem::Item* item = MenuItemArg(From(L), L, &menu);
+    const std::string& s = item ? item->valueText : std::string();
+    lua_pushlstring(L, s.data(), s.size());
+    return 1;
+}
+
 // ---------------------------------------------------------------- binding
 
 void ScriptEngine::Bind(LuaHost& host) {
@@ -3612,6 +3772,20 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"PMENU", "ShowMouse", L_PMENU_ShowMouse},
         {"PMENU", "ShowMenu", L_PMENU_ShowMenu},
         {"PMENU", "ReturnToGame", L_PMENU_ReturnToGame},
+        {"WORLD", "SetGamePaused", L_WORLD_SetGamePaused},
+        {"WORLD", "IsGamePaused", L_WORLD_IsGamePaused},
+        {"PMENU", "AddCheckbox", L_PMENU_AddCheckbox},
+        {"PMENU", "AddSlider", L_PMENU_AddSlider},
+        {"PMENU", "AddNumRange", L_PMENU_AddNumRange},
+        {"PMENU", "AddTextButtonEx", L_PMENU_AddTextButtonEx},
+        {"PMENU", "ChangeTextButtonExValue", L_PMENU_ChangeTextButtonExValue},
+        {"PMENU", "AddTextEdit", L_PMENU_AddTextEdit},
+        {"PMENU", "GetSliderValue", L_PMENU_GetSliderValue},
+        {"PMENU", "IsSliderFloat", L_PMENU_IsSliderFloat},
+        {"PMENU", "GetNumRangeValue", L_PMENU_GetNumRangeValue},
+        {"PMENU", "IsItemChecked", L_PMENU_IsItemChecked},
+        {"PMENU", "SetCheckboxValue", L_PMENU_SetCheckboxValue},
+        {"PMENU", "GetTextEditValue", L_PMENU_GetTextEditValue},
         {"PMENU", "AddStaticText", L_PMENU_AddStaticText},
         {"PMENU", "AddTextButton", L_PMENU_AddTextButton},
         {"PMENU", "SetItemText", L_PMENU_SetItemText},

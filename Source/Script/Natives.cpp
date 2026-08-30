@@ -466,6 +466,21 @@ int L_HUD_ColorSubstr(lua_State* L) {
     return 1;
 }
 
+// SOUND.GetNumOfProviders() -> how many selectable 3D audio providers there
+// are. The original enumerates Miles' DirectSound and hardware back ends; our
+// mixer has none to choose between, and PainMenu:FillSoundProviders returns
+// immediately on a count of zero, so zero is the honest answer rather than a
+// fabricated list. Returning nothing instead throws out of the whole screen.
+int L_SOUND_GetNumOfProviders(lua_State* L) {
+    lua_pushnumber(L, 0);
+    return 1;
+}
+
+int L_SOUND_GetCurrentProviderName(lua_State* L) {
+    lua_pushstring(L, "Miles Fast 2D Positional Audio");
+    return 1;
+}
+
 // INP.GetTime(): seconds on the engine clock. Feeds math.randomseed and the
 // timing code, so it must be a real monotonic number.
 int L_INP_GetTime(lua_State* L) {
@@ -712,6 +727,8 @@ struct ModuleImpl {
 };
 const ModuleImpl kModuleImpls[] = {
     {"LANG", "ParseLangFile", L_LANG_ParseLangFile},
+    {"SOUND", "GetNumOfProviders", L_SOUND_GetNumOfProviders},
+    {"SOUND", "GetCurrent3DSoundProviderName", L_SOUND_GetCurrentProviderName},
     {"R3D", "RGB", L_R3D_RGB},
     {"R3D", "RGBA", L_R3D_RGBA},
     {"HUD", "ColorSubstr", L_HUD_ColorSubstr},

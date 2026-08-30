@@ -757,6 +757,10 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     engine.menu().SetActionRunner([&host](const std::string& chunk) { host.RunString(chunk); });
     engine.menu().SetSoundPlayer(
         [&audio](const std::string& name) { audio.Play2D(name, 1.f, false, true); });
+    // The words a widget draws for itself, out of the language table.
+    engine.menu().SetTextReader([&host](const std::string& key) {
+        return host.GetTextField("TXT", key);
+    });
 
     // Escape belongs to the menu here, not to the window: see the game loop.
     window.SetEscapeQuits(false);
@@ -969,22 +973,28 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
         const double d[1] = {dt};
         engine.SetFrameDelta(dt);
 
-        engine.TickAnimations(dt);
-        engine.TickMonsters(dt);
+        // Paused freezes the SIMULATION and nothing else: no actor tick, no
+        // physics step, no animation. Rendering and the render callbacks carry
+        // on below, so the HUD still draws behind the menu and the world stays
+        // on screen rather than going black.
         audio.Update();
-        host.CallGlobal("Game_Tick", d, 1);
-        physics.Update(dt);
-        engine.SyncFromPhysics();
-        host.CallGlobal("Game_Tick2", d, 1);
-        // Tick2 is where the view is steered, so take the result: the eye
-        // rides PO_GetPawnHeadPos less PLAYER.GetCameraFix, at the angles the
-        // scripts accumulated from MOUSE.GetDelta.
-        if (scriptView) engine.TakeCameraPose(camera.pos, camera.yaw, camera.pitch);
-        host.CallGlobal("Game_Tick3", d, 1);
-        // Region transitions feed the message pump the way the engine's
-        // phantoms do.
-        engine.TickTriggers();
-        engine.TickLifetimes(dt);
+        if (!engine.gamePaused()) {
+            engine.TickAnimations(dt);
+            engine.TickMonsters(dt);
+            host.CallGlobal("Game_Tick", d, 1);
+            physics.Update(dt);
+            engine.SyncFromPhysics();
+            host.CallGlobal("Game_Tick2", d, 1);
+            // Tick2 is where the view is steered, so take the result: the eye
+            // rides PO_GetPawnHeadPos less PLAYER.GetCameraFix, at the angles
+            // the scripts accumulated from MOUSE.GetDelta.
+            if (scriptView) engine.TakeCameraPose(camera.pos, camera.yaw, camera.pitch);
+            host.CallGlobal("Game_Tick3", d, 1);
+            // Region transitions feed the message pump the way the engine's
+            // phantoms do.
+            engine.TickTriggers();
+            engine.TickLifetimes(dt);
+        }
         // Opened before the render callbacks and closed after the world is
         // drawn: everything the scripts ask for lands in one batch, in the
         // order they asked, and is submitted over the finished 3D frame.
@@ -1012,15 +1022,17 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
             // steered by the engine, not through a binding.
             //
             // Edge-triggered, or one key press walks the whole list.
-            static bool navHeld[3] = {};
+            static bool navHeld[5] = {};
             const bool* vk = window.VirtualKeys();
-            const int navKeys[3] = {0x26, 0x28, 0x0D};   // up, down, enter
-            for (int i = 0; i < 3; ++i) {
+            // up, down, enter, left, right
+            const int navKeys[5] = {0x26, 0x28, 0x0D, 0x25, 0x27};
+            for (int i = 0; i < 5; ++i) {
                 const bool down = vk[navKeys[i]];
                 if (down && !navHeld[i]) {
                     if (i == 0) engine.menu().NavUp();
                     else if (i == 1) engine.menu().NavDown();
-                    else engine.menu().NavActivate();
+                    else if (i == 2) engine.menu().NavActivate();
+                    else engine.menu().NavAdjust(i == 3 ? -1 : 1);
                 }
                 navHeld[i] = down;
             }

@@ -28,7 +28,12 @@ void MenuSystem::Open() {
     // PainMenu.mainScreen is MainMenu, and the in-game rows on it (Resume
     // Game, Return to Map) reveal themselves through their own inGameOnly
     // handling inside SetupScreen - so one entry point serves both cases.
+    if (setPaused_) setPaused_(true);
     runAction_("PainMenu:OpenMenu(); PainMenu:ActivateScreen(PainMenu.mainScreen)");
+    // TXT.On / TXT.Off, so a checkbox reads in the player's language. Taken
+    // once the scripts are up rather than at construction, because the
+    // language table is built during boot.
+    if (readText_) SetOnOffText(readText_("On"), readText_("Off"));
 }
 
 void MenuSystem::Close() {
@@ -36,6 +41,7 @@ void MenuSystem::Close() {
     if (runAction_) runAction_("PainMenu:CloseMenu()");
     ClearScreen();
     active_ = false;
+    if (setPaused_) setPaused_(false);
 }
 
 void MenuSystem::Activate(bool on) {
@@ -55,6 +61,8 @@ void MenuSystem::ClearScreen() {
     if (backgroundMaterial_ > 0 && hud_) hud_->ReleaseMaterial(backgroundMaterial_);
     backgroundMaterial_ = 0;
     background_.clear();
+    // The cursor is deliberately NOT released here: it belongs to the menu
+    // rather than to a screen, and survives every screen change.
 }
 
 void MenuSystem::SetBackground(const std::string& material, int type) {
@@ -106,7 +114,7 @@ void MenuSystem::MoveFocus(int delta) {
     std::vector<Item*> all = Ordered();
     std::vector<Item*> reachable;
     for (Item* i : all)
-        if (i->kind == Kind::TextButton && i->visible && !i->disabled)
+        if (Focusable(i->kind) && i->visible && !i->disabled)
             reachable.push_back(i);
     if (reachable.empty()) return;
 
@@ -128,18 +136,60 @@ void MenuSystem::MoveFocus(int delta) {
 void MenuSystem::NavUp() { MoveFocus(-1); }
 void MenuSystem::NavDown() { MoveFocus(1); }
 
+void MenuSystem::NavAdjust(int direction) {
+    Item* item = Find(focused_);
+    if (!item || item->disabled || !HasValue(item->kind)) return;
+
+    switch (item->kind) {
+    case Kind::Checkbox:
+        // Either arrow toggles. The original lets left and right both flip a
+        // checkbox rather than making one of them a no-op.
+        item->value = (item->value != 0.0) ? 0.0 : 1.0;
+        break;
+    case Kind::Slider: {
+        // A hundredth of the range per press for a float, one unit for an
+        // integer - which is what makes a 0..100 volume move in whole
+        // percent and a 0..1 gamma move smoothly.
+        const double span = item->maxValue - item->minValue;
+        const double step = item->isFloat ? span / 100.0 : 1.0;
+        item->value += step * direction;
+        if (item->value < item->minValue) item->value = item->minValue;
+        if (item->value > item->maxValue) item->value = item->maxValue;
+        if (!item->isFloat) item->value = std::floor(item->value + 0.5);
+        break;
+    }
+    case Kind::NumRange:
+        item->value += direction;
+        // A maximum of -1 means unbounded, which is how the script spells
+        // "no upper limit" for things like a frag limit.
+        if (item->value < item->minValue) item->value = item->minValue;
+        if (item->maxValue != -1.0 && item->value > item->maxValue)
+            item->value = item->maxValue;
+        break;
+    case Kind::TextButtonEx:
+        // No value of ours to change: the script holds the list and pushes the
+        // next label back through ChangeTextButtonExValue when its action runs.
+        break;
+    default:
+        return;
+    }
+    Choose(*item);
+}
+
 void MenuSystem::NavActivate() {
     if (Item* item = Find(focused_)) Choose(*item);
 }
 
 void MenuSystem::Update(float mouseX, float mouseY, bool clicked) {
     if (!active_) return;
+    mouseX_ = mouseX;
+    mouseY_ = mouseY;
 
     // The mouse wins over the keyboard whenever it is over a row: hover moves
     // focus, so the description text and the highlight follow the pointer.
     if (showMouse_) {
         for (Item* item : Ordered()) {
-            if (item->kind != Kind::TextButton || !item->visible || item->disabled) continue;
+            if (!Focusable(item->kind) || !item->visible || item->disabled) continue;
             if (item->hitW <= 0.f || item->hitH <= 0.f) continue;
             if (mouseX < item->hitX || mouseX > item->hitX + item->hitW) continue;
             if (mouseY < item->hitY || mouseY > item->hitY + item->hitH) continue;
@@ -180,7 +230,7 @@ void MenuSystem::Draw(int screenW, int screenH) {
             continue;
         }
         const bool isFocused = (item->name == focused_) && !item->disabled &&
-                               item->kind == Kind::TextButton;
+                               Focusable(item->kind);
         if (isFocused) focusedItem = item;
 
         const int size = int(std::lround(double(item->fontBigSize) * double(sy())));
@@ -214,6 +264,18 @@ void MenuSystem::Draw(int screenW, int screenH) {
         item->hitY = y;
         item->hitW = w;
         item->hitH = h;
+
+        // A widget's VALUE is drawn to the right of its label, in the column
+        // the screen's sliderWidth reserves. The label sits at the item's x, so
+        // the value column starts a fixed distance along rather than after the
+        // text - otherwise the values in a list of options would not line up.
+        if (HasValue(item->kind)) {
+            const float vx = x + item->sliderWidth * sx();
+            DrawValue(*item, vx, y, size, colour);
+            // The whole row is clickable, not just the label, or a slider
+            // would only respond over its own name.
+            item->hitW = std::max(item->hitW, (item->sliderWidth + 180.f) * sx());
+        }
     }
 
     // The focused row's blurb, centred near the bottom - where the shipped
@@ -223,6 +285,74 @@ void MenuSystem::Draw(int screenW, int screenH) {
         hud_->Text(focusedItem->fontSmall, size, -1.f, float(screenH) - 80.f * sy(),
                    focusedItem->desc, ArgbToAbgr(focusedItem->descColor));
     }
+
+    DrawCursor();
+}
+
+void MenuSystem::DrawValue(const Item& item, float x, float y, int size, uint32_t colour) {
+    const uint32_t abgr = ArgbToAbgr(colour);
+
+    switch (item.kind) {
+    case Kind::Checkbox:
+        // TXT.On / TXT.Off are Texts[4] and [5], but the menu never asks the
+        // engine to localise a checkbox - it just draws the state - so the
+        // words come from the language table the same way anything else does.
+        hud_->Text(item.fontBig, size, x, y, item.value != 0.0 ? onText_ : offText_, abgr);
+        break;
+
+    case Kind::Slider: {
+        // A filled bar with the value beside it. The original draws a textured
+        // track and a grip (HUD/blachy_menu); this is the same geometry
+        // without the art, which lands in stage 3 with MenuItemBorder.
+        const float barW = 200.f * sx();
+        const float barH = 6.f * sy();
+        const float by = y + float(size) * 0.45f;
+        const double span = item.maxValue - item.minValue;
+        const double t = span > 0.0 ? (item.value - item.minValue) / span : 0.0;
+
+        hud_->Quad(0, x, by, barW, barH, ArgbToAbgr(item.disabledColor));
+        hud_->Quad(0, x, by, barW * float(t), barH, abgr);
+
+        char buf[32];
+        if (item.isFloat) snprintf(buf, sizeof buf, "%.2f", item.value);
+        else              snprintf(buf, sizeof buf, "%d", int(item.value));
+        hud_->Text(item.fontBig, size, x + barW + 16.f * sx(), y, buf, abgr);
+        break;
+    }
+
+    case Kind::NumRange: {
+        char buf[32];
+        snprintf(buf, sizeof buf, "%d", int(item.value));
+        hud_->Text(item.fontBig, size, x, y, buf, abgr);
+        break;
+    }
+
+    case Kind::TextButtonEx:
+        hud_->Text(item.fontBig, size, x, y, item.valueText, abgr);
+        break;
+
+    default:
+        break;
+    }
+}
+
+void MenuSystem::DrawCursor() {
+    if (!showMouse_ || !hud_ || !textures_) return;
+
+    // "HUD/kursor" - Polish for cursor, and held in Engine.dll rather than in
+    // any script, which is why no amount of grepping the Lua finds it. The
+    // pointer is the engine's, like the rest of the menu.
+    if (cursorMaterial_ < 0)
+        cursorMaterial_ = hud_->CreateMaterial("HUD/kursor", *textures_, "");
+    if (cursorMaterial_ <= 0) return;
+
+    // Drawn at its authored size scaled the way the rest of the interface is,
+    // with its hotspot at the top-left corner - which is where a plain arrow
+    // cursor points.
+    int w = 32, h = 32;
+    hud_->MaterialSize(cursorMaterial_, w, h);
+    hud_->Quad(cursorMaterial_, mouseX_, mouseY_, float(w) * sy(), float(h) * sy(),
+               0xffffffffu);
 }
 
 } // namespace painful
