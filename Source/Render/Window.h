@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <vector>
 
 struct SDL_Window;
 
@@ -47,6 +48,10 @@ public:
     // While captured the cursor is hidden and movement is unbounded.
     void SetMouseCaptured(bool captured);
     bool mouseCaptured() const { return mouseCaptured_; }
+    // Fullscreen modes the display supports, as "WIDTHxHEIGHT", widest first
+    // and de-duplicated across refresh rates.
+    std::vector<std::string> DisplayModes() const;
+
     // The cursor in window pixels, tracked whether or not the mouse is
     // captured - the menu needs it, the camera does not.
     float mouseX() const { return mouseX_; }

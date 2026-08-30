@@ -46,6 +46,8 @@ bool HudRenderer::Init(const std::string& shaderDir, const std::string& fontsRoo
         .end();
 
     sDiffuse_ = bgfx::createUniform("s_diffuse", bgfx::UniformType::Sampler);
+    sPattern_ = bgfx::createUniform("s_pattern", bgfx::UniformType::Sampler);
+    uParams_ = bgfx::createUniform("u_hudParams", bgfx::UniformType::Vec4);
 
     // A solid quad is a textured quad with this bound, which keeps panels,
     // icons and glyphs in one batch and one shader.
@@ -63,6 +65,8 @@ void HudRenderer::Shutdown() {
     materials_.clear();
     if (bgfx::isValid(program_))  { bgfx::destroy(program_);  program_  = BGFX_INVALID_HANDLE; }
     if (bgfx::isValid(sDiffuse_)) { bgfx::destroy(sDiffuse_); sDiffuse_ = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(sPattern_)) { bgfx::destroy(sPattern_); sPattern_ = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(uParams_))  { bgfx::destroy(uParams_);  uParams_  = BGFX_INVALID_HANDLE; }
     if (bgfx::isValid(white_))    { bgfx::destroy(white_);    white_    = BGFX_INVALID_HANDLE; }
 }
 
@@ -128,15 +132,21 @@ void HudRenderer::Begin(bgfx::ViewId view, int screenW, int screenH) {
     bgfx::setViewMode(view, bgfx::ViewMode::Sequential);
 }
 
-void HudRenderer::Push(bgfx::TextureHandle tex, const Vertex* quad) {
+void HudRenderer::Push(bgfx::TextureHandle tex, const Vertex* quad,
+                       bgfx::TextureHandle pattern, float patternW, float patternH) {
     if (!active_) return;
     if (!bgfx::isValid(tex)) tex = white_;
+    if (!bgfx::isValid(pattern)) pattern = white_;
 
-    // Two triangles. A new batch only when the texture changes, so a run of
-    // glyphs from one atlas is a single draw.
-    if (batches_.empty() || batches_.back().texture.idx != tex.idx) {
+    // Two triangles. A new batch only when either texture changes, so a run of
+    // glyphs from one atlas is still a single draw.
+    if (batches_.empty() || batches_.back().texture.idx != tex.idx ||
+        batches_.back().pattern.idx != pattern.idx) {
         Batch b;
         b.texture = tex;
+        b.pattern = pattern;
+        b.patternW = patternW > 0.f ? patternW : 1.f;
+        b.patternH = patternH > 0.f ? patternH : 1.f;
         b.first = uint32_t(verts_.size());
         b.count = 0;
         batches_.push_back(b);
@@ -190,16 +200,35 @@ void HudRenderer::QuadRotated(Material handle, float x, float y, float w, float 
     Push(tex, quad);
 }
 
-void HudRenderer::Border(float x, float y, float w, float h, float t, uint32_t abgr) {
-    if (t <= 0.f) t = 1.f;
-    Quad(0, x, y, w, t, abgr);                  // top
-    Quad(0, x, y + h - t, w, t, abgr);          // bottom
-    Quad(0, x, y + t, t, h - 2 * t, abgr);      // left
-    Quad(0, x + w - t, y + t, t, h - 2 * t, abgr);
+void HudRenderer::Tiles(Material handle, float x, float y, float w, float h, uint32_t abgr) {
+    int tw = 0, th = 0;
+    if (!MaterialSize(handle, tw, th) || tw <= 0 || th <= 0) return;
+
+    // A zero extent means "one texture", which is how the original spells an
+    // edge that repeats along a single axis: DrawTiles(leftEdge, x, y, 0, h)
+    // is a vertical strip one texture wide.
+    if (w <= 0.f) w = float(tw);
+    if (h <= 0.f) h = float(th);
+
+    // The repeat comes from the sampler, not from geometry: the cache creates
+    // its textures with BGFX_SAMPLER_NONE, which is wrap, so UVs beyond 1 tile
+    // and the whole run stays a single quad.
+    Quad(handle, x, y, w, h, abgr, 0.f, 0.f, w / float(tw), h / float(th));
 }
 
 float HudRenderer::Text(const std::string& fontName, int size, float x, float y,
-                        const std::string& text, uint32_t abgr) {
+                        const std::string& text, uint32_t abgr,
+                        Material patternMaterial) {
+    bgfx::TextureHandle pattern = BGFX_INVALID_HANDLE;
+    float patternW = 1.f, patternH = 1.f;
+    if (patternMaterial > 0 && size_t(patternMaterial) <= materials_.size()) {
+        const Mat& pm = materials_[size_t(patternMaterial) - 1];
+        if (pm.used) {
+            pattern = pm.texture;
+            patternW = float(pm.w > 0 ? pm.w : 1);
+            patternH = float(pm.h > 0 ? pm.h : 1);
+        }
+    }
     const FontCache::Font* font = fonts_.Get(fontName, size);
     if (!font) return 0.f;
 
@@ -227,7 +256,7 @@ float HudRenderer::Text(const std::string& fontName, int size, float x, float y,
                 {gx + g->w,     gy + g->h,     0.f, abgr, (g->x + g->w) * iw,   (g->y + g->h) * ih},
                 {gx,            gy + g->h,     0.f, abgr, g->x * iw,            (g->y + g->h) * ih},
             };
-            Push(font->atlas, quad);
+            Push(font->atlas, quad, pattern, patternW, patternH);
         }
         pen += g->advance;
     }
@@ -261,6 +290,11 @@ void HudRenderer::Flush() {
         if (b.count == 0) continue;
         bgfx::setVertexBuffer(0, &tvb, b.first, b.count);
         bgfx::setTexture(0, sDiffuse_, b.texture);
+        bgfx::setTexture(1, sPattern_, bgfx::isValid(b.pattern) ? b.pattern : white_);
+        const bool hasPattern = bgfx::isValid(b.pattern) && b.pattern.idx != white_.idx;
+        const float params[4] = {1.f / b.patternW, 1.f / b.patternH,
+                                 hasPattern ? 1.f : 0.f, 0.f};
+        bgfx::setUniform(uParams_, params);
         bgfx::setState(kState);
         bgfx::submit(view_, program_);
         ++drawCalls_;

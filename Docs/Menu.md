@@ -237,13 +237,48 @@ the widget is a caption, not a combo box.
 
 Ends at: the Options screens work and write back to `Cfg`.
 
-### Stage 3 - lists and chrome
+### Stage 3 - the frame — **partly done**
 
-`AddList` / `AddItemToList` / `AddScroller`, and `MenuItemBorder` - the carved
-stone frame, which is what `HUD.DrawBorder` builds in the original and which
-our HUD currently approximates with a plain outline. Item sounds
-(`SetItemSounds`, `sndLightOn`), the fade-in (`SetItemsFadeLength`,
-`SetShowItemsFrame`) and the save-game list.
+`MenuItemBorder` is in, and with it `HUD.DrawBorder`, which the original also
+builds out of that widget rather than drawing as an outline - so the HUD and
+the menu now share one frame.
+
+`MenuItemBorder::Render` at `0x100643b0` turns out to be a nine-slice with a
+striped fill, and the ten piece names come out of the constructor at
+`0x10064a90` (Polish: `naroznik` is corner, `ramka` is frame, `tlo_paski` is
+striped background):
+
+```
+naroznik_lewy_gora  prawy_gora  lewy_dol  prawy_dol      the four corners
+ramka_gorna_srodek  dolna_srodek  lewa  prawa            the four edges
+tlo_paski  tlo_paski_ciemne                              the fill, light and dark
+```
+
+Every piece is TILED at its native size, not stretched, through
+`HUD::DrawTiles(tex, x, y, w, h)` - which is why the art is small (the fill is
+32x32, the edges about 30 across). A width or height of **zero** means "one
+texture across", and that is how an edge repeats along a single axis. The
+overhangs (-3, -5, -7, -11, -22...) are raw unscaled pixels: the frame sits
+slightly OUTSIDE the rectangle it is given, so the panel's content area is the
+rectangle itself.
+
+When a border has columns they alternate light and dark, which is what gives a
+list its banding, and the LAST column takes whatever width is left so rounding
+never opens a gap at the right edge.
+
+Still open in this stage: lists and scrollers, the fade-in
+(`SetItemsFadeLength`, `SetShowItemsFrame`), and `EnableItemBG`'s `blaszka`
+plate behind a row.
+
+**A known defect.** `AddTabGroup` is in (it is a border as far as drawing goes;
+what makes it a group is entirely script-side), but on `VideoOptions` the
+hidden `AdvancedTab` still draws over the visible `GeneralTab`. A probe on
+`SetItemVisibility` shows why and also shows it is not our contract that is
+wrong: every call arrives as `true`, and
+`PainMenu:HideTabGroup` - which is what would send `false` - never fires at
+all, though `AdvancedTab` declares `visible = false` and the function exists.
+That is a question about the script flow through `SetupScreen`, not about a
+native, and it is the next thing to chase.
 
 ### Stage 4 - campaign flow
 
@@ -257,3 +292,63 @@ The level map and board (`SwitchToMap`, `ActivateMap`, `AddLevelToMap`,
 Multiplayer and the server browser (~20 natives, and there is no networking
 layer to sit under them), movies (`PlayMovie` is Bink), and the CD-key and
 registry-bonus DRM.
+
+## Three things play-testing found
+
+### An absent argument is not nil
+
+`PMENU.ShowMouse()` is called with **no argument at all**, and Lua distinguishes
+that from an explicit `nil`: an absent argument is `LUA_TNONE`, which
+`lua_isnil` does **not** match. Reading it as "false" left the menu with no
+cursor and the mouse still captured, so moving it steered the player while the
+menu was up - two symptoms, one cause. The test is `lua_isnoneornil`, and every
+optional boolean in the menu natives now uses it.
+
+This is worth watching for across the whole native API: any native that reads
+an optional flag with `lua_isnil` silently takes the *opposite* default the
+moment a script omits the argument.
+
+### Pause has to cover the render section too
+
+Freezing the simulation is not the same as freezing everything that advances.
+`particles.Tick` and `billboards.Update` were being called from the RENDER
+part of the frame, past the pause gate, so effects kept running behind the
+menu. They take a delta of zero while paused now - they keep their last frame
+on screen rather than vanishing, but they stop moving:
+
+```
+menu up     particles: 0 live in 295 emitters
+no menu     particles: 10926 live in 346 emitters
+```
+
+Mouse deltas are **dropped** while the menu is up rather than accumulated: the
+tick that consumes them is paused, so banking them would store a frame's worth
+of motion per menu frame and snap the view on the way out.
+
+### The font texture supplies the colour
+
+`PMENU.SetItemFontsTex` binds a texture the glyphs are filled *with* -
+`HUD/font_texturka_alpha`, which 46 shipped screens ask for. `HUD::Print` binds
+it as a second texture stage alongside the glyph atlas.
+
+Two things about it are not guessable:
+
+**It is not a modulation.** The pattern is a warm gold (about 230, 170, 120)
+and the rows that use it are authored `RGBA(100, 100, 100)`, so multiplying
+gives a muddy brown that disappears into the menu art - which is exactly what
+happened. The pattern *supplies* the colour and the item colour contributes
+only its alpha. The shipped values corroborate it: `disabledColor` is 155
+where `textColor` is 100, so a disabled row would be *brighter* if those
+numbers were brightness. They are not.
+
+**It is sampled in screen space, not with the glyph's atlas UVs.** The original
+can use its own atlas coordinates because its font texture was authored against
+its own atlas layout. Ours is packed by `stb_truetype` and shares no layout
+with it, so atlas UVs cut each glyph a random patch of the pattern - the text
+came out almost invisible. Screen space reproduces the look and is independent
+of packing.
+
+The exact fixed-function stage state in `HUD::SetRenderState` has not been
+read, so the blend is inferred from the art and the authored colours rather
+than from the binary. It matches what the shipped menu looks like; it is not
+proven identical.

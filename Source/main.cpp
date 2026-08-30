@@ -749,6 +749,7 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     const bool hudReady = hud.Init(shaderDir, root + "/Fonts");
     if (hudReady) engine.AttachHud(&hud, &textures);
     engine.SetScreenSize(window.width(), window.height());
+    engine.SetResolutions(window.DisplayModes());
     engine.AttachPlayer(&pawn);
     engine.AttachInput(&input);
 
@@ -906,6 +907,10 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
 
         float dx = 0.f, dy = 0.f;
         window.TakeMouseDelta(dx, dy);
+        // Dropped while the menu is up rather than accumulated: the tick that
+        // consumes them is paused, so feeding them in would bank a frame's
+        // worth of motion per menu frame and snap the view on the way out.
+        if (engine.menu().active()) dx = dy = 0.f;
         input.AddMouseDelta(dx, dy);
         if (window.TakeNoclipToggle()) noclip = !noclip;
         // Who steers the view. While the player is walking it is the SCRIPTS:
@@ -1055,12 +1060,18 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
                       info, elapsed);
         // Particles then coronas last, exactly as in the hand-driven loop:
         // blended, no depth writes, and coronas ignore depth entirely.
+        // Paused stops the SIMULATION but not the drawing, here as everywhere
+        // else: the effects keep their last frame on screen rather than
+        // vanishing behind the menu, but they stop advancing. Ticking these
+        // from the render section is what let them keep running when the rest
+        // of the world had already stopped.
+        const float simDt = engine.gamePaused() ? 0.f : dt;
         if (particlesReady) {
-            particles.Tick(dt);
+            particles.Tick(simDt);
             particles.Draw(Renderer::kWorldView, camera, window.width(), window.height());
         }
         if (billboardsReady) {
-            billboards.Update(camera, dt, collision);
+            billboards.Update(camera, simDt, collision);
             billboards.Draw(Renderer::kWorldView, camera);
         }
 
@@ -1119,6 +1130,8 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
                 LogInfo("  hud: %s, %zu quads in %zu draws, %zu fonts baked",
                         hudReady ? "on" : "OFF", hud.quadsThisFrame(), hud.drawCalls(),
                         hud.fonts().baked());
+                LogInfo("  particles: %zu live in %zu emitters", particles.liveParticles(),
+                        particles.emitters());
                 LogInfo("  camera %.2f %.2f %.2f, player %s", camera.pos[0],
                         camera.pos[1], camera.pos[2],
                         walking ? (pawn.onGround() ? "on the ground" : "airborne")

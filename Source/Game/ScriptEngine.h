@@ -258,6 +258,11 @@ public:
     // The screen size the scripts read back from R3D.ScreenSize, and the size
     // the font scale is measured against.
     void SetScreenSize(int w, int h) { screenW_ = w; screenH_ = h; }
+    // The modes R3D.GetAvailableResolutions reports; the VideoOptions screen
+    // builds its resolution row straight out of this and dies on a nil.
+    void SetResolutions(std::vector<std::string> modes) {
+        resolutions_ = std::move(modes);
+    }
     int screenWidth() const { return screenW_; }
     int screenHeight() const { return screenH_; }
 
@@ -558,6 +563,13 @@ private:
     static int L_PMENU_IsItemChecked(lua_State* L);
     static int L_PMENU_SetCheckboxValue(lua_State* L);
     static int L_PMENU_GetTextEditValue(lua_State* L);
+    static int L_PMENU_AddBorder(lua_State* L);
+    static int L_PMENU_AddTabGroup(lua_State* L);
+    static int L_PMENU_SetBorderSize(lua_State* L);
+    static int L_PMENU_SetBorderHeader(lua_State* L);
+    static int L_PMENU_SetBorderColCount(lua_State* L);
+    static int L_PMENU_SetBorderColumn(lua_State* L);
+    static int L_R3D_GetAvailableResolutions(lua_State* L);
     static int L_PMENU_AddStaticText(lua_State* L);
     static int L_PMENU_AddTextButton(lua_State* L);
     static int L_PMENU_SetItemText(lua_State* L);
@@ -566,6 +578,7 @@ private:
     static int L_PMENU_SetItemPosition(lua_State* L);
     static int L_PMENU_SetItemColors(lua_State* L);
     static int L_PMENU_SetItemFonts(lua_State* L);
+    static int L_PMENU_SetItemFontsTex(lua_State* L);
     static int L_PMENU_SetItemVisibility(lua_State* L);
     static int L_PMENU_SetItemAlign(lua_State* L);
     static int L_PMENU_SetItemWidth(lua_State* L);
@@ -643,6 +656,7 @@ private:
     // HUD::SetFont measures its scale against. Until a window says otherwise
     // this is also what R3D.ScreenSize answers.
     int screenW_ = 1024, screenH_ = 768;
+    std::vector<std::string> resolutions_;
     // What HUD.SetFont selected. PrintXY overrides it per call, so this is
     // only what GetTextWidth / GetTextHeight measure against.
     std::string hudFont_ = "timesbd";

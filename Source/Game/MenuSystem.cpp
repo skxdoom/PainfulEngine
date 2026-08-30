@@ -222,9 +222,16 @@ void MenuSystem::Draw(int screenW, int screenH) {
     if (backgroundMaterial_ > 0)
         hud_->Quad(backgroundMaterial_, 0.f, 0.f, float(screenW), float(screenH), 0xffffffffu);
 
+    // Borders first, whatever order they were declared in: they are the panels
+    // everything else sits ON, so a border added after its contents would
+    // otherwise paint over them.
+    for (Item* item : Ordered())
+        if (item->kind == Kind::Border && item->visible) DrawBorder(*item);
+
     const Item* focusedItem = nullptr;
 
     for (Item* item : Ordered()) {
+        if (item->kind == Kind::Border) continue;
         if (!item->visible) {
             item->hitW = item->hitH = 0.f;
             continue;
@@ -258,7 +265,8 @@ void MenuSystem::Draw(int screenW, int screenH) {
         if (item->disabled)     colour = item->disabledColor;
         else if (isFocused)     colour = item->underMouseColor;
 
-        hud_->Text(item->fontBig, size, x, y, item->text, ArgbToAbgr(colour));
+        hud_->Text(item->fontBig, size, x, y, item->text, ArgbToAbgr(colour),
+                   FontTexture(*item, true));
 
         item->hitX = x;
         item->hitY = y;
@@ -283,10 +291,23 @@ void MenuSystem::Draw(int screenW, int screenH) {
     if (focusedItem && !focusedItem->desc.empty()) {
         const int size = int(std::lround(double(focusedItem->fontSmallSize) * double(sy())));
         hud_->Text(focusedItem->fontSmall, size, -1.f, float(screenH) - 80.f * sy(),
-                   focusedItem->desc, ArgbToAbgr(focusedItem->descColor));
+                   focusedItem->desc, ArgbToAbgr(focusedItem->descColor),
+                   FontTexture(*focusedItem, false));
     }
 
     DrawCursor();
+}
+
+// Resolved on first use and cached on the item, because a screen redraws
+// every frame and CreateMaterial would otherwise hand out a slot per frame.
+int MenuSystem::FontTexture(const Item& item, bool big) {
+    if (!hud_ || !textures_) return 0;
+    const std::string& name = big ? item.fontBigTex : item.fontSmallTex;
+    int& cached = const_cast<Item&>(item).*(big ? &Item::fontBigTexMat
+                                               : &Item::fontSmallTexMat);
+    if (name.empty()) return 0;
+    if (cached < 0) cached = hud_->CreateMaterial(name, *textures_, "");
+    return cached;
 }
 
 void MenuSystem::DrawValue(const Item& item, float x, float y, int size, uint32_t colour) {
@@ -333,6 +354,113 @@ void MenuSystem::DrawValue(const Item& item, float x, float y, int size, uint32_
 
     default:
         break;
+    }
+}
+
+// The carved frame every menu panel sits inside - MenuItemBorder::Render at
+// Engine.dll 0x100643b0, which is also what HUD.DrawBorder builds.
+//
+// It is a nine-slice with a striped fill, drawn from ten pieces whose names
+// are held in the constructor at 0x10064a90 (and are Polish: naroznik is
+// corner, ramka is frame, tlo_paski is striped background):
+//
+//   naroznik_lewy_gora / prawy_gora / lewy_dol / prawy_dol   the four corners
+//   ramka_gorna_srodek / dolna_srodek / lewa / prawa         the four edges
+//   tlo_paski / tlo_paski_ciemne                             the fill, light and dark
+//
+// Every piece is TILED at its native size rather than stretched, which is why
+// the art is small - the fill is 32x32 and the edges are about 30 across.
+//
+// The overhangs below (-3, -5, -7, -11, -22...) are the original's, in raw
+// pixels and deliberately not scaled: the frame sits slightly OUTSIDE the
+// rectangle it is given, so the panel's content area is the rectangle itself.
+void MenuSystem::DrawFrame(float x, float y, float w, float h) {
+    Item panel;
+    panel.kind = Kind::Border;
+    panel.x = x;
+    panel.y = y;
+    panel.width = w;
+    panel.height = h;
+    DrawBorder(panel);
+}
+
+void MenuSystem::DrawBorder(const Item& item) {
+    if (!hud_ || !textures_) return;
+    if (borderArt_.empty()) {
+        static const char* kNames[kBorderPieces] = {
+            "HUD/border/naroznik_lewy_gora",  "HUD/border/naroznik_prawy_gora",
+            "HUD/border/naroznik_lewy_dol",   "HUD/border/naroznik_prawy_dol",
+            "HUD/border/ramka_gorna_srodek",  "HUD/border/ramka_dolna_srodek",
+            "HUD/border/ramka_lewa",          "HUD/border/ramka_prawa",
+            "HUD/border/tlo_paski",           "HUD/border/tlo_paski_ciemne",
+        };
+        borderArt_.resize(kBorderPieces);
+        for (int i = 0; i < kBorderPieces; ++i)
+            borderArt_[i] = hud_->CreateMaterial(kNames[i], *textures_, "");
+    }
+
+    const int cornerTL = borderArt_[0], cornerTR = borderArt_[1];
+    const int cornerBL = borderArt_[2], cornerBR = borderArt_[3];
+    const int edgeTop  = borderArt_[4], edgeBottom = borderArt_[5];
+    const int edgeLeft = borderArt_[6], edgeRight = borderArt_[7];
+    const int fill     = borderArt_[8], fillDark = borderArt_[9];
+
+    const float x = item.x * sx();
+    const float y = item.y * sy();
+    const float w = item.width * sx();
+    const float h = item.height * sy();
+    const float headerH = item.headerHeight * sy();
+    const uint32_t white = 0xffffffffu;
+
+    // The header band, in the dark stripe, then the body beneath it.
+    if (headerH > 0.f) hud_->Tiles(fillDark, x, y, w, headerH, white);
+
+    if (item.columns.empty()) {
+        hud_->Tiles(item.dark ? fillDark : fill, x, y + headerH, w, h - headerH, white);
+    } else {
+        // Columns alternate light and dark, which is what gives a list its
+        // banding. The LAST column takes whatever width is left rather than
+        // its declared one, so rounding never leaves a gap at the right edge.
+        float at = 0.f;
+        for (size_t c = 0; c < item.columns.size(); ++c) {
+            float cw = item.columns[c] * sx();
+            if (c + 1 == item.columns.size()) cw = w - at;
+            hud_->Tiles((c & 1) ? fillDark : fill, x + at, y + headerH, cw, h - headerH, white);
+            at += cw;
+        }
+        // A separator down each column boundary but the last.
+        float sep = 0.f;
+        for (size_t c = 0; c + 1 < item.columns.size(); ++c) {
+            sep += item.columns[c] * sx();
+            hud_->Tiles(edgeLeft, x - 7.f + sep, y, 0.f, h, white);
+        }
+    }
+
+    // The rule under the header, then the four edges. Widths and heights of
+    // zero mean "one texture across", so each of these tiles along one axis.
+    if (headerH > 0.f) hud_->Tiles(edgeTop, x, y - 7.f + headerH, w, 0.f, white);
+
+    int cw = 0, ch = 0;
+    hud_->MaterialSize(cornerTL, cw, ch);
+    hud_->Tiles(edgeLeft, x - 7.f, y - 3.f + float(ch), 0.f, h - float(ch) - 3.f, white);
+    hud_->MaterialSize(cornerTR, cw, ch);
+    hud_->Tiles(edgeRight, x - 11.f + w, y - 5.f + float(ch), 0.f, h - float(ch) - 5.f, white);
+    hud_->MaterialSize(cornerBL, cw, ch);
+    hud_->Tiles(edgeBottom, x + float(cw) - 3.f, y - 11.f + h, w - float(cw) - 3.f, 0.f, white);
+    hud_->Tiles(edgeTop, x, y - 7.f, w, 0.f, white);
+
+    // The corners last, at native size, each overhanging its own way.
+    const struct { int mat; float dx, dy; bool fromRight, fromBottom; } corners[4] = {
+        {cornerBL, -3.f,  -22.f, false, true},
+        {cornerTL, -3.f,  -3.f,  false, false},
+        {cornerTR, -23.f, -5.f,  true,  false},
+        {cornerBR, -24.f, -25.f, true,  true},
+    };
+    for (const auto& c : corners) {
+        int mw = 0, mh = 0;
+        if (!hud_->MaterialSize(c.mat, mw, mh)) continue;
+        hud_->Quad(c.mat, x + c.dx + (c.fromRight ? w : 0.f),
+                   y + c.dy + (c.fromBottom ? h : 0.f), float(mw), float(mh), white);
     }
 }
 

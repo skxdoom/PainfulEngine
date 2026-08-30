@@ -37,12 +37,16 @@ public:
         NumRange,      // integer steps, arrowed only
         TextButtonEx,  // a row whose VALUE is one of a list the script owns
         TextEdit,      // free text, and NumEdit which is the same with digits
+        Border,        // the carved frame a panel sits inside
     };
+
+    // The frame is drawn from ten tiled pieces; see DrawBorder.
+    static constexpr int kBorderPieces = 10;
 
     // Whether a kind carries a value the arrows change. TextButton does not:
     // it is chosen, not adjusted.
     // Everything but a caption can take focus.
-    static bool Focusable(Kind k) { return k != Kind::StaticText; }
+    static bool Focusable(Kind k) { return k != Kind::StaticText && k != Kind::Border; }
 
     static bool HasValue(Kind k) {
         return k == Kind::Checkbox || k == Kind::Slider || k == Kind::NumRange ||
@@ -70,6 +74,12 @@ public:
         uint32_t descColor = 0xFFFFFFFFu;
         std::string fontBig = "timesbd", fontSmall = "timesbd";
         int fontBigSize = 26, fontSmallSize = 22;
+        // PMENU.SetItemFontsTex: the texture the glyphs are filled WITH, bound
+        // as a second stage the way HUD::Print does it. 46 shipped screens ask
+        // for "HUD/font_texturka_alpha", and without it their authored
+        // RGBA(100,100,100) draws as literal grey.
+        std::string fontBigTex, fontSmallTex;
+        int fontBigTexMat = -1, fontSmallTexMat = -1;
         std::string sndLightOn;      // played when focus arrives
         bool visible = true;
         bool disabled = false;
@@ -86,6 +96,11 @@ public:
         std::string valueText;
         size_t maxLength = 0;        // TextEdit / NumEdit character cap
         float sliderWidth = 340.f;   // in 1024-wide authoring units
+        // --- Border ---------------------------------------------------------
+        float height = 0.f;          // SetBorderSize, with width above
+        float headerHeight = 0.f;    // SetBorderHeader: a dark band at the top
+        bool dark = false;           // AddBorder's second argument
+        std::vector<float> columns;  // SetBorderColCount / SetBorderColumn
         // Declaration order, so keyboard navigation walks the screen the way
         // the script wrote it rather than the way a map happens to sort.
         int order = 0;
@@ -142,6 +157,13 @@ public:
         offText_ = off;
     }
 
+    // Draws the carved frame around a bare rectangle, in authoring units.
+    // HUD.DrawBorder is this: the original builds a MenuItemBorder for it, so
+    // the HUD and the menu share one frame rather than each having their own.
+    // Needs the screen size, so it only draws inside a frame the menu or the
+    // HUD has already begun.
+    void DrawFrame(float x, float y, float w, float h);
+
     // --- items ------------------------------------------------------------
     Item& Add(const std::string& name, Kind kind);
     Item* Find(const std::string& name);
@@ -172,7 +194,9 @@ private:
     float sy() const { return float(screenH_) / 768.f; }
 
     std::vector<Item*> Ordered();
+    int FontTexture(const Item& item, bool big);
     void DrawValue(const Item& item, float x, float y, int size, uint32_t colour);
+    void DrawBorder(const Item& item);
     void DrawCursor();
     void MoveFocus(int delta);
     void Choose(const Item& item);
@@ -198,6 +222,7 @@ private:
     bool active_ = false;
     bool showMouse_ = true;
     std::string onText_ = "On", offText_ = "Off";
+    std::vector<int> borderArt_;   // the ten frame pieces, resolved on first use
     int screenW_ = 1024, screenH_ = 768;
     // An action can activate a different screen, which clears the items out
     // from under the loop that is walking them. So actions are deferred to the

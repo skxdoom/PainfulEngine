@@ -1,4 +1,6 @@
 #include "Window.h"
+#include <algorithm>
+#include <cstdio>
 #include "../Core/Log.h"
 #include <SDL3/SDL.h>
 
@@ -104,6 +106,24 @@ void Window::Close() {
         window_ = nullptr;
         SDL_Quit();
     }
+}
+
+std::vector<std::string> Window::DisplayModes() const {
+    std::vector<std::string> out;
+    int count = 0;
+    SDL_DisplayID display = window_ ? SDL_GetDisplayForWindow(window_)
+                                    : SDL_GetPrimaryDisplay();
+    SDL_DisplayMode** modes = SDL_GetFullscreenDisplayModes(display, &count);
+    if (!modes) return out;
+    for (int i = 0; i < count; ++i) {
+        char buf[32];
+        snprintf(buf, sizeof buf, "%dx%d", modes[i]->w, modes[i]->h);
+        // One entry per SIZE: the display reports a mode per refresh rate, and
+        // the menu offers sizes.
+        if (std::find(out.begin(), out.end(), buf) == out.end()) out.push_back(buf);
+    }
+    SDL_free(modes);
+    return out;
 }
 
 bool Window::PumpEvents() {

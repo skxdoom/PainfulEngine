@@ -3028,19 +3028,16 @@ int ScriptEngine::L_HUD_DrawRect(lua_State* L) {
 // HUD.DrawBorder(x, y, w, h), defaulting to the whole 1024x768 reference
 // screen.
 //
-// In the original this is not a line rectangle: it builds a MenuItemBorder
-// widget - the carved stone frame the menus sit inside - and draws that. That
-// widget belongs to the menu stage; until then a plain outline marks out the
-// same rectangle, which is enough to lay a menu out against and visibly not
-// the shipped art.
+// This is not a line rectangle: HUD::DrawBorder at 0x1008b510 builds a
+// MenuItemBorder - the carved stone frame - and renders it, which is why it
+// takes no colour. Now that the menu owns that widget, the HUD borrows it, so
+// a script drawing a frame gets the shipped art either way.
 int ScriptEngine::L_HUD_DrawBorder(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!self->hud_) return 0;
-    const float x = float(luaL_optnumber(L, 1, 0));
-    const float y = float(luaL_optnumber(L, 2, 0));
-    const float w = float(luaL_optnumber(L, 3, 1024));
-    const float h = float(luaL_optnumber(L, 4, 768));
-    self->hud_->Border(x, y, w, h, 2.f, ArgbToAbgr(0xFF9B5616u));
+    self->menu_.DrawFrame(float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
+                          float(luaL_optnumber(L, 3, 1024)),
+                          float(luaL_optnumber(L, 4, 768)));
     return 0;
 }
 
@@ -3184,7 +3181,11 @@ MenuSystem::Item* MenuItemArg(ScriptEngine* self, lua_State* L, MenuSystem** out
 int ScriptEngine::L_PMENU_Activate(lua_State* L) {
     ScriptEngine* self = From(L);
     // The argument is "activate", and PainMenu passes false to LEAVE the menu.
-    const bool on = lua_isnil(L, 1) ? true : (lua_toboolean(L, 1) != 0);
+    // lua_isnoneornil, not lua_isnil: an ABSENT argument is LUA_TNONE, and
+    // lua_isnil only catches an explicit nil. PMENU.ShowMouse() is called with
+    // no argument at all, and reading that as "false" is what left the menu
+    // with no cursor and the mouse still steering the player.
+    const bool on = lua_isnoneornil(L, 1) ? true : (lua_toboolean(L, 1) != 0);
     self->menu_.Activate(on);
     return 0;
 }
@@ -3223,7 +3224,8 @@ int ScriptEngine::L_PMENU_SetTopPosition(lua_State* L) {
 }
 
 int ScriptEngine::L_PMENU_ShowMouse(lua_State* L) {
-    From(L)->menu_.ShowMouse(lua_isnil(L, 1) ? true : (lua_toboolean(L, 1) != 0));
+    // ShowMouse() with no argument means SHOW - see L_PMENU_Activate.
+    From(L)->menu_.ShowMouse(lua_isnoneornil(L, 1) ? true : (lua_toboolean(L, 1) != 0));
     return 0;
 }
 
@@ -3245,7 +3247,7 @@ int ScriptEngine::L_PMENU_ReturnToGame(lua_State* L) {
 // engine owns the pause - the scripts only ask (PainKiller.lua guards its
 // tick on it). The menu sets it on the way in and clears it on the way out.
 int ScriptEngine::L_WORLD_SetGamePaused(lua_State* L) {
-    From(L)->gamePaused_ = lua_isnil(L, 1) ? true : (lua_toboolean(L, 1) != 0);
+    From(L)->gamePaused_ = lua_isnoneornil(L, 1) ? true : (lua_toboolean(L, 1) != 0);
     return 0;
 }
 
@@ -3322,6 +3324,19 @@ int ScriptEngine::L_PMENU_SetItemColors(lua_State* L) {
     return 0;
 }
 
+// PMENU.SetItemFontsTex(name, bigTex, smallTex) - the texture the glyphs are
+// filled with, not another font. See MenuSystem::Item::fontBigTex.
+int ScriptEngine::L_PMENU_SetItemFontsTex(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu)) {
+        const std::string big = luaL_optstring(L, 2, "");
+        const std::string small = luaL_optstring(L, 3, "");
+        if (big != item->fontBigTex) { item->fontBigTex = big; item->fontBigTexMat = -1; }
+        if (small != item->fontSmallTex) { item->fontSmallTex = small; item->fontSmallTexMat = -1; }
+    }
+    return 0;
+}
+
 int ScriptEngine::L_PMENU_SetItemFonts(lua_State* L) {
     MenuSystem* menu = nullptr;
     if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu)) {
@@ -3340,7 +3355,7 @@ int ScriptEngine::L_PMENU_SetItemFonts(lua_State* L) {
 int ScriptEngine::L_PMENU_SetItemVisibility(lua_State* L) {
     MenuSystem* menu = nullptr;
     if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu))
-        item->visible = lua_isnil(L, 2) ? true : (lua_toboolean(L, 2) != 0);
+        item->visible = lua_isnoneornil(L, 2) ? true : (lua_toboolean(L, 2) != 0);
     return 0;
 }
 
@@ -3587,6 +3602,106 @@ int ScriptEngine::L_PMENU_GetTextEditValue(lua_State* L) {
     return 1;
 }
 
+
+// --- stage 3: the frame -----------------------------------------------------
+
+// PMENU.AddBorder(name, dark), then SetBorderSize / SetBorderHeader /
+// SetBorderColCount / SetBorderColumn configure it. The Options screens open
+// with one of these and lay their rows out inside it.
+int ScriptEngine::L_PMENU_AddBorder(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const char* name = luaL_optstring(L, 1, nullptr);
+    if (!name || !*name) return 0;
+    MenuSystem::Item& item = self->menu_.Add(name, MenuSystem::Kind::Border);
+    item.dark = lua_isboolean(L, 2) ? lua_toboolean(L, 2) != 0
+                                    : luaL_optnumber(L, 2, 0) != 0;
+    return 0;
+}
+
+// PMENU.AddTabGroup(name, dark). A framed container whose children the script
+// shows and hides wholesale - PainMenu:ShowTabGroup just calls
+// SetItemVisibility down the group's item list. It takes SetBorderSize like a
+// border does, so it IS one as far as drawing goes; what makes it a group is
+// entirely on the script side.
+int ScriptEngine::L_PMENU_AddTabGroup(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const char* name = luaL_optstring(L, 1, nullptr);
+    if (!name || !*name) return 0;
+    MenuSystem::Item& item = self->menu_.Add(name, MenuSystem::Kind::Border);
+    item.dark = lua_isboolean(L, 2) ? lua_toboolean(L, 2) != 0
+                                    : luaL_optnumber(L, 2, 0) != 0;
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_SetBorderSize(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu)) {
+        item->width = float(luaL_optnumber(L, 2, 0));
+        item->height = float(luaL_optnumber(L, 3, 0));
+    }
+    return 0;
+}
+
+// The dark band across the top of a panel, where a list puts its column
+// captions. The argument is its height in authoring units.
+int ScriptEngine::L_PMENU_SetBorderHeader(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu))
+        item->headerHeight = float(luaL_optnumber(L, 2, 0));
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_SetBorderColCount(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu)) {
+        const int n = int(luaL_optnumber(L, 2, 0));
+        item->columns.assign(size_t(n < 0 ? 0 : n), 0.f);
+    }
+    return 0;
+}
+
+// SetBorderColumn(name, index, width) - and the index is ZERO-based, which
+// PainMenu:SetupScreen shows plainly where it configures FireBorder with
+// columns 0 through 3.
+int ScriptEngine::L_PMENU_SetBorderColumn(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu)) {
+        const int index = int(luaL_optnumber(L, 2, -1));
+        if (index >= 0 && size_t(index) < item->columns.size())
+            item->columns[size_t(index)] = float(luaL_optnumber(L, 3, 0));
+    }
+    return 0;
+}
+
+
+// R3D.GetAvailableResolutions() -> an array of "WIDTHxHEIGHT" strings.
+//
+// PainMenu builds the Resolution row directly out of this and calls table.getn
+// on it, so a missing native takes the whole VideoOptions screen down rather
+// than degrading. The screen upper-cases each entry and compares against
+// Cfg.Resolution, which the shipped config writes as "3440X1440" - so the
+// separator has to be an 'x' and nothing else.
+int ScriptEngine::L_R3D_GetAvailableResolutions(lua_State* L) {
+    ScriptEngine* self = From(L);
+    lua_newtable(L);
+    int n = 0;
+    for (const std::string& mode : self->resolutions_) {
+        lua_pushnumber(L, ++n);
+        lua_pushlstring(L, mode.data(), mode.size());
+        lua_settable(L, -3);
+    }
+    // Never hand back an empty table: the screen indexes visible[currValue]
+    // and would then draw a nil. The current window is always a valid mode.
+    if (n == 0) {
+        char buf[32];
+        snprintf(buf, sizeof buf, "%dx%d", self->screenW_, self->screenH_);
+        lua_pushnumber(L, 1);
+        lua_pushstring(L, buf);
+        lua_settable(L, -3);
+    }
+    return 1;
+}
+
 // ---------------------------------------------------------------- binding
 
 void ScriptEngine::Bind(LuaHost& host) {
@@ -3761,6 +3876,7 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"HUD", "ColorSubstr", L_HUD_ColorSubstr},
         {"R3D", "ScreenSize", L_R3D_ScreenSize},
         {"R3D", "GetFPS", L_R3D_GetFPS},
+        {"R3D", "GetAvailableResolutions", L_R3D_GetAvailableResolutions},
         {"MOUSE", "GetPos", L_MOUSE_GetPos},
         {"PMENU", "Activate", L_PMENU_Activate},
         {"PMENU", "Active", L_PMENU_Active},
@@ -3786,6 +3902,12 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"PMENU", "IsItemChecked", L_PMENU_IsItemChecked},
         {"PMENU", "SetCheckboxValue", L_PMENU_SetCheckboxValue},
         {"PMENU", "GetTextEditValue", L_PMENU_GetTextEditValue},
+        {"PMENU", "AddBorder", L_PMENU_AddBorder},
+        {"PMENU", "AddTabGroup", L_PMENU_AddTabGroup},
+        {"PMENU", "SetBorderSize", L_PMENU_SetBorderSize},
+        {"PMENU", "SetBorderHeader", L_PMENU_SetBorderHeader},
+        {"PMENU", "SetBorderColCount", L_PMENU_SetBorderColCount},
+        {"PMENU", "SetBorderColumn", L_PMENU_SetBorderColumn},
         {"PMENU", "AddStaticText", L_PMENU_AddStaticText},
         {"PMENU", "AddTextButton", L_PMENU_AddTextButton},
         {"PMENU", "SetItemText", L_PMENU_SetItemText},
@@ -3794,6 +3916,7 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"PMENU", "SetItemPosition", L_PMENU_SetItemPosition},
         {"PMENU", "SetItemColors", L_PMENU_SetItemColors},
         {"PMENU", "SetItemFonts", L_PMENU_SetItemFonts},
+        {"PMENU", "SetItemFontsTex", L_PMENU_SetItemFontsTex},
         {"PMENU", "SetItemVisibility", L_PMENU_SetItemVisibility},
         {"PMENU", "SetItemAlign", L_PMENU_SetItemAlign},
         {"PMENU", "SetItemWidth", L_PMENU_SetItemWidth},
