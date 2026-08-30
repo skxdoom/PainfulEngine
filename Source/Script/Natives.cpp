@@ -656,6 +656,11 @@ const luaL_reg kGlobalImpls[] = {
     {"IsBlackEdition", L_True},
     {"IsDedicatedServer", L_False},
     {"IsMPDemo", L_False},
+    // There is no disc to check for, and no CD key. Answering false is the
+    // truth here rather than a convenience: PainMenu:OpenMenu calls this on
+    // every menu open, and a missing global throws out of the whole chunk
+    // before the screen is ever activated.
+    {"IsCDCheckEnabled", L_False},
 
     {"LabelOk", L_LabelOk},
     {"GetCDLetter", L_GetCDLetter},

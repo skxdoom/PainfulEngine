@@ -6,6 +6,7 @@
 #include "../Assets/AnimationCache.h"
 #include "../Assets/SkeletonCache.h"
 #include "../Assets/Waypoints.h"
+#include "MenuSystem.h"
 #include "../Assets/Mpk.h"
 #include "../Script/LuaHost.h"
 #include "../World/Level.h"
@@ -243,7 +244,11 @@ public:
     void AttachHud(HudRenderer* hud, TextureCache* textures) {
         hud_ = hud;
         hudTextures_ = textures;
+        menu_.Attach(hud, textures);
     }
+
+    // The menu owns its own widget tree; the game loop drives and draws it.
+    MenuSystem& menu() { return menu_; }
     // The screen size the scripts read back from R3D.ScreenSize, and the size
     // the font scale is measured against.
     void SetScreenSize(int w, int h) { screenW_ = w; screenH_ = h; }
@@ -522,6 +527,35 @@ private:
     static int L_R3D_ScreenSize(lua_State* L);
     static int L_R3D_GetFPS(lua_State* L);
 
+    // The menu. Stage 1: the screen lifecycle, static text and text buttons.
+    static int L_PMENU_Activate(lua_State* L);
+    static int L_PMENU_Active(lua_State* L);
+    static int L_PMENU_Clear(lua_State* L);
+    static int L_PMENU_ClearScreen(lua_State* L);
+    static int L_PMENU_SetBackground(lua_State* L);
+    static int L_PMENU_SetMenuWidth(lua_State* L);
+    static int L_PMENU_SetTopPosition(lua_State* L);
+    static int L_PMENU_ShowMouse(lua_State* L);
+    static int L_PMENU_ShowMenu(lua_State* L);
+    static int L_PMENU_ReturnToGame(lua_State* L);
+    static int L_PMENU_AddStaticText(lua_State* L);
+    static int L_PMENU_AddTextButton(lua_State* L);
+    static int L_PMENU_SetItemText(lua_State* L);
+    static int L_PMENU_SetItemDesc(lua_State* L);
+    static int L_PMENU_SetItemAction(lua_State* L);
+    static int L_PMENU_SetItemPosition(lua_State* L);
+    static int L_PMENU_SetItemColors(lua_State* L);
+    static int L_PMENU_SetItemFonts(lua_State* L);
+    static int L_PMENU_SetItemVisibility(lua_State* L);
+    static int L_PMENU_SetItemAlign(lua_State* L);
+    static int L_PMENU_SetItemWidth(lua_State* L);
+    static int L_PMENU_SetItemSounds(lua_State* L);
+    static int L_PMENU_DisableItem(lua_State* L);
+    static int L_PMENU_EnableItem(lua_State* L);
+    static int L_MOUSE_GetPos(lua_State* L);
+    static int L_SOUND_ApplySoundSettings(lua_State* L);
+    static int L_SOUND_SetMasterVolume(lua_State* L);
+
     LuaHost* host_ = nullptr;
     std::unordered_map<int, Entity> entities_;
     int nextHandle_ = 1;
@@ -580,6 +614,7 @@ private:
     // --- the 2D layer -----------------------------------------------------
     HudRenderer* hud_ = nullptr;
     TextureCache* hudTextures_ = nullptr;
+    MenuSystem menu_;
     // 1024x768 is what the shipped interface was authored at and what
     // HUD::SetFont measures its scale against. Until a window says otherwise
     // this is also what R3D.ScreenSize answers.

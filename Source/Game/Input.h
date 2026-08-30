@@ -75,6 +75,16 @@ public:
     bool IsDown(int vk) const { return vk > 0 && vk < kKeyCount && down_[vk]; }
 
     void AddMouseDelta(float dx, float dy) { mouseDx_ += dx; mouseDy_ += dy; }
+
+    // The absolute cursor, in window pixels. Separate from the deltas above
+    // because they answer different questions: during play the mouse is
+    // captured and only its motion means anything, while the menu needs to
+    // know where the pointer IS in order to hit-test a row. MOUSE.GetPos
+    // reports this.
+    void SetMousePos(float x, float y) { mouseX_ = x; mouseY_ = y; }
+    float mouseX() const { return mouseX_; }
+    float mouseY() const { return mouseY_; }
+
     void TakeMouseDelta(float& dx, float& dy) {
         dx = mouseDx_; dy = mouseDy_;
         mouseDx_ = mouseDy_ = 0.f;
@@ -145,6 +155,7 @@ private:
     bool wasDown_[kKeyCount] = {};
     bool pulse_[kKeyCount] = {};
     float mouseDx_ = 0.f, mouseDy_ = 0.f;
+    float mouseX_ = 0.f, mouseY_ = 0.f;
     float sensitivity_ = 40.f;   // Cfg.MouseSensitivity's shipped value
 
     std::vector<Bind> actionBinds_;

@@ -3160,6 +3160,273 @@ int ScriptEngine::L_R3D_GetFPS(lua_State* L) {
     lua_pushnumber(L, dt > 0.f ? double(int(1.f / dt + 0.5f)) : 0.0);
     return 1;
 }
+
+// --------------------------------------------------------------- the menu
+//
+// The scripts declare a screen and the engine owns it from there: layout,
+// hit-testing, keyboard navigation and drawing are all on this side. Items are
+// addressed by NAME, which is what Engine.dll's MenuScreen::FindItem does and
+// why every setter below takes a name string first. See Docs/Menu.md.
+//
+// Stage 1: static text, text buttons, and the screen lifecycle. Everything
+// else is still an instrumented stub, so the call report keeps counting what
+// the shipped menus actually reach for.
+
+namespace {
+
+// Every SetItem* native is "find by name, write one field". A miss is not an
+// error - the scripts configure items they have not added yet on screens that
+// were never activated - so it returns quietly.
+MenuSystem::Item* MenuItemArg(ScriptEngine* self, lua_State* L, MenuSystem** outMenu);
+
+} // namespace
+
+int ScriptEngine::L_PMENU_Activate(lua_State* L) {
+    ScriptEngine* self = From(L);
+    // The argument is "activate", and PainMenu passes false to LEAVE the menu.
+    const bool on = lua_isnil(L, 1) ? true : (lua_toboolean(L, 1) != 0);
+    self->menu_.Activate(on);
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_Active(lua_State* L) {
+    lua_pushboolean(L, From(L)->menu_.active() ? 1 : 0);
+    return 1;
+}
+
+int ScriptEngine::L_PMENU_Clear(lua_State* L) {
+    From(L)->menu_.Clear();
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_ClearScreen(lua_State* L) {
+    From(L)->menu_.ClearScreen();
+    return 0;
+}
+
+// PMENU.SetBackground(material, type). The type selects how the artwork is
+// fitted; we stretch to the window either way, because a menu background is
+// artwork rather than a layout element.
+int ScriptEngine::L_PMENU_SetBackground(lua_State* L) {
+    From(L)->menu_.SetBackground(luaL_optstring(L, 1, ""), int(luaL_optnumber(L, 2, 0)));
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_SetMenuWidth(lua_State* L) {
+    From(L)->menu_.SetMenuWidth(float(luaL_optnumber(L, 1, 0)));
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_SetTopPosition(lua_State* L) {
+    From(L)->menu_.SetTopPosition(float(luaL_optnumber(L, 1, 0)));
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_ShowMouse(lua_State* L) {
+    From(L)->menu_.ShowMouse(lua_isnil(L, 1) ? true : (lua_toboolean(L, 1) != 0));
+    return 0;
+}
+
+// PMENU.ShowMenu() / PMENU.ReturnToGame() - the same transition Escape makes,
+// exposed because the scripts drive it too: a dropped multiplayer connection
+// or a bad CD key forces the menu up from Lua.
+int ScriptEngine::L_PMENU_ShowMenu(lua_State* L) {
+    From(L)->menu_.Open();
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_ReturnToGame(lua_State* L) {
+    From(L)->menu_.Close();
+    return 0;
+}
+
+// PMENU.AddStaticText(name, text) and AddTextButton(name, text, desc).
+//
+// The third argument of AddTextButton is the DESCRIPTION, not the action -
+// PainMenu:SetupScreen passes o.desc there and sets the action separately with
+// SetItemAction. (Engine.dll's own AddTextButton takes three strings; which of
+// them is which is settled by the call site, not by the decompile.)
+int ScriptEngine::L_PMENU_AddStaticText(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const char* name = luaL_optstring(L, 1, nullptr);
+    if (!name || !*name) return 0;
+    MenuSystem::Item& item = self->menu_.Add(name, MenuSystem::Kind::StaticText);
+    item.text = luaL_optstring(L, 2, "");
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_AddTextButton(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const char* name = luaL_optstring(L, 1, nullptr);
+    if (!name || !*name) return 0;
+    MenuSystem::Item& item = self->menu_.Add(name, MenuSystem::Kind::TextButton);
+    item.text = luaL_optstring(L, 2, "");
+    item.desc = luaL_optstring(L, 3, "");
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_SetItemText(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu))
+        item->text = luaL_optstring(L, 2, "");
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_SetItemDesc(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu))
+        item->desc = luaL_optstring(L, 2, "");
+    return 0;
+}
+
+// The action is a string of LUA SOURCE, run when the item is chosen:
+//   action = "PainMenu:ActivateScreen(GameMenu)"
+int ScriptEngine::L_PMENU_SetItemAction(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu))
+        item->action = luaL_optstring(L, 2, "");
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_SetItemPosition(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu)) {
+        item->x = float(luaL_optnumber(L, 2, -1));
+        item->y = float(luaL_optnumber(L, 3, 0));
+    }
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_SetItemColors(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu)) {
+        item->textColor      = uint32_t(int64_t(luaL_optnumber(L, 2, 0xFF646464u)));
+        item->disabledColor  = uint32_t(int64_t(luaL_optnumber(L, 3, 0xFF9B9B9Bu)));
+        item->underMouseColor= uint32_t(int64_t(luaL_optnumber(L, 4, 0xFFFFFFFFu)));
+        item->descColor      = uint32_t(int64_t(luaL_optnumber(L, 5, 0xFFFFFFFFu)));
+    }
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_SetItemFonts(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu)) {
+        item->fontBig      = luaL_optstring(L, 2, "timesbd");
+        item->fontBigSize  = int(luaL_optnumber(L, 3, 26));
+        item->fontSmall    = luaL_optstring(L, 4, "timesbd");
+        item->fontSmallSize= int(luaL_optnumber(L, 5, 22));
+        if (item->fontBig.empty())   item->fontBig = "timesbd";
+        if (item->fontSmall.empty()) item->fontSmall = "timesbd";
+        if (item->fontBigSize   <= 0) item->fontBigSize = 26;
+        if (item->fontSmallSize <= 0) item->fontSmallSize = 22;
+    }
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_SetItemVisibility(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu))
+        item->visible = lua_isnil(L, 2) ? true : (lua_toboolean(L, 2) != 0);
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_SetItemAlign(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu))
+        item->align = int(luaL_optnumber(L, 2, 0));
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_SetItemWidth(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu))
+        item->width = float(luaL_optnumber(L, 2, 0));
+    return 0;
+}
+
+// PMENU.SetItemSounds(name, accept, lightOn). The call site settles the order:
+// PainMenu passes o.sndAccept then o.sndLightOn, so the FOCUS sound is the
+// third argument, not the second. Only that one is used yet.
+int ScriptEngine::L_PMENU_SetItemSounds(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu))
+        item->sndLightOn = luaL_optstring(L, 3, "");
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_DisableItem(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu)) item->disabled = true;
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_EnableItem(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu)) item->disabled = false;
+    return 0;
+}
+
+namespace {
+
+MenuSystem::Item* MenuItemArg(ScriptEngine* self, lua_State* L, MenuSystem** outMenu) {
+    *outMenu = &self->menu();
+    const char* name = luaL_optstring(L, 1, nullptr);
+    if (!name || !*name) return nullptr;
+    return (*outMenu)->Find(name);
+}
+
+} // namespace
+
+// MOUSE.GetPos() -> the absolute cursor in window pixels, which is what the
+// menu hit-tests against. The bare-host stub answers 0,0; this answers where
+// the pointer actually is.
+int ScriptEngine::L_MOUSE_GetPos(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (!self->input_) {
+        lua_pushnumber(L, 0);
+        lua_pushnumber(L, 0);
+        return 2;
+    }
+    lua_pushnumber(L, self->input_->mouseX());
+    lua_pushnumber(L, self->input_->mouseY());
+    return 2;
+}
+
+
+// SOUND.ApplySoundSettings(master, music, sfx, speakers, pan, reverse, provider)
+//
+// Game.lua:222 calls this at startup with the values out of config.ini, which
+// is how a player's saved volume reaches the mixer. Without it every sound
+// plays at full gain no matter what the options say - and the shipped config
+// has MasterVolume at 10, so "ignored" is a factor of ten too loud.
+//
+// The originals are percentages. Engine.dll multiplies argument 1 by 0.01 into
+// MilesEngine::SetMasterVolumeLevel and argument THREE by 0.01 into
+// Set3DDigitalEffectsVolume; argument 2 (music) is not used here, because the
+// streams carry their own volume through SOUND.StreamSetVolume.
+//
+// Miles has two buses and we have one, so the two are composed: master scales
+// everything and sfx scales the 3D effects, and effects are very nearly all we
+// play. A separate music bus is worth splitting out when streaming lands.
+int ScriptEngine::L_SOUND_ApplySoundSettings(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const double master = luaL_optnumber(L, 1, 100.0) * 0.01;
+    const double sfx    = luaL_optnumber(L, 3, 100.0) * 0.01;
+    const double gain = std::max(0.0, std::min(1.0, master)) *
+                        std::max(0.0, std::min(1.0, sfx));
+    if (self->audio_) self->audio_->SetMasterVolume(float(gain));
+    LogInfo("audio: master %.0f%%, sfx %.0f%% -> gain %.2f", master * 100.0, sfx * 100.0,
+            gain);
+    return 0;
+}
+
+int ScriptEngine::L_SOUND_SetMasterVolume(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const double v = luaL_optnumber(L, 1, 100.0) * 0.01;
+    if (self->audio_) self->audio_->SetMasterVolume(float(std::max(0.0, std::min(1.0, v))));
+    return 0;
+}
+
 // ---------------------------------------------------------------- binding
 
 void ScriptEngine::Bind(LuaHost& host) {
@@ -3212,6 +3479,8 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"ENTITY", "PO_IsOnFloor", L_PO_IsOnFloor},
         {"ENTITY", "PO_SetSightParams", L_PO_SetSightParams},
         {"ENTITY", "SeesEntity", L_SeesEntity},
+        {"SOUND", "ApplySoundSettings", L_SOUND_ApplySoundSettings},
+        {"SOUND", "SetMasterVolume", L_SOUND_SetMasterVolume},
         {"SOUND", "Play2D", L_SOUND_Play2D},
         {"SOUND", "Play3D", L_SOUND_Play3D},
         {"SOUND", "SetPlayerPos", L_SOUND_SetPlayerPos},
@@ -3332,6 +3601,31 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"HUD", "ColorSubstr", L_HUD_ColorSubstr},
         {"R3D", "ScreenSize", L_R3D_ScreenSize},
         {"R3D", "GetFPS", L_R3D_GetFPS},
+        {"MOUSE", "GetPos", L_MOUSE_GetPos},
+        {"PMENU", "Activate", L_PMENU_Activate},
+        {"PMENU", "Active", L_PMENU_Active},
+        {"PMENU", "Clear", L_PMENU_Clear},
+        {"PMENU", "ClearScreen", L_PMENU_ClearScreen},
+        {"PMENU", "SetBackground", L_PMENU_SetBackground},
+        {"PMENU", "SetMenuWidth", L_PMENU_SetMenuWidth},
+        {"PMENU", "SetTopPosition", L_PMENU_SetTopPosition},
+        {"PMENU", "ShowMouse", L_PMENU_ShowMouse},
+        {"PMENU", "ShowMenu", L_PMENU_ShowMenu},
+        {"PMENU", "ReturnToGame", L_PMENU_ReturnToGame},
+        {"PMENU", "AddStaticText", L_PMENU_AddStaticText},
+        {"PMENU", "AddTextButton", L_PMENU_AddTextButton},
+        {"PMENU", "SetItemText", L_PMENU_SetItemText},
+        {"PMENU", "SetItemDesc", L_PMENU_SetItemDesc},
+        {"PMENU", "SetItemAction", L_PMENU_SetItemAction},
+        {"PMENU", "SetItemPosition", L_PMENU_SetItemPosition},
+        {"PMENU", "SetItemColors", L_PMENU_SetItemColors},
+        {"PMENU", "SetItemFonts", L_PMENU_SetItemFonts},
+        {"PMENU", "SetItemVisibility", L_PMENU_SetItemVisibility},
+        {"PMENU", "SetItemAlign", L_PMENU_SetItemAlign},
+        {"PMENU", "SetItemWidth", L_PMENU_SetItemWidth},
+        {"PMENU", "SetItemSounds", L_PMENU_SetItemSounds},
+        {"PMENU", "DisableItem", L_PMENU_DisableItem},
+        {"PMENU", "EnableItem", L_PMENU_EnableItem},
     };
     for (const auto& n : natives) host.RegisterNative(n.module, n.name, n.fn, this);
 }

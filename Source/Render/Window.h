@@ -47,6 +47,30 @@ public:
     // While captured the cursor is hidden and movement is unbounded.
     void SetMouseCaptured(bool captured);
     bool mouseCaptured() const { return mouseCaptured_; }
+    // The cursor in window pixels, tracked whether or not the mouse is
+    // captured - the menu needs it, the camera does not.
+    float mouseX() const { return mouseX_; }
+    float mouseY() const { return mouseY_; }
+    // While the menu is up the cursor must stay visible, so capture is
+    // suppressed rather than toggled on every click.
+    void SetAllowCapture(bool on) {
+        allowCapture_ = on;
+        if (!on && mouseCaptured_) SetMouseCaptured(false);
+    }
+    // Hands Escape to the caller instead of quitting on it: the game loop
+    // gives that key to the menu.
+    void SetEscapeQuits(bool on) { escapeQuits_ = on; }
+    bool TakeEscape() {
+        const bool e = escapePressed_;
+        escapePressed_ = false;
+        return e;
+    }
+    // Left-button edge since the last call, for menu clicks.
+    bool TakeLeftClick() {
+        const bool c = leftClicked_;
+        leftClicked_ = false;
+        return c;
+    }
 
     // Platform window handle, for handing to the graphics backend.
     void* NativeHandle() const;
@@ -61,6 +85,11 @@ private:
     int width_ = 0, height_ = 0;
     bool resized_ = false;
     bool mouseCaptured_ = false;
+    float mouseX_ = 0.f, mouseY_ = 0.f;
+    bool leftClicked_ = false;
+    bool allowCapture_ = true;
+    bool escapePressed_ = false;
+    bool escapeQuits_ = true;
     float mouseDx_ = 0.f, mouseDy_ = 0.f;
     int levelStep_ = 0;
     bool noclipToggle_ = false;

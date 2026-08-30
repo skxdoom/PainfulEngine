@@ -108,7 +108,8 @@ so a change can be checked without opening a window.
 | `skytex <levelDir> <DataRoot>` | sky layer textures and whether they resolve |
 | `shaders <DataRoot> [name]` | material scripts; one name prints it resolved |
 | `lua <DataRoot> [frames] [level]` | boot the script layer (optionally load a level), tick, report native calls |
-| `game <DataRoot> [level] [--shot f]` | script-driven windowed run: the game's Lua loads the level |
+| `game <DataRoot> [level] [--shot f] [--exec lua]` | script-driven windowed run: the game's Lua loads the level |
+| `mklevel <DataRoot> [name] [extent] [height] [tex]` | write a complete level - a big walkable floor - from code |
 | `textures <file.mpk> <DataRoot> <hint>` | which map textures resolve |
 | `resolve <DataRoot> <name>` | where a texture reference resolves |
 | `texdump <DataRoot> <name> [out.tga]` | decode a texture, print corner pixels |
@@ -125,9 +126,19 @@ real Jolt bodies under them so items settle onto the floor, and the layered
 sky, particle effects and light coronas all arrive through their natives
 too. **You walk**: `Game:OnPlay` creates the player, the engine-side pawn
 moves from the game's own `Tweak.PlayerMove` constants, actors and weapons
-tick, and items poll for pickup. Not yet: collision events back into the
-scripts, firing and use actions, skeletal animation playback, water and
-post-processing, AI behaviour, sound and UI.
+tick, and items poll for pickup.
+
+Skeletal animation plays, monsters see the player and walk to him over the
+level's own waypoint graph, sound mixes through one SDL3 stream, and the
+**HUD draws itself from the shipped Lua** — health, ammo, the compass and the
+tarot board, with text rasterised from the game's own TrueType. Levels are
+authorable from code: `mklevel` writes a complete one, world mesh included.
+The **menu is up to Stage 1** — the real main menu and options screens draw
+from the shipped scripts, navigable by mouse and keyboard, running the real
+`action` strings. Localization works in all eight shipped languages.
+
+Not yet: menu input widgets (sliders, checkboxes, lists), water and
+post-processing, save/load, and multiplayer.
 
 The full inventory, with the authority cited for each rule, is in
 [`Docs/Status.md`](Docs/Status.md).
@@ -138,16 +149,17 @@ Rendering comes first: it has a ground truth — the original renders the same
 level, so screenshots can be compared directly — while gameplay correctness
 only reveals itself deep into a playthrough.
 
-1. Water (`FXWater`), which needs a render-target pass — shared with:
-2. Bloom and the rest of the `.fxo` post chain.
-3. Skeletal animation playback and GPU skinning.
-4. The Lua host's natives, from
-   [`Docs/native_priority.tsv`](Docs/native_priority.tsv) in call-count order
-   — wiring `WORLD`/`ENTITY`/`CAM` to the real subsystems is the point where
-   the game starts to *play*. The host itself is up: see
-   [`Docs/LuaHost.md`](Docs/LuaHost.md).
-5. The rest of physics — the player controller, ragdolls, explosions and glass
-   — driven through that same native API. The Jolt world underneath it is up
+1. The menu, stages 2–4: the input widgets (sliders, checkboxes, lists) so the
+   Options screens write back to `Cfg`, then the chrome and the campaign flow.
+   The staging and what the binary said are in [`Docs/Menu.md`](Docs/Menu.md).
+2. Save/load, which is the last of the engine skeleton.
+3. Water (`FXWater`), which needs a render-target pass — shared with:
+4. Bloom and the rest of the `.fxo` post chain.
+5. The remaining natives, from
+   [`Docs/native_priority.tsv`](Docs/native_priority.tsv) in call-count order.
+   The host itself is up: see [`Docs/LuaHost.md`](Docs/LuaHost.md).
+6. The rest of physics — ragdolls, per-bone hitboxes, explosions and glass —
+   driven through that same native API. The Jolt world underneath it is up
    already: see [`Docs/Physics.md`](Docs/Physics.md).
 
 ## Documentation
@@ -163,6 +175,10 @@ only reveals itself deep into a playthrough.
 | [`Docs/Physics.md`](Docs/Physics.md) | the Jolt world, the tweak constants and the player body |
 | [`Docs/LuaHost.md`](Docs/LuaHost.md) | the Lua 5.0.2 host, the native API shape, the boot and frame contract |
 | [`Docs/PlayerMovement.md`](Docs/PlayerMovement.md) | the player mover, recovered from PhysicsObject::PlayerAction |
+| [`Docs/Hud.md`](Docs/Hud.md) | the 2D layer: MATERIAL, HUD.PrintXY, fonts and the colour palette |
+| [`Docs/Menu.md`](Docs/Menu.md) | the retained widget model behind PMENU, and the staging |
+| [`Docs/Levels.md`](Docs/Levels.md) | what a level is made of, and writing one from code |
+| [`Docs/Sound.md`](Docs/Sound.md) | the mixer, the voice pool and the SOUND natives |
 | [`Docs/Engine_API.md`](Docs/Engine_API.md) | the C++ surface of `Engine.dll` |
 | [`Docs/Engine_LuaAPI.md`](Docs/Engine_LuaAPI.md) | the native API the scripts call |
 | [`Docs/native_priority.tsv`](Docs/native_priority.tsv) | that API ranked by call count — the work queue |

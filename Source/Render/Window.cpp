@@ -121,10 +121,17 @@ bool Window::PumpEvents() {
             if (e.key.key == SDLK_RIGHTBRACKET) levelStep_ = 1;
             if (e.key.key == SDLK_N && !e.key.repeat) noclipToggle_ = true;
             if (e.key.key == SDLK_P && !e.key.repeat) physicsDebugToggle_ = true;
-            if (e.key.key == SDLK_ESCAPE) {
-                // First Escape releases the mouse, a second one quits.
-                if (mouseCaptured_) SetMouseCaptured(false);
-                else return false;
+            if (e.key.key == SDLK_ESCAPE && !e.key.repeat) {
+                escapePressed_ = true;
+                // In the script-driven game Escape belongs to the MENU, so the
+                // window must not consume it: the caller clears escapeQuits_
+                // and reads TakeEscape() instead. The diagnostic viewers keep
+                // the old behaviour - release the mouse, then quit - because
+                // they have no menu to open.
+                if (escapeQuits_) {
+                    if (mouseCaptured_) SetMouseCaptured(false);
+                    else return false;
+                }
             }
             break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
@@ -135,19 +142,27 @@ bool Window::PumpEvents() {
             if (e.button.button == SDL_BUTTON_LEFT)   vkDown_[1] = down;
             if (e.button.button == SDL_BUTTON_RIGHT)  vkDown_[2] = down;
             if (e.button.button == SDL_BUTTON_MIDDLE) vkDown_[4] = down;
-            // Clicking into the window captures the mouse rather than
-            // reaching the game, so a click never both aims and fires.
-            if (down && !mouseCaptured_) SetMouseCaptured(true);
+            if (down && e.button.button == SDL_BUTTON_LEFT) leftClicked_ = true;
+            // Clicking into the window captures the mouse rather than reaching
+            // the game, so a click never both aims and fires. The menu wants
+            // the opposite - it needs a visible cursor to point at rows - so
+            // it suppresses capture while it is up.
+            if (down && !mouseCaptured_ && allowCapture_) SetMouseCaptured(true);
             break;
         }
         case SDL_EVENT_MOUSE_WHEEL:
             wheelSteps_ += int(e.wheel.y);
             break;
         case SDL_EVENT_MOUSE_MOTION:
+            // Both are tracked, because they answer different questions: the
+            // delta steers the view while the mouse is captured, and the
+            // absolute position is what the menu hit-tests a row against.
             if (mouseCaptured_) {
                 mouseDx_ += e.motion.xrel;
                 mouseDy_ += e.motion.yrel;
             }
+            mouseX_ = e.motion.x;
+            mouseY_ = e.motion.y;
             break;
         case SDL_EVENT_WINDOW_FOCUS_LOST:
             // Alt-tabbing away never delivers the key-up, so without this

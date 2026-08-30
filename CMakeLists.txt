@@ -193,6 +193,7 @@ target_link_libraries(painful_audio PUBLIC painful_core SDL3::SDL3-static)
 
 # The game layer: the seam where script natives meet the engine subsystems.
 add_library(painful_game STATIC
+  Source/Game/MenuSystem.cpp
   Source/Game/ScriptEngine.cpp
   Source/Game/PlayerPawn.cpp
   Source/Game/Input.cpp

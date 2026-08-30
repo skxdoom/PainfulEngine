@@ -1,4 +1,5 @@
 #include "LuaHost.h"
+#include <filesystem>
 
 #include "../Core/Common.h"
 #include "../Core/FileSystem.h"
@@ -117,11 +118,36 @@ std::string LuaHost::ResolvePath(const std::string& scriptPath) const {
         return dataRoot_ + "/" + scriptPath.substr(8);
     if (StartsWithCI(scriptPath, "../data") && scriptPath.size() == 7)
         return dataRoot_;
-    if (StartsWithCI(scriptPath, "../")) {
-        const size_t slash = dataRoot_.find_last_of("/\\");
-        const std::string parent =
-            slash == std::string::npos ? std::string(".") : dataRoot_.substr(0, slash);
-        return parent + "/" + scriptPath.substr(3);
+    const size_t slash = dataRoot_.find_last_of("/\\");
+    const std::string parent =
+        slash == std::string::npos ? std::string(".") : dataRoot_.substr(0, slash);
+    if (StartsWithCI(scriptPath, "../")) return parent + "/" + scriptPath.substr(3);
+
+    // A BARE relative path is relative to the original's WORKING DIRECTORY,
+    // which is Bin/ - the same fact that makes every data path start "../Data".
+    // Cfg.lua reads "config.ini" this way, and resolving it against our own
+    // working directory instead finds nothing, so every volume, key binding
+    // and language silently falls back to a built-in default. The shipped
+    // config has MasterVolume at 10, which makes "not found" ten times too
+    // loud rather than obviously broken.
+    //
+    // Where Bin/ is depends on how the engine was started, so the candidates
+    // are tried in order of how likely each is to be the real one: beside the
+    // executable (a deployed build, which is the original's own layout), then
+    // the Bin/ beside the data root (a build tree pointed at a game install),
+    // then the working directory.
+    if (!scriptPath.empty() && scriptPath[0] != '/' && scriptPath[0] != '\\' &&
+        scriptPath.find(':') == std::string::npos) {
+        std::error_code ec;
+        const std::string candidates[3] = {
+            homeDir_.empty() ? std::string() : homeDir_ + "/" + scriptPath,
+            parent + "/Bin/" + scriptPath,
+            scriptPath,
+        };
+        for (const std::string& c : candidates)
+            if (!c.empty() && std::filesystem::exists(c, ec)) return c;
+        // Nothing exists yet - hand back the place a WRITE should land.
+        return homeDir_.empty() ? scriptPath : homeDir_ + "/" + scriptPath;
     }
     return scriptPath;
 }

@@ -727,6 +727,9 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     PlayerPawn pawn;
     Input input;
     LuaHost host;
+    // Bare relative script paths - "config.ini" - resolve against the
+    // original's working directory, which is where the executable sits.
+    host.SetHomeDir(std::filesystem::absolute(exePath).parent_path().string());
     if (!host.Init(root)) return 3;
     ScriptEngine engine;
     engine.Bind(host);
@@ -748,6 +751,16 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     engine.SetScreenSize(window.width(), window.height());
     engine.AttachPlayer(&pawn);
     engine.AttachInput(&input);
+
+    // An item's `action` is a string of Lua the menu runs when it is chosen,
+    // and its focus sound goes through the same mixer everything else uses.
+    engine.menu().SetActionRunner([&host](const std::string& chunk) { host.RunString(chunk); });
+    engine.menu().SetSoundPlayer(
+        [&audio](const std::string& name) { audio.Play2D(name, 1.f, false, true); });
+
+    // Escape belongs to the menu here, not to the window: see the game loop.
+    window.SetEscapeQuits(false);
+
     if (!host.Boot()) return 3;
     host.CallGameInit();
     host.CallGameLoadLevel(levelName);
@@ -978,6 +991,44 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
         if (hudReady) hud.Begin(Renderer::kHudView, window.width(), window.height());
         host.CallGlobal("Game_Render", d, 1);
         host.CallGlobal("Game_PostRender", d, 1);
+
+        // The menu draws over the HUD, into the same batch, so it lands on top
+        // in submission order. Its items were declared by the scripts during
+        // whatever action last ran; nothing about it is drawn from Lua.
+        // Escape toggles the menu. The original does this natively - nothing in
+        // the shipped Lua ever calls PainMenu:OpenMenu, and Cfg.KeyPrimaryMenu
+        // ships as "None" - so the key belongs to the engine, and the scripts
+        // only observe the transition through those two hooks.
+        if (window.TakeEscape()) {
+            if (engine.menu().active()) engine.menu().Close();
+            else engine.menu().Open();
+        }
+
+        window.SetAllowCapture(!engine.menu().active() || !engine.menu().mouseShown());
+        if (engine.menu().active()) {
+            // Keyboard navigation reads the raw virtual keys rather than a
+            // UIAction: Definitions.lua's UIActions covers pause, scoreboard
+            // and the like, and has no up/down/select - the shipped menu is
+            // steered by the engine, not through a binding.
+            //
+            // Edge-triggered, or one key press walks the whole list.
+            static bool navHeld[3] = {};
+            const bool* vk = window.VirtualKeys();
+            const int navKeys[3] = {0x26, 0x28, 0x0D};   // up, down, enter
+            for (int i = 0; i < 3; ++i) {
+                const bool down = vk[navKeys[i]];
+                if (down && !navHeld[i]) {
+                    if (i == 0) engine.menu().NavUp();
+                    else if (i == 1) engine.menu().NavDown();
+                    else engine.menu().NavActivate();
+                }
+                navHeld[i] = down;
+            }
+
+            input.SetMousePos(window.mouseX(), window.mouseY());
+            engine.menu().Update(window.mouseX(), window.mouseY(), window.TakeLeftClick());
+            engine.menu().Draw(window.width(), window.height());
+        }
         host.CallGlobal("Game_GC", nullptr, 0);
         // Entities the scripts spawned this frame get their renderer slots.
         engine.FlushToRenderer();

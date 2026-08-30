@@ -50,6 +50,9 @@ public:
     // and counted, never propagated.
     bool RunString(const std::string& chunk);
 
+    // Where bare relative paths resolve - the original's working directory.
+    void SetHomeDir(const std::string& dir) { homeDir_ = dir; }
+
     // --- the engine -> Lua contract (names recovered from Engine.dll's
     // string table; definitions in Game.lua / HUD.lua) ---
 
@@ -118,6 +121,9 @@ private:
 
     lua_State* L_ = nullptr;
     std::string dataRoot_;
+    // The original engine's working directory (Bin/), where bare relative
+    // script paths like "config.ini" resolve.
+    std::string homeDir_;
     bool quit_ = false;
 
     size_t filesLoaded_ = 0;
