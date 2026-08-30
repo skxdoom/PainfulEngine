@@ -1,4 +1,5 @@
 #include "Mpk.h"
+#include <cstring>
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -134,6 +135,81 @@ bool MapMesh::Load(const std::string& path, MapMesh& out) {
         p = r.pos();
     }
     return out.error.empty();
+}
+
+namespace {
+
+void PutU32(std::vector<uint8_t>& out, uint32_t v) {
+    out.push_back(uint8_t(v));
+    out.push_back(uint8_t(v >> 8));
+    out.push_back(uint8_t(v >> 16));
+    out.push_back(uint8_t(v >> 24));
+}
+
+void PutU16(std::vector<uint8_t>& out, uint16_t v) {
+    out.push_back(uint8_t(v));
+    out.push_back(uint8_t(v >> 8));
+}
+
+void PutF32(std::vector<uint8_t>& out, float v) {
+    uint32_t bits;
+    std::memcpy(&bits, &v, 4);
+    PutU32(out, bits);
+}
+
+// Length-prefixed and NUL-terminated, with the length counting the NUL. The
+// loader rejects a zero length, so an unused texture slot is written as a
+// length of 1 and a single NUL - an empty string, not an absent one.
+void PutString(std::vector<uint8_t>& out, const std::string& s) {
+    PutU32(out, uint32_t(s.size() + 1));
+    out.insert(out.end(), s.begin(), s.end());
+    out.push_back(0);
+}
+
+} // namespace
+
+bool MapMesh::Write(const std::string& path, const MapMesh& mesh) {
+    std::vector<uint8_t> out;
+    PutU32(out, kMagic);
+
+    for (const MapObject& o : mesh.objects) {
+        PutString(out, o.name);
+        for (int i = 0; i < 16; ++i) PutF32(out, o.transform.m[i]);
+        PutU32(out, o.uvChannels);
+
+        PutU32(out, uint32_t(o.verts.size() / 8));
+        for (float f : o.verts) PutF32(out, f);
+        PutU32(out, uint32_t(o.normals.size() / 3));
+        for (float f : o.normals) PutF32(out, f);
+
+        for (int i = 0; i < 3; ++i) PutF32(out, o.bboxMin[i]);
+        for (int i = 0; i < 3; ++i) PutF32(out, o.bboxMax[i]);
+
+        PutU32(out, uint32_t(o.indices.size()));
+        for (uint16_t i : o.indices) PutU16(out, i);
+
+        // The loader PEEKS at the material block without moving its cursor and
+        // then resynchronises by scanning for the next valid header, so this
+        // block is read but not consumed. That is fine as long as it holds no
+        // byte sequence that looks like a header - short slot names keep it
+        // that way, and a header needs a 2..128 byte printable name followed
+        // by 64 bytes of matrix and a uvChannels of 1 or 2.
+        PutU32(out, uint32_t(o.materials.size()));
+        for (const Material& m : o.materials) {
+            PutU16(out, m.firstIndex);
+            PutU16(out, m.triangleCount);
+            for (int s = 0; s < 4; ++s) {
+                PutString(out, m.slots[s].name);
+                PutF32(out, m.slots[s].offsetU);
+                PutF32(out, m.slots[s].offsetV);
+                PutF32(out, m.slots[s].scaleU);
+                PutF32(out, m.slots[s].scaleV);
+            }
+        }
+    }
+
+    PutU32(out, kTerminator);
+    return WriteFile(path, out);
 }
 
 } // namespace painful

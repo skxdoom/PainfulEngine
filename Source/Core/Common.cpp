@@ -2,6 +2,7 @@
 #include "FileSystem.h"
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 
 namespace painful {
 
@@ -132,4 +133,22 @@ void EngineRot9Mul(const float a[9], const float b[9], float out[9]) {
                              a[r * 3 + 2] * b[2 * 3 + c];
 }
 
+
+bool WriteFile(const std::string& path, const std::vector<uint8_t>& data) {
+    std::error_code ec;
+    const std::filesystem::path p(path);
+    if (p.has_parent_path()) std::filesystem::create_directories(p.parent_path(), ec);
+
+    FILE* fp = nullptr;
+#ifdef _MSC_VER
+    if (fopen_s(&fp, path.c_str(), "wb") != 0 || !fp) return false;
+#else
+    fp = std::fopen(path.c_str(), "wb");
+    if (!fp) return false;
+#endif
+    const bool ok = data.empty() ||
+                    std::fwrite(data.data(), 1, data.size(), fp) == data.size();
+    std::fclose(fp);
+    return ok;
+}
 } // namespace painful

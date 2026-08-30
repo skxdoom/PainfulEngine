@@ -1056,6 +1056,10 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
                 LogInfo("  hud: %s, %zu quads in %zu draws, %zu fonts baked",
                         hudReady ? "on" : "OFF", hud.quadsThisFrame(), hud.drawCalls(),
                         hud.fonts().baked());
+                LogInfo("  camera %.2f %.2f %.2f, player %s", camera.pos[0],
+                        camera.pos[1], camera.pos[2],
+                        walking ? (pawn.onGround() ? "on the ground" : "airborne")
+                                : "flying");
             }
             if (frame >= shotFrame + 4) break;
         }
@@ -1926,6 +1930,130 @@ static int ResolveCmd(const char* dataRoot, const char* name) {
     return 0;
 }
 
+// Writes a complete, loadable level from nothing but numbers.
+//
+// This is the smallest thing that proves a level is authorable from code. A
+// level is almost entirely plain Lua text - the settings file, the class
+// script and every placed light, item and spawn point - so the only binary in
+// the way was the world mesh, and MapMesh::Write closes that.
+//
+// The floor is a grid rather than two big triangles: physics does not care,
+// but a single quad gives the renderer nothing to interpolate across and the
+// result reads as a flat card rather than a surface.
+static int MkLevelCmd(const char* dataRoot, const char* levelName, float extent,
+                      float height, const char* texture) {
+    const std::string root = dataRoot;
+    const std::string name = levelName;
+
+    // 64x64 cells keeps the index array inside the u16 the format stores, with
+    // room to spare: 4225 vertices and 24576 indices against a 65535 ceiling.
+    constexpr int kCells = 64;
+    const float step = (extent * 2.f) / float(kCells);
+    // One texture repeat every 8 world units, so a 400-unit floor tiles 50
+    // times rather than stretching one image across the whole thing.
+    const float uvPerUnit = 1.f / 8.f;
+
+    MapObject floor;
+    // The name carries engine semantics: portals, zones, barriers and noclip
+    // are all encoded as substrings. A plain name means plain solid geometry,
+    // which is what MapObject::isCollidable answers for anything without one
+    // of those tokens.
+    floor.name = "floor_generated";
+    floor.uvChannels = 1;   // position, normal, uv inline - no lightmap
+
+    floor.verts.reserve(size_t(kCells + 1) * (kCells + 1) * 8);
+    for (int iz = 0; iz <= kCells; ++iz) {
+        for (int ix = 0; ix <= kCells; ++ix) {
+            const float x = -extent + float(ix) * step;
+            const float z = -extent + float(iz) * step;
+            floor.verts.push_back(x);
+            floor.verts.push_back(height);
+            floor.verts.push_back(z);
+            floor.verts.push_back(0.f);          // normal
+            floor.verts.push_back(1.f);          //   points up
+            floor.verts.push_back(0.f);
+            floor.verts.push_back(x * uvPerUnit);
+            floor.verts.push_back(z * uvPerUnit);
+        }
+    }
+
+    // Wound to match the shipped exporter, which is measured rather than
+    // assumed: 283457 of the 283501 triangles in 1x01_Chaos have a geometric
+    // normal OPPOSING their vertex normal. Going round the quad the obvious
+    // way - (a, b, c) then (a, c, d) with the grid laid out +x, +z - happens
+    // to give exactly that, because cross(+x, +x+z) points -y.
+    //
+    // Which is the whole point of matching it. The renderer culls CCW and
+    // PhysicsWorld feeds Jolt the reverse of each triangle; a floor wound the
+    // intuitive way would be invisible from above AND let bodies through.
+    const int stride = kCells + 1;
+    floor.indices.reserve(size_t(kCells) * kCells * 6);
+    for (int iz = 0; iz < kCells; ++iz) {
+        for (int ix = 0; ix < kCells; ++ix) {
+            const uint16_t a = uint16_t(iz * stride + ix);
+            const uint16_t b = uint16_t(a + 1);
+            const uint16_t c = uint16_t(a + 1 + stride);
+            const uint16_t d = uint16_t(a + stride);
+            floor.indices.push_back(a); floor.indices.push_back(b); floor.indices.push_back(c);
+            floor.indices.push_back(a); floor.indices.push_back(c); floor.indices.push_back(d);
+        }
+    }
+
+    floor.bboxMin[0] = -extent; floor.bboxMin[1] = height; floor.bboxMin[2] = -extent;
+    floor.bboxMax[0] =  extent; floor.bboxMax[1] = height; floor.bboxMax[2] =  extent;
+
+    Material mat;
+    mat.firstIndex = 0;
+    mat.triangleCount = uint16_t(floor.indices.size() / 3);
+    mat.slots[0].name = texture;    // slots 1-3 stay empty: no lightmap, no detail
+    floor.materials.push_back(mat);
+
+    MapMesh mesh;
+    mesh.objects.push_back(std::move(floor));
+
+    const std::string mapFile = name + ".mpk";
+    const std::string mapPath = root + "/Maps/" + mapFile;
+    if (!MapMesh::Write(mapPath, mesh)) {
+        LogWarn("cannot write %s", mapPath.c_str());
+        return 1;
+    }
+
+    // The rest of a level is text. o.Scale multiplies the WORLD MESH and
+    // nothing else, so 1 keeps mesh units and world units the same and makes
+    // the numbers above mean what they say.
+    char settings[1024];
+    snprintf(settings, sizeof settings,
+             "o.BaseObj = \"CLevel\"\n"
+             "o.Map = \"%s\"\n"
+             "o.Scale = 1\n"
+             "o.Pos = Vector:New(0,%.3f,0)\n"
+             "o.Ang = Vector:New(90,0,0)\n"
+             "o.Ambient = Color:New(150,150,150,0)\n"
+             "o.DirLight.Color = Color:New(170,170,170,0)\n"
+             "o.FarClipDist = %.0f\n"
+             "o.Fog.Mode = 0\n"
+             "o.Physics.DefaultMeshFriction = 0.7\n",
+             mapFile.c_str(), height + 2.f, extent * 3.f);
+
+    const std::string levelDir = root + "/Levels/" + name;
+    const std::string script = "-- Generated by `mklevel`. A floor and nothing else.\n";
+    const std::string sTxt = settings;
+    if (!WriteFile(levelDir + "/" + name + ".CLevel",
+                   std::vector<uint8_t>(sTxt.begin(), sTxt.end())) ||
+        !WriteFile(levelDir + "/" + name + ".lua",
+                   std::vector<uint8_t>(script.begin(), script.end()))) {
+        LogWarn("cannot write the level files under %s", levelDir.c_str());
+        return 1;
+    }
+
+    LogInfo("wrote %s: %zu verts, %zu tris, %.0f x %.0f units at y=%.1f, texture \"%s\"",
+            mapPath.c_str(), mesh.objects[0].vertexCount(),
+            mesh.objects[0].triangleCount(), extent * 2, extent * 2, height, texture);
+    LogInfo("wrote %s/%s.CLevel and %s.lua", levelDir.c_str(), name.c_str(), name.c_str());
+    LogInfo("load it with:  PainfulEngine game %s %s", dataRoot, name.c_str());
+    return 0;
+}
+
 static int MapCmd(const char* path) {
     MapMesh m;
     MapMesh::Load(path, m);
@@ -1946,6 +2074,30 @@ static int MapCmd(const char* path) {
             hi[0]-lo[0], hi[1]-lo[1], hi[2]-lo[2]);
     LogInfo("  parse stopped at 0x%zx of 0x%zx (%zu bytes unread)", m.parseEnd, m.size, m.size - m.parseEnd);
     LogInfo("  parser skipped %zu bytes across %zu regions", m.skippedBytes, m.skippedRegions);
+
+    // Which way the exporter winds its triangles, measured rather than assumed:
+    // for each triangle, does cross(b-a, c-a) agree with the vertex normals or
+    // oppose them? PhysicsWorld reverses the winding on the strength of this,
+    // and anything that WRITES a .mpk has to match it or the floor comes out
+    // one-sided the wrong way.
+    size_t agree = 0, oppose = 0;
+    for (const MapObject& o : m.objects) {
+        for (size_t t = 0; t + 2 < o.indices.size(); t += 3) {
+            const uint32_t ia = o.indices[t], ib = o.indices[t + 1], ic = o.indices[t + 2];
+            if (ia >= o.vertexCount() || ib >= o.vertexCount() || ic >= o.vertexCount()) continue;
+            float a[3], b[3], c[3], n[3];
+            o.position(ia, a); o.position(ib, b); o.position(ic, c);
+            o.normal(ia, n);
+            const float u[3] = {b[0]-a[0], b[1]-a[1], b[2]-a[2]};
+            const float v[3] = {c[0]-a[0], c[1]-a[1], c[2]-a[2]};
+            const float g[3] = {u[1]*v[2] - u[2]*v[1], u[2]*v[0] - u[0]*v[2],
+                                u[0]*v[1] - u[1]*v[0]};
+            const float d = g[0]*n[0] + g[1]*n[1] + g[2]*n[2];
+            if (d > 0.f) ++agree; else if (d < 0.f) ++oppose;
+        }
+    }
+    LogInfo("  winding: %zu triangles agree with their vertex normals, %zu oppose",
+            agree, oppose);
     size_t nonIdentity = 0;
     std::map<std::string, size_t> translations;
     for (const MapObject& o : m.objects) {
@@ -2502,7 +2654,7 @@ int main(int argc, char** argv) {
             "run",   "level",  "entities", "fit",       "skytex",     "scale",
             "zones", "ground", "textures", "particles", "billboards", "physics"};
         static const std::set<std::string> rootAt2 = {"levels", "resolve", "texdump", "sound",
-                                                      "shaders", "lua", "game"};
+                                                      "shaders", "lua", "game", "mklevel"};
         if (rootAt3.count(cmd) && argc >= 4) MountRoot(argv[3]);
         else if (rootAt2.count(cmd)) MountRoot(argv[2]);
         else MountForPath(argv[2], argv[0]);
@@ -2563,6 +2715,11 @@ int main(int argc, char** argv) {
             if (std::string(argv[i]) == "--exec" && i + 1 < argc) exec = argv[++i];
         return GameCmd(argv[2], argc >= 4 ? argv[3] : "C1L1_Cathedral", argv[0], shot, exec);
     }
+    if (cmd == "mklevel")
+        return MkLevelCmd(argv[2], argc >= 4 ? argv[3] : "TestFloor",
+                          argc >= 5 ? float(std::atof(argv[4])) : 200.f,
+                          argc >= 6 ? float(std::atof(argv[5])) : 0.f,
+                          argc >= 7 ? argv[6] : "beton_tile_all");
     if (cmd == "map")   return MapCmd(argv[2]);
     if (cmd == "mats")  return MatsCmd(argv[2], argc >= 4 ? argv[3] : "");
     if (cmd == "resolve" && argc >= 4) return ResolveCmd(argv[2], argv[3]);

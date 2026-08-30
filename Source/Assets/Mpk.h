@@ -86,6 +86,25 @@ struct MapMesh {
     size_t size = 0;
 
     static bool Load(const std::string& path, MapMesh& out);
+
+    // Writes a .mpk the loader above reads back. This is what makes a level
+    // authorable from code: everything else in a level directory is already
+    // plain Lua text, and the world mesh was the one binary in the way.
+    //
+    // The record layout mirrors Load exactly - see Mpk.cpp for the field
+    // order. Two conventions have to be honoured by anything building an
+    // object by hand, and both are measured rather than assumed (the `map`
+    // diagnostic reports the second):
+    //
+    //   * verts is 8 floats per vertex. With uvChannels == 1 that is
+    //     position, normal, uv; with 2 it is position, uv0, uv1 and the
+    //     normals live in their own array.
+    //   * the exporter winds triangles so the geometric normal OPPOSES the
+    //     vertex normal - 283457 of 283501 triangles in 1x01_Chaos do. The
+    //     renderer culls CCW to suit, and PhysicsWorld reverses each triangle
+    //     so Jolt's CCW-front rule agrees. Wound the intuitive way instead, a
+    //     floor is invisible from above and bodies fall through it.
+    static bool Write(const std::string& path, const MapMesh& mesh);
 };
 
 } // namespace painful

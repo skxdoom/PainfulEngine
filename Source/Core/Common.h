@@ -77,6 +77,12 @@ private:
 
 bool ReadFile(const std::string& path, std::vector<uint8_t>& out);
 
+// Writes to DISK, creating parent directories. There is deliberately no pak
+// path here: the archives are read-only, and generated content lands as loose
+// files in the data root, which ReadFile falls through to when no archive
+// serves the name.
+bool WriteFile(const std::string& path, const std::vector<uint8_t>& data);
+
 // --- the engine's rotation convention -------------------------------------
 //
 // Quaternions are engine order, (w, x, y, z). These live in Core because both
