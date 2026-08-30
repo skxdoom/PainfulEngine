@@ -5,6 +5,7 @@
 
 #include "../Assets/AnimationCache.h"
 #include "../Assets/SkeletonCache.h"
+#include "../Assets/Waypoints.h"
 #include "../Assets/Mpk.h"
 #include "../Script/LuaHost.h"
 #include "../World/Level.h"
@@ -369,6 +370,12 @@ private:
     static int L_PO_IsOnFloor(lua_State* L);
     static int L_PO_SetSightParams(lua_State* L);
     static int L_SeesEntity(lua_State* L);
+    static int L_WPT_Load(lua_State* L);
+    static int L_PATH_Create(lua_State* L);
+    static int L_PATH_Release(lua_State* L);
+    static int L_PATH_GetShortest(lua_State* L);
+    static int L_PATH_IsFinished(lua_State* L);
+    static int L_PATH_GetNextPoint(lua_State* L);
 
     // Can `a` see `b`: range, then the sight cone, then an unobstructed line.
     bool Sees(Entity& a, Entity& b) const;
@@ -505,6 +512,19 @@ private:
     std::vector<int> expired_;   // scratch for TickLifetimes
     AnimationCache animations_;
     SkeletonCache skeletons_;
+
+    // The navigation graph, loaded by WPT.Load from the .wps beside the map,
+    // and the routes PATH.* hands the scripts over it. A path is a queue of
+    // points an actor walks in order; the scripts hold an index into `paths_`
+    // and pass it back to every PATH call.
+    WaypointSet waypoints_;
+    struct Route {
+        std::vector<float> points;   // xyz triples, front first
+        size_t next = 0;             // how far along GetNextPoint has eaten
+        bool live = false;
+    };
+    std::vector<Route> paths_;
+    std::vector<int> routeScratch_;  // node indices, reused by GetShortest
     bool playerSpotDone_ = false;
     // Scratch for the per-frame pose push; kept so that posing forty actors
     // does not allocate forty times a frame.

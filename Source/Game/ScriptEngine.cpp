@@ -420,7 +420,14 @@ void ScriptEngine::TickMonsters(float dt) {
         // The body is kinematic, so it does not move itself - it is carried,
         // and it exists so that everything sweeping against the world finds a
         // monster in the way.
-        physics_->SetScriptBodyPose(e.physicsBody, e.pos, e.rotWXYZ);
+        //
+        // It goes where the COLLISION SPHERE is, not where the entity is. The
+        // entity's position is the model's centre and the sphere sits about a
+        // unit lower, on the soles; a body left at the entity position floats
+        // over the player's head, and the player walks straight through the
+        // monster because the two never overlap.
+        const float bodyPos[3] = {e.pos[0], e.pos[1] + lift, e.pos[2]};
+        physics_->SetScriptBodyPose(e.physicsBody, bodyPos, e.rotWXYZ);
         if (renderer_ && e.rendererInstance >= 0)
             renderer_->SetScriptPose(e.rendererInstance, e.pos, e.rotWXYZ);
     }
@@ -634,9 +641,16 @@ int ScriptEngine::L_EnableDraw(lua_State* L) {
 // hands them a NaN that then travels through every position they compute.
 int ScriptEngine::L_GetVelocity(lua_State* L) {
     ScriptEngine* self = From(L);
-    const Entity* e = self->Find(HandleArg(L, 1));
+    const int handle = HandleArg(L, 1);
     float v[3] = {0, 0, 0};
-    if (e) {
+    // The player has no script body - it is the pawn - so its velocity comes
+    // from there. Reading the entity store instead returns whatever last wrote
+    // to it, which is nothing until something knocks the player back and then
+    // that knockback forever: CPlayer decides it is walking from this, so the
+    // head bob stayed dead until the first hit and ran permanently after.
+    if (self->pawn_ && handle == self->playerHandle_ && self->playerHandle_) {
+        self->pawn_->Velocity(v);
+    } else if (const Entity* e = self->Find(handle)) {
         if (!(self->physics_ && e->physicsBody >= 0 &&
               self->physics_->GetScriptBodyVelocity(e->physicsBody, v)))
             for (int c = 0; c < 3; ++c) v[c] = e->velocity[c];
@@ -719,6 +733,155 @@ int ScriptEngine::L_PO_SetMonsterType(lua_State* L) {
     if (self->physics_ && e->physicsBody >= 0)
         self->physics_->SetScriptBodyKinematic(e->physicsBody, self->MonsterRadius(*e));
     return 0;
+}
+
+// WPT.Load(dir, mergeFlag) - the navigation graph.
+//
+// The scripts pass only a DIRECTORY ("../Data/Maps/"); the engine appends the
+// map's own name, which is why WORLD.LoadMap has to have run first. Engine.dll
+// (0x10128A90) clears both pathfinders, then LoadContents the .wps and
+// LoadFloors a companion file that does not ship - so the floors section
+// inside the .wps is all there is, and routing does not need it.
+int ScriptEngine::L_WPT_Load(lua_State* L) {
+    ScriptEngine* self = From(L);
+    self->waypoints_ = WaypointSet{};
+    self->paths_.clear();
+
+    // "../Data/Maps/1x01_Chaos.mpk" -> the .wps beside it.
+    std::string path = self->world_.mapPath;
+    const size_t dot = path.find_last_of('.');
+    const size_t slash = path.find_last_of("/\\");
+    if (dot == std::string::npos || (slash != std::string::npos && dot < slash))
+        return 0;                         // a level with no map has no graph
+    path = path.substr(0, dot) + ".wps";
+
+    const std::string resolved = self->host_ ? self->host_->ResolvePath(path) : path;
+    if (!WaypointSet::Load(resolved, self->waypoints_)) {
+        // Only 29 of the 85 shipped maps carry a .wps at all, so a missing one
+        // is an ordinary answer rather than a fault - those levels' actors
+        // walk straight at their target, which is what they did before any of
+        // this existed. A malformed one IS worth shouting about.
+        if (FileSystem::Get().Exists(resolved))
+            LogWarn("waypoints: %s", self->waypoints_.error.c_str());
+        else
+            LogInfo("waypoints: none for this map, actors will walk straight");
+        return 0;
+    }
+    LogInfo("waypoints: %zu points, %zu links from %s",
+            self->waypoints_.nodes.size(), self->waypoints_.links.size(),
+            path.c_str());
+    return 0;
+}
+
+// PATH.Create() -> a handle the scripts keep in CActor._Path.
+//
+// It has to be non-nil: CActor tests `if not self._Path` before creating
+// another, and returning nothing made every actor build a fresh path every
+// single tick. Slots are reused, and the handle is index+1 so that 0 is never
+// a valid one.
+int ScriptEngine::L_PATH_Create(lua_State* L) {
+    ScriptEngine* self = From(L);
+    for (size_t i = 0; i < self->paths_.size(); ++i) {
+        if (self->paths_[i].live) continue;
+        self->paths_[i] = Route{};
+        self->paths_[i].live = true;
+        lua_pushnumber(L, double(i + 1));
+        return 1;
+    }
+    self->paths_.push_back(Route{});
+    self->paths_.back().live = true;
+    lua_pushnumber(L, double(self->paths_.size()));
+    return 1;
+}
+
+int ScriptEngine::L_PATH_Release(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const int h = int(luaL_optnumber(L, 1, 0));
+    if (h > 0 && size_t(h) <= self->paths_.size()) self->paths_[size_t(h) - 1] = Route{};
+    return 0;
+}
+
+// PATH.GetShortest(path, x,y,z, destX,destY,destZ, minDist, maxDist) - route
+// through the waypoint graph.
+//
+// minDist/maxDist come from the actor's template as WPminDist / WPmaxDist and
+// bound how far it is willing to reach for a waypoint. An actor standing
+// somewhere the level designer never marked gets NO path, which is not a
+// failure: CActor reads an empty path as "finished" and walks straight at the
+// destination instead.
+//
+// The first waypoint is dropped when the actor is already close to it, so it
+// does not walk backwards to a point it has effectively reached.
+int ScriptEngine::L_PATH_GetShortest(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const int h = int(luaL_optnumber(L, 1, 0));
+    if (h <= 0 || size_t(h) > self->paths_.size()) return 0;
+    Route& route = self->paths_[size_t(h) - 1];
+    route.points.clear();
+    route.next = 0;
+    if (self->waypoints_.nodes.empty()) return 0;
+
+    const float from[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+                           float(luaL_optnumber(L, 4, 0))};
+    const float to[3] = {float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
+                         float(luaL_optnumber(L, 7, 0))};
+    const float maxDist = float(luaL_optnumber(L, 9, 0));
+
+    const int a = self->waypoints_.Closest(from, maxDist);
+    const int b = self->waypoints_.Closest(to, maxDist);
+    if (a < 0 || b < 0) return 0;
+    if (!self->waypoints_.FindPath(a, b, self->routeScratch_)) return 0;
+
+    const float minDist = float(luaL_optnumber(L, 8, 0));
+    for (size_t i = 0; i < self->routeScratch_.size(); ++i) {
+        const WaypointSet::Node& n =
+            self->waypoints_.nodes[size_t(self->routeScratch_[i])];
+        if (i == 0 && minDist > 0.f) {
+            float d = 0.f;
+            for (int c = 0; c < 3; ++c) {
+                const float e = n.pos[c] - from[c];
+                d += e * e;
+            }
+            if (d < minDist * minDist) continue;
+        }
+        for (int c = 0; c < 3; ++c) route.points.push_back(n.pos[c]);
+    }
+    return 0;
+}
+
+// PATH.IsFinished(path) -> 1 when no waypoint is left.
+//
+// Engine.dll (0x1013AA20) starts at "finished" and only clears it when PeekPos
+// finds a point, so a path that does not exist is finished - and in CActor
+// that is the branch which walks straight at the destination. Everything here
+// therefore degrades to the old straight-line behaviour rather than stopping.
+int ScriptEngine::L_PATH_IsFinished(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const int h = int(luaL_optnumber(L, 1, 0));
+    bool finished = true;
+    if (h > 0 && size_t(h) <= self->paths_.size()) {
+        const Route& route = self->paths_[size_t(h) - 1];
+        finished = route.next * 3 >= route.points.size();
+    }
+    lua_pushnumber(L, finished ? 1 : 0);
+    return 1;
+}
+
+// PATH.GetNextPoint(path) -> x,y,z, and CONSUMES it: CActor calls this and
+// then asks IsFinished again to learn whether that was the last one.
+int ScriptEngine::L_PATH_GetNextPoint(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const int h = int(luaL_optnumber(L, 1, 0));
+    float p[3] = {0, 0, 0};
+    if (h > 0 && size_t(h) <= self->paths_.size()) {
+        Route& route = self->paths_[size_t(h) - 1];
+        if (route.next * 3 + 2 < route.points.size()) {
+            for (int c = 0; c < 3; ++c) p[c] = route.points[route.next * 3 + size_t(c)];
+            ++route.next;
+        }
+    }
+    for (int c = 0; c < 3; ++c) lua_pushnumber(L, p[c]);
+    return 3;
 }
 
 // ENTITY.PO_SetSightParams(e, viewDistance, viewDistance360, viewAngle,
@@ -2437,6 +2600,12 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"ENTITY", "PO_IsOnFloor", L_PO_IsOnFloor},
         {"ENTITY", "PO_SetSightParams", L_PO_SetSightParams},
         {"ENTITY", "SeesEntity", L_SeesEntity},
+        {"WPT", "Load", L_WPT_Load},
+        {"PATH", "Create", L_PATH_Create},
+        {"PATH", "Release", L_PATH_Release},
+        {"PATH", "GetShortest", L_PATH_GetShortest},
+        {"PATH", "IsFinished", L_PATH_IsFinished},
+        {"PATH", "GetNextPoint", L_PATH_GetNextPoint},
         {"ENTITY", "PO_Exist", L_PO_Exist},
         {"ENTITY", "PO_GetMaxSphereRay", L_PO_GetMaxSphereRay},
         {"ENTITY", "PO_SetMass", L_PO_SetMass},

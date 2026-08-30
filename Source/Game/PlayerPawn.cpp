@@ -73,10 +73,13 @@ void PlayerPawn::Move(const PhysicsWorld& physics, const Tweaks& tweaks,
         // captured on a jump. Set it only at takeoff and walking off a lip
         // leaves an empty mask, which reads as no air direction at all and
         // drops the player straight down with no forward motion.
-        if (hasInput) {
-            airDir_[0] = wish[0];
-            airDir_[1] = wish[1];
-        }
+        // Including when nothing is held. Keeping the last direction instead
+        // makes a standing jump launch at full walking speed the way the
+        // player last WALKED, seconds ago - the takeoff mask is empty, the air
+        // branch falls back to this, and you sail off sideways having pressed
+        // only jump.
+        airDir_[0] = hasInput ? wish[0] : 0.f;
+        airDir_[1] = hasInput ? wish[1] : 0.f;
         takeoffMask_ = action & (Act::Forward | Act::Backward | Act::Left | Act::Right);
         const bool wantsHop =
             (jumpPressed || jumpQueuedFor_ > 0.f) && groundedTime_ <= hopAfter;
@@ -163,6 +166,14 @@ void PlayerPawn::Move(const PhysicsWorld& physics, const Tweaks& tweaks,
     const bool wasGrounded = onGround_;
     float feet[3] = {head_[0], head_[1] - kEyeAboveFloor + kRadius, head_[2]};
     const float startX = feet[0], startY = feet[1], startZ = feet[2];
+    // What the scripts read back through ENTITY.GetVelocity. CPlayer decides
+    // it is WALKING from this - "moving faster than 2" - and gates the head
+    // bob and the footstep sounds on it, so a pawn that reports nothing never
+    // bobs and never makes a footfall.
+    velocity_[0] = vx;
+    velocity_[1] = velY_;
+    velocity_[2] = vz;
+
     const float delta[3] = {vx * dt, velY_ * dt, vz * dt};
     physics.SlideSphere(feet, delta, kRadius, true);
 

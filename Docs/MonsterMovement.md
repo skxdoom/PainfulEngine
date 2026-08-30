@@ -99,20 +99,22 @@ defect that would have bitten as soon as they started arriving anywhere.
   `PO_SetSightParams`, `SeesEntity` — all read out of Engine.dll.
 - `GetAnimMovement` with the movement curve, and the curve's travel removed
   from the drawn pose.
-- `PATH.Create` / `Release` / `GetShortest` / `IsFinished` / `GetNextPoint`.
-  `IsFinished` answers **1**, which is what Engine.dll's own 0x1013AA20 returns
-  for a null path, and in `CActor` that is the branch which walks straight at
-  the destination rather than following waypoints.
+- `WPT.Load`, and `PATH.Create` / `Release` / `GetShortest` / `IsFinished` /
+  `GetNextPoint` over a real `.wps` graph. A level with no graph, or an actor
+  standing further from a waypoint than its template's `WPmaxDist`, gets an
+  empty path - which `IsFinished` reports as finished, exactly as Engine.dll's
+  own 0x1013AA20 does for a null path, and which `CActor` reads as "walk
+  straight at the destination".
 
 ## What is not
 
 - **Flyers.** The bodyless actors are bats, and they move through
   `UpdateFlying` rather than `UpdateWalking`. A separate mode, untested.
-- **The waypoint graph.** Every level ships one as a `.wps` beside its `.mpk`,
-  and `PATH.GetShortest` is meant to search it. Without it actors walk straight
-  lines and will hug corners they cannot see past. `WPT.GetClosest` /
-  `GetPosition` are a separate, smaller thing used by four monsters
-  (AlastorKing, Lucifer, StoneGolem, Apoc_zombie) for placement, not pathing.
+- **`WPT.GetClosest` / `GetPosition`** - a separate, smaller thing from the
+  routing graph, used by four monsters (AlastorKing, Lucifer, StoneGolem,
+  Apoc_zombie) to place themselves rather than to navigate.
+- **The floors section** of a `.wps`, and with it `Select_OnSelectedFloors`.
+  Routing does not need it.
 - **`ERot`**, the movement curve's rotation channel.
 - The engine's own rule for `BodyTypes.Fatter`, which lives inside
   `Entity::CreatePhysicsObject`.
@@ -141,10 +143,7 @@ anything that lives on the script side.
 
 ## Order
 
-1. **The `.wps` waypoint graph.** Walking monsters work; what they cannot do is
-   round anything. `net == path` in the squad measurement is that limitation
-   stated numerically, and it is the difference between monsters that chase and
-   monsters that chase in open rooms only.
+1. ~~**The `.wps` waypoint graph.**~~ **Done** - see the end of this document.
 2. **Flyers**, through `UpdateFlying`. Bats, and the one other template that
    sets `CreatePO = false`.
 3. **Sight from head positions**, matching `GetPawnHeadPos`, so low cover stops
@@ -202,3 +201,97 @@ object are all `Bat_Adrian_*`, from the one template that sets it false. Bats
 fly - `UpdateFlying`, not `UpdateWalking` - so they are a separate movement
 mode rather than the same one taking a different path. Worth doing, much
 smaller than feared.
+
+## The waypoint graph
+
+`.wps` is decoded and routed. The format, confirmed against **all 29 shipped
+sets, byte for byte**:
+
+```
+u32  count
+count x { f32 x,y,z;  u24 floor;  u32 linkStart;  u32 linkCount }   23 bytes
+u32  linkTotal            repeats the sum of every linkCount
+f32  cost[linkTotal]      TWO PARALLEL ARRAYS, not interleaved records -
+u32  index[linkTotal]     every cost, then every neighbour
+...                       the floors section, which routing does not need
+```
+
+Two things made this readable. The adjacency is **compressed sparse row**:
+`linkStart[i] + linkCount[i]` is exactly `linkStart[i+1]`, and checking that
+invariant on load is what confirms the 23-byte stride - a wrong stride fails on
+the second record rather than silently producing a graph of noise. And the link
+section is two parallel arrays, which is why it reads as a wall of floats if
+you assume interleaved records: the entire first half is distances.
+
+The three bytes after the position are a **floor index**, not flags: the
+Cathedral uses 0..52 and its floors section opens with 53.
+
+`painful wps <file>` reports the lot, including connectivity. Cathedral: 8829
+waypoints, 130886 links, mean 14.8 each, none isolated.
+
+### Connectivity, and a test that was wrong
+
+Routing between the two corners of a set's bounding box reports "no path" on 17
+of 29 levels - and that is the test being wrong, not the graph. A corner is
+exactly where a sealed pocket or an out-of-bounds marker sits. Measured
+properly, by components:
+
+| level | largest component | route bend |
+|---|---:|---:|
+| 1x04_Cemetery, 2x02_Prison, 5x04_Hell | 100% | x1.02 - x1.60 |
+| 1x01_Chaos | 84% | x1.02 |
+| 1x03_Catacombs | 70% | **x2.49** |
+| 5x02_Docks | 15% | x1.07 |
+
+Every level routes within its largest component. Catacombs bending by 2.49 is a
+maze behaving like one.
+
+**Only 29 of 85 maps carry a `.wps`.** A level without one is not a fault - its
+actors walk straight at their target, exactly as they did before any of this -
+so a missing file is reported as ordinary and a malformed one is not.
+
+### What it changed
+
+Same squad of sixteen, Cathedral:
+
+```
+before   t1400 | reached 16, STUCK 0 | net 8.8  path  9.6
+after    t1400 | reached 16, STUCK 0 | net 9.2  path 22.6
+```
+
+`path` pulling away from `net` is actors following routes instead of beelines -
+the number this document predicted would move, and the reason it was the top
+item. All sixteen still arrive; nothing is stuck.
+
+## Four things reported from play
+
+**The player walked through monsters.** The body was being placed at the
+entity's position - the model's CENTRE - while the collision sphere it stands
+for sits about a unit lower, on the soles. The two never overlapped: the
+monster's body floated at chest height while the player's sphere swept the
+floor. It now goes where the sphere is. Visible in the squad numbers
+immediately: `reached` drops from 16 to 12 and one actor ends up stuck,
+because sixteen monsters can no longer occupy the same spot.
+
+**A standing jump launched sideways.** `airDir_` was only updated while a
+movement key was held, so it kept the last direction walked - and the air
+branch falls back to it when the takeoff mask is empty. Press nothing but
+jump and you sailed off at full walking speed the way you last went, possibly
+seconds earlier. It now tracks what the player is actually doing, zero
+included.
+
+**The head bob only started after taking damage, then never stopped.** CPlayer
+decides it is `_Walking` from `ENTITY.GetVelocity(Player._Entity) > 2`, and the
+player has no script body - it is the pawn - so that read the ENTITY velocity
+store, which nothing ever wrote. The first knockback wrote one, and nothing
+cleared it, so the bob switched from permanently off to permanently on. The
+pawn now reports its real velocity, which is also what the footstep sounds are
+waiting on.
+
+**Some monsters still walk in place.** Not closed. Part of it is now honest -
+a crowd blocks itself, and one stuck actor out of sixteen is a queue rather
+than a bug. What is worth checking first is that `GetShortest` snaps to the
+nearest waypoint by 3D distance, floor index ignored: an actor can bind to a
+waypoint on the floor above or below and be handed a route it cannot walk. The
+`floor` field exists precisely to disambiguate that, and is currently parsed
+and unused.

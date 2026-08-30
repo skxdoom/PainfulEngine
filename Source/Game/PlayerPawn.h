@@ -61,6 +61,12 @@ public:
     bool onGround() const { return onGround_; }
     float currentSpeed() const { return speed_; }
 
+    // The pawn's actual world velocity this frame, which is what
+    // ENTITY.GetVelocity reports for the player.
+    void Velocity(float out[3]) const {
+        for (int c = 0; c < 3; ++c) out[c] = velocity_[c];
+    }
+
     // The engine's own landing test, and the only authority for it.
     // PlayerAction queues PLAYER_HIT_GROUND when the touchdown speed scaled
     // by the world time multiplier passes kHitGroundSpeed; fall damage
@@ -133,6 +139,7 @@ private:
 
     // The bunny-hop state PlayerAction keeps on the physics object.
     float speed_ = 0.f;              // current target speed; 0 = uninitialised
+    float velocity_[3] = {0, 0, 0};  // last frame's actual travel, per second
     float groundedTime_ = 0.f;       // seconds since touchdown
     float jumpQueuedFor_ = 0.f;      // before-landing buffer countdown
     bool jumpHeld_ = false;          // edge detection for hop presses

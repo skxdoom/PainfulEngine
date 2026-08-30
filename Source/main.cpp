@@ -9,6 +9,7 @@
 #include "Assets/Mpk.h"
 #include "Assets/Pkmdl.h"
 #include "Assets/Skeleton.h"
+#include "Assets/Waypoints.h"
 #include "Core/FileSystem.h"
 #include "Core/Log.h"
 #include "Game/PlayerPawn.h"
@@ -32,6 +33,7 @@ namespace painful { extern bx::DefaultAllocator g_allocator; }
 #include "World/Templates.h"
 #include "World/Zones.h"
 #include "Assets/Skeleton.h"
+#include "Assets/Waypoints.h"
 
 #include <chrono>
 #include <algorithm>
@@ -1547,6 +1549,122 @@ static int BlendCmd(const char* path, const char* animA, const char* animB,
     return 0;
 }
 
+// Parses a .wps waypoint set and reports whether it parsed exactly. The
+// adjacency invariant (see Waypoints.h) is what confirms the record stride, so
+// a set that loads at all is a set whose format is understood.
+static int WpsCmd(const char* path) {
+    WaypointSet wps;
+    if (!WaypointSet::Load(path, wps)) {
+        LogInfo("%s: %s", path, wps.error.c_str());
+        return 2;
+    }
+
+    size_t minLinks = SIZE_MAX, maxLinks = 0;
+    double lo[3] = {1e30, 1e30, 1e30}, hi[3] = {-1e30, -1e30, -1e30};
+    size_t isolated = 0;
+    for (const WaypointSet::Node& n : wps.nodes) {
+        minLinks = std::min<size_t>(minLinks, n.linkCount);
+        maxLinks = std::max<size_t>(maxLinks, n.linkCount);
+        if (n.linkCount == 0) ++isolated;
+        for (int c = 0; c < 3; ++c) {
+            lo[c] = std::min(lo[c], double(n.pos[c]));
+            hi[c] = std::max(hi[c], double(n.pos[c]));
+        }
+    }
+
+    // The floor each waypoint belongs to.
+    std::map<uint32_t, size_t> floorHist;
+    for (const WaypointSet::Node& n : wps.nodes) ++floorHist[n.floor];
+
+    LogInfo("%s", path);
+    LogInfo("  %zu waypoints, %zu links, %zu bytes of floors, %zu of %zu bytes consumed",
+            wps.nodes.size(), wps.links.size(), wps.floorBytes, wps.consumed, wps.size);
+    LogInfo("  links per waypoint: min %zu, max %zu, mean %.1f, %zu isolated",
+            minLinks, maxLinks, double(wps.links.size()) / double(wps.nodes.size()),
+            isolated);
+    LogInfo("  bounds x[%.1f..%.1f] y[%.1f..%.1f] z[%.1f..%.1f]",
+            lo[0], hi[0], lo[1], hi[1], lo[2], hi[2]);
+    LogInfo("  %zu floors, %u to %u", floorHist.size(),
+            floorHist.empty() ? 0 : floorHist.begin()->first,
+            floorHist.empty() ? 0 : floorHist.rbegin()->first);
+
+    // Connectivity first. Routing between the bounding box's two CORNERS
+    // reports "no path" on most levels, and that is the test being wrong
+    // rather than the graph: a corner is exactly where a sealed pocket, an
+    // out-of-bounds marker or a separate island tends to sit. What matters is
+    // how much of the graph hangs together.
+    std::vector<int> component(wps.nodes.size(), -1);
+    size_t components = 0, largest = 0;
+    int largestSeed = -1;
+    std::vector<int> queue;
+    for (size_t s = 0; s < wps.nodes.size(); ++s) {
+        if (component[s] >= 0) continue;
+        const int id = int(components++);
+        size_t seen = 0;
+        queue.assign(1, int(s));
+        component[s] = id;
+        while (!queue.empty()) {
+            const size_t at = size_t(queue.back());
+            queue.pop_back();
+            ++seen;
+            const WaypointSet::Node& node = wps.nodes[at];
+            for (uint32_t k = 0; k < node.linkCount; ++k) {
+                const size_t edge = size_t(node.linkStart) + k;
+                if (edge >= wps.links.size()) break;
+                const size_t next = size_t(wps.links[edge]);
+                if (component[next] >= 0) continue;
+                component[next] = id;
+                queue.push_back(int(next));
+            }
+        }
+        if (seen > largest) { largest = seen; largestSeed = int(s); }
+    }
+    LogInfo("  %zu components, largest holds %zu of %zu waypoints (%.0f%%)",
+            components, largest, wps.nodes.size(),
+            100.0 * double(largest) / double(wps.nodes.size()));
+
+    // Then the farthest apart pair WITHIN that component, which is a route
+    // that must exist. Walked distance over straight-line distance is how much
+    // the level makes an actor bend - the number that was 1.00 before any of
+    // this, because a straight line was all there was.
+    if (largestSeed >= 0) {
+        const int id = component[size_t(largestSeed)];
+        int na = -1, nb = -1;
+        double best = -1;
+        for (size_t i = 0; i < wps.nodes.size(); ++i) {
+            if (component[i] != id) continue;
+            if (na < 0) na = int(i);
+            double d = 0;
+            for (int c = 0; c < 3; ++c) {
+                const double e = wps.nodes[i].pos[c] - wps.nodes[size_t(na)].pos[c];
+                d += e * e;
+            }
+            if (d > best) { best = d; nb = int(i); }
+        }
+        std::vector<int> route;
+        if (na >= 0 && nb >= 0 && wps.FindPath(na, nb, route)) {
+            double walked = 0;
+            for (size_t i = 1; i < route.size(); ++i) {
+                double d = 0;
+                for (int c = 0; c < 3; ++c) {
+                    const double e = wps.nodes[size_t(route[i])].pos[c] -
+                                     wps.nodes[size_t(route[i - 1])].pos[c];
+                    d += e * e;
+                }
+                walked += std::sqrt(d);
+            }
+            const double straight = std::sqrt(best);
+            LogInfo("  route %d -> %d: %zu hops, %.1f walked vs %.1f straight (x%.2f)",
+                    na, nb, route.size(), walked, straight,
+                    straight > 0 ? walked / straight : 0.0);
+        } else {
+            LogInfo("  route %d -> %d: NO PATH inside one component - that is a bug",
+                    na, nb);
+        }
+    }
+    return 0;
+}
+
 static int BonesCmd(const char* path, const char* animName, const char* timeArg,
                     const char* rotArg) {
     Model m;
@@ -2378,6 +2496,7 @@ int main(int argc, char** argv) {
     if (cmd == "skytex" && argc >= 4) return SkyTexCmd(argv[2], argv[3]);
     if (cmd == "blend" && argc >= 5)
         return BlendCmd(argv[2], argv[3], argv[4], argc >= 6 ? argv[5] : nullptr);
+    if (cmd == "wps") return WpsCmd(argv[2]);
     if (cmd == "bones")
         return BonesCmd(argv[2], argc >= 4 ? argv[3] : nullptr,
                         argc >= 5 ? argv[4] : nullptr, argc >= 6 ? argv[5] : nullptr);
