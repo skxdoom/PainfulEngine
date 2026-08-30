@@ -32,15 +32,17 @@ void main()
 	vec4 texel = texture2D(s_diffuse, v_texcoord0);
 	if (u_hudParams.z > 0.5)
 	{
-		// The pattern SUPPLIES the colour; the item colour contributes only
-		// its alpha. Modulating instead would darken: the pattern is a warm
-		// gold (about 230,170,120) and the rows that use it are authored
-		// RGBA(100,100,100), so the product is a muddy brown that vanishes
-		// against the menu art. It also explains why disabledColor (155) is
-		// BRIGHTER than textColor (100) in the shipped screens - those
-		// numbers are not brightness.
+		// MODULATE2X: pattern times colour, DOUBLED. The authored numbers are
+		// what say so - they sit near half scale, which is the signature of
+		// that fixed-function op. A plain modulate leaves the rows a muddy
+		// brown that vanishes into the art (textColor is RGBA(100,100,100)
+		// against a gold pattern), and treating the colour as alpha-only
+		// would throw away underMouseColor - which PainMenu defaults to
+		// RGBA(166,3,3), a RED that has to survive as a hue. Doubling makes
+		// all three land: gold for a normal row, bright red under the
+		// pointer, washed-out for a disabled one.
 		vec4 pattern = texture2D(s_pattern, gl_FragCoord.xy * u_hudParams.xy);
-		gl_FragColor = vec4(pattern.rgb, texel.a * v_color0.a);
+		gl_FragColor = vec4(pattern.rgb * v_color0.rgb * 2.0, texel.a * v_color0.a);
 	}
 	else
 	{

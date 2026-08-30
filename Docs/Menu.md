@@ -270,15 +270,14 @@ Still open in this stage: lists and scrollers, the fade-in
 (`SetItemsFadeLength`, `SetShowItemsFrame`), and `EnableItemBG`'s `blaszka`
 plate behind a row.
 
-**A known defect.** `AddTabGroup` is in (it is a border as far as drawing goes;
-what makes it a group is entirely script-side), but on `VideoOptions` the
-hidden `AdvancedTab` still draws over the visible `GeneralTab`. A probe on
-`SetItemVisibility` shows why and also shows it is not our contract that is
-wrong: every call arrives as `true`, and
-`PainMenu:HideTabGroup` - which is what would send `false` - never fires at
-all, though `AdvancedTab` declares `visible = false` and the function exists.
-That is a question about the script flow through `SetupScreen`, not about a
-native, and it is the next thing to chase.
+`AddTabGroup` is in - it is a border as far as drawing goes, and what makes it
+a group is entirely script-side. Tab visibility works: 19 `false` calls arrive
+and `Coronas` and `Shadows` end hidden while `Resolution` stays visible.
+
+(An earlier note here claimed `HideTabGroup` never fired. That was wrong, and
+wrong for an avoidable reason: the probe output was truncated at 14 lines and
+the `false` calls all come later. Measuring and then reading only the head of
+the measurement is worse than not measuring, because it looks like evidence.)
 
 ### Stage 4 - campaign flow
 
@@ -333,13 +332,19 @@ it as a second texture stage alongside the glyph atlas.
 
 Two things about it are not guessable:
 
-**It is not a modulation.** The pattern is a warm gold (about 230, 170, 120)
-and the rows that use it are authored `RGBA(100, 100, 100)`, so multiplying
-gives a muddy brown that disappears into the menu art - which is exactly what
-happened. The pattern *supplies* the colour and the item colour contributes
-only its alpha. The shipped values corroborate it: `disabledColor` is 155
-where `textColor` is 100, so a disabled row would be *brighter* if those
-numbers were brightness. They are not.
+**It is `MODULATE2X` - the product, DOUBLED.** This took two wrong turns worth
+recording. A plain modulate leaves the rows a muddy brown that vanishes into
+the art: the pattern is a warm gold near `230, 170, 120` and the rows are
+authored `RGBA(100, 100, 100)`. Treating the pattern as the colour source and
+the item colour as alpha-only looks right on the main menu - and is wrong,
+because it throws the hue away. `PainMenu` defaults `underMouseColor` to
+`RGBA(166, 3, 3)`, a RED that has to survive as a colour, which is why the
+hovered row was never turning red.
+
+Doubling makes all three states land, and the authored numbers are what say
+so: they sit near half scale, which is the signature of that fixed-function
+op. Gold for a normal row (`0.90 x 0.39 x 2`), bright red under the pointer
+(`0.65 x 0.90 x 2` clamps), washed out for a disabled one at 155.
 
 **It is sampled in screen space, not with the glyph's atlas UVs.** The original
 can use its own atlas coordinates because its font texture was authored against
@@ -352,3 +357,105 @@ The exact fixed-function stage state in `HUD::SetRenderState` has not been
 read, so the blend is inferred from the art and the authored colours rather
 than from the binary. It matches what the shipped menu looks like; it is not
 proven identical.
+
+### The hit target is the row, not the word
+
+Hover only highlighted an item while the pointer was literally over the
+letters. Two reasons, both measured:
+
+```
+before   SignAPact  x=511..769   y=197..250      the glyphs
+after    SignAPact  x=190..1090  y=197..272      the row
+```
+
+`PMENU.SetMenuWidth` is what says how wide a row is - `PainMenu` defaults it
+to 720 authoring units - so hit-testing the text left most of the row dead.
+And rows are spaced further apart than a line is tall (80 units against about
+60), leaving a dead band between them; each row in a column now grows down to
+meet the next, so a column hit-tests as one continuous strip.
+
+The system cursor is hidden while the menu is up, since the menu draws its
+own. Relative mode hides it during play anyway, which is why this only shows
+up once capture is released for the menu - two pointers on screen.
+
+### A negative x is not "centre" - it is "let alignment place me"
+
+The real cause of the `VideoOptions` overlap. `TextureQualityWeapons` and
+`TextureQualityCharacters` are **both** declared `x = -1, y = 330`, in the same
+visible tab group, and differ only in `align` - `Left` against `Right`. They
+are one two-column row, and centring both drew them on top of each other.
+
+So a negative x means "place me by my alignment inside the menu box", and the
+box is `menuWidth` wide (720 authoring units by default) centred on screen:
+
+| align | with x < 0 | with an explicit x |
+|---|---|---|
+| `Left` (2) | the left half of the box | text starts at x |
+| `Right` (3) | the right half of the box | text ENDS at x |
+| `Center` (4), `None` (1) | centred on screen | text starts at x |
+
+Note what `Right` means with a negative x: the right-hand **column**, not
+right-aligned text. Right-aligning the label against the menu's edge leaves its
+value nowhere to go - it lands past the screen, which is exactly how
+`Characters` and `Skies` first drew, with no setting beside them.
+
+Within a half row the value right-aligns to that half's own right edge rather
+than sitting a `sliderWidth` along: 340 authoring units against a half of 360
+would run the value into the next column's label. A gutter keeps the left
+half's value off the right half's label.
+
+This is the third distinct thing `MenuAlign` has cost, after being read as
+zero-based. It is worth stating plainly: alignment in this menu decides
+*layout*, not just text justification.
+
+### The row plate, and what navigation order means
+
+`PMENU.EnableItemBG(name, "blaszka")` turns on the bevelled plate a row sits
+on. The art is a three-slice under `HUD/blachy_menu` - `_lewa`, `_centrum`,
+`_prawa`: left cap, tiled middle, right cap - and the script passes only the
+base name, so the engine appends the suffixes. The caps keep their own width
+and the middle tiles between them, which is why it ships as three pieces and
+not one stretched image.
+
+It is drawn only under the FOCUSED row. The plates are opaque bronze; under
+every row they would tile the whole column over the background and lose the
+menu artwork entirely. As a highlight, it is what makes the selected row read
+as pressed - and it is what finally showed `underMouseColor` working, since
+`Options` came up red on the plate.
+
+Seating the highlight on open turned up a second thing. Up and down have to
+walk the screen the way it **looks** - top to bottom, then left to right - not
+the way the items were declared. Declaration order is whatever order `next()`
+happened to walk the screen's Lua table, which is arbitrary: the first attempt
+seated the highlight on `Options` rather than on `Sign the Pact`.
+
+### The fade-in is not implemented, deliberately
+
+`SetItemsFadeLength` and `SetShowItemsFrame` are timed against the menu's
+BACKGROUND MOVIE, not against a clock. Every screen carries `bgStartFrame` and
+`bgEndFrame` triples, and `MainMenu` asks for its items at frame 80 of that
+movie. The backgrounds are Bink (`PMENU.PlayMovie`), which we do not play.
+
+Implementing the timing without the movie would hide every item for eighty
+frames of nothing and then fade them in against a still image - worse than not
+having it. It belongs with movie playback, whenever that happens, and the
+natives stay stubs until then.
+
+### The mouse belongs to whoever is in charge
+
+Resuming from the menu used to leave the game unfocused: the Windows cursor
+came back and the player had to click before the view would steer. Capture is
+now driven from the frame rather than from a click - playing means captured,
+the menu means released - so closing the menu hands the mouse straight back.
+
+The system cursor is never shown in the game loop at all. In the menu we draw
+our own; in play the mouse is captured, which hides it anyway. Tying its
+visibility to the menu state instead made it flash back on for the frame after
+a resume.
+
+Capture only happens while the window has focus, and focus loss releases it -
+otherwise alt-tabbing away would snatch the pointer straight back into a window
+nobody is looking at.
+
+The `run` diagnostic viewer keeps the old click-to-capture and
+Escape-to-release, because it has no menu to hand the mouse to.

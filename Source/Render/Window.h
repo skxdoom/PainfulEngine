@@ -48,6 +48,7 @@ public:
     // While captured the cursor is hidden and movement is unbounded.
     void SetMouseCaptured(bool captured);
     bool mouseCaptured() const { return mouseCaptured_; }
+    bool hasFocus() const { return hasFocus_; }
     // Fullscreen modes the display supports, as "WIDTHxHEIGHT", widest first
     // and de-duplicated across refresh rates.
     std::vector<std::string> DisplayModes() const;
@@ -58,6 +59,7 @@ public:
     float mouseY() const { return mouseY_; }
     // While the menu is up the cursor must stay visible, so capture is
     // suppressed rather than toggled on every click.
+    void SetSystemCursorVisible(bool visible);
     void SetAllowCapture(bool on) {
         allowCapture_ = on;
         if (!on && mouseCaptured_) SetMouseCaptured(false);
@@ -95,6 +97,8 @@ private:
     bool allowCapture_ = true;
     bool escapePressed_ = false;
     bool escapeQuits_ = true;
+    bool systemCursorVisible_ = true;
+    bool hasFocus_ = true;
     float mouseDx_ = 0.f, mouseDy_ = 0.f;
     int levelStep_ = 0;
     bool noclipToggle_ = false;

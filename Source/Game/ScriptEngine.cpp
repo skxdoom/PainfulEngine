@@ -3376,6 +3376,17 @@ int ScriptEngine::L_PMENU_SetItemWidth(lua_State* L) {
 // PMENU.SetItemSounds(name, accept, lightOn). The call site settles the order:
 // PainMenu passes o.sndAccept then o.sndLightOn, so the FOCUS sound is the
 // third argument, not the second. Only that one is used yet.
+// PMENU.EnableItemBG(name, "blaszka") - turn on the plate behind a row. The
+// second argument is the BASE name of a three-slice under HUD/blachy_menu.
+int ScriptEngine::L_PMENU_EnableItemBG(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu)) {
+        item->itemBG = luaL_optstring(L, 2, "");
+        item->itemBGMat[0] = item->itemBGMat[1] = item->itemBGMat[2] = -1;
+    }
+    return 0;
+}
+
 int ScriptEngine::L_PMENU_SetItemSounds(lua_State* L) {
     MenuSystem* menu = nullptr;
     if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu))
@@ -3920,6 +3931,7 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"PMENU", "SetItemVisibility", L_PMENU_SetItemVisibility},
         {"PMENU", "SetItemAlign", L_PMENU_SetItemAlign},
         {"PMENU", "SetItemWidth", L_PMENU_SetItemWidth},
+        {"PMENU", "EnableItemBG", L_PMENU_EnableItemBG},
         {"PMENU", "SetItemSounds", L_PMENU_SetItemSounds},
         {"PMENU", "DisableItem", L_PMENU_DisableItem},
         {"PMENU", "EnableItem", L_PMENU_EnableItem},

@@ -51,12 +51,16 @@ and loose files layered the way the original engine mounts them. An unpacked
 It is a windowed application, so double-clicking opens no console — but run
 from a terminal it still prints.
 
-Click to capture the mouse, WASD to move, shift for fast, space/ctrl for up and
-down, `N` for noclip, `P` for the collision wireframe, `[` `]` to cycle levels,
-Escape to release the mouse and again to quit. The HUD prints position,
-orientation, draw counts and visible zones. The camera flies, but it collides
-with the world and shoves loose props out of its way — `N` turns that off when a
-level needs surveying from outside.
+WASD to move, shift for fast, space/ctrl for up and down, `N` for noclip, `P`
+for the collision wireframe, `[` `]` to cycle levels. **Escape opens the menu**,
+which pauses the game and hands the mouse over; closing it gives the mouse
+straight back, with no click needed to start steering again. The debug overlay
+prints position, orientation, draw counts and visible zones. The camera flies,
+but it collides with the world and shoves loose props out of its way — `N`
+turns that off when a level needs surveying from outside.
+
+(The `run` diagnostic viewer is separate and keeps the older behaviour: click
+to capture the mouse, Escape to release it and again to quit.)
 
 ### Running a level
 

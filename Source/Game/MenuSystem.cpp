@@ -111,12 +111,21 @@ void MenuSystem::Choose(const Item& item) {
 }
 
 void MenuSystem::MoveFocus(int delta) {
-    std::vector<Item*> all = Ordered();
     std::vector<Item*> reachable;
-    for (Item* i : all)
+    for (Item* i : Ordered())
         if (Focusable(i->kind) && i->visible && !i->disabled)
             reachable.push_back(i);
     if (reachable.empty()) return;
+
+    // Up and down walk the screen the way it LOOKS, top to bottom and then
+    // left to right, not the way the items were declared. Declaration order is
+    // the order `next()` happened to walk the screen's Lua table, which is
+    // arbitrary - opening the main menu seated the highlight on Options rather
+    // than on the first row.
+    std::sort(reachable.begin(), reachable.end(), [](const Item* a, const Item* b) {
+        if (a->y != b->y) return a->y < b->y;
+        return a->order < b->order;
+    });
 
     int at = -1;
     for (size_t i = 0; i < reachable.size(); ++i)
@@ -131,6 +140,13 @@ void MenuSystem::MoveFocus(int delta) {
         if (playSound_ && !reachable[at]->sndLightOn.empty())
             playSound_(reachable[at]->sndLightOn);
     }
+}
+
+// Called once a screen has been built, so the menu is usable from the keyboard
+// the moment it opens and the highlight has somewhere to be. The mouse takes
+// over the instant it moves over a row.
+void MenuSystem::FocusFirst() {
+    if (focused_.empty()) MoveFocus(1);
 }
 
 void MenuSystem::NavUp() { MoveFocus(-1); }
@@ -252,37 +268,119 @@ void MenuSystem::Draw(int screenW, int screenH) {
         // at x. Read as zero-based it sends every left-aligned item off the
         // left of the screen and every right-aligned one off the right, which
         // is exactly what the bottom bar did before this was checked.
+        // A negative x does NOT simply mean "centre on screen" - it means "let
+        // the alignment place me inside the menu box", and the box is
+        // menuWidth wide (PainMenu defaults 720 authoring units) centred on the
+        // screen. VideoOptions is what proves it: TextureQualityWeapons and
+        // TextureQualityCharacters are BOTH declared x = -1, y = 330, and
+        // differ only in align - Left and Right. They are one two-column row,
+        // and centring both drew them on top of each other.
+        //
+        // An explicit x still wins, and there alignment only chooses which
+        // edge of the string sits on it.
+        const float menuW = menuWidth_ > 0.f ? menuWidth_ * sx() : float(screenW);
+        const float menuLeft = (float(screenW) - menuW) * 0.5f;
         float x;
-        if (item->x < 0.f || item->align == kAlignCenter)
-            x = (float(screenW) - w) * 0.5f;
+        if (item->x >= 0.f)
+            x = (item->align == kAlignRight) ? item->x * sx() - w : item->x * sx();
+        else if (item->align == kAlignLeft)
+            x = menuLeft;
         else if (item->align == kAlignRight)
-            x = item->x * sx() - w;
+            // The right-hand COLUMN, not right-aligned text: the label leads
+            // and its value follows a sliderWidth along, exactly as in the left
+            // half. Right-aligning the label against the menu's edge instead
+            // leaves its value nowhere to go - it lands past the screen, which
+            // is why Characters and Skies drew with no setting beside them.
+            x = menuLeft + menuW * 0.5f;
         else
-            x = item->x * sx();
+            x = (float(screenW) - w) * 0.5f;
         const float y = item->y * sy();
 
         uint32_t colour = item->textColor;
         if (item->disabled)     colour = item->disabledColor;
         else if (isFocused)     colour = item->underMouseColor;
 
+        // The plate goes behind the row, and only under the FOCUSED one: the
+        // art is opaque bronze, so drawing it under every row would tile the
+        // whole column over the background and lose the menu's artwork
+        // entirely. As a highlight it is what makes the selected row read as
+        // pressed.
+        if (isFocused && !item->itemBG.empty() && item->hitW > 0.f)
+            DrawItemBG(*item, item->hitX, y, item->hitW, float(size) * 1.4f);
+
         hud_->Text(item->fontBig, size, x, y, item->text, ArgbToAbgr(colour),
                    FontTexture(*item, true));
 
+        // The hit target is the ROW, not the word. PMENU.SetMenuWidth is what
+        // says how wide a row is - PainMenu defaults it to 720 authoring units
+        // - and hit-testing the glyphs alone leaves most of the row dead, so
+        // the pointer only highlights an item while it is literally over the
+        // letters. Rows are also spaced further apart than a line is tall
+        // (80 units against about 60), so the box grows to close that gap too.
         item->hitX = x;
         item->hitY = y;
         item->hitW = w;
         item->hitH = h;
+        if (item->x < 0.f && menuWidth_ > 0.f) {
+            // A left- or right-aligned row shares its line with the other
+            // half, so it takes half the box. Centred rows take all of it.
+            if (item->align == kAlignLeft) {
+                item->hitX = menuLeft;
+                item->hitW = menuW * 0.5f;
+            } else if (item->align == kAlignRight) {
+                item->hitX = menuLeft + menuW * 0.5f;
+                item->hitW = menuW * 0.5f;
+            } else {
+                item->hitX = menuLeft;
+                item->hitW = menuW;
+            }
+        }
+        if (HasValue(item->kind))
+            item->hitW = std::max(item->hitW, (item->sliderWidth + 180.f) * sx());
 
         // A widget's VALUE is drawn to the right of its label, in the column
         // the screen's sliderWidth reserves. The label sits at the item's x, so
         // the value column starts a fixed distance along rather than after the
         // text - otherwise the values in a list of options would not line up.
         if (HasValue(item->kind)) {
-            const float vx = x + item->sliderWidth * sx();
+            // A full-width row puts its value a fixed sliderWidth along, so
+            // the values in a column line up. A HALF row - one side of a
+            // two-column line - has no room for that: sliderWidth is 340
+            // authoring units against a half of 360, so the value would run
+            // into the next column's label. There the value right-aligns to
+            // the half's own right edge instead.
+            const bool halfRow = item->x < 0.f && menuWidth_ > 0.f &&
+                                 (item->align == kAlignLeft || item->align == kAlignRight);
+            float vx = x + item->sliderWidth * sx();
+            if (halfRow) {
+                const float halfLeft =
+                    menuLeft + (item->align == kAlignRight ? menuW * 0.5f : 0.f);
+                // A gutter, or the left half's value ends exactly where the right
+                // half's label begins and the two read as one word.
+                vx = halfLeft + menuW * 0.5f - ValueWidth(*item, size) - 28.f * sx();
+            }
             DrawValue(*item, vx, y, size, colour);
-            // The whole row is clickable, not just the label, or a slider
-            // would only respond over its own name.
-            item->hitW = std::max(item->hitW, (item->sliderWidth + 180.f) * sx());
+        }
+    }
+
+    // Rows are spaced further apart than a line is tall - 80 authoring units
+    // against about 60 - which would leave a dead band between them where the
+    // pointer highlights nothing. Each row in a column therefore grows down to
+    // meet the next, so a column hit-tests as one continuous strip.
+    {
+        std::vector<Item*> rows;
+        for (Item* item : Ordered())
+            if (item->hitW > 0.f && item->hitH > 0.f) rows.push_back(item);
+        std::sort(rows.begin(), rows.end(),
+                  [](const Item* a, const Item* b) { return a->hitY < b->hitY; });
+        for (size_t i = 0; i + 1 < rows.size(); ++i) {
+            Item* a = rows[i];
+            const Item* b = rows[i + 1];
+            // Only within one column, and only across a gap small enough to be
+            // row spacing rather than a different block of the screen.
+            if (a->hitX != b->hitX || a->hitW != b->hitW) continue;
+            const float gap = b->hitY - (a->hitY + a->hitH);
+            if (gap > 0.f && gap < a->hitH) a->hitH = b->hitY - a->hitY;
         }
     }
 
@@ -308,6 +406,56 @@ int MenuSystem::FontTexture(const Item& item, bool big) {
     if (name.empty()) return 0;
     if (cached < 0) cached = hud_->CreateMaterial(name, *textures_, "");
     return cached;
+}
+
+// How wide the value half of a row draws, so a half-column can right-align it.
+// The bevelled plate a row sits on, from the three-slice under
+// HUD/blachy_menu. The caps keep their own width and the middle tiles between
+// them, which is why the art is three pieces and not one stretched image.
+void MenuSystem::DrawItemBG(Item& item, float x, float y, float w, float h) {
+    if (!hud_ || !textures_ || item.itemBG.empty()) return;
+    if (item.itemBGMat[0] < 0) {
+        static const char* kSuffix[3] = {"_lewa", "_centrum", "_prawa"};
+        for (int i = 0; i < 3; ++i)
+            item.itemBGMat[i] = hud_->CreateMaterial(
+                "HUD/blachy_menu/" + item.itemBG + kSuffix[i], *textures_, "");
+    }
+    if (item.itemBGMat[0] <= 0 || item.itemBGMat[2] <= 0) return;
+
+    // The caps scale with the row height so the bevel keeps its proportions.
+    int lw = 0, lh = 0, rw = 0, rh = 0;
+    hud_->MaterialSize(item.itemBGMat[0], lw, lh);
+    hud_->MaterialSize(item.itemBGMat[2], rw, rh);
+    const float scale = lh > 0 ? h / float(lh) : 1.f;
+    const float capL = float(lw) * scale, capR = float(rw) * scale;
+    const float middle = w - capL - capR;
+
+    hud_->Quad(item.itemBGMat[0], x, y, capL, h, 0xffffffffu);
+    if (middle > 0.f && item.itemBGMat[1] > 0)
+        hud_->Quad(item.itemBGMat[1], x + capL, y, middle, h, 0xffffffffu);
+    hud_->Quad(item.itemBGMat[2], x + w - capR, y, capR, h, 0xffffffffu);
+}
+
+float MenuSystem::ValueWidth(const Item& item, int size) {
+    if (!hud_) return 0.f;
+    switch (item.kind) {
+    case Kind::Checkbox:
+        return hud_->TextWidth(item.fontBig, size,
+                               item.value != 0.0 ? onText_ : offText_);
+    case Kind::TextButtonEx:
+        return hud_->TextWidth(item.fontBig, size, item.valueText);
+    case Kind::NumRange: {
+        char buf[32];
+        snprintf(buf, sizeof buf, "%d", int(item.value));
+        return hud_->TextWidth(item.fontBig, size, buf);
+    }
+    case Kind::Slider:
+        // The bar plus its number; sliders are full-width rows in every
+        // shipped screen, so this only matters if one ever is not.
+        return 200.f * sx() + 16.f * sx() + hud_->TextWidth(item.fontBig, size, "000.00");
+    default:
+        return 0.f;
+    }
 }
 
 void MenuSystem::DrawValue(const Item& item, float x, float y, int size, uint32_t colour) {

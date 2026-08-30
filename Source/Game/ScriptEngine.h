@@ -582,6 +582,7 @@ private:
     static int L_PMENU_SetItemVisibility(lua_State* L);
     static int L_PMENU_SetItemAlign(lua_State* L);
     static int L_PMENU_SetItemWidth(lua_State* L);
+    static int L_PMENU_EnableItemBG(lua_State* L);
     static int L_PMENU_SetItemSounds(lua_State* L);
     static int L_PMENU_DisableItem(lua_State* L);
     static int L_PMENU_EnableItem(lua_State* L);

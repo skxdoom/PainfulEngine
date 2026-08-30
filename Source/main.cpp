@@ -1019,7 +1019,18 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
             else engine.menu().Open();
         }
 
-        window.SetAllowCapture(!engine.menu().active() || !engine.menu().mouseShown());
+        // Who owns the mouse. Playing means captured, so the view steers the
+        // moment the menu closes: waiting for a click to re-capture leaves the
+        // player pointing a dead cursor at the world and wondering why nothing
+        // turns. Only while the window has focus, or alt-tabbing away would
+        // snatch the pointer straight back.
+        const bool menuPointer = engine.menu().active() && engine.menu().mouseShown();
+        window.SetAllowCapture(!menuPointer);
+        window.SetMouseCaptured(!menuPointer && window.hasFocus());
+        // The system cursor is never wanted here: in the menu we draw our own,
+        // and in play the mouse is captured. Leaving it to follow the menu
+        // state alone made it flash back on for the frame after a resume.
+        window.SetSystemCursorVisible(false);
         if (engine.menu().active()) {
             // Keyboard navigation reads the raw virtual keys rather than a
             // UIAction: Definitions.lua's UIActions covers pause, scoreboard
@@ -1043,6 +1054,9 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
             }
 
             input.SetMousePos(window.mouseX(), window.mouseY());
+            // A freshly built screen has no highlight until something moves;
+            // seat it on the first row so the keyboard works immediately.
+            engine.menu().FocusFirst();
             engine.menu().Update(window.mouseX(), window.mouseY(), window.TakeLeftClick());
             engine.menu().Draw(window.width(), window.height());
         }
@@ -1102,9 +1116,8 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
                            physics.settings().gravity,
                            particles.liveParticles(), particles.emitters(),
                            billboards.visible(), billboards.placed());
-        renderer.DebugText(6, "%s - %s, esc release",
-                           window.mouseCaptured() ? "mouse captured"
-                                                  : "click to capture mouse",
+        renderer.DebugText(6, "%s - %s, esc for the menu",
+                           window.mouseCaptured() ? "mouse captured" : "menu",
                            walking ? "WASD walk, space jump, mouse look, N to fly"
                                    : "WASD move, shift fast, space/ctrl up-down, N to walk");
         renderer.EndFrame();

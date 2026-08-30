@@ -189,6 +189,13 @@ bool Window::PumpEvents() {
             // the player keeps walking into a wall while the window is not
             // even focused.
             for (bool& k : vkDown_) k = false;
+            // And let go of the mouse, or the pointer stays trapped in a
+            // window nobody is looking at.
+            hasFocus_ = false;
+            SetMouseCaptured(false);
+            break;
+        case SDL_EVENT_WINDOW_FOCUS_GAINED:
+            hasFocus_ = true;
             break;
         case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
             width_ = e.window.data1;
@@ -243,9 +250,23 @@ void Window::TakeMouseDelta(float& dx, float& dy) {
 }
 
 void Window::SetMouseCaptured(bool captured) {
-    if (!window_) return;
+    if (!window_ || captured == mouseCaptured_) return;
     mouseCaptured_ = captured;
     SDL_SetWindowRelativeMouseMode(window_, captured);
+}
+
+void Window::SetSystemCursorVisible(bool visible) {
+    // The menu draws its OWN pointer (HUD/kursor), so the system one has to go
+    // while it is up or there are two cursors on screen. Relative mode hides
+    // the system cursor by itself, which is why this only matters once capture
+    // is released for the menu.
+    //
+    // Only on a change: this is called every frame, and SDL_ShowCursor is a
+    // platform call, not a flag test.
+    if (visible == systemCursorVisible_) return;
+    systemCursorVisible_ = visible;
+    if (visible) SDL_ShowCursor();
+    else SDL_HideCursor();
 }
 
 bool Window::TakeResized() {

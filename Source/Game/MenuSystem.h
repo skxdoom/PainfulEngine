@@ -80,6 +80,12 @@ public:
         // RGBA(100,100,100) draws as literal grey.
         std::string fontBigTex, fontSmallTex;
         int fontBigTexMat = -1, fontSmallTexMat = -1;
+        // PMENU.EnableItemBG(name, "blaszka"): the bevelled plate a row sits
+        // on. The art is a three-slice under HUD/blachy_menu - _lewa, _centrum,
+        // _prawa, left cap, tiled middle, right cap - and the script passes
+        // only the base name.
+        std::string itemBG;
+        int itemBGMat[3] = {-1, -1, -1};
         std::string sndLightOn;      // played when focus arrives
         bool visible = true;
         bool disabled = false;
@@ -181,6 +187,7 @@ public:
     // action, which pushes the next label back through
     // ChangeTextButtonExValue. That is how the original cycles one.
     void NavAdjust(int direction);
+    void FocusFirst();
     void Draw(int screenW, int screenH);
 
     const std::string& focusedName() const { return focused_; }
@@ -195,6 +202,8 @@ private:
 
     std::vector<Item*> Ordered();
     int FontTexture(const Item& item, bool big);
+    float ValueWidth(const Item& item, int size);
+    void DrawItemBG(Item& item, float x, float y, float w, float h);
     void DrawValue(const Item& item, float x, float y, int size, uint32_t colour);
     void DrawBorder(const Item& item);
     void DrawCursor();
