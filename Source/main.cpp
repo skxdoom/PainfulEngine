@@ -185,6 +185,7 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
     std::vector<DebugLine> physicsWireframe;
     std::vector<BodyPose> movedProps;
     Camera camera;
+    if (const char* n = getenv("PAINFUL_NEAR")) camera.nearPlane = float(atof(n));
     LevelStats stats;
 
     auto loadLevel = [&](int index) {
@@ -708,7 +709,10 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     }
 
     EntityRenderer entities;
-    entities.SetCullMode(1);   // .pkmdl winding; pack meshes carry their own state
+    // .pkmdl winding; pack meshes carry their own state. PAINFUL_ECULL is a
+    // diagnostic override - 2 disables culling entirely, which is how to tell
+    // a hole made by wrong winding from a hole made by missing geometry.
+    entities.SetCullMode(getenv("PAINFUL_ECULL") ? atoi(getenv("PAINFUL_ECULL")) : 1);
     if (!entities.Init(shaderDir)) return 3;
 
     EmitterLibrary emitterScripts;
@@ -863,6 +867,7 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     // would be too late: the mouse is locked by now, so CLevel:Synchronize
     // has started writing the camera INTO Lev.Pos rather than out of it.
     Camera camera;
+    if (const char* n = getenv("PAINFUL_NEAR")) camera.nearPlane = float(atof(n));
     if (seated) {
         for (int i = 0; i < 3; ++i) camera.pos[i] = seatPos[i];
         camera.yaw = seatYaw;

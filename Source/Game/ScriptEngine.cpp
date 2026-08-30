@@ -1928,8 +1928,15 @@ int ScriptEngine::L_SetPosAndRotRelativeToCamera(lua_State* L) {
     const float camRot[9] = {right[0], right[1], right[2],
                              up[0],    up[1],    up[2],
                              -fwd[0],  -fwd[1],  -fwd[2]};
+    // The TURN is negated, the same way ENTITY.SetOrientation negates it when
+    // it builds its yaw quaternion. Passing it raw here left every viewmodel
+    // rotated to show its far side: the stakegun's own template asks for a
+    // yaw of -1.57, and with the wrong sign the gun sits in exactly the right
+    // place while presenting its back, so the gaps between its parts read as
+    // holes punched through a solid model. Nothing was missing - all sixteen
+    // meshes draw, all 3137 triangles - it was simply turned around.
     float localQuat[4], localRot[9], worldRot[9];
-    EngineEulerToQuat(float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
+    EngineEulerToQuat(float(luaL_optnumber(L, 5, 0)), -float(luaL_optnumber(L, 6, 0)),
                       float(luaL_optnumber(L, 7, 0)), localQuat);
     EngineQuatToRot9(localQuat, localRot);
     // Row-vector order: the weapon's own rotation first, then the camera's.

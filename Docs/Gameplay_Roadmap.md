@@ -360,3 +360,39 @@ angle in.
 
 This was wrong for every script-driven orientation, not just monsters - a
 weapon or effect bound through `BindPoint` was mirrored the same way.
+
+### The same sign, found again in the viewmodel
+
+Reported from play: the weapon models had holes - parts of the stakegun were
+see-through, the dark receiver body missing against the floor.
+
+It was the negated turn again, in the one path that had not been fixed.
+`ENTITY.SetPosAndRotRelativeToCamera` - the viewmodel transform, and the only
+caller is `CWeapon:Apply` - passed its Euler angles to `EngineEulerToQuat`
+raw, where `SetOrientation` negates the turn. `StakeGunGL` asks for a yaw of
+**-1.57**, so with the wrong sign the gun sat in exactly the right place while
+presenting its far side. The gaps between its parts then read as holes punched
+through a solid model.
+
+Nothing was missing. Worth listing what had to be eliminated first, because
+every one of these looked plausible and each was disproved by a measurement
+rather than by eye:
+
+| suspected | ruled out by |
+|---|---|
+| unused material slots | raw bytes: `u32 8, "Models/\0"` is a real empty placeholder in the file, and `materials[0]` is the valid diffuse |
+| missing geometry | a build-time probe: `KGR: 16 parts, 3137 tris`, every mesh submitted |
+| backface culling | `PAINFUL_ECULL=2`, pixel-identical |
+| near-plane clipping | `PAINFUL_NEAR=0.01`, pixel-identical |
+| the alpha test (`palskinned` tests at ref 128) | `PAINFUL_NOATEST`, **3 of 24300 pixels** differed |
+| skinning collapse | `pose`: bind 57.99 against posed 58.09, all 77 bones driven |
+
+The alpha test is the one worth dwelling on. Eyeballing two screenshots of it
+said "identical" and so did the numbers - but only the numbers were worth
+anything, because two of the earlier comparisons had *also* looked identical
+by eye when the thing being tested was simply not the cause. A 3-pixel
+difference is an answer; "looks the same to me" is not.
+
+The lesson for the rest of the port: this convention has now cost three
+separate bugs - monster facing, `BindPoint` offsets, and the viewmodel. Any
+new path that turns engine Euler angles into a quaternion negates the turn.

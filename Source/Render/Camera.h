@@ -18,6 +18,10 @@ struct Camera {
     // plane is the level's own FarClipDist (around 1024), so the ratio stays
     // near 10^4, well inside what a 24-bit buffer resolves.
     float nearPlane = 0.1f;
+    // PAINFUL_NEAR overrides it, to tell near-plane clipping apart from
+    // missing geometry: a viewmodel held at the eye is the one thing in the
+    // scene close enough to be sliced by it.
+
     float farPlane = 8000.f;
     // Units per second. A unit is about a metre - the player body is two units
     // tall - so this is already several times a running pace; shift multiplies
