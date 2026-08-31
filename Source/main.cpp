@@ -1618,6 +1618,174 @@ static int SkyDumpCmd(const char* path) {
 // Numbers, not a screenshot: what the level put into Jolt, and where a sphere
 // pushed along each axis from the spawn actually ends up. A camera that
 // collides is a camera whose sphere stops short of what it asked for.
+// Drop a ragdoll into a real level and see whether it behaves like a body.
+//
+// The failure modes this exists to catch are not subtle but they are invisible
+// without a number: constraints built in the wrong frame make the parts fly
+// apart, a missed unit conversion makes the ragdoll ten times too big, and a
+// degenerate hull or basis makes everything NaN. So it measures the SPREAD of
+// the parts against the pose the .hke was authored in - a ragdoll that holds
+// together keeps roughly its own dimensions however it lands - and it reports
+// how far the whole thing travelled and whether it came to rest.
+static int RagdollDropCmd(const char* levelDir, const char* dataRoot, const char* modelName) {
+    Level level;
+    if (!level.Load(levelDir, dataRoot)) {
+        LogInfo("cannot load level: %s", level.error().c_str());
+        return 2;
+    }
+    TemplateCache templates;
+    templates.Init(std::string(dataRoot) + "/LScripts/Templates");
+    templates.SetLevelOverlay(std::string(levelDir) + "/Templates");
+    PhysicsWorld physics;
+    physics.Load(level, templates, dataRoot);
+    if (!physics.loaded()) {
+        LogInfo("level has no collidable geometry");
+        return 2;
+    }
+
+    Hke def;
+    const std::string hkePath = std::string(dataRoot) + "/Models/" + modelName + ".hke";
+    if (!Hke::Load(hkePath, def)) {
+        LogInfo("%s: %s", hkePath.c_str(), def.error.c_str());
+        return 2;
+    }
+
+    // Models are built at Scale * 0.1 and the .hke is authored in that same
+    // ten-times space, so this is the conversion the renderer already applies.
+    const float scale = 0.1f;
+    const int slot = physics.CreateRagdoll(modelName, def, scale);
+    if (slot < 0) {
+        LogInfo("could not create a ragdoll for %s", modelName);
+        return 2;
+    }
+    const std::vector<std::string>& bones = physics.RagdollBones(slot);
+    const size_t n = bones.size();
+
+    // Somewhere with floor under it. A spawn point is the level's own answer
+    // to that question; failing one, the first placed entity will do.
+    float at[3] = {0, 0, 0};
+    bool found = false;
+    for (const Entity& e : level.entities())
+        if (e.type == "CSpawnPoint") {
+            for (int c = 0; c < 3; ++c) at[c] = e.pos[c];
+            found = true;
+            break;
+        }
+    if (!found && !level.entities().empty())
+        for (int c = 0; c < 3; ++c) at[c] = level.entities().front().pos[c];
+    at[1] += 3.f;
+
+    // SEED IT AT ITS OWN REST POSE, ROTATIONS AND ALL. The constraints were
+    // built from the authored transforms, so handing the solver the authored
+    // translations with identity rotations violates every one of them at t=0
+    // and the ragdoll tears itself apart before gravity gets a say.
+    //
+    // Our Mat4 is row-vector with the basis in its ROWS, so row i is the image
+    // of basis vector i: m[i*4+j] = R(j,i) for the column-vector R that
+    // Rodrigues gives.
+    std::vector<float> pose(n * 16, 0.f);
+    for (size_t i = 0; i < n; ++i) {
+        const HkeBody* b = def.Body(bones[i]);
+        float* m = &pose[i * 16];
+        m[0] = m[5] = m[10] = m[15] = 1.f;
+        if (!b) {
+            for (int c = 0; c < 3; ++c) m[12 + c] = at[c];
+            continue;
+        }
+        float k[3] = {b->rotAxis[0], b->rotAxis[1], b->rotAxis[2]};
+        const float len = std::sqrt(k[0]*k[0] + k[1]*k[1] + k[2]*k[2]);
+        if (len > 1e-6f && std::fabs(b->rotAngle) > 1e-9f) {
+            for (int c = 0; c < 3; ++c) k[c] /= len;
+            const float s = std::sin(b->rotAngle), co = std::cos(b->rotAngle), t = 1.f - co;
+            const float R[3][3] = {
+                {co + k[0]*k[0]*t,        k[0]*k[1]*t - k[2]*s,  k[0]*k[2]*t + k[1]*s},
+                {k[1]*k[0]*t + k[2]*s,    co + k[1]*k[1]*t,      k[1]*k[2]*t - k[0]*s},
+                {k[2]*k[0]*t - k[1]*s,    k[2]*k[1]*t + k[0]*s,  co + k[2]*k[2]*t}};
+            for (int i2 = 0; i2 < 3; ++i2)
+                for (int j = 0; j < 3; ++j) m[i2 * 4 + j] = R[j][i2];
+        }
+        for (int c = 0; c < 3; ++c) m[12 + c] = b->translation[c] * scale + at[c];
+    }
+    physics.SetRagdollPose(slot, pose.data(), /*kinematic=*/false);
+
+    // A BODY THAT HELD TOGETHER KEEPS ITS OWN SIZE, WHATEVER WAY UP IT LANDS.
+    // Per-axis extents cannot say that: a figure that starts standing and ends
+    // lying down has swapped its height for its depth without anything having
+    // gone wrong. So compare the widest distance between any two parts, which
+    // is orientation-free.
+    //
+    // And measure only the parts the constraints actually hold. The weapons
+    // are detached bodies by design - they fall out of the ragdoll and roll
+    // away, which is correct and would otherwise read as the ragdoll flying
+    // apart.
+    std::vector<size_t> held;
+    for (size_t i = 0; i < n; ++i) {
+        bool linked = false;
+        for (const HkeConstraint& c : def.constraints)
+            if (c.bodyA == bones[i] || c.bodyB == bones[i]) { linked = true; break; }
+        if (linked) held.push_back(i);
+    }
+    auto widest = [&](const std::vector<float>& p) {
+        float worst = 0.f;
+        for (size_t a = 0; a < held.size(); ++a)
+            for (size_t b = a + 1; b < held.size(); ++b) {
+                float d2 = 0.f;
+                for (int c = 0; c < 3; ++c) {
+                    const float k = p[held[a] * 16 + 12 + c] - p[held[b] * 16 + 12 + c];
+                    d2 += k * k;
+                }
+                worst = std::max(worst, d2);
+            }
+        return std::sqrt(worst);
+    };
+
+    // How big is it, and how far apart are the parts, at t = 0?
+    auto measure = [&](std::vector<float>& p, float lo[3], float hi[3], float centre[3]) {
+        for (int c = 0; c < 3; ++c) { lo[c] = 1e30f; hi[c] = -1e30f; centre[c] = 0.f; }
+        for (size_t i = 0; i < n; ++i)
+            for (int c = 0; c < 3; ++c) {
+                const float v = p[i * 16 + 12 + c];
+                lo[c] = std::min(lo[c], v);
+                hi[c] = std::max(hi[c], v);
+                centre[c] += v / float(n);
+            }
+    };
+
+    std::vector<float> readback(n * 16, 0.f);
+    physics.GetRagdollPose(slot, readback.data());
+    float lo0[3], hi0[3], c0[3];
+    measure(readback, lo0, hi0, c0);
+
+    const float span0 = widest(readback);
+    LogInfo("%s: %zu parts (%zu held by constraints, %zu detached), dropped at %.1f %.1f %.1f",
+            modelName, n, held.size(), n - held.size(), at[0], at[1], at[2]);
+    LogInfo("  authored: extent %.2f x %.2f x %.2f, widest part gap %.2f",
+            hi0[0] - lo0[0], hi0[1] - lo0[1], hi0[2] - lo0[2], span0);
+
+    for (int second = 1; second <= 5; ++second) {
+        for (int step = 0; step < 60; ++step) physics.Update(1.f / 60.f);
+        physics.GetRagdollPose(slot, readback.data());
+        float lo[3], hi[3], c[3];
+        measure(readback, lo, hi, c);
+        bool finite = true;
+        for (size_t i = 0; i < n * 16 && finite; ++i)
+            if (!(readback[i] == readback[i])) finite = false;   // false for NaN
+        LogInfo("  t=%ds  widest gap %.2f (%.2fx)   centre %.2f %.2f %.2f   %s",
+                second, widest(readback), span0 > 1e-3f ? widest(readback) / span0 : 0.f,
+                c[0], c[1], c[2], finite ? "" : "  *** NaN ***");
+    }
+
+    const float span = widest(readback);
+    float lo[3], hi[3], c[3];
+    measure(readback, lo, hi, c);
+    LogInfo("  held together: %.2f -> %.2f  (%.2fx; 1.0-1.5x is a body, 10x is a firework)",
+            span0, span, span0 > 1e-3f ? span / span0 : 0.f);
+    LogInfo("  settled extent: %.2f x %.2f x %.2f, fell %.2f units",
+            hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2], c0[1] - c[1]);
+    physics.RemoveRagdoll(slot);
+    return 0;
+}
+
 static int PhysicsCmd(const char* levelDir, const char* dataRoot) {
     Level level;
     if (!level.Load(levelDir, dataRoot)) {
@@ -3277,7 +3445,8 @@ int main(int argc, char** argv) {
     {
         static const std::set<std::string> rootAt3 = {
             "run",   "level",  "entities", "fit",       "skytex",     "scale",
-            "zones", "ground", "textures", "particles", "billboards", "physics"};
+            "zones", "ground", "textures", "particles", "billboards", "physics",
+            "ragdolldrop"};
         static const std::set<std::string> rootAt2 = {"levels", "resolve", "texdump", "sound",
                                                       "shaders", "lua", "game", "mklevel"};
         if (rootAt3.count(cmd) && argc >= 4) MountRoot(argv[3]);
@@ -3373,6 +3542,7 @@ int main(int argc, char** argv) {
     if (cmd == "model") return ModelCmd(argv[2]);
     if (cmd == "hitboxes") return HitboxesCmd(argv[2]);
     if (cmd == "ragdoll") return RagdollCmd(argv[2], argc >= 4 ? argv[3] : nullptr);
+    if (cmd == "ragdolldrop" && argc >= 5) return RagdollDropCmd(argv[2], argv[3], argv[4]);
     if (cmd == "pose" && argc >= 4)
         return PoseCmd(argv[2], argv[3], argc >= 5 ? argv[4] : nullptr);
     if (cmd == "particles" && argc >= 4) return ParticlesCmd(argv[2], argv[3]);

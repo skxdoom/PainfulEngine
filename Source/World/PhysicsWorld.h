@@ -1,5 +1,6 @@
 #pragma once
 #include "../Assets/Tweaks.h"
+#include "../Assets/Hke.h"
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -148,6 +149,37 @@ public:
     void RemoveScriptBody(int slot);
     // Where the simulation has put the script bodies (slot in .slot).
     void CollectScriptPoses(std::vector<ScriptBodyPose>& out, bool activeOnly = true) const;
+
+
+    // --- ragdolls (the .hke) ---
+    //
+    // Settings are built once per MODEL and shared; each call instances one.
+    // scale converts the file's units to the world's - the .hke is authored in
+    // the model's own space, ten times the world's, which is the same *0.1 the
+    // renderer applies.
+    //
+    // Returns a slot, or -1 when the definition has no usable bodies.
+    int CreateRagdoll(const std::string& model, const Hke& def, float scale);
+    void RemoveRagdoll(int slot);
+    bool RagdollExists(int slot) const;
+
+    // The BONES the parts correspond to, in part order. The caller fills one
+    // world matrix per entry for SetRagdollPose, which is the only way it can
+    // know the order: the parts are the .hke's bodies, topologically sorted,
+    // not the model's bones.
+    const std::vector<std::string>& RagdollBones(int slot) const;
+
+    // Poses every part from world-space bone matrices - row-major, row-vector,
+    // 16 floats each, the form ScriptEngine already builds for the draw.
+    //
+    // kinematic is the LIVE monster: Ragdoll::Animate in the original, bodies
+    // driven along the animation so a shot has something to hit. Dropping it
+    // is death - Ragdoll::Activate - after which the solver owns the pose and
+    // GetRagdollPose is what the renderer should draw.
+    void SetRagdollPose(int slot, const float* boneMatrices, bool kinematic);
+    bool GetRagdollPose(int slot, float* boneMatrices) const;
+    // Is this ragdoll being simulated rather than driven? MDL.IsRagdollActive.
+    bool RagdollActive(int slot) const;
 
     // Steps the simulation. Jolt wants a fixed step, so this accumulates.
     void Update(float dt);

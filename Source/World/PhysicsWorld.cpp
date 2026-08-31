@@ -22,6 +22,12 @@
 #include <Jolt/Physics/Collision/TransformedShape.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
+#include <Jolt/Math/Math.h>
+#include <Jolt/Physics/Constraints/HingeConstraint.h>
+#include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
+#include <Jolt/Physics/Constraints/DistanceConstraint.h>
+#include <Jolt/Physics/Ragdoll/Ragdoll.h>
+#include <Jolt/Skeleton/Skeleton.h>
 #include <Jolt/RegisterTypes.h>
 
 #include "../Assets/Dat.h"
@@ -36,6 +42,7 @@
 #include <cstdarg>
 #include <filesystem>
 #include <thread>
+#include <unordered_map>
 
 namespace painful {
 
@@ -300,6 +307,20 @@ struct PhysicsWorld::Impl {
         float radius = 0.f;    // world-space mesh radius, for PO_GetMaxSphereRay
     };
     std::vector<ScriptBody> scriptBodies;
+
+    // Ragdoll settings are per MODEL and shared between every instance of it;
+    // the bone order is the part order, which only the builder knows.
+    std::unordered_map<std::string, JPH::Ref<JPH::RagdollSettings>> ragdollSettings;
+    std::unordered_map<std::string, std::vector<std::string>> ragdollBones;
+    struct RagdollInst {
+        JPH::Ref<JPH::Ragdoll> ragdoll;
+        std::vector<std::string> bones;
+        bool simulated = false;     // dynamic (dead) rather than driven (alive)
+    };
+    std::vector<RagdollInst> ragdolls;
+    // Each instance gets its own collision group so two corpses in a heap
+    // collide with each other while neither collides with itself.
+    JPH::CollisionGroup::GroupID nextRagdollGroup = 1;
 
     JPH::BodyID probe;
     float probePos[3] = {0, 0, 0};
@@ -713,6 +734,7 @@ void PhysicsWorld::ActivateProps() {
 
 void PhysicsWorld::CollectPoses(std::vector<BodyPose>& out, bool activeOnly) const {
     out.clear();
+
     const JPH::BodyInterface& bodies = impl_->system.GetBodyInterfaceNoLock();
     for (const Impl::Prop& prop : impl_->props) {
         if (activeOnly && !bodies.IsActive(prop.body)) continue;
@@ -1022,6 +1044,7 @@ void PhysicsWorld::RemoveScriptBody(int slot) {
 void PhysicsWorld::CollectScriptPoses(std::vector<ScriptBodyPose>& out,
                                       bool activeOnly) const {
     out.clear();
+
     const JPH::BodyInterface& bodies = impl_->system.GetBodyInterfaceNoLock();
     for (size_t slot = 0; slot < impl_->scriptBodies.size(); ++slot) {
         const JPH::BodyID id = impl_->scriptBodies[slot].body;
@@ -1039,6 +1062,369 @@ void PhysicsWorld::CollectScriptPoses(std::vector<ScriptBodyPose>& out,
         out.push_back(pose);
     }
 }
+
+// ---------------------------------------------------------------- ragdolls
+//
+// Built from the .hke, which is the engine's own ragdoll: a convex hull, a
+// mass and a material per limb, and hkRagdollConstraint / hkHingeConstraint
+// between them. Havok's two constraint types are Jolt's SwingTwist and Hinge
+// almost one for one.
+//
+// EVERY CONSTRAINT IS BUILT IN WORLD SPACE, from the rest pose the file was
+// authored in. The file states its frames either way - body-local matrices for
+// most models, a world pivot and axes for others like raven - and Jolt's
+// LocalToBodyCOM is relative to the CENTRE OF MASS rather than the body origin
+// the file measures from, so converting local frames to Jolt's local space
+// would need the COM the shape has not been built with yet. Placing the bodies
+// at their authored transforms first and stating everything in world space
+// sidesteps both problems, and Jolt converts once at creation.
+
+namespace {
+
+// Angle-axis to a quaternion. The file's ROTATION is `angle x y z`, and a
+// primitive's identity is `0 0 0 0` - no rotation about no axis - which is why
+// a zero axis has to come back as identity rather than as a NaN.
+JPH::Quat AngleAxis(float angle, const float axis[3]) {
+    const JPH::Vec3 v(axis[0], axis[1], axis[2]);
+    const float len = v.Length();
+    if (len < 1e-6f || std::fabs(angle) < 1e-9f) return JPH::Quat::sIdentity();
+    return JPH::Quat::sRotation(v / len, angle);
+}
+
+// The authored world transform of one .hke body, in WORLD units.
+JPH::Mat44 BodyRest(const HkeBody& b, float scale) {
+    return JPH::Mat44::sRotationTranslation(
+        AngleAxis(b.rotAngle, b.rotAxis),
+        JPH::Vec3(b.translation[0], b.translation[1], b.translation[2]) * scale);
+}
+
+JPH::Vec3 V3(const float v[3]) { return JPH::Vec3(v[0], v[1], v[2]); }
+
+// One hull, with the primitive's own offset baked in so the shape is
+// body-local and Jolt never has to nest a RotatedTranslatedShape for it.
+JPH::ShapeSettings::ShapeResult BuildLimbHull(const Hke& def, const HkeBody& b, float scale) {
+    const HkeGeometry* g = def.Find(b.geometry);
+    JPH::Array<JPH::Vec3> points;
+    if (g) {
+        const JPH::Mat44 prim = JPH::Mat44::sRotationTranslation(
+            AngleAxis(b.primRotAngle, b.primRotAxis),
+            JPH::Vec3(b.primTranslation[0], b.primTranslation[1], b.primTranslation[2]));
+        points.reserve(g->vertexCount());
+        for (size_t v = 0; v < g->vertexCount(); ++v)
+            points.push_back(prim * JPH::Vec3(g->verts[v * 3 + 0], g->verts[v * 3 + 1],
+                                              g->verts[v * 3 + 2]) * scale);
+    }
+    if (points.size() < 4) return JPH::ShapeSettings::ShapeResult();   // an error result
+    JPH::ConvexHullShapeSettings hull(points, JPH::cDefaultConvexRadius * 0.25f);
+    return hull.Create();
+}
+
+// The .hke's limits onto Jolt's.
+//
+// JOLT'S SWING IS SYMMETRIC AND HAVOK'S IS NOT. hkRagdollConstraint carries a
+// signed min and max for both the cone and the plane; SwingTwistConstraint has
+// one half-angle for each. Taking the larger magnitude keeps the joint from
+// binding where the original allowed movement, at the cost of allowing a
+// little more the other way. Twist is asymmetric in both and carries over
+// exactly.
+JPH::Ref<JPH::TwoBodyConstraintSettings> BuildConstraint(const HkeConstraint& c,
+                                                         const JPH::Mat44& restA,
+                                                         const JPH::Mat44& restB,
+                                                         float scale) {
+    if (c.kind == HkeConstraint::kHinge) {
+        JPH::HingeConstraintSettings* h = new JPH::HingeConstraintSettings();
+        h->mSpace = JPH::EConstraintSpace::WorldSpace;
+        if (c.worldSpace) {
+            const JPH::Vec3 pos = V3(c.worldHingePos) * scale;
+            JPH::Vec3 dir = V3(c.worldHingeDir);
+            if (dir.LengthSq() < 1e-12f) dir = JPH::Vec3::sAxisY();
+            dir = dir.Normalized();
+            h->mPoint1 = h->mPoint2 = pos;
+            h->mHingeAxis1 = h->mHingeAxis2 = dir;
+            h->mNormalAxis1 = h->mNormalAxis2 = dir.GetNormalizedPerpendicular();
+        } else {
+            h->mPoint1 = restA * V3(c.hingePosA) * scale;
+            h->mPoint2 = restB * V3(c.hingePosB) * scale;
+            h->mHingeAxis1 = (restA.Multiply3x3(V3(c.hingeDirA))).NormalizedOr(JPH::Vec3::sAxisY());
+            h->mHingeAxis2 = (restB.Multiply3x3(V3(c.hingeDirB))).NormalizedOr(JPH::Vec3::sAxisY());
+            h->mNormalAxis1 =
+                (restA.Multiply3x3(V3(c.hingePerpA))).NormalizedOr(h->mHingeAxis1.GetNormalizedPerpendicular());
+            h->mNormalAxis2 =
+                (restB.Multiply3x3(V3(c.hingePerpB))).NormalizedOr(h->mHingeAxis2.GetNormalizedPerpendicular());
+        }
+        if (c.limited) {
+            // Jolt wants min in [-pi,0] and max in [0,pi]; every shipped value
+            // is already inside that, but a clamp costs nothing and an
+            // out-of-range limit is an assert in a debug build.
+            h->mLimitsMin = std::max(-JPH::JPH_PI, std::min(0.f, c.limitMinAngle));
+            h->mLimitsMax = std::min(JPH::JPH_PI, std::max(0.f, c.limitMaxAngle));
+        }
+        return h;
+    }
+
+    if (c.kind == HkeConstraint::kStiffSpring) {
+        JPH::DistanceConstraintSettings* d = new JPH::DistanceConstraintSettings();
+        d->mSpace = JPH::EConstraintSpace::WorldSpace;
+        d->mPoint1 = restA * V3(c.localPointA) * scale;
+        d->mPoint2 = restB * V3(c.localPointB) * scale;
+        return d;
+    }
+
+    JPH::SwingTwistConstraintSettings* s = new JPH::SwingTwistConstraintSettings();
+    s->mSpace = JPH::EConstraintSpace::WorldSpace;
+    JPH::Vec3 pivot, twist, plane;
+    if (c.worldSpace) {
+        pivot = V3(c.worldPivot) * scale;
+        twist = V3(c.twistAxis);
+        plane = V3(c.planeAxis);
+    } else {
+        // CS_TO_REF_TM is the constraint frame in the REFERENCE body: COL0..2
+        // the basis, COL3 the origin. Twist runs along the first column and
+        // the plane axis along the second, which is hkRagdollConstraint's own
+        // ordering and what the world form states explicitly.
+        pivot = restA * (V3(c.csToRef[3]) * scale);
+        twist = restA.Multiply3x3(V3(c.csToRef[0]));
+        plane = restA.Multiply3x3(V3(c.csToRef[1]));
+    }
+    twist = twist.NormalizedOr(JPH::Vec3::sAxisX());
+    plane = plane.NormalizedOr(twist.GetNormalizedPerpendicular());
+    // Jolt asserts the two are perpendicular; re-orthogonalise rather than
+    // trust an exported basis to be exact.
+    plane = (plane - twist * twist.Dot(plane)).NormalizedOr(twist.GetNormalizedPerpendicular());
+
+    s->mPosition1 = s->mPosition2 = pivot;
+    s->mTwistAxis1 = s->mTwistAxis2 = twist;
+    s->mPlaneAxis1 = s->mPlaneAxis2 = plane;
+    s->mNormalHalfConeAngle = std::max(std::fabs(c.coneMin), std::fabs(c.coneMax));
+    s->mPlaneHalfConeAngle = std::max(std::fabs(c.planeMin), std::fabs(c.planeMax));
+    s->mTwistMinAngle = std::max(-JPH::JPH_PI, std::min(JPH::JPH_PI, c.twistMin));
+    s->mTwistMaxAngle = std::max(-JPH::JPH_PI, std::min(JPH::JPH_PI, c.twistMax));
+    if (s->mTwistMinAngle > s->mTwistMaxAngle) std::swap(s->mTwistMinAngle, s->mTwistMaxAngle);
+    return s;
+}
+
+} // namespace
+
+int PhysicsWorld::CreateRagdoll(const std::string& model, const Hke& def, float scale) {
+    if (def.bodies.empty()) return -1;
+
+    JPH::Ref<JPH::RagdollSettings>& cached = impl_->ragdollSettings[model];
+    std::vector<std::string>& order = impl_->ragdollBones[model];
+    if (cached == nullptr) {
+        // The parts have to be a TREE in parent-before-child order, and the
+        // .hke is a graph: mostly a tree, but with the weapons hanging off
+        // nothing at all. Walk it from the root, keep the constraints used as
+        // tree edges, and hand Jolt the rest as additional constraints.
+        std::vector<int> parent(def.bodies.size(), -1);
+        std::vector<int> edge(def.bodies.size(), -1);       // constraint used
+        std::vector<int> visitOrder;
+        std::vector<bool> seen(def.bodies.size(), false);
+
+        int root = 0;
+        for (size_t i = 0; i < def.bodies.size(); ++i)
+            if (def.bodies[i].bone == "root" || def.bodies[i].bone == "ROOOT") {
+                root = int(i);
+                break;
+            }
+
+        std::vector<int> open{root};
+        seen[size_t(root)] = true;
+        while (!open.empty()) {
+            const int at = open.front();
+            open.erase(open.begin());
+            visitOrder.push_back(at);
+            for (size_t ci = 0; ci < def.constraints.size(); ++ci) {
+                const HkeConstraint& c = def.constraints[ci];
+                const std::string& me = def.bodies[size_t(at)].bone;
+                std::string otherName;
+                if      (c.bodyA == me) otherName = c.bodyB;
+                else if (c.bodyB == me) otherName = c.bodyA;
+                else continue;
+                for (size_t bi = 0; bi < def.bodies.size(); ++bi) {
+                    if (def.bodies[bi].bone != otherName || seen[bi]) continue;
+                    seen[bi] = true;
+                    parent[bi] = at;
+                    edge[bi] = int(ci);
+                    open.push_back(int(bi));
+                    break;
+                }
+            }
+        }
+        // The weapons: bodies the walk never reached, appended as free parts.
+        for (size_t i = 0; i < def.bodies.size(); ++i)
+            if (!seen[i]) visitOrder.push_back(int(i));
+
+        std::vector<int> partOf(def.bodies.size(), -1);
+        for (size_t p = 0; p < visitOrder.size(); ++p) partOf[size_t(visitOrder[p])] = int(p);
+
+        JPH::Ref<JPH::RagdollSettings> settings = new JPH::RagdollSettings();
+        settings->mSkeleton = new JPH::Skeleton();
+        settings->mParts.resize(visitOrder.size());
+        order.clear();
+
+        for (size_t p = 0; p < visitOrder.size(); ++p) {
+            const HkeBody& b = def.bodies[size_t(visitOrder[p])];
+            const int par = parent[size_t(visitOrder[p])];
+            settings->mSkeleton->AddJoint(b.bone, par >= 0 ? partOf[size_t(par)] : -1);
+            order.push_back(b.bone);
+
+            JPH::ShapeSettings::ShapeResult hull = BuildLimbHull(def, b, scale);
+            JPH::RagdollSettings::Part& part = settings->mParts[p];
+            if (hull.IsValid()) part.SetShape(hull.Get());
+            else                part.SetShape(new JPH::SphereShape(0.1f));
+            const JPH::Mat44 rest = BodyRest(b, scale);
+            part.mPosition = rest.GetTranslation();
+            part.mRotation = rest.GetQuaternion().Normalized();
+            part.mMotionType = JPH::EMotionType::Dynamic;
+            // SWEPT, NOT STEPPED. Limb hulls are small - a raven's whole
+            // ragdoll spans about a unit - and a corpse dropped from any
+            // height reaches a speed where a stepped body jumps clean through
+            // the floor between two steps. Measured: the raven fell 209 units
+            // out of Cathedral before this, 4.4 after.
+            part.mMotionQuality = JPH::EMotionQuality::LinearCast;
+            part.mObjectLayer = Layers::kMoving;
+            part.mFriction = b.staticFriction;
+            part.mRestitution = b.elasticity;
+            part.mLinearDamping = def.linearDrag;
+            part.mAngularDamping = def.angularDrag;
+            // The .hke mass is the authority; the .rde says -1 everywhere,
+            // which is what "take it from here" looks like.
+            if (b.mass > 0.f) {
+                part.mOverrideMassProperties =
+                    JPH::EOverrideMassProperties::CalculateInertia;
+                part.mMassPropertiesOverride.mMass = b.mass;
+            }
+            if (par >= 0 && edge[size_t(visitOrder[p])] >= 0) {
+                const HkeConstraint& c = def.constraints[size_t(edge[size_t(visitOrder[p])])];
+                // body1 is the PARENT in Jolt's mToParent, whichever way round
+                // the file named the pair.
+                const bool aIsParent = (c.bodyA == def.bodies[size_t(par)].bone);
+                const JPH::Mat44 restPar = BodyRest(def.bodies[size_t(par)], scale);
+                part.mToParent = BuildConstraint(c, aIsParent ? restPar : rest,
+                                                 aIsParent ? rest : restPar, scale);
+            }
+        }
+
+        // Whatever the tree walk did not consume - a second constraint between
+        // two limbs already joined, which a few rigs have.
+        for (size_t ci = 0; ci < def.constraints.size(); ++ci) {
+            bool used = false;
+            for (size_t i = 0; i < def.bodies.size() && !used; ++i)
+                if (edge[i] == int(ci)) used = true;
+            if (used) continue;
+            const HkeConstraint& c = def.constraints[ci];
+            int ia = -1, ib = -1;
+            for (size_t i = 0; i < def.bodies.size(); ++i) {
+                if (def.bodies[i].bone == c.bodyA) ia = partOf[i];
+                if (def.bodies[i].bone == c.bodyB) ib = partOf[i];
+            }
+            if (ia < 0 || ib < 0 || ia == ib) continue;
+            const JPH::Mat44 ra = BodyRest(def.bodies[size_t(visitOrder[size_t(ia)])], scale);
+            const JPH::Mat44 rb = BodyRest(def.bodies[size_t(visitOrder[size_t(ib)])], scale);
+            settings->mAdditionalConstraints.push_back(
+                JPH::RagdollSettings::AdditionalConstraint(ia, ib,
+                                                           BuildConstraint(c, ra, rb, scale)));
+        }
+
+        settings->Stabilize();
+        settings->DisableParentChildCollisions();
+        settings->CalculateBodyIndexToConstraintIndex();
+        cached = settings;
+        LogInfo("ragdoll %s: %zu parts, %zu tree constraints, %zu additional",
+                model.c_str(), settings->mParts.size(),
+                settings->mParts.size() - 1, settings->mAdditionalConstraints.size());
+    }
+
+    // Each instance needs its own collision group so two corpses in a heap
+    // still collide with each other while neither collides with itself.
+    Impl::RagdollInst inst;
+    inst.ragdoll = cached->CreateRagdoll(impl_->nextRagdollGroup++, 0, &impl_->system);
+    if (inst.ragdoll == nullptr) return -1;
+    inst.bones = order;
+    inst.ragdoll->AddToPhysicsSystem(JPH::EActivation::Activate);
+
+    for (size_t i = 0; i < impl_->ragdolls.size(); ++i)
+        if (impl_->ragdolls[i].ragdoll == nullptr) {
+            impl_->ragdolls[i] = inst;
+            return int(i);
+        }
+    impl_->ragdolls.push_back(inst);
+    return int(impl_->ragdolls.size() - 1);
+}
+
+bool PhysicsWorld::RagdollExists(int slot) const {
+    return slot >= 0 && size_t(slot) < impl_->ragdolls.size() &&
+           impl_->ragdolls[size_t(slot)].ragdoll != nullptr;
+}
+
+void PhysicsWorld::RemoveRagdoll(int slot) {
+    if (!RagdollExists(slot)) return;
+    Impl::RagdollInst& inst = impl_->ragdolls[size_t(slot)];
+    inst.ragdoll->RemoveFromPhysicsSystem();
+    inst.ragdoll = nullptr;
+    inst.bones.clear();
+}
+
+const std::vector<std::string>& PhysicsWorld::RagdollBones(int slot) const {
+    static const std::vector<std::string> kNone;
+    return RagdollExists(slot) ? impl_->ragdolls[size_t(slot)].bones : kNone;
+}
+
+bool PhysicsWorld::RagdollActive(int slot) const {
+    return RagdollExists(slot) && impl_->ragdolls[size_t(slot)].simulated;
+}
+
+void PhysicsWorld::SetRagdollPose(int slot, const float* boneMatrices, bool kinematic) {
+    if (!RagdollExists(slot) || boneMatrices == nullptr) return;
+    Impl::RagdollInst& inst = impl_->ragdolls[size_t(slot)];
+    const size_t n = inst.bones.size();
+
+    // Our Mat4 is row-major with the basis in its ROWS (row-vector, v*M);
+    // Jolt's Mat44 is column-major with the basis in its COLUMNS. Row i of one
+    // is column i of the other, so this is a copy rather than a transpose.
+    std::vector<JPH::Mat44> mats(n);
+    for (size_t i = 0; i < n; ++i) {
+        const float* m = boneMatrices + i * 16;
+        mats[i] = JPH::Mat44(JPH::Vec4(m[0], m[1], m[2], 0.f),
+                             JPH::Vec4(m[4], m[5], m[6], 0.f),
+                             JPH::Vec4(m[8], m[9], m[10], 0.f),
+                             JPH::Vec4(m[12], m[13], m[14], 1.f));
+    }
+
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    const JPH::EMotionType want =
+        kinematic ? JPH::EMotionType::Kinematic : JPH::EMotionType::Dynamic;
+    for (JPH::BodyID id : inst.ragdoll->GetBodyIDs())
+        if (bodies.GetMotionType(id) != want)
+            bodies.SetMotionType(id, want, JPH::EActivation::Activate);
+
+    inst.ragdoll->SetPose(JPH::RVec3::sZero(), mats.data());
+    inst.simulated = !kinematic;
+    if (!kinematic) inst.ragdoll->Activate();
+}
+
+bool PhysicsWorld::GetRagdollPose(int slot, float* boneMatrices) const {
+    if (!RagdollExists(slot) || boneMatrices == nullptr) return false;
+    const Impl::RagdollInst& inst = impl_->ragdolls[size_t(slot)];
+    const size_t n = inst.bones.size();
+    std::vector<JPH::Mat44> mats(n);
+    JPH::RVec3 rootOffset = JPH::RVec3::sZero();
+    inst.ragdoll->GetPose(rootOffset, mats.data());
+    for (size_t i = 0; i < n; ++i) {
+        float* m = boneMatrices + i * 16;
+        for (int c = 0; c < 3; ++c) {
+            const JPH::Vec3 col = mats[i].GetColumn3(c);
+            m[c * 4 + 0] = col.GetX();
+            m[c * 4 + 1] = col.GetY();
+            m[c * 4 + 2] = col.GetZ();
+            m[c * 4 + 3] = 0.f;
+        }
+        const JPH::Vec3 t = JPH::Vec3(mats[i].GetTranslation()) + JPH::Vec3(rootOffset);
+        m[12] = t.GetX(); m[13] = t.GetY(); m[14] = t.GetZ(); m[15] = 1.f;
+    }
+    return true;
+}
+
 
 void PhysicsWorld::CollectDebugLines(const float around[3], float radius,
                                      std::vector<DebugLine>& out,
@@ -1089,6 +1475,15 @@ void PhysicsWorld::CollectDebugLines(const float around[3], float radius,
     // The static world in dim blue, so the props read against it. Colours are
     // 0xAABBGGRR, the packing bgfx expects for a Uint8 colour attribute.
     if (includeStatic) wireframe(impl_->worldBody, near, 0x60ff8040u);
+
+    // Ragdoll limbs: magenta while driven by the animation, cyan once the
+    // solver owns them. Which of the two a corpse is in is the first thing to
+    // look at when a death goes wrong.
+    for (const Impl::RagdollInst& inst : impl_->ragdolls) {
+        if (inst.ragdoll == nullptr) continue;
+        for (JPH::BodyID id : inst.ragdoll->GetBodyIDs())
+            wireframe(id, JPH::AABox::sBiggest(), inst.simulated ? 0xffffff00u : 0xffff00ffu);
+    }
 
     const JPH::BodyInterface& bodies = impl_->system.GetBodyInterfaceNoLock();
     for (const Impl::Prop& prop : impl_->props) {
