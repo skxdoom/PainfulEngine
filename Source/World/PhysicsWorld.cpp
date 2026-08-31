@@ -955,7 +955,8 @@ void PhysicsWorld::CollectScriptPoses(std::vector<ScriptBodyPose>& out,
 }
 
 void PhysicsWorld::CollectDebugLines(const float around[3], float radius,
-                                     std::vector<DebugLine>& out) const {
+                                     std::vector<DebugLine>& out,
+                                     bool includeStatic) const {
     out.clear();
     if (!loaded()) return;
 
@@ -1001,7 +1002,7 @@ void PhysicsWorld::CollectDebugLines(const float around[3], float radius,
 
     // The static world in dim blue, so the props read against it. Colours are
     // 0xAABBGGRR, the packing bgfx expects for a Uint8 colour attribute.
-    wireframe(impl_->worldBody, near, 0x60ff8040u);
+    if (includeStatic) wireframe(impl_->worldBody, near, 0x60ff8040u);
 
     const JPH::BodyInterface& bodies = impl_->system.GetBodyInterfaceNoLock();
     for (const Impl::Prop& prop : impl_->props) {
@@ -1009,6 +1010,18 @@ void PhysicsWorld::CollectDebugLines(const float around[3], float radius,
         // simulating at all is the first thing to look at.
         const uint32_t abgr = bodies.IsActive(prop.body) ? 0xff00ff00u : 0xff00ffffu;
         wireframe(prop.body, JPH::AABox::sBiggest(), abgr);
+    }
+
+    // Script bodies in magenta, and in red when they are not colliding with
+    // anything. These are what the scripts make - items, debris, projectiles,
+    // a stake that has nailed itself to a wall - and they are where the bugs
+    // live, so they get a colour of their own rather than being invisible.
+    for (const Impl::ScriptBody& script : impl_->scriptBodies) {
+        if (script.body.IsInvalid()) continue;
+        const uint32_t abgr =
+            bodies.GetObjectLayer(script.body) == Layers::kNoCollide ? 0xff0000ffu
+                                                                     : 0xffff00ffu;
+        wireframe(script.body, JPH::AABox::sBiggest(), abgr);
     }
 }
 

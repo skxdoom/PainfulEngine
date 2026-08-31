@@ -151,6 +151,9 @@ bool Window::PumpEvents() {
             if (e.key.key == SDLK_RIGHTBRACKET) levelStep_ = 1;
             if (e.key.key == SDLK_N && !e.key.repeat) noclipToggle_ = true;
             if (e.key.key == SDLK_P && !e.key.repeat) physicsDebugToggle_ = true;
+            if (e.key.key == SDLK_F1 && !e.key.repeat) debugToggles_[0] = true;
+            if (e.key.key == SDLK_F2 && !e.key.repeat) debugToggles_[1] = true;
+            if (e.key.key == SDLK_F3 && !e.key.repeat) debugToggles_[2] = true;
             if (e.key.key == SDLK_ESCAPE && !e.key.repeat) {
                 escapePressed_ = true;
                 // In the script-driven game Escape belongs to the MENU, so the
@@ -250,6 +253,13 @@ bool Window::TakeNoclipToggle() {
 bool Window::TakePhysicsDebugToggle() {
     const bool pressed = physicsDebugToggle_;
     physicsDebugToggle_ = false;
+    return pressed;
+}
+
+bool Window::TakeDebugToggle(int index) {
+    if (index < 0 || index >= 3) return false;
+    const bool pressed = debugToggles_[index];
+    debugToggles_[index] = false;
     return pressed;
 }
 

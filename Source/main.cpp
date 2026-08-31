@@ -22,6 +22,7 @@
 #include "Render/TextureCache.h"
 #include <bimg/decode.h>
 #include <bx/allocator.h>
+#include <bx/math.h>
 namespace painful { extern bx::DefaultAllocator g_allocator; }
 #include <algorithm>
 #include "Render/EntityRenderer.h"
@@ -687,6 +688,39 @@ static int LuaCmd(const char* dataRoot, int frames, const char* level,
     return ok && host.scriptErrors() == 0 ? 0 : 3;
 }
 
+// The camera's view-projection, built exactly as WorldRenderer builds it -
+// right-handed, because PainEngine's data is a Maya export and bx defaults to
+// left-handed. The debug overlays have to agree with what was drawn or the
+// nameplates sit next to the things they name.
+static void BuildViewProj(const Camera& camera, int width, int height, float out[16]) {
+    float forward[3];
+    camera.Forward(forward);
+    const bx::Vec3 eye = {camera.pos[0], camera.pos[1], camera.pos[2]};
+    const bx::Vec3 at = {camera.pos[0] + forward[0], camera.pos[1] + forward[1],
+                         camera.pos[2] + forward[2]};
+    float viewMtx[16], projMtx[16];
+    bx::mtxLookAt(viewMtx, eye, at, {0.f, 1.f, 0.f}, bx::Handedness::Right);
+    bx::mtxProj(projMtx, camera.fovDegrees, float(width) / float(height),
+                camera.nearPlane, camera.farPlane, bgfx::getCaps()->homogeneousDepth,
+                bx::Handedness::Right);
+    bx::mtxMul(out, viewMtx, projMtx);
+}
+
+// World point -> screen pixels. False when the point is behind the eye, where
+// the perspective divide would mirror it back into view and hang a label on
+// the wrong side of the screen.
+static bool ProjectToScreen(const float world[3], const float viewProj[16],
+                            int width, int height, float out[2]) {
+    float clip[4];
+    for (int c = 0; c < 4; ++c)
+        clip[c] = world[0] * viewProj[c] + world[1] * viewProj[4 + c] +
+                  world[2] * viewProj[8 + c] + viewProj[12 + c];
+    if (clip[3] <= 1e-4f) return false;
+    out[0] = (clip[0] / clip[3] * 0.5f + 0.5f) * float(width);
+    out[1] = (1.f - (clip[1] / clip[3] * 0.5f + 0.5f)) * float(height);
+    return true;
+}
+
 // Script-driven windowed run: the game's own Lua loads the level and creates
 // every entity through the native API; the C++ side supplies the window, the
 // renderer and a free camera. The counterpart to `run`, which drives the
@@ -744,8 +778,13 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     if (billboardsReady) engine.AttachBillboards(&billboards);
 
     // Sound. A machine with no output device still plays the game, silently.
+    //
+    // A hidden run stays silent too. PAINFUL_HIDDEN means nobody is watching,
+    // and an automated capture that nonetheless fills the room with gunfire is
+    // just noise - several a minute, from a window that is not even on screen.
     AudioEngine audio;
-    if (audio.Init(root + "/Sounds")) engine.AttachAudio(&audio);
+    const bool wantAudio = std::getenv("PAINFUL_HIDDEN") == nullptr;
+    if (wantAudio && audio.Init(root + "/Sounds")) engine.AttachAudio(&audio);
 
     // The 2D layer. The scripts draw the whole interface through it during
     // Game_Render, so it has to be attached before the level loads - the
@@ -753,6 +792,35 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     HudRenderer hud;
     const bool hudReady = hud.Init(shaderDir, root + "/Fonts");
     if (hudReady) engine.AttachHud(&hud, &textures);
+
+    // The debug overlays: F1 collision wireframe, F2 the same without the
+    // level, F3 nameplates. Off unless asked for, and each independent - the
+    // wireframe and the labels answer different questions.
+    DebugLines debugLines;
+    const bool debugLinesReady = debugLines.Init(shaderDir);
+    std::vector<DebugLine> debugWireframe;
+    // Two different questions, so two independent overlays rather than one
+    // mode with three positions:
+    //
+    //   F1  the GEOMETRY - every triangle the renderer draws, world and
+    //       entities, in wireframe. What is actually on screen.
+    //   F2  the dynamic COLLISION - what physics thinks is there, level left
+    //       out. What the world can actually be hit by.
+    //
+    // Having them on together is the useful state: where the two disagree is
+    // where the bug is.
+    //
+    // PAINFUL_WIRE=1|2 and PAINFUL_NAMEPLATES=1 start one already on, which is
+    // how an automated capture can see it - a keypress is not available there.
+    bool geoWire = false;
+    bool collisionWire = false;
+    if (const char* w = std::getenv("PAINFUL_WIRE")) {
+        const int mode = std::atoi(w);
+        geoWire = mode == 1;
+        collisionWire = mode == 2;
+    }
+    bool nameplates = std::getenv("PAINFUL_NAMEPLATES") != nullptr;
+    constexpr float kNameplateRadius = 20.f;
     engine.SetScreenSize(window.width(), window.height());
     engine.SetResolutions(window.DisplayModes());
     engine.AttachPlayer(&pawn);
@@ -919,6 +987,14 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
         if (engine.menu().active()) dx = dy = 0.f;
         input.AddMouseDelta(dx, dy);
         if (window.TakeNoclipToggle()) noclip = !noclip;
+        // F1 cycles the full wireframe on and off; F2 does the same for the
+        // dynamic-only view. Pressing either while the other is up switches
+        // straight to it, so the two are one mode rather than two flags that
+        // can disagree.
+        if (window.TakeDebugToggle(0)) geoWire = !geoWire;
+        if (window.TakeDebugToggle(1)) collisionWire = !collisionWire;
+        if (window.TakeDebugToggle(2)) nameplates = !nameplates;
+        renderer.SetWireframe(geoWire);
         // Who steers the view. While the player is walking it is the SCRIPTS:
         // Game:Tick2 calls UpdateViewFromPlayer, which reads MOUSE.GetDelta,
         // accumulates onto CAM.GetRawRotation and writes back through
@@ -1101,6 +1177,113 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
             billboards.Draw(Renderer::kWorldView, camera);
         }
 
+        // The collision wireframe, drawn over the finished world so it reads
+        // against what the renderer actually put on screen - the whole point
+        // is to see where the two DISAGREE.
+        if (collisionWire && debugLinesReady) {
+            // Dynamic only. The static level is a few hundred thousand
+            // triangles of blue that buries whatever you are looking at, and
+            // F1 already draws the world - as the geometry it really is.
+            physics.CollectDebugLines(camera.pos, kPhysicsDebugRadius, debugWireframe,
+                                      false);
+
+            // A green box on every script entity that has NO physics body.
+            //
+            // Without this the overlay silently omits most of the level: of
+            // Cathedral's 38 actors only 6 carry a body, and of its 68 items
+            // only 3. Those are drawn by the renderer and can be shot at, but
+            // the physics world has never heard of them - so the honest
+            // wireframe of them is a marker at the entity, not a shape, and
+            // seeing a sea of green IS the finding.
+            for (const auto& kv : engine.entities()) {
+                const auto& e = kv.second;
+                if (e.physicsBody >= 0) continue;      // already drawn, in its own colour
+                if (e.type != ScriptEngine::kMesh && e.type != ScriptEngine::kModel) continue;
+                float d[3];
+                for (int c = 0; c < 3; ++c) d[c] = e.pos[c] - camera.pos[c];
+                if (d[0]*d[0] + d[1]*d[1] + d[2]*d[2] >
+                    kPhysicsDebugRadius * kPhysicsDebugRadius) continue;
+
+                constexpr float kHalf = 0.35f;
+                const float lo[3] = {e.pos[0] - kHalf, e.pos[1] - kHalf, e.pos[2] - kHalf};
+                const float hi[3] = {e.pos[0] + kHalf, e.pos[1] + kHalf, e.pos[2] + kHalf};
+                // The twelve edges of the box, as pairs of corner indices.
+                static const int kEdges[12][2] = {{0,1},{1,3},{3,2},{2,0}, {4,5},{5,7},
+                                                  {7,6},{6,4}, {0,4},{1,5},{2,6},{3,7}};
+                float corner[8][3];
+                for (int i = 0; i < 8; ++i) {
+                    corner[i][0] = (i & 1) ? hi[0] : lo[0];
+                    corner[i][1] = (i & 2) ? hi[1] : lo[1];
+                    corner[i][2] = (i & 4) ? hi[2] : lo[2];
+                }
+                for (const auto& edge : kEdges) {
+                    DebugLine line;
+                    for (int c = 0; c < 3; ++c) {
+                        line.a[c] = corner[edge[0]][c];
+                        line.b[c] = corner[edge[1]][c];
+                    }
+                    line.abgr = 0xff00ff00u;
+                    debugWireframe.push_back(line);
+                }
+            }
+            debugLines.Draw(Renderer::kWorldView, debugWireframe);
+        }
+
+        // Nameplates. Anything within 20m gets its handle and what it is, which
+        // is the pair you need to go from "that one is wrong" to a probe: the
+        // handle is what every native takes, and the name is what the script
+        // asked for. Sorted so the labels stack far-to-near and the closest
+        // thing ends up on top.
+        if (nameplates && hudReady) {
+            float viewProj[16];
+            BuildViewProj(camera, window.width(), window.height(), viewProj);
+
+            struct Plate { float depth; float x, y; std::string text; };
+            std::vector<Plate> plates;
+            for (const auto& kv : engine.entities()) {
+                const auto& e = kv.second;
+                float d[3];
+                for (int c = 0; c < 3; ++c) d[c] = e.pos[c] - camera.pos[c];
+                const float distSq = d[0]*d[0] + d[1]*d[1] + d[2]*d[2];
+                if (distSq > kNameplateRadius * kNameplateRadius) continue;
+
+                float screen[2];
+                if (!ProjectToScreen(e.pos, viewProj, window.width(), window.height(), screen))
+                    continue;
+
+                // Whichever of the three the entity actually carries: a model
+                // has a name, a mesh has its object, and the source is the
+                // fallback that is always there.
+                std::string what = !e.name.empty() ? e.name
+                                 : !e.mesh.empty() ? e.mesh
+                                                   : e.source;
+                const size_t slash = what.find_last_of("/\\");
+                if (slash != std::string::npos) what = what.substr(slash + 1);
+
+                char label[192];
+                snprintf(label, sizeof label, "#%d %s  %.1fm", kv.first, what.c_str(),
+                         std::sqrt(distSq));
+                plates.push_back({distSq, screen[0], screen[1], label});
+            }
+            std::sort(plates.begin(), plates.end(),
+                      [](const Plate& a, const Plate& b) { return a.depth > b.depth; });
+            for (const Plate& p : plates) {
+                const float w = hud.TextWidth("arial", 14, p.text);
+                const float x = p.x - w * 0.5f;
+                // Drawn four times in black, one pixel out in each direction,
+                // before the label itself. A nameplate lands on whatever the
+                // world happens to be behind it - pale stone, a lit doorway -
+                // and plain coloured text on that is unreadable exactly when
+                // it matters. An outline costs four more quads and works over
+                // anything.
+                for (int oy = -1; oy <= 1; oy += 2)
+                    for (int ox = -1; ox <= 1; ox += 2)
+                        hud.Text("arial", 14, x + float(ox), p.y + float(oy), p.text,
+                                 0xff000000u);
+                hud.Text("arial", 14, x, p.y, p.text, 0xff40ffffu);
+            }
+        }
+
         if (hudReady) hud.End();
 
         renderer.DebugText(1, "PainfulEngine (script-driven)  -  %s  -  %.1f fps",
@@ -1132,6 +1315,14 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
                            window.mouseCaptured() ? "mouse captured" : "menu",
                            walking ? "WASD walk, space jump, mouse look, N to fly"
                                    : "WASD move, shift fast, space/ctrl up-down, N to walk");
+        renderer.DebugText(8, "F1 geometry: %s   F2 collision: %s   F3 nameplates: %s%s",
+                           geoWire ? "wireframe" : "off",
+                           collisionWire ? "dynamic" : "off",
+                           nameplates ? "on (20m)" : "off",
+                           collisionWire
+                               ? "   |   green awake, yellow asleep, magenta script, "
+                                 "red non-colliding, GREEN BOX = no physics body"
+                               : "");
         renderer.EndFrame();
 
         if (!shotPath.empty()) {

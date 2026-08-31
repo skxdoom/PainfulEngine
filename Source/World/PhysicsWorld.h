@@ -225,8 +225,15 @@ public:
     // would otherwise be a few hundred thousand triangles. This is the only
     // way to see what the physics world actually thinks the level is, as
     // opposed to what the renderer draws.
+    // Script bodies - items, debris, anything the scripts made with PO_Create -
+    // are drawn too, in their own colour: they are the ones that go wrong, and
+    // they were the ones this never showed.
+    //
+    // includeStatic false leaves the level out, which is the view you want when
+    // the question is about a prop and the world is just in the way.
     void CollectDebugLines(const float around[3], float radius,
-                           std::vector<DebugLine>& out) const;
+                           std::vector<DebugLine>& out,
+                           bool includeStatic = true) const;
 
     const PhysicsSettings& settings() const { return settings_; }
     const Tweaks& tweaks() const { return tweaks_; }

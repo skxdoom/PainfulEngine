@@ -143,6 +143,12 @@ void Renderer::DebugText(uint16_t row, const char* fmt, ...) {
     bgfx::dbgTextPrintf(1, row, 0x0f, "%s", buffer);
 }
 
+void Renderer::SetWireframe(bool on) {
+    // The text flag has to stay: it is what carries the debug rows, including
+    // the line that says the wireframe is on.
+    bgfx::setDebug(BGFX_DEBUG_TEXT | (on ? BGFX_DEBUG_WIREFRAME : 0u));
+}
+
 void Renderer::RequestScreenshot(const std::string& path) {
     if (initialised_) bgfx::requestScreenShot(BGFX_INVALID_HANDLE, path.c_str());
 }

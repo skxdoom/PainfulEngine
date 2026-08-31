@@ -31,6 +31,10 @@ public:
     bool TakeNoclipToggle();
     // True once per press of the collision-wireframe key.
     bool TakePhysicsDebugToggle();
+    // True once per press of F1..F3, the in-game debug overlays. Indexed 0..2
+    // so the game loop can keep its own modes without the window knowing what
+    // any of them mean.
+    bool TakeDebugToggle(int index);
 
     // Windows VIRTUAL-KEY state, which is the space the scripts speak:
     // Definitions.lua's `Keys` table is the standard VK list. 256 entries,
@@ -103,6 +107,7 @@ private:
     int levelStep_ = 0;
     bool noclipToggle_ = false;
     bool physicsDebugToggle_ = false;
+    bool debugToggles_[3] = {false, false, false};   // F1, F2, F3
     bool vkDown_[256] = {};
     int wheelSteps_ = 0;
 };

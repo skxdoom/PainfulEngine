@@ -34,6 +34,11 @@ public:
 
     // Debug overlay text, one line per call, starting at the given row.
     void DebugText(uint16_t row, const char* fmt, ...);
+    // Wireframes the GEOMETRY - every triangle the renderer submits, world and
+    // entities alike. This is a different question from the collision overlay:
+    // that one shows what physics thinks is there, this one shows what is
+    // actually being drawn, and the interesting cases are where they disagree.
+    void SetWireframe(bool on);
     // Asks bgfx to save the next frame to disk (written as a TGA).
     void RequestScreenshot(const std::string& path);
 
