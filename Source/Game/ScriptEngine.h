@@ -8,6 +8,7 @@
 #include "../Assets/Waypoints.h"
 #include "MenuSystem.h"
 #include "../Assets/Mpk.h"
+#include "../Assets/Rde.h"
 #include "../Script/LuaHost.h"
 #include "../World/Level.h"
 #include "../World/PhysicsWorld.h"
@@ -301,6 +302,11 @@ public:
     // Whether the simulation is frozen. The game loop skips the actor tick and
     // the physics step while this holds, and keeps drawing.
     bool gamePaused() const { return gamePaused_; }
+    // Developer mode: the two switches the shipped scripts gate their own debug
+    // tooling on. IsFinalBuild answers false while this is set, and the game
+    // loop sets the global debugMarek alongside it.
+    void SetDevMode(bool on) { devMode_ = on; }
+    bool devMode() const { return devMode_; }
     void SetGamePaused(bool p) { gamePaused_ = p; }
     // The screen size the scripts read back from R3D.ScreenSize, and the size
     // the font scale is measured against.
@@ -348,6 +354,12 @@ public:
     // Places every entity bound with RegisterChild + SetParentOffset. Run
     // after the parents have moved for the frame, or the effects lag them.
     void UpdateAttached();
+
+    // The per-limb hitboxes of every model near a point, posed and in world
+    // space, as wireframe. What a shot SHOULD be tested against, drawn so it
+    // can be compared against what it currently is tested against.
+    void CollectHitboxLines(const float around[3], float radius,
+                            std::vector<DebugLine>& out);
     void PlaceViewAttached(Entity& entity);
     void TickTriggers();
 
@@ -432,6 +444,9 @@ private:
     // every joint query, so they cannot disagree about the entity's placement.
     bool JointToWorld(Entity& e, int joint, const float local[3], float out[3]);
     int JointIndexByName(Entity& e, const std::string& name);
+    // The limb boxes of a model, derived once from its .rde and skin weights.
+    // An empty vector is cached too - a model with no ragdoll is an answer.
+    const std::vector<LimbBounds>* Hitboxes(const std::string& model);
     void PlaceAttached(Entity& e);
     void UpdateAttachments(Entity& e);
     bool SplitPackSource(const std::string& source, std::string& packName) const;
@@ -566,6 +581,8 @@ private:
     static int L_INP_GetActionStatus(lua_State* L);
     static int L_PLAYER_GetCameraFix(lua_State* L);
     static int L_PO_IsEnabled(lua_State* L);
+    static int L_IsFinalBuild(lua_State* L);
+    static int L_EDITOR_OutputText(lua_State* L);
     static int L_PO_Enable(lua_State* L);
     static int L_GetPlayerSpeed(lua_State* L);
     static int L_SetPlayerSpeed(lua_State* L);
@@ -708,6 +725,7 @@ private:
     // asks for it by the ITEM's handle straight after exploding it, and walks
     // the answer to texture the parts and set them alight.
     std::unordered_map<int, std::vector<int>> lastExploded_;
+    std::unordered_map<std::string, std::vector<LimbBounds>> hitboxes_;
     // Body slots currently taken out of the intersection solver. Kept as a
     // list rather than rebuilt per trace: a shotgun fires a dozen traces in
     // one frame and the set is only ever a couple of entities deep.
@@ -730,6 +748,7 @@ private:
     // World object at +0x10. No shipped script ever calls SetGamePaused, so
     // the engine is what writes it - which is why the menu owns it here.
     bool gamePaused_ = false;
+    bool devMode_ = false;
     // 1024x768 is what the shipped interface was authored at and what
     // HUD::SetFont measures its scale against. Until a window says otherwise
     // this is also what R3D.ScreenSize answers.

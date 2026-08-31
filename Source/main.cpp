@@ -836,6 +836,20 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     // for the ones already standing. Re-enabling walks the same two places.
     bool aiDisabled = std::getenv("PAINFUL_NOAI") != nullptr;
     bool aiApplied = false;
+
+    // F6: the developers' own debug tooling, still in the shipped scripts and
+    // gated on two switches of theirs.
+    //
+    //   debugMarek     449 uses, 251 of them Game:Print. Actor state, boss
+    //                  phases, animation decisions - narrated by the people who
+    //                  wrote them. Main/SaveGame.lua sets it, commented out.
+    //   IsFinalBuild() 24 gates across 7 files, from the key that hides the
+    //                  viewmodel to actor readouts.
+    //
+    // Both move together, because in the original they distinguished one BUILD
+    // from another rather than being two independent options.
+    bool devMode = std::getenv("PAINFUL_DEV") != nullptr;
+    bool devApplied = false;
     static const char* const kAiOff =
         "do local function off(b)"
         "  if b and not b.__aiOff then"
@@ -1038,6 +1052,17 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
             aiApplied = aiDisabled;
             LogInfo("AI %s", aiDisabled ? "disabled" : "enabled");
         }
+        if (window.TakeDebugToggle(5)) devMode = !devMode;
+        if (devMode != devApplied) {
+            // debugMarek is a plain global the scripts read directly, so
+            // setting it is the whole of that half. IsFinalBuild is a native
+            // and answers from the engine's own flag.
+            engine.SetDevMode(devMode);
+            host.RunString(devMode ? "debugMarek = true" : "debugMarek = nil");
+            devApplied = devMode;
+            LogInfo("developer mode %s (debugMarek, IsFinalBuild -> %s)",
+                    devMode ? "ON" : "off", devMode ? "false" : "true");
+        }
         renderer.SetWireframe(geoWire);
         // Who steers the view. While the player is walking it is the SCRIPTS:
         // Game:Tick2 calls UpdateViewFromPlayer, which reads MOUSE.GetDelta,
@@ -1235,6 +1260,12 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
             physics.CollectDebugLines(camera.pos, kPhysicsDebugRadius, debugWireframe,
                                       false);
 
+            // The per-limb hitboxes, in orange, over the same view. This is the
+            // comparison that matters: a monster's collision body is one sphere
+            // at its feet, while the boxes are where a shot should actually
+            // land, and seeing both at once is what makes the gap obvious.
+            engine.CollectHitboxLines(camera.pos, kPhysicsDebugRadius, debugWireframe);
+
             // A green box on every script entity that has NO physics body.
             //
             // Without this the overlay silently omits most of the level: of
@@ -1365,11 +1396,12 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
                                    : "WASD move, shift fast, space/ctrl up-down, N to walk");
         renderer.DebugText(8,
                            "F1 geometry: %s   F2 collision: %s   F3 nameplates: %s   "
-                           "F4 AI: %s%s",
+                           "F4 AI: %s   F6 dev: %s%s",
                            geoWire ? "wireframe" : "off",
                            collisionWire ? "dynamic" : "off",
                            nameplates ? "on (20m)" : "off",
                            aiDisabled ? "DISABLED" : "on",
+                           devMode ? "ON" : "off",
                            collisionWire
                                ? "   |   green awake, yellow asleep, magenta script, "
                                  "red non-colliding, GREEN BOX = no physics body"

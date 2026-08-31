@@ -1,6 +1,7 @@
 #include "ScriptEngine.h"
 
 #include "../Assets/Dat.h"
+#include "../Assets/Pkmdl.h"
 #include "../Assets/Emitter.h"
 #include "../Assets/Properties.h"
 #include "../Assets/Skeleton.h"
@@ -1507,6 +1508,38 @@ int ScriptEngine::L_PO_IsEnabled(lua_State* L) {
     const Entity* e = self->Find(handle);
     lua_pushboolean(L, e && e->poEnabled && self->physics_ && e->physicsBody >= 0 &&
                            self->physics_->ScriptBodyExists(e->physicsBody));
+    return 1;
+}
+
+// EDITOR.OutputText(line) - where Game:Print goes.
+//
+// The scripts' own tracing sink. Game:Print stamps the line with the game clock
+// and hands it here, and 251 of debugMarek's 449 uses are Game:Print calls - so
+// this is what carries the developers' running commentary on actor state, boss
+// phases and animation decisions.
+//
+// It is not in the recovered native list at all, because the EDITOR module was
+// registered by the editor build rather than the game. Without it, turning
+// developer mode on sets both flags correctly and then produces nothing.
+int ScriptEngine::L_EDITOR_OutputText(lua_State* L) {
+    const char* text = lua_isstring(L, 1) ? lua_tostring(L, 1) : nullptr;
+    if (text && *text) LogInfo("script: %s", text);
+    return 0;
+}
+
+// IsFinalBuild() -> is this a RETAIL build.
+//
+// The shipped scripts gate their own debug tooling on `not IsFinalBuild()` -
+// 24 places across 7 files, from the key that hides the viewmodel to actor
+// state readouts. Left unimplemented this returned nothing, nil is falsy, and
+// every one of those branches was live in our build BY ACCIDENT: retail
+// behaviour is the default the engine should present, and debug is something
+// asked for.
+//
+// So it answers true unless developer mode is on, which F6 sets alongside the
+// scripts' other switch, debugMarek.
+int ScriptEngine::L_IsFinalBuild(lua_State* L) {
+    lua_pushboolean(L, From(L)->devMode_ ? 0 : 1);
     return 1;
 }
 
@@ -4060,6 +4093,75 @@ void ScriptEngine::UpdateAttached() {
         if (kv.second.parentBound) PlaceAttached(kv.second);
 }
 
+// The limb boxes of one model, derived once and kept.
+//
+// Deriving them means loading the model again for its SKIN WEIGHTS, which the
+// skeleton cache does not keep - it holds bones and bind matrices only. That is
+// once per model type for the life of the process, against a box set that never
+// changes: the boxes live in bone space, so animation moves them for free.
+const std::vector<LimbBounds>* ScriptEngine::Hitboxes(const std::string& model) {
+    if (model.empty()) return nullptr;
+    const auto it = hitboxes_.find(model);
+    if (it != hitboxes_.end()) return &it->second;
+
+    // Cached even when it comes back empty: a model with no .rde is a settled
+    // answer, not something to retry every frame.
+    std::vector<LimbBounds>& slot = hitboxes_[model];
+    const std::string base = dataRoot_ + "/Models/" + model;
+
+    Ragdoll ragdoll;
+    if (!Ragdoll::Load(base + ".rde", ragdoll)) return &slot;
+    Model loaded;
+    if (!Model::Load(base + ".pkmdl", loaded)) return &slot;
+    slot = BuildLimbBounds(loaded, ragdoll);
+    LogInfo("hitboxes: %s -> %zu limbs", model.c_str(), slot.size());
+    return &slot;
+}
+
+void ScriptEngine::CollectHitboxLines(const float around[3], float radius,
+                                      std::vector<DebugLine>& out) {
+    // The twelve edges of a box, as pairs of corner indices.
+    static const int kEdges[12][2] = {{0,1},{1,3},{3,2},{2,0}, {4,5},{5,7},{7,6},{6,4},
+                                      {0,4},{1,5},{2,6},{3,7}};
+    for (auto& kv : entities_) {
+        Entity& e = kv.second;
+        if (e.type != kModel || !e.visible) continue;
+
+        float d[3];
+        for (int c = 0; c < 3; ++c) d[c] = e.pos[c] - around[c];
+        if (d[0]*d[0] + d[1]*d[1] + d[2]*d[2] > radius * radius) continue;
+
+        const std::vector<LimbBounds>* limbs = Hitboxes(e.source);
+        if (!limbs) continue;
+
+        for (const LimbBounds& limb : *limbs) {
+            if (!limb.valid()) continue;
+
+            // Each corner goes bone-local -> world through the POSED bone, so
+            // the box follows the animation without being rebuilt.
+            float corner[8][3];
+            bool posed = true;
+            for (int i = 0; i < 8 && posed; ++i) {
+                const float local[3] = {(i & 1) ? limb.max[0] : limb.min[0],
+                                        (i & 2) ? limb.max[1] : limb.min[1],
+                                        (i & 4) ? limb.max[2] : limb.min[2]};
+                posed = JointToWorld(e, limb.bone, local, corner[i]);
+            }
+            if (!posed) continue;
+
+            for (const auto& edge : kEdges) {
+                DebugLine line;
+                for (int c = 0; c < 3; ++c) {
+                    line.a[c] = corner[edge[0]][c];
+                    line.b[c] = corner[edge[1]][c];
+                }
+                line.abgr = 0xff00a5ffu;      // orange: neither collision nor geometry
+                out.push_back(line);
+            }
+        }
+    }
+}
+
 // Returns the child handle, or 0 for "no such child" - the value the scripts
 // actually compare against.
 int ScriptEngine::L_ENTITY_GetChildByName(lua_State* L) {
@@ -4269,6 +4371,10 @@ void ScriptEngine::Bind(LuaHost& host) {
         const char* name;
         int (*fn)(lua_State*);
     } natives[] = {
+        // A bare global, not a module native: the scripts call IsFinalBuild()
+        // directly. RegisterNative routes a null module to lua_setglobal.
+        {nullptr, "IsFinalBuild", L_IsFinalBuild},
+        {"EDITOR", "OutputText", L_EDITOR_OutputText},
         {"ENTITY", "Create", L_Create},
         {"ENTITY", "Release", L_Release},
         {"ENTITY", "SetPosition", L_SetPosition},
