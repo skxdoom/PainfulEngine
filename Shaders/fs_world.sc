@@ -70,7 +70,13 @@ void main()
 		albedo = clamp(albedo + grain - vec3_splat(0.5), 0.0, 1.0);
 	}
 
-	vec3 color = albedo * (light + u_ambient.rgb);
+	// No ambient: defaultTU2 is `lighting false`, so the lightmap is the only
+	// light term. o.Ambient drives the vertex lighting the MODELS use (c11).
+	//
+	// Unlightmapped objects are defaultNTU - vertex-lit like a model - but the
+	// world's additive light passes (WorldMesh::RenderLightPass) do not exist
+	// here yet, so they stay at full albedo instead of going black.
+	vec3 color = albedo * light;
 
 	// Fog modes match CLevel.lua: 0=none, 1=exp, 2=exp2, 3=linear. As in D3D
 	// fixed function, only linear fog uses the start/end range; the
