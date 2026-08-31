@@ -106,6 +106,10 @@ public:
         // A projectile: PO_Create was given ECollisionGroups.Noncolliding, so
         // this is moved along its velocity by TickProjectiles rather than
         // simulated. The scripts find their own hits with a line trace.
+        // The ECollisionGroups value PO_Create was given, which the scripts
+        // read back: PainHead skips a hit whose group is Noncolliding or
+        // Particles, and sticks into one that is Fixed.
+        int collisionGroup = 0;
         bool isProjectile = false;
         // ENTITY.PO_EnableGravity. A projectile is not in the solver, so the
         // body's gravity factor is a value nothing reads - TickProjectiles has
@@ -562,7 +566,14 @@ private:
     static int L_SetOrientation(lua_State* L);
     static int L_GetOrientation(lua_State* L);
     static int L_SetScale(lua_State* L);
+    static int L_PO_Remove(lua_State* L);
+    static int L_PO_GetCollisionGroup(lua_State* L);
+    static int L_PO_IsFixed(lua_State* L);
+    static int L_R3D_DistToLine(lua_State* L);
     static int L_EnableDraw(lua_State* L);
+    // ENTITY.EnableDraw's alsoChildren: a bound effect is a child ENTITY, so
+    // hiding the parent alone leaves it burning.
+    void SetDrawEnabled(Entity& e, bool on, bool alsoChildren, int depth);
     static int L_PARTICLE_AddEmitter(lua_State* L);
     static int L_PARTICLE_SetupEmitter(lua_State* L);
     static int L_PARTICLE_SetParentOffset(lua_State* L);

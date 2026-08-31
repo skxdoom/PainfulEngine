@@ -119,11 +119,25 @@ void ScriptEngine::AttachInput(Input* input) {
     input_ = input;
 }
 
+// THE PLAYER ENTITY SITS AT THE FEET, not at the eyes.
+//
+// Three shipped scripts agree, and none of them would work otherwise:
+//   CPlayer:IsOnGround traces from GetPosition()+0.5 down to -0.6 looking for
+//     the floor - a head-anchored origin never reaches it;
+//   BindSoundToEntity parks a player's sound at offset (0, 2, 0) with the
+//     comment "-- head", and kEyeAboveFloor is exactly 2;
+//   PainHead:Tick flies the returning blade to GetPosition()+1.62, which is
+//     chest height off the floor and a good half-metre OVER the head off the
+//     eyes - which is where the blades were going.
+//
+// ENTITY.PO_GetPawnHeadPos is what the weapons ask when they want the eye, and
+// every one of them does.
 void ScriptEngine::SyncPlayerFromPawn() {
     if (!pawn_ || !playerHandle_) return;
     if (Entity* e = Find(playerHandle_)) {
-        const float* head = pawn_->headPos();
-        for (int i = 0; i < 3; ++i) e->pos[i] = head[i];
+        float floor[3];
+        pawn_->FloorPos(floor);
+        for (int i = 0; i < 3; ++i) e->pos[i] = floor[i];
     }
 }
 
@@ -946,7 +960,9 @@ int ScriptEngine::L_SetPosition(lua_State* L) {
         if (self->physics_ && e->physicsBody >= 0)
             self->physics_->SetScriptBodyPose(e->physicsBody, e->pos, e->rotWXYZ);
         if (self->pawn_ && handle == self->playerHandle_)
-            self->pawn_->SetHeadPos(e->pos);   // teleports (spawn, checkpoints)
+            // SetPosition gives the FEET (see SyncPlayerFromPawn); the pawn is
+            // driven from the eye.
+            self->pawn_->SetFloorPos(e->pos);   // teleports (spawn, checkpoints)
     }
     return 0;
 }
@@ -1091,12 +1107,30 @@ int ScriptEngine::L_BILLBOARD_SetupCorona(lua_State* L) {
     return 0;
 }
 
+// ENTITY.EnableDraw(e, on, alsoChildren)
+//
+// Entity::EnableDraw (0x1d0af0) only flips bit 0x40 on the entity itself, so
+// the third argument is the script glue's: CObject names it `alsoChildren`
+// where it passes one through.
+//
+// The checkpoints need it. CheckPoint:OnApply is
+// ENTITY.EnableDraw(self._Entity, not self.Frozen, true) and every level
+// instance ships o.Frozen = true, so a checkpoint is meant to be invisible
+// until its script launches it. Its glow is not part of its model: OnCreateEntity
+// BindFX()es four particle effects, and BindFX makes each one a SEPARATE entity
+// registered as a child. Hiding only the parent left all four burning at spawn.
+void ScriptEngine::SetDrawEnabled(Entity& e, bool on, bool alsoChildren, int depth) {
+    e.visible = on;
+    SyncPose(e);
+    if (!alsoChildren || depth > 8) return;
+    for (int child : e.children)
+        if (Entity* c = Find(child)) SetDrawEnabled(*c, on, true, depth + 1);
+}
+
 int ScriptEngine::L_EnableDraw(lua_State* L) {
     ScriptEngine* self = From(L);
-    if (Entity* e = self->Find(HandleArg(L, 1))) {
-        e->visible = lua_toboolean(L, 2) != 0;
-        self->SyncPose(*e);
-    }
+    if (Entity* e = self->Find(HandleArg(L, 1)))
+        self->SetDrawEnabled(*e, lua_toboolean(L, 2) != 0, lua_toboolean(L, 3) != 0, 0);
     return 0;
 }
 
@@ -1163,6 +1197,92 @@ int ScriptEngine::L_SetAngularVelocity(lua_State* L) {
     return 0;
 }
 
+// ECollisionGroups.Fixed, from LScripts/Main/Definitions.lua. The static
+// world is this and so is anything a script pins in place.
+constexpr int kCollisionFixed = 1;
+
+// ENTITY.PO_Remove(e) - drop the physics object and stop moving.
+//
+// This is how the Painkiller's head STICKS. PainHead:Tick, on a hit it does not
+// bounce off, does exactly two things: SetPosition to the impact point, then
+// PO_Remove. Without it the head kept its velocity and sailed on through the
+// wall, so the alt fire never planted itself and the beam it anchors never
+// had an anchor.
+//
+// Removing the body is not enough on its own: a projectile is moved by
+// TickProjectiles from the entity's own velocity, not by the solver, so that
+// has to stop too.
+int ScriptEngine::L_PO_Remove(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e) return 0;
+    if (self->physics_ && e->physicsBody >= 0) {
+        self->physics_->RemoveScriptBody(e->physicsBody);
+        self->bodyToEntity_.erase(e->physicsBody);
+        e->physicsBody = -1;
+    }
+    e->isProjectile = false;
+    for (int c = 0; c < 3; ++c) { e->velocity[c] = 0.f; e->angVel[c] = 0.f; }
+    return 0;
+}
+
+// ENTITY.PO_GetCollisionGroup(e) -> ECollisionGroups, and PO_IsFixed(e).
+//
+// PainHead:Tick reads the group of whatever it hit and ignores Noncolliding (7)
+// and Particles (8) - another blade in flight, or a shell casing, is not
+// something to stick into. The static world has no entity and no body, and it
+// is Fixed (1): answering 0 there made the head treat every wall as a live
+// collision group.
+int ScriptEngine::L_PO_GetCollisionGroup(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const Entity* e = self->Find(HandleArg(L, 1));
+    lua_pushnumber(L, e ? e->collisionGroup : kCollisionFixed);
+    return 1;
+}
+
+// PainHead sticks into a fixed mesh and bounces off one that only LOOKS fixed:
+//     if ENTITY.IsFixedMesh(e) and not ENTITY.PO_IsFixed(e) then back end
+// Unimplemented, `not nil` was true, so every wall sent the head home.
+int ScriptEngine::L_PO_IsFixed(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const int handle = HandleArg(L, 1);
+    const Entity* e = self->Find(handle);
+    lua_pushboolean(L, (!e && handle == 0) || (e && e->collisionGroup == kCollisionFixed));
+    return 1;
+}
+
+// R3D.DistToLine(px,py,pz, ax,ay,az, bx,by,bz) -> distance from the point to
+// the segment a..b.
+//
+// The Painkiller gates its beam on it: the head is only wired to the gun while
+// it is near the line of sight, `d < PainRayTolerance`. Lua 5.0 compares nil
+// with a number by raising, so an unimplemented DistToLine did not merely skip
+// the beam - it threw out of PainKiller:OnUpdate every frame the head was out.
+int ScriptEngine::L_R3D_DistToLine(lua_State* L) {
+    float p[3], a[3], b[3];
+    for (int c = 0; c < 3; ++c) {
+        p[c] = float(luaL_optnumber(L, 1 + c, 0));
+        a[c] = float(luaL_optnumber(L, 4 + c, 0));
+        b[c] = float(luaL_optnumber(L, 7 + c, 0));
+    }
+    float ab[3], ap[3], len2 = 0.f, dot = 0.f;
+    for (int c = 0; c < 3; ++c) {
+        ab[c] = b[c] - a[c];
+        ap[c] = p[c] - a[c];
+        len2 += ab[c] * ab[c];
+        dot += ap[c] * ab[c];
+    }
+    float t = len2 > 1e-8f ? dot / len2 : 0.f;
+    t = t < 0.f ? 0.f : (t > 1.f ? 1.f : t);
+    float d2 = 0.f;
+    for (int c = 0; c < 3; ++c) {
+        const float v = ap[c] - ab[c] * t;
+        d2 += v * v;
+    }
+    lua_pushnumber(L, std::sqrt(d2));
+    return 1;
+}
+
 // ENTITY.PO_Create(e, bodytype, scale, collisionGroup): CObject:PO_Create
 // calls this right after SetPosition/SetRotationQ, then sets mass, friction
 // and the rest through the PO_Set* family - so the body starts bare and the
@@ -1201,6 +1321,7 @@ int ScriptEngine::L_PO_Create(lua_State* L) {
         // casings live there too, and they are meant to tumble. Anything else
         // that is driven says so through RemoveFromIntersectionSolver.
         e->isProjectile = collisionGroup == 7;
+        e->collisionGroup = collisionGroup;
         self->bodyToEntity_[slot] = HandleArg(L, 1);
     }
     return 0;
@@ -5759,6 +5880,10 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"ENTITY", "GetOrientation", L_GetOrientation},
         {"ENTITY", "SetScale", L_SetScale},
         {"ENTITY", "EnableDraw", L_EnableDraw},
+        {"ENTITY", "PO_Remove", L_PO_Remove},
+        {"ENTITY", "PO_GetCollisionGroup", L_PO_GetCollisionGroup},
+        {"ENTITY", "PO_IsFixed", L_PO_IsFixed},
+        {"R3D", "DistToLine", L_R3D_DistToLine},
         {"PARTICLE", "AddEmitter", L_PARTICLE_AddEmitter},
         {"PARTICLE", "SetupEmitter", L_PARTICLE_SetupEmitter},
         {"PARTICLE", "SetParentOffset", L_PARTICLE_SetParentOffset},

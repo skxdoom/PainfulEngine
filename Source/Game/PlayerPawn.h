@@ -52,6 +52,11 @@ public:
 
     const float* headPos() const { return head_; }
     void SetHeadPos(const float p[3]);
+    // A teleport addressed to the ENTITY, whose origin is the feet.
+    void SetFloorPos(const float p[3]) {
+        const float head[3] = {p[0], p[1] + kEyeAboveFloor, p[2]};
+        SetHeadPos(head);
+    }
     // The feet - ENTITY.PO_GetPawnFloorPos, the scripts' _groundx/y/z.
     void FloorPos(float out[3]) const {
         out[0] = head_[0];
