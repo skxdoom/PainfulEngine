@@ -260,6 +260,14 @@ void ScriptEngine::ReleaseEntity(int handle) {
             std::remove(limbShadowed_.begin(), limbShadowed_.end(), it->second.physicsBody),
             limbShadowed_.end());
     }
+    // The ragdoll is its own object, at its own offset in the original and on
+    // its own slot here, so it outlives the physics body and has to be freed
+    // whether or not the entity ever had one. A corpse reaped by DeathTimer is
+    // exactly that case.
+    if (physics_ && it->second.ragdollSlot >= 0) {
+        physics_->RemoveRagdoll(it->second.ragdollSlot);
+        it->second.ragdollSlot = -1;
+    }
     if (billboards_ && it->second.spriteSlot >= 0)
         billboards_->RemoveScriptSprite(it->second.spriteSlot);
     if (particles_)
@@ -632,6 +640,10 @@ void ScriptEngine::TickMonsters(float dt) {
     for (auto& kv : entities_) {
         Entity& e = kv.second;
         if (!e.isMonster || e.physicsBody < 0) continue;
+        // A corpse is not walking anywhere. Once the solver owns the actor,
+        // TickMonsters must stop dragging its movement body around or the two
+        // fight over where it is.
+        if (e.ragdollSlot >= 0) continue;
 
         // An actor whose .rde gives it limbs is shot at through those, so its
         // walking body stops answering traces. One that has none keeps it -
@@ -2844,6 +2856,13 @@ const std::vector<Mat4>* ScriptEngine::PosedBones(Entity& e) {
     const SkeletonCache::Entry* skel = skeletons_.Get(e.source);
     if (!skel || skel->bones.empty()) return nullptr;
 
+    // ONCE THE SOLVER HAS IT, THE ANIMATION DOES NOT. A ragdoll is not a pose
+    // the clock can advance - CActor stops the clock itself by setting
+    // _CurAnimLength to 99999 - so everything that asks where a bone is, from
+    // the draw to GetJointPos to the limb traces, has to be answered from the
+    // simulation instead.
+    if (e.ragdollSlot >= 0 && e.ragdollPose.size() == skel->bones.size())
+        return &e.ragdollPose;
     const Animation* anim = (e.animIndex >= 0 && size_t(e.animIndex) < e.animSlots.size())
                                 ? e.animSlots[size_t(e.animIndex)].anim
                                 : nullptr;
@@ -4425,6 +4444,296 @@ void ScriptEngine::UpdateAttached() {
         if (kv.second.parentBound) PlaceAttached(kv.second);
 }
 
+namespace {
+
+// A bone matrix composed with the entity transform is not a rotation, and a
+// rigid body needs one. Two things are wrong with it: it carries the entity's
+// SCALE, and a rig with mirrored left/right bones carries a NEGATIVE
+// DETERMINANT with it. Normalising the rows fixes the first and leaves the
+// second - a left-handed frame, from which Jolt reads a quaternion that is not
+// a rotation at all, and the solver answers by throwing the corpse across the
+// level. Measured on evilmonkv2, whose r_l_* and r_p_* bones are mirrors:
+// the ragdoll flew to y=11 while its own head lay on the floor.
+//
+// So build a proper right-handed basis instead: normalise the first row, make
+// the second perpendicular to it, and take the third as their cross product.
+// Positions are already in world units and are left alone.
+void MakeRigid(Mat4& m) {
+    float x[3] = {m.m[0], m.m[1], m.m[2]};
+    float y[3] = {m.m[4], m.m[5], m.m[6]};
+
+    const auto norm = [](float v[3]) {
+        const float len = std::sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
+        if (len < 1e-8f) return false;
+        for (int c = 0; c < 3; ++c) v[c] /= len;
+        return true;
+    };
+    if (!norm(x)) { x[0] = 1.f; x[1] = x[2] = 0.f; }
+    const float d = x[0]*y[0] + x[1]*y[1] + x[2]*y[2];
+    for (int c = 0; c < 3; ++c) y[c] -= d * x[c];
+    if (!norm(y)) {
+        // The first two rows were parallel; any perpendicular will do.
+        const float alt[3] = {0.f, 1.f, 0.f};
+        const float d2 = x[1];
+        for (int c = 0; c < 3; ++c) y[c] = alt[c] - d2 * x[c];
+        if (!norm(y)) { y[0] = 0.f; y[1] = 0.f; y[2] = 1.f; }
+    }
+    const float z[3] = {x[1]*y[2] - x[2]*y[1],
+                        x[2]*y[0] - x[0]*y[2],
+                        x[0]*y[1] - x[1]*y[0]};
+    for (int c = 0; c < 3; ++c) {
+        m.m[0 + c] = x[c];
+        m.m[4 + c] = y[c];
+        m.m[8 + c] = z[c];
+    }
+    m.m[3] = m.m[7] = m.m[11] = 0.f;
+    m.m[15] = 1.f;
+}
+
+} // namespace
+
+// ---------------------------------------------------------------- death
+//
+// MDL.EnableRagdoll(e, on, collisionGroup) is what dying IS. CActor:OnDamage
+// calls EnableRagdoll(true, true) the moment health reaches zero, having first
+// stopped the actor and disabled its physics object, and from then on the
+// solver owns the pose: CActor sets _CurAnimLength to 99999 so the animation
+// clock stops, because there is no longer an animation to run.
+//
+// The engine's shape is Ragdoll::Activate(bone matrices, group) - the SAME
+// matrices the renderer poses with, handed to the simulation as a starting
+// state. So the corpse begins exactly where the monster was standing, in the
+// exact frame of whatever it was doing, and falls from there.
+// Where each ragdoll body sits RELATIVE TO THE BONE that drives it, once per
+// model.
+//
+// A limb body is at the limb's centre and the bone is at its end, so the two
+// are a limb-length apart. Posing bodies straight onto bone matrices puts
+// every constraint anchor that far from where it belongs, and the solver's
+// answer is to throw the corpse across the level - measured on evilmonkv2 and
+// zombie, both of which flew to y > 15 while their heads lay on the floor. The
+// nun happened to survive it, which is exactly the kind of near-miss that
+// makes this look like a per-model problem rather than a missing transform.
+//
+// Off = Rest * inverse(Bind), both in MODEL units, so a posed bone matrix M
+// puts its body at Off * M.
+const std::vector<Mat4>& ScriptEngine::RagdollOffsets(const std::string& model,
+                                                      const std::vector<std::string>& parts,
+                                                      const Hke& def,
+                                                      const SkeletonCache::Entry& skel) {
+    auto it = ragdollOffsets_.find(model);
+    if (it != ragdollOffsets_.end() && it->second.size() == parts.size()) return it->second;
+
+    std::vector<Mat4>& out = ragdollOffsets_[model];
+    out.assign(parts.size(), Mat4());
+    for (size_t p = 0; p < parts.size(); ++p) {
+        const HkeBody* body = def.Body(parts[p]);
+        if (body == nullptr) continue;
+        int bone = -1;
+        for (size_t b = 0; b < skel.bones.size(); ++b)
+            if (skel.bones[b].name == parts[p]) { bone = int(b); break; }
+        if (bone < 0) continue;
+        Mat4 rest;
+        body->RestMatrix(rest.m);
+        out[p] = Mat4::Mul(rest, Mat4::InvertAffine(skel.bindWorld[size_t(bone)]));
+    }
+    return out;
+}
+
+bool ScriptEngine::EnableRagdoll(Entity& e, bool enable) {
+    if (!physics_) return false;
+
+    if (!enable) {
+        if (e.ragdollSlot < 0) return false;
+        physics_->RemoveRagdoll(e.ragdollSlot);
+        e.ragdollSlot = -1;
+        e.ragdollPose.clear();
+        return true;
+    }
+    if (e.ragdollSlot >= 0) return true;            // already one
+
+    const Hke* def = RagdollDef(e.source);
+    if (def == nullptr) return false;
+    const std::vector<Mat4>* bones = PosedBones(e);
+    const SkeletonCache::Entry* skel = skeletons_.Get(e.source);
+    if (bones == nullptr || skel == nullptr) return false;
+
+    const int slot = physics_->CreateRagdoll(e.source, *def, e.scale);
+    if (slot < 0) return false;
+
+    // Seed it from the pose the actor died in. A part whose bone the rig does
+    // not have keeps its authored place rather than collapsing to the origin -
+    // the .hke sweep says that never happens, but a ragdoll that silently
+    // folds into a point is not a failure worth discovering in a screenshot.
+    const std::vector<std::string>& parts = physics_->RagdollBones(slot);
+    const std::vector<Mat4>& offsets = RagdollOffsets(e.source, parts, *def, *skel);
+    std::vector<float> pose(parts.size() * 16, 0.f);
+    float rot[9];
+    EngineQuatToRot9(e.rotWXYZ, rot);
+    Mat4 world;
+    for (int r = 0; r < 3; ++r) {
+        for (int c = 0; c < 3; ++c) world.m[r * 4 + c] = e.scale * rot[r * 3 + c];
+        world.m[r * 4 + 3] = 0.f;
+    }
+    for (int c = 0; c < 3; ++c) world.m[12 + c] = e.pos[c];
+    world.m[15] = 1.f;
+
+    for (size_t p = 0; p < parts.size(); ++p) {
+        Mat4 m;                                     // identity
+        for (size_t b = 0; b < skel->bones.size(); ++b)
+            if (skel->bones[b].name == parts[p]) {
+                m = Mat4::Mul(Mat4::Mul(offsets[p], (*bones)[b]), world);
+                MakeRigid(m);
+                break;
+            }
+        for (int i = 0; i < 16; ++i) pose[p * 16 + i] = m.m[i];
+    }
+    physics_->SetRagdollPose(slot, pose.data(), /*kinematic=*/false);
+
+    e.ragdollSlot = slot;
+    e.ragdollPose.assign(skel->bones.size(), Mat4());
+    LogInfo("ragdoll on: %s (%s, %zu parts)", e.name.c_str(), e.source.c_str(), parts.size());
+    return true;
+}
+
+// Read the solver back into the pose the renderer draws, once per frame.
+//
+// THE RAGDOLL ONLY NAMES A DOZEN BONES OF SIXTY. Everything it does not drive
+// - hands, hair, the fingers - has to follow its nearest driven ancestor, or
+// the corpse keeps its arms and loses everything hanging off them. Walking the
+// hierarchy in order and composing each undriven bone from its BIND-LOCAL
+// transform against its parent's new matrix does that: the undriven parts stay
+// rigidly attached exactly as they were posed.
+void ScriptEngine::TickRagdolls() {
+    if (!physics_) return;
+    for (auto& kv : entities_) {
+        Entity& e = kv.second;
+        if (e.ragdollSlot < 0) continue;
+        const SkeletonCache::Entry* skel = skeletons_.Get(e.source);
+        if (skel == nullptr) { e.ragdollSlot = -1; continue; }
+
+        const std::vector<std::string>& parts = physics_->RagdollBones(e.ragdollSlot);
+        const Hke* def = RagdollDef(e.source);
+        if (def == nullptr) { e.ragdollSlot = -1; continue; }
+        const std::vector<Mat4>& offsets = RagdollOffsets(e.source, parts, *def, *skel);
+        std::vector<float> got(parts.size() * 16, 0.f);
+        if (!physics_->GetRagdollPose(e.ragdollSlot, got.data())) continue;
+
+        // THE ENTITY FOLLOWS ITS OWN CORPSE. The solver moves the body across
+        // the floor; leaving the entity where it died would leave every
+        // distance test, sound and effect anchored to a spot the corpse is no
+        // longer at, and would cull it from the wrong place.
+        int rootPart = -1;
+        for (size_t p = 0; p < parts.size(); ++p)
+            if (parts[p] == "root" || parts[p] == "ROOOT") { rootPart = int(p); break; }
+        if (rootPart < 0 && !parts.empty()) rootPart = 0;
+        if (rootPart >= 0)
+            for (int c = 0; c < 3; ++c) e.pos[c] = got[size_t(rootPart) * 16 + 12 + c];
+
+        // Model space is what the renderer wants, so undo the entity's own
+        // transform - rebuilt here from the position just updated.
+        float rot[9];
+        EngineQuatToRot9(e.rotWXYZ, rot);
+        Mat4 world;
+        for (int r = 0; r < 3; ++r) {
+            for (int c = 0; c < 3; ++c) world.m[r * 4 + c] = e.scale * rot[r * 3 + c];
+            world.m[r * 4 + 3] = 0.f;
+        }
+        for (int c = 0; c < 3; ++c) world.m[12 + c] = e.pos[c];
+        world.m[15] = 1.f;
+        const Mat4 toModel = Mat4::InvertAffine(world);
+
+        if (e.ragdollPose.size() != skel->bones.size())
+            e.ragdollPose.assign(skel->bones.size(), Mat4());
+
+        std::vector<bool> driven(skel->bones.size(), false);
+        for (size_t p = 0; p < parts.size(); ++p)
+            for (size_t b = 0; b < skel->bones.size(); ++b)
+                if (skel->bones[b].name == parts[p]) {
+                    Mat4 w;
+                    for (int i = 0; i < 16; ++i) w.m[i] = got[p * 16 + i];
+                    // Undo the body's own offset from its bone, then the
+                    // entity transform: Off * M * E is what put it there.
+                    e.ragdollPose[b] = Mat4::Mul(Mat4::InvertAffine(offsets[p]),
+                                                 Mat4::Mul(w, toModel));
+                    MakeRigid(e.ragdollPose[b]);
+                    break;
+                }
+
+        // BuildHierarchy leaves parents before children, so one pass is enough.
+        for (size_t b = 0; b < skel->bones.size(); ++b) {
+            if (driven[b]) continue;
+            const int par = skel->bones[b].parent;
+            if (par < 0 || size_t(par) >= b) {
+                e.ragdollPose[b] = skel->bindWorld[b];
+                continue;
+            }
+            // bindWorld[b] * inverse(bindWorld[parent]) is the bone's rest
+            // transform relative to its parent; applying it to the parent's
+            // NEW matrix carries the bone along with whatever moved it.
+            const Mat4 local = Mat4::Mul(skel->bindWorld[b],
+                                         Mat4::InvertAffine(skel->bindWorld[size_t(par)]));
+            e.ragdollPose[b] = Mat4::Mul(local, e.ragdollPose[size_t(par)]);
+        }
+    }
+}
+
+int ScriptEngine::L_MDL_EnableRagdoll(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e) return 0;
+    self->EnableRagdoll(*e, lua_toboolean(L, 2) != 0);
+    return 0;
+}
+
+// MDL.IsRagdoll(e) - does this actor HAVE a ragdoll. CActor:EnableRagdoll
+// guards both directions on it, so answering wrongly either does the work
+// twice or refuses to do it at all.
+int ScriptEngine::L_MDL_IsRagdoll(lua_State* L) {
+    const Entity* e = From(L)->Find(HandleArg(L, 1));
+    lua_pushboolean(L, e != nullptr && e->ragdollSlot >= 0);
+    return 1;
+}
+
+int ScriptEngine::L_MDL_IsRagdollActive(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const Entity* e = self->Find(HandleArg(L, 1));
+    lua_pushboolean(L, e != nullptr && e->ragdollSlot >= 0 && self->physics_ &&
+                           self->physics_->RagdollActive(e->ragdollSlot));
+    return 1;
+}
+
+int ScriptEngine::L_ENTITY_RemoveRagdoll(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (e) self->EnableRagdoll(*e, false);
+    return 0;
+}
+
+int ScriptEngine::L_MDL_SetRagdollLinearDamping(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const Entity* e = self->Find(HandleArg(L, 1));
+    if (e && e->ragdollSlot >= 0 && self->physics_)
+        self->physics_->SetRagdollDamping(e->ragdollSlot, float(luaL_optnumber(L, 2, 0)), -1.f);
+    return 0;
+}
+
+int ScriptEngine::L_MDL_SetRagdollAngularDamping(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const Entity* e = self->Find(HandleArg(L, 1));
+    if (e && e->ragdollSlot >= 0 && self->physics_)
+        self->physics_->SetRagdollDamping(e->ragdollSlot, -1.f, float(luaL_optnumber(L, 2, 0)));
+    return 0;
+}
+
+int ScriptEngine::L_MDL_SetRagdollFriction(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const Entity* e = self->Find(HandleArg(L, 1));
+    if (e && e->ragdollSlot >= 0 && self->physics_)
+        self->physics_->SetRagdollFriction(e->ragdollSlot, float(luaL_optnumber(L, 2, 1)));
+    return 0;
+}
+
 // The ragdoll definition of one model, parsed once and kept.
 //
 // Cached on a miss too. A model with no .hke, or with only the binary form, is
@@ -5146,6 +5455,13 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"PHYSICS", "GetHavokBodyInfo", L_PHYSICS_GetHavokBodyInfo},
         {"MDL", "GetJointFromHavokBody", L_MDL_GetJointFromHavokBody},
         {"MDL", "JointsLinked", L_MDL_JointsLinked},
+        {"MDL", "EnableRagdoll", L_MDL_EnableRagdoll},
+        {"MDL", "IsRagdoll", L_MDL_IsRagdoll},
+        {"MDL", "IsRagdollActive", L_MDL_IsRagdollActive},
+        {"ENTITY", "RemoveRagdoll", L_ENTITY_RemoveRagdoll},
+        {"MDL", "SetRagdollLinearDamping", L_MDL_SetRagdollLinearDamping},
+        {"MDL", "SetRagdollAngularDamping", L_MDL_SetRagdollAngularDamping},
+        {"MDL", "SetRagdollFriction", L_MDL_SetRagdollFriction},
         {"MDL", "EnableJoint", L_MDL_EnableJoint},
         {"PHYSICS", "RemoveHavokBodyFromIS", L_PHYSICS_RemoveHavokBodyFromIS},
         {"ENTITY", "GetType", L_GetType},

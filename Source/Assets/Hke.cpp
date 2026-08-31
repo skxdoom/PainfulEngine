@@ -2,8 +2,31 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <cmath>
 
 namespace painful {
+
+// ROTATION is ANGLE-AXIS - `angle x y z` - and a zero axis means no rotation
+// rather than an invalid one. Rodrigues, written into the row-vector form:
+// row i is the image of basis vector i, so out[i*4+j] = R(j,i).
+void HkeBody::RestMatrix(float out[16]) const {
+    for (int i = 0; i < 16; ++i) out[i] = 0.f;
+    out[0] = out[5] = out[10] = out[15] = 1.f;
+
+    float k[3] = {rotAxis[0], rotAxis[1], rotAxis[2]};
+    const float len = std::sqrt(k[0] * k[0] + k[1] * k[1] + k[2] * k[2]);
+    if (len > 1e-6f && std::fabs(rotAngle) > 1e-9f) {
+        for (int c = 0; c < 3; ++c) k[c] /= len;
+        const float s = std::sin(rotAngle), co = std::cos(rotAngle), t = 1.f - co;
+        const float R[3][3] = {
+            {co + k[0]*k[0]*t,      k[0]*k[1]*t - k[2]*s,  k[0]*k[2]*t + k[1]*s},
+            {k[1]*k[0]*t + k[2]*s,  co + k[1]*k[1]*t,      k[1]*k[2]*t - k[0]*s},
+            {k[2]*k[0]*t - k[1]*s,  k[2]*k[1]*t + k[0]*s,  co + k[2]*k[2]*t}};
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j) out[i * 4 + j] = R[j][i];
+    }
+    for (int c = 0; c < 3; ++c) out[12 + c] = translation[c];
+}
 
 const HkeGeometry* Hke::Find(const std::string& geometry) const {
     for (const HkeGeometry& g : geometries)

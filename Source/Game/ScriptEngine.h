@@ -249,6 +249,14 @@ public:
         // CustomOnGib - so the bone stays in the rig while its body stops
         // being part of the ragdoll.
         std::vector<int> disabledJoints;
+        // The ragdoll this actor has been handed to, or -1. MDL.EnableRagdoll
+        // creates it; while it exists the SOLVER owns the pose and the
+        // animation does not, which is what PosedBones checks.
+        int ragdollSlot = -1;
+        // Model-space bone matrices read back from the solver. Full length -
+        // the ragdoll only names a dozen or so bones and the rest have to
+        // follow their nearest driven ancestor or the corpse loses its hands.
+        std::vector<Mat4> ragdollPose;
     };
 
     // What the scripts told WORLD.* to set up; the game loop turns this into
@@ -424,6 +432,11 @@ public:
     // Call after every PhysicsWorld::Update. activeOnly=false sweeps sleeping
     // bodies too - needed once after the load-time settle, because settled
     // means asleep and asleep is exactly what the per-frame sync skips.
+    // Reads every active ragdoll back out of the solver into the pose the
+    // renderer draws, and moves the entity along with its own corpse. Once per
+    // frame, AFTER the physics step.
+    void TickRagdolls();
+
     void SyncFromPhysics(bool activeOnly = true);
 
     // The map mesh WORLD.LoadMap loaded (physics path); null until then.
@@ -465,6 +478,11 @@ private:
     // The limb boxes of a model, derived once from its .rde and skin weights.
     // An empty vector is cached too - a model with no ragdoll is an answer.
     const std::vector<LimbBounds>* Hitboxes(const std::string& model);
+    // Each ragdoll body relative to the bone that drives it, per model.
+    const std::vector<Mat4>& RagdollOffsets(const std::string& model,
+                                            const std::vector<std::string>& parts,
+                                            const Hke& def,
+                                            const SkeletonCache::Entry& skel);
     // The ragdoll definition of a model, parsed once and kept. Null when the
     // model has no .hke or has only the binary form.
     const Hke* RagdollDef(const std::string& model);
@@ -610,6 +628,16 @@ private:
     // MDL.JointsLinked(e, a, b) -> are these two joints connected through the
     // ragdoll? MDL.EnableJoint(e, joint, on) takes one out of it.
     static int L_MDL_JointsLinked(lua_State* L);
+    // MDL.EnableRagdoll(e, on, group) - hand the actor to the solver, or take
+    // it back. This is what death is.
+    bool EnableRagdoll(Entity& e, bool enable);
+    static int L_MDL_EnableRagdoll(lua_State* L);
+    static int L_MDL_IsRagdoll(lua_State* L);
+    static int L_MDL_IsRagdollActive(lua_State* L);
+    static int L_ENTITY_RemoveRagdoll(lua_State* L);
+    static int L_MDL_SetRagdollLinearDamping(lua_State* L);
+    static int L_MDL_SetRagdollAngularDamping(lua_State* L);
+    static int L_MDL_SetRagdollFriction(lua_State* L);
     static int L_MDL_EnableJoint(lua_State* L);
     // PHYSICS.RemoveHavokBodyFromIS(he, on) - one BODY out of the traces.
     static int L_PHYSICS_RemoveHavokBodyFromIS(lua_State* L);
@@ -807,6 +835,7 @@ private:
     // Ragdoll definitions by model, parsed once. A model with no .hke gets an
     // entry too - a miss is an answer, not something to retry every frame.
     std::unordered_map<std::string, Hke> ragdolls_;
+    std::unordered_map<std::string, std::vector<Mat4>> ragdollOffsets_;
     // Limb body handles, dense and permanent for the life of the process. A
     // handle is kLimbHandleBase + index, which cannot be mistaken for a script
     // body slot (small and positive) or for the world (-1).

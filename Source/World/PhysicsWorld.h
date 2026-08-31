@@ -180,6 +180,15 @@ public:
     bool GetRagdollPose(int slot, float* boneMatrices) const;
     // Is this ragdoll being simulated rather than driven? MDL.IsRagdollActive.
     bool RagdollActive(int slot) const;
+    // MDL.SetRagdollLinearDamping / AngularDamping / Friction, and the mass
+    // CActor:EnableRagdoll pushes in right after activating one. The .hke
+    // supplies all of these; the scripts override them per monster.
+    void SetRagdollDamping(int slot, float linear, float angular);
+    void SetRagdollFriction(int slot, float friction);
+    void SetRagdollMass(int slot, float mass);
+    // ENTITY.PO_Hit on a corpse, and RagdollSelfExplosion: an impulse at a
+    // world point, applied to whichever limb is nearest it.
+    void AddRagdollImpulse(int slot, const float at[3], const float impulse[3]);
 
     // Steps the simulation. Jolt wants a fixed step, so this accumulates.
     void Update(float dt);

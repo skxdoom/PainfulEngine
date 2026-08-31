@@ -69,6 +69,16 @@ struct HkeBody {
     float primRotAngle = 0.f;
     float primRotAxis[3] = {0, 0, 0};
     float primTranslation[3] = {0, 0, 0};
+
+    // The body's authored transform in MODEL units, as a row-vector 4x4 - the
+    // form the rest of the engine holds matrices in.
+    //
+    // A limb body sits at the limb's CENTRE, not at its bone's origin, so this
+    // is what says where a body belongs relative to the bone that drives it.
+    // Posing bodies straight onto bone origins displaces every constraint
+    // anchor by up to a limb length and the solver throws the corpse across
+    // the level trying to close the gap.
+    void RestMatrix(float out[16]) const;
 };
 
 // One constraint. The two kinds are Havok's own and each maps onto a Jolt

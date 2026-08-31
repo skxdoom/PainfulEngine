@@ -679,6 +679,7 @@ static int LuaCmd(const char* dataRoot, int frames, const char* level,
             host.FrameTick(1.0 / 60.0);
             physics.Update(1.f / 60.f);
             engine.SyncFromPhysics();
+            engine.TickRagdolls();
             engine.TickTriggers();
             engine.TickLifetimes(1.f / 60.f);
         }
@@ -1142,6 +1143,7 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
             host.CallGlobal("Game_Tick", d, 1);
             physics.Update(dt);
             engine.SyncFromPhysics();
+            engine.TickRagdolls();
             host.CallGlobal("Game_Tick2", d, 1);
             // Tick2 is where the view is steered, so take the result: the eye
             // rides PO_GetPawnHeadPos less PLAYER.GetCameraFix, at the angles

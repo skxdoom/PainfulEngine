@@ -1374,6 +1374,69 @@ bool PhysicsWorld::RagdollActive(int slot) const {
     return RagdollExists(slot) && impl_->ragdolls[size_t(slot)].simulated;
 }
 
+void PhysicsWorld::SetRagdollDamping(int slot, float linear, float angular) {
+    if (!RagdollExists(slot)) return;
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    for (JPH::BodyID id : impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs()) {
+        JPH::BodyLockWrite lock(impl_->system.GetBodyLockInterface(), id);
+        if (!lock.Succeeded()) continue;
+        JPH::MotionProperties* mp = lock.GetBody().GetMotionPropertiesUnchecked();
+        if (mp == nullptr) continue;
+        if (linear >= 0.f) mp->SetLinearDamping(linear);
+        if (angular >= 0.f) mp->SetAngularDamping(angular);
+    }
+    (void)bodies;
+}
+
+void PhysicsWorld::SetRagdollFriction(int slot, float friction) {
+    if (!RagdollExists(slot)) return;
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    for (JPH::BodyID id : impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs())
+        bodies.SetFriction(id, friction);
+}
+
+// The mass the scripts set is the WHOLE ragdoll's, and the .hke distributes it
+// across the limbs - a torso is ten times a forearm. Scaling every limb by the
+// same factor keeps that distribution while hitting the total.
+void PhysicsWorld::SetRagdollMass(int slot, float mass) {
+    if (!RagdollExists(slot) || mass <= 0.f) return;
+    const JPH::Ragdoll* rd = impl_->ragdolls[size_t(slot)].ragdoll;
+    float total = 0.f;
+    for (JPH::BodyID id : rd->GetBodyIDs()) {
+        JPH::BodyLockRead lock(impl_->system.GetBodyLockInterface(), id);
+        if (!lock.Succeeded()) continue;
+        const JPH::MotionProperties* mp = lock.GetBody().GetMotionPropertiesUnchecked();
+        if (mp != nullptr && mp->GetInverseMass() > 0.f) total += 1.f / mp->GetInverseMass();
+    }
+    if (total <= 0.f) return;
+    const float k = mass / total;
+    for (JPH::BodyID id : rd->GetBodyIDs()) {
+        JPH::BodyLockWrite lock(impl_->system.GetBodyLockInterface(), id);
+        if (!lock.Succeeded()) continue;
+        JPH::MotionProperties* mp = lock.GetBody().GetMotionPropertiesUnchecked();
+        if (mp == nullptr || mp->GetInverseMass() <= 0.f) continue;
+        JPH::MassProperties props = lock.GetBody().GetShape()->GetMassProperties();
+        props.ScaleToMass((1.f / mp->GetInverseMass()) * k);
+        mp->SetMassProperties(JPH::EAllowedDOFs::All, props);
+    }
+}
+
+void PhysicsWorld::AddRagdollImpulse(int slot, const float at[3], const float impulse[3]) {
+    if (!RagdollExists(slot)) return;
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    const JPH::RVec3 point(at[0], at[1], at[2]);
+    // Whichever limb is nearest the point. The scripts aim at a world
+    // position, not at a body, so something has to choose.
+    JPH::BodyID best;
+    float bestDist = 1e30f;
+    for (JPH::BodyID id : impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs()) {
+        const float d = (JPH::Vec3(bodies.GetPosition(id)) - JPH::Vec3(point)).LengthSq();
+        if (d < bestDist) { bestDist = d; best = id; }
+    }
+    if (best.IsInvalid()) return;
+    bodies.AddImpulse(best, JPH::Vec3(impulse[0], impulse[1], impulse[2]), point);
+}
+
 void PhysicsWorld::SetRagdollPose(int slot, const float* boneMatrices, bool kinematic) {
     if (!RagdollExists(slot) || boneMatrices == nullptr) return;
     Impl::RagdollInst& inst = impl_->ragdolls[size_t(slot)];
