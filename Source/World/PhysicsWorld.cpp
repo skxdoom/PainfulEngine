@@ -40,6 +40,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdarg>
+#include <cstdlib>
 #include <filesystem>
 #include <thread>
 #include <unordered_map>
@@ -127,16 +128,23 @@ public:
     // `also` is a second body to pass through. A monster sweeps its own shape
     // through a world its own body is standing in, so without this it is
     // wedged inside itself and never moves a millimetre.
+    //
+    // `pawn` is the player's own pusher, which sits exactly where the player
+    // is for the same reason the camera's does - a query that starts inside it
+    // reports a hit at zero distance in every direction, and the player cannot
+    // move at all.
     CameraBlockerFilter(const JPH::BodyID& ignore, float maxPushMass,
-                        const JPH::BodyID& also = JPH::BodyID())
-        : ignore_(ignore), also_(also), maxPushMass_(maxPushMass) {}
+                        const JPH::BodyID& also = JPH::BodyID(),
+                        const JPH::BodyID& pawn = JPH::BodyID())
+        : ignore_(ignore), also_(also), pawn_(pawn), maxPushMass_(maxPushMass) {}
 
     bool ShouldCollide(const JPH::BodyID& id) const override {
-        return id != ignore_ && id != also_;
+        return id != ignore_ && id != also_ && id != pawn_;
     }
 
     bool ShouldCollideLocked(const JPH::Body& body) const override {
-        if (body.GetID() == ignore_ || body.GetID() == also_) return false;
+        const JPH::BodyID id = body.GetID();
+        if (id == ignore_ || id == also_ || id == pawn_) return false;
         if (maxPushMass_ < 0.f) return true;
         // The world, and anything pinned in place, always blocks.
         if (body.GetMotionType() != JPH::EMotionType::Dynamic) return true;
@@ -149,6 +157,7 @@ public:
 
 private:
     JPH::BodyID ignore_;
+    JPH::BodyID pawn_;
     JPH::BodyID also_;
     float maxPushMass_;
 };
@@ -305,6 +314,10 @@ struct PhysicsWorld::Impl {
     struct ScriptBody {
         JPH::BodyID body;
         float radius = 0.f;    // world-space mesh radius, for PO_GetMaxSphereRay
+        // PO_Enable(false) takes the body OUT OF THE WORLD, not just to sleep -
+        // see SetScriptBodyEnabled. Jolt asserts on a double add or remove, so
+        // the state has to be tracked rather than inferred.
+        bool inWorld = true;
     };
     std::vector<ScriptBody> scriptBodies;
 
@@ -323,6 +336,9 @@ struct PhysicsWorld::Impl {
     JPH::CollisionGroup::GroupID nextRagdollGroup = 1;
 
     JPH::BodyID probe;
+    JPH::BodyID pawnProbe;
+    float pawnProbePos[3] = {0, 0, 0};
+    float pawnProbeRadius = 0.f;
     float probePos[3] = {0, 0, 0};
     bool probePush = false;
 
@@ -355,6 +371,7 @@ void PhysicsWorld::Clear() {
     }
     impl_->worldBody = JPH::BodyID();
     impl_->probe = JPH::BodyID();
+    impl_->pawnProbe = JPH::BodyID();
     impl_->worldTriangles = 0;
     impl_->accumulator = 0.f;
     impl_->props.clear();
@@ -367,6 +384,7 @@ void PhysicsWorld::SetProbeRadius(float radius) {
     if (radius == probeRadius_) return;
     probeRadius_ = radius;
     CreateProbe();
+    CreatePawnProbe();
 }
 
 void PhysicsWorld::CreateProbe() {
@@ -395,6 +413,52 @@ void PhysicsWorld::CreateProbe() {
     impl_->probe = bodies.CreateAndAddBody(body, JPH::EActivation::Activate);
 }
 
+
+// The player's pusher, rebuilt on the same schedule as the camera's: Clear()
+// destroys every body in the system, so anything that is meant to outlive a
+// level change has to be made again after one.
+void PhysicsWorld::CreatePawnProbe() {
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    if (!impl_->pawnProbe.IsInvalid()) {
+        bodies.RemoveBody(impl_->pawnProbe);
+        bodies.DestroyBody(impl_->pawnProbe);
+        impl_->pawnProbe = JPH::BodyID();
+    }
+    if (impl_->pawnProbeRadius <= 0.f) return;
+    JPH::SphereShapeSettings shape(impl_->pawnProbeRadius);
+    shape.SetEmbedded();
+    JPH::ShapeSettings::ShapeResult result = shape.Create();
+    if (result.HasError()) return;
+    JPH::BodyCreationSettings body(
+        result.Get(),
+        JPH::RVec3(impl_->pawnProbePos[0], impl_->pawnProbePos[1], impl_->pawnProbePos[2]),
+        JPH::Quat::sIdentity(), JPH::EMotionType::Kinematic, Layers::kMoving);
+    body.mMotionQuality = JPH::EMotionQuality::LinearCast;
+    impl_->pawnProbe = bodies.CreateAndAddBody(body, JPH::EActivation::Activate);
+}
+
+void PhysicsWorld::SetPawnProbeRadius(float radius) {
+    impl_->pawnProbeRadius = radius;
+    CreatePawnProbe();
+}
+
+// Same contract as MoveProbe: aimed here, driven inside the fixed step, and
+// teleported rather than swept across a jump that is really a respawn.
+void PhysicsWorld::MovePawnProbe(const float pos[3], bool push) {
+    float jump = 0.f;
+    for (int c = 0; c < 3; ++c) {
+        const float d = pos[c] - impl_->pawnProbePos[c];
+        jump += d * d;
+    }
+    for (int c = 0; c < 3; ++c) impl_->pawnProbePos[c] = pos[c];
+    if (impl_->pawnProbe.IsInvalid()) return;
+    if (!push || jump > 400.f) {
+        JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+        bodies.SetPosition(impl_->pawnProbe, JPH::RVec3(pos[0], pos[1], pos[2]),
+                           JPH::EActivation::DontActivate);
+        bodies.SetLinearVelocity(impl_->pawnProbe, JPH::Vec3::sZero());
+    }
+}
 
 void PhysicsWorld::MoveProbe(const float pos[3], bool push) {
     float jump = 0.f;
@@ -445,6 +509,7 @@ void PhysicsWorld::Load(const Level& level, TemplateCache& templates,
     LoadProps(level, templates, dataRoot);
     // Clear() destroyed the camera's body along with everything else.
     CreateProbe();
+    CreatePawnProbe();
 
     // The broad phase is built lazily otherwise, and the first query of the
     // frame would pay for the whole level.
@@ -722,6 +787,13 @@ void PhysicsWorld::Update(float dt) {
                                             impl_->probePos[2]),
                                  JPH::Quat::sIdentity(), kStep);
         }
+        // The pawn's body is driven the same way and for the same reason.
+        if (!impl_->pawnProbe.IsInvalid()) {
+            bodies.MoveKinematic(impl_->pawnProbe,
+                                 JPH::RVec3(impl_->pawnProbePos[0], impl_->pawnProbePos[1],
+                                            impl_->pawnProbePos[2]),
+                                 JPH::Quat::sIdentity(), kStep);
+        }
         impl_->system.Update(kStep, 1, &impl_->temp, &impl_->jobs);
         impl_->accumulator -= kStep;
     }
@@ -780,6 +852,7 @@ void PhysicsWorld::LoadWorldMesh(const MapMesh& map, float worldScale,
     LoadTweaks(dataRoot);
     if (!BuildStaticWorld(map, worldScale)) return;
     CreateProbe();
+    CreatePawnProbe();
     LogInfo("physics: %zu static triangles (script path), gravity %.2f",
             impl_->worldTriangles, settings_.gravity);
 }
@@ -842,7 +915,7 @@ int PhysicsWorld::CreateScriptBody(int bodyType, const std::string& modelName,
     const JPH::BodyID id = bodies.CreateAndAddBody(body, JPH::EActivation::Activate);
     if (id.IsInvalid()) return -1;
 
-    impl_->scriptBodies.push_back({id, radius});
+    impl_->scriptBodies.push_back({id, radius, true});
     return int(impl_->scriptBodies.size() - 1);
 }
 
@@ -908,6 +981,8 @@ void PhysicsWorld::SetScriptBodyAngularDamping(int slot, float damping) {
 void PhysicsWorld::SetScriptBodyPose(int slot, const float pos[3],
                                      const float rotWXYZ[4]) {
     if (!ScriptBodyExists(slot)) return;
+    // A disabled body is out of the world; Jolt will not move one.
+    if (!impl_->scriptBodies[size_t(slot)].inWorld) return;
     impl_->system.GetBodyInterface().SetPositionAndRotation(
         impl_->scriptBodies[slot].body, JPH::RVec3(pos[0], pos[1], pos[2]),
         EngineQuatToJolt(rotWXYZ), JPH::EActivation::Activate);
@@ -952,13 +1027,27 @@ bool PhysicsWorld::GetScriptBodyVelocity(int slot, float out[3]) const {
     return true;
 }
 
+// ENTITY.PO_Enable(e, on) - IN or OUT OF THE WORLD, not awake or asleep.
+//
+// PhysicsObject::Enable (Engine.dll 0x1907d0) does not deactivate anything: on
+// false it disables the Havok body and then SWAP-REMOVES the object from the
+// engine's active registry - last element into this slot, count down, index
+// set to -1 - and on true it re-adds and registers it again. IsEnabled reads a
+// flag on the body meaning "in the world" (0x196770).
+//
+// Sleeping it instead leaves it fully solid, which is what CActor:EnableRagdoll
+// disables it FOR. A dead monster's movement capsule stayed standing where it
+// died: it blocked the player, it swallowed the pusher, and worst of all the
+// corpse collided with its own capsule - the ragdoll spent its whole fall
+// being shoved around by the shape it used to walk in.
 void PhysicsWorld::SetScriptBodyEnabled(int slot, bool enabled) {
     if (!ScriptBodyExists(slot)) return;
+    Impl::ScriptBody& sb = impl_->scriptBodies[size_t(slot)];
+    if (sb.inWorld == enabled) return;
     JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
-    if (enabled)
-        bodies.ActivateBody(impl_->scriptBodies[slot].body);
-    else
-        bodies.DeactivateBody(impl_->scriptBodies[slot].body);
+    if (enabled) bodies.AddBody(sb.body, JPH::EActivation::Activate);
+    else         bodies.RemoveBody(sb.body);
+    sb.inWorld = enabled;
 }
 
 void PhysicsWorld::SetScriptBodyKinematic(int slot, float k, float rootOffsetY) {
@@ -1036,9 +1125,13 @@ bool PhysicsWorld::ScriptBodyBounds(int slot, float lo[3], float hi[3]) const {
 void PhysicsWorld::RemoveScriptBody(int slot) {
     if (!ScriptBodyExists(slot)) return;
     JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
-    bodies.RemoveBody(impl_->scriptBodies[slot].body);
-    bodies.DestroyBody(impl_->scriptBodies[slot].body);
-    impl_->scriptBodies[slot].body = JPH::BodyID();
+    Impl::ScriptBody& sb = impl_->scriptBodies[size_t(slot)];
+    // A disabled body is already out of the world, and Jolt asserts on the
+    // second remove.
+    if (sb.inWorld) bodies.RemoveBody(sb.body);
+    bodies.DestroyBody(sb.body);
+    sb.body = JPH::BodyID();
+    sb.inWorld = false;
 }
 
 void PhysicsWorld::CollectScriptPoses(std::vector<ScriptBodyPose>& out,
@@ -1048,7 +1141,7 @@ void PhysicsWorld::CollectScriptPoses(std::vector<ScriptBodyPose>& out,
     const JPH::BodyInterface& bodies = impl_->system.GetBodyInterfaceNoLock();
     for (size_t slot = 0; slot < impl_->scriptBodies.size(); ++slot) {
         const JPH::BodyID id = impl_->scriptBodies[slot].body;
-        if (id.IsInvalid()) continue;
+        if (id.IsInvalid() || !impl_->scriptBodies[slot].inWorld) continue;
         if (activeOnly && !bodies.IsActive(id)) continue;
 
         JPH::RVec3 position;
@@ -1119,6 +1212,38 @@ JPH::ShapeSettings::ShapeResult BuildLimbHull(const Hke& def, const HkeBody& b, 
     return hull.Create();
 }
 
+// TAU is on every constraint in every .hke, and it is 0.1 on all of them.
+//
+// In Havok tau is the fraction of the remaining position error a constraint
+// corrects per step - a RELAXATION factor, not a hard snap. Jolt's equivalent
+// default is Baumgarte 0.2, so the original's joints are half as eager as
+// Jolt's out of the box, and a hard limit in Jolt is harder still: it resolves
+// as completely as the solver iterations allow.
+//
+// That matters at the moment of activation. The ragdoll's joints SKIP skeleton
+// bones - evilmonkv2 constrains root to k_zebra while the rig runs root ->
+// k_ogo -> k_zebra - so a pose with any bend in the skipped bone separates the
+// two anchors. Measured: 0.000 at the authored rest pose, 0.113 when activated
+// from a death animation. A hard constraint eats that in one step and the
+// corpse snaps; a soft one absorbs it over several and it slumps.
+//
+// Only the HINGES can take it: Jolt gives HingeConstraint an mLimitsSpringSettings
+// and SwingTwistConstraint nothing equivalent, so the cone-twist joints keep hard
+// limits for now. Nine of evilmonkv2's fourteen constraints are hinges.
+//
+// Converting: a constraint correcting a fraction tau of its error each step of
+// length h behaves like a spring of angular frequency tau/h, so at the fixed
+// 1/60 step tau 0.1 is 6 rad/s, just under 1 Hz. Critically damped, because an
+// overshooting joint is a twitching one.
+JPH::SpringSettings LimitSpring(float tau) {
+    JPH::SpringSettings spring;
+    if (tau <= 0.f) return spring;                 // frequency 0 keeps hard limits
+    spring.mMode = JPH::ESpringMode::FrequencyAndDamping;
+    spring.mFrequency = (tau * 60.f) / (2.f * JPH::JPH_PI);
+    spring.mDamping = 1.f;
+    return spring;
+}
+
 // The .hke's limits onto Jolt's.
 //
 // JOLT'S SWING IS SYMMETRIC AND HAVOK'S IS NOT. hkRagdollConstraint carries a
@@ -1143,8 +1268,8 @@ JPH::Ref<JPH::TwoBodyConstraintSettings> BuildConstraint(const HkeConstraint& c,
             h->mHingeAxis1 = h->mHingeAxis2 = dir;
             h->mNormalAxis1 = h->mNormalAxis2 = dir.GetNormalizedPerpendicular();
         } else {
-            h->mPoint1 = restA * V3(c.hingePosA) * scale;
-            h->mPoint2 = restB * V3(c.hingePosB) * scale;
+            h->mPoint1 = restA * (V3(c.hingePosA) * scale);
+            h->mPoint2 = restB * (V3(c.hingePosB) * scale);
             h->mHingeAxis1 = (restA.Multiply3x3(V3(c.hingeDirA))).NormalizedOr(JPH::Vec3::sAxisY());
             h->mHingeAxis2 = (restB.Multiply3x3(V3(c.hingeDirB))).NormalizedOr(JPH::Vec3::sAxisY());
             h->mNormalAxis1 =
@@ -1158,6 +1283,7 @@ JPH::Ref<JPH::TwoBodyConstraintSettings> BuildConstraint(const HkeConstraint& c,
             // out-of-range limit is an assert in a debug build.
             h->mLimitsMin = std::max(-JPH::JPH_PI, std::min(0.f, c.limitMinAngle));
             h->mLimitsMax = std::min(JPH::JPH_PI, std::max(0.f, c.limitMaxAngle));
+            h->mLimitsSpringSettings = LimitSpring(c.tau);
         }
         return h;
     }
@@ -1165,8 +1291,8 @@ JPH::Ref<JPH::TwoBodyConstraintSettings> BuildConstraint(const HkeConstraint& c,
     if (c.kind == HkeConstraint::kStiffSpring) {
         JPH::DistanceConstraintSettings* d = new JPH::DistanceConstraintSettings();
         d->mSpace = JPH::EConstraintSpace::WorldSpace;
-        d->mPoint1 = restA * V3(c.localPointA) * scale;
-        d->mPoint2 = restB * V3(c.localPointB) * scale;
+        d->mPoint1 = restA * (V3(c.localPointA) * scale);
+        d->mPoint2 = restB * (V3(c.localPointB) * scale);
         return d;
     }
 
@@ -1201,6 +1327,40 @@ JPH::Ref<JPH::TwoBodyConstraintSettings> BuildConstraint(const HkeConstraint& c,
     s->mTwistMaxAngle = std::max(-JPH::JPH_PI, std::min(JPH::JPH_PI, c.twistMax));
     if (s->mTwistMinAngle > s->mTwistMaxAngle) std::swap(s->mTwistMinAngle, s->mTwistMaxAngle);
     return s;
+}
+
+// Jolt's mToParent is always body1 = PARENT, body2 = child. The .hke names its
+// pair in whatever order the exporter happened to write, and it is not always
+// parent-first: evilmonkv2 has `Hinge r_l_bark -> r_l_lokiec` (parent first)
+// next to `Hinge n_l_kolano -> n_l_biodro` (child first).
+//
+// Feeding frame 1 from RIGID_BODY_A regardless hands the PARENT the CHILD's
+// anchor whenever the file is child-first, and the joint then has nothing
+// holding it in the right place. Measured on the two knees, which are mirror
+// images of each other and differ only in naming order: 1.9% bone-length drift
+// on the parent-first one, 41.4% on the child-first one.
+void SwapConstraintFrames(JPH::TwoBodyConstraintSettings* s, HkeConstraint::Kind kind) {
+    if (kind == HkeConstraint::kHinge) {
+        JPH::HingeConstraintSettings* h = static_cast<JPH::HingeConstraintSettings*>(s);
+        std::swap(h->mPoint1, h->mPoint2);
+        std::swap(h->mHingeAxis1, h->mHingeAxis2);
+        std::swap(h->mNormalAxis1, h->mNormalAxis2);
+        // Measured from the other body, the angle runs the other way.
+        const float lo = h->mLimitsMin, hi = h->mLimitsMax;
+        h->mLimitsMin = -hi;
+        h->mLimitsMax = -lo;
+    } else if (kind == HkeConstraint::kRagdoll) {
+        JPH::SwingTwistConstraintSettings* t = static_cast<JPH::SwingTwistConstraintSettings*>(s);
+        std::swap(t->mPosition1, t->mPosition2);
+        std::swap(t->mTwistAxis1, t->mTwistAxis2);
+        std::swap(t->mPlaneAxis1, t->mPlaneAxis2);
+        const float lo = t->mTwistMinAngle, hi = t->mTwistMaxAngle;
+        t->mTwistMinAngle = -hi;
+        t->mTwistMaxAngle = -lo;
+    } else {
+        JPH::DistanceConstraintSettings* d = static_cast<JPH::DistanceConstraintSettings*>(s);
+        std::swap(d->mPoint1, d->mPoint2);
+    }
 }
 
 } // namespace
@@ -1296,12 +1456,16 @@ int PhysicsWorld::CreateRagdoll(const std::string& model, const Hke& def, float 
             }
             if (par >= 0 && edge[size_t(visitOrder[p])] >= 0) {
                 const HkeConstraint& c = def.constraints[size_t(edge[size_t(visitOrder[p])])];
-                // body1 is the PARENT in Jolt's mToParent, whichever way round
-                // the file named the pair.
+                // Jolt's mToParent is body1 = PARENT. The file names its pair
+                // in either order, so build it in the file's terms and then
+                // swap the frames when the file put the child first.
                 const bool aIsParent = (c.bodyA == def.bodies[size_t(par)].bone);
                 const JPH::Mat44 restPar = BodyRest(def.bodies[size_t(par)], scale);
-                part.mToParent = BuildConstraint(c, aIsParent ? restPar : rest,
-                                                 aIsParent ? rest : restPar, scale);
+                JPH::Ref<JPH::TwoBodyConstraintSettings> made =
+                    BuildConstraint(c, aIsParent ? restPar : rest, aIsParent ? rest : restPar,
+                                    scale);
+                if (!aIsParent) SwapConstraintFrames(made, c.kind);
+                part.mToParent = made;
             }
         }
 
@@ -1417,6 +1581,56 @@ void PhysicsWorld::SetRagdollMass(int slot, float mass) {
         if (mp == nullptr || mp->GetInverseMass() <= 0.f) continue;
         JPH::MassProperties props = lock.GetBody().GetShape()->GetMassProperties();
         props.ScaleToMass((1.f / mp->GetInverseMass()) * k);
+        mp->SetMassProperties(JPH::EAllowedDOFs::All, props);
+    }
+}
+
+// A whole-corpse tumble about Y, the way PhysicsObject::EffectRotateActor
+// (Engine.dll 0x1893e0) spends the accumulated spin: the vector it hands the
+// body is (0, spin, 0), an angular velocity.
+//
+// Setting the same angular velocity on every limb would make each one spin
+// about its OWN centre, which is a bag of pinwheels rather than a body. A
+// rigid rotation about a shared centre also needs the linear velocity that
+// rotation implies at each limb's offset - v = w x r.
+void PhysicsWorld::SetRagdollSpin(int slot, float yawRate) {
+    if (!RagdollExists(slot)) return;
+    const JPH::Ragdoll* rd = impl_->ragdolls[size_t(slot)].ragdoll;
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+
+    JPH::Vec3 centre = JPH::Vec3::sZero();
+    float total = 0.f;
+    for (JPH::BodyID id : rd->GetBodyIDs()) {
+        JPH::BodyLockRead lock(impl_->system.GetBodyLockInterface(), id);
+        if (!lock.Succeeded()) continue;
+        const JPH::MotionProperties* mp = lock.GetBody().GetMotionPropertiesUnchecked();
+        const float m = (mp != nullptr && mp->GetInverseMass() > 0.f) ? 1.f / mp->GetInverseMass()
+                                                                     : 1.f;
+        centre += JPH::Vec3(lock.GetBody().GetCenterOfMassPosition()) * m;
+        total += m;
+    }
+    if (total <= 0.f) return;
+    centre /= total;
+
+    const JPH::Vec3 w(0.f, yawRate, 0.f);
+    for (JPH::BodyID id : rd->GetBodyIDs()) {
+        const JPH::Vec3 r = JPH::Vec3(bodies.GetCenterOfMassPosition(id)) - centre;
+        bodies.SetAngularVelocity(id, w);
+        bodies.SetLinearVelocity(id, bodies.GetLinearVelocity(id) + w.Cross(r));
+    }
+}
+
+void PhysicsWorld::ScaleRagdollInertia(int slot, float k) {
+    if (!RagdollExists(slot) || k <= 0.f) return;
+    for (JPH::BodyID id : impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs()) {
+        JPH::BodyLockWrite lock(impl_->system.GetBodyLockInterface(), id);
+        if (!lock.Succeeded()) continue;
+        JPH::MotionProperties* mp = lock.GetBody().GetMotionPropertiesUnchecked();
+        if (mp == nullptr || mp->GetInverseMass() <= 0.f) continue;
+        JPH::MassProperties props = lock.GetBody().GetShape()->GetMassProperties();
+        props.ScaleToMass(1.f / mp->GetInverseMass());
+        props.mInertia *= k;
+        props.mInertia(3, 3) = 1.f;      // the row Jolt keeps as the affine tail
         mp->SetMassProperties(JPH::EAllowedDOFs::All, props);
     }
 }
@@ -1561,7 +1775,9 @@ void PhysicsWorld::CollectDebugLines(const float around[3], float radius,
     // a stake that has nailed itself to a wall - and they are where the bugs
     // live, so they get a colour of their own rather than being invisible.
     for (const Impl::ScriptBody& script : impl_->scriptBodies) {
-        if (script.body.IsInvalid()) continue;
+        // A disabled body is out of the world - and the point of the view is to
+        // show what is actually there.
+        if (script.body.IsInvalid() || !script.inWorld) continue;
         const uint32_t abgr =
             bodies.GetObjectLayer(script.body) == Layers::kNoCollide ? 0xff0000ffu
                                                                      : 0xffff00ffu;
@@ -1607,8 +1823,11 @@ bool PhysicsWorld::RayCast(const float from[3], const float to[3], RayHit& out,
     // the camera's own probe body - which sits where the camera is and would
     // otherwise swallow every shot fired from there.
     JPH::IgnoreMultipleBodiesFilter bodies;
-    bodies.Reserve(int(excludeCount) + 1);
+    bodies.Reserve(int(excludeCount) + 2);
     if (!impl_->probe.IsInvalid()) bodies.IgnoreBody(impl_->probe);
+    // The pawn's pusher sits exactly where the player is, so a shot fired from
+    // there would hit it at zero distance in every direction.
+    if (!impl_->pawnProbe.IsInvalid()) bodies.IgnoreBody(impl_->pawnProbe);
     for (size_t i = 0; i < excludeCount; ++i) {
         const int slot = exclude[i];
         // A removed slot keeps an invalid id so the others stay stable, and
@@ -1695,7 +1914,8 @@ bool PhysicsWorld::SphereOverlaps(const float pos[3], float radius) const {
     JPH::AnyHitCollisionCollector<JPH::CollideShapeCollector> collector;
     // The camera's own body sits exactly where the camera is, so every query
     // made from there would hit it first.
-    const CameraBlockerFilter blockers(impl_->probe, maxPushMass_);
+    const CameraBlockerFilter blockers(impl_->probe, maxPushMass_, JPH::BodyID(),
+                                      impl_->pawnProbe);
     impl_->system.GetNarrowPhaseQuery().CollideShape(
         &sphere, JPH::Vec3::sOne(),
         JPH::RMat44::sTranslation(JPH::RVec3(pos[0], pos[1], pos[2])), settings,
@@ -1712,7 +1932,8 @@ int PhysicsWorld::Depenetrate(float pos[3], float radius, int iterations,
     const CameraBlockerFilter blockers(impl_->probe, solidProps ? kSolidProps : maxPushMass_,
                                       ScriptBodyExists(ignoreSlot)
                                           ? impl_->scriptBodies[ignoreSlot].body
-                                          : JPH::BodyID());
+                                          : JPH::BodyID(),
+                                      impl_->pawnProbe);
 
     int resolved = 0;
     for (int pass = 0; pass < iterations; ++pass) {
@@ -1775,7 +1996,7 @@ void PhysicsWorld::SlideSphere(float pos[3], const float delta[3], float radius,
     const JPH::SphereShape sphere(radius);
     sphere.SetEmbedded();
     const CameraBlockerFilter blockers(impl_->probe, solidProps ? kSolidProps : maxPushMass_,
-                                      self);
+                                      self, impl_->pawnProbe);
 
     // Keeps the sphere just clear of the surface so the next cast starts
     // outside it. The original calls the same idea PhantomTolerance.

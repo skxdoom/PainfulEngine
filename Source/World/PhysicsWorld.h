@@ -186,6 +186,13 @@ public:
     void SetRagdollDamping(int slot, float linear, float angular);
     void SetRagdollFriction(int slot, float friction);
     void SetRagdollMass(int slot, float mass);
+    // A rigid spin of the whole corpse about Y through its centre of mass:
+    // each limb gets the angular velocity AND the linear velocity that
+    // rotating about the centre implies, or the limbs just spin in place.
+    void SetRagdollSpin(int slot, float yawRate);
+    // ENTITY.PO_ScaleInertiaTensor - s_Physics.InertiaTensorMultiplier, 0.1 on
+    // every monster that declares one, applied 15 ticks after death.
+    void ScaleRagdollInertia(int slot, float k);
     // ENTITY.PO_Hit on a corpse, and RagdollSelfExplosion: an impulse at a
     // world point, applied to whichever limb is nearest it.
     void AddRagdollImpulse(int slot, const float at[3], const float impulse[3]);
@@ -258,6 +265,21 @@ public:
     // between.
     void MoveProbe(const float pos[3], bool push);
 
+    // The PLAYER's own pusher body, distinct from the camera's.
+    //
+    // SlideSphere is a query and a query touches nothing, so the pawn walks
+    // through corpses and loose props without either noticing. The camera has
+    // had a kinematic body for exactly this reason since the free-camera work;
+    // the player needs its own because the camera's is deliberately three
+    // times fatter (1.2 against the player's 0.4) and only exists while the
+    // free camera is flying.
+    //
+    // Radius comes from the recovered player shape: EngineGame::CreatePlayer
+    // asks for BodyTypes.Player at bodyScale 1.0 and the sizer builds four
+    // spheres of which the widest is 0.4.
+    void SetPawnProbeRadius(float radius);
+    void MovePawnProbe(const float pos[3], bool push);
+
     // Where the simulation has put the props. With activeOnly (the default)
     // only bodies that are awake are reported, so a settled level costs
     // nothing per frame.
@@ -298,6 +320,7 @@ private:
     void LoadProps(const Level& level, TemplateCache& templates, const std::string& dataRoot);
     // (Re)builds the camera's kinematic body at the current radius.
     void CreateProbe();
+    void CreatePawnProbe();
     // The collidable map geometry as one static body; shared by Load and
     // LoadWorldMesh.
     bool BuildStaticWorld(const MapMesh& map, float worldScale);

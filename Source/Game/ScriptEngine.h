@@ -253,6 +253,19 @@ public:
         // creates it; while it exists the SOLVER owns the pose and the
         // animation does not, which is what PosedBones checks.
         int ragdollSlot = -1;
+
+    // The death spin, and the shot that caused it.
+    //
+    // A killing shot lands BEFORE the ragdoll exists: the shotgun fires its
+    // pellets, calls PO_AccumulateRotation for each and PO_Hit for the lethal
+    // one, and only afterwards does OnDamage reduce health to zero and create
+    // the ragdoll. So the momentum has to be held on the entity and spent when
+    // the ragdoll appears - which is exactly what the engine does, spending it
+    // in Ragdoll::Activate via PhysicsObject::EffectRotateActor.
+    float deathSpin = 0.f;              // PhysicsObject+0x40, yaw about Y
+    float deathImpulse[3] = {0, 0, 0};  // the linear part, from PO_Hit
+    float deathImpulseAt[3] = {0, 0, 0};
+    bool hasDeathImpulse = false;
         // Model-space bone matrices read back from the solver. Full length -
         // the ragdoll only names a dozen or so bones and the rest have to
         // follow their nearest driven ancestor or the corpse loses its hands.
@@ -628,6 +641,9 @@ private:
     // MDL.JointsLinked(e, a, b) -> are these two joints connected through the
     // ragdoll? MDL.EnableJoint(e, joint, on) takes one out of it.
     static int L_MDL_JointsLinked(lua_State* L);
+    static int L_MDL_ApplyPointImpulseToRagdoll(lua_State* L);
+    static int L_PO_ScaleInertiaTensor(lua_State* L);
+    static int L_PO_AccumulateRotation(lua_State* L);
     // MDL.EnableRagdoll(e, on, group) - hand the actor to the solver, or take
     // it back. This is what death is.
     bool EnableRagdoll(Entity& e, bool enable);
@@ -836,6 +852,9 @@ private:
     // entry too - a miss is an answer, not something to retry every frame.
     std::unordered_map<std::string, Hke> ragdolls_;
     std::unordered_map<std::string, std::vector<Mat4>> ragdollOffsets_;
+    // Per model, which ragdoll parts the constraint graph does NOT hold - the
+    // weapons. Parallel to the part order, so it shares RagdollOffsets' cache.
+    std::unordered_map<std::string, std::vector<char>> ragdollFree_;
     // Limb body handles, dense and permanent for the life of the process. A
     // handle is kLimbHandleBase + index, which cannot be mistaken for a script
     // body slot (small and positive) or for the world (-1).

@@ -183,6 +183,9 @@ static int RunCmd(const char* levelDir, const char* dataRoot,
     CollisionMesh collision;
     PhysicsWorld physics;
     physics.SetProbeRadius(kCameraRadius);
+    // The player's own pusher: the widest of the four spheres the shape factory
+    // builds for BodyTypes.Player at bodyScale 1.0 (Engine.dll 0x101b3e20).
+    physics.SetPawnProbeRadius(0.4f);
     DebugLines debugLines;
     const bool debugLinesReady = debugLines.Init(shaderDir);
     std::vector<DebugLine> physicsWireframe;
@@ -645,6 +648,9 @@ static int LuaCmd(const char* dataRoot, int frames, const char* level,
     // drawing is missing.
     PhysicsWorld physics;
     physics.SetProbeRadius(kCameraRadius);
+    // The player's own pusher: the widest of the four spheres the shape factory
+    // builds for BodyTypes.Player at bodyScale 1.0 (Engine.dll 0x101b3e20).
+    physics.SetPawnProbeRadius(0.4f);
     PlayerPawn pawn;
     Input input;
     ScriptEngine engine;
@@ -680,6 +686,16 @@ static int LuaCmd(const char* dataRoot, int frames, const char* level,
             physics.Update(1.f / 60.f);
             engine.SyncFromPhysics();
             engine.TickRagdolls();
+            // The player's pusher follows its centre. SlideSphere is a query
+            // and touches nothing, so without a body the pawn walks through
+            // corpses and loose props without either noticing.
+            {
+                float centre[3];
+                const float* h = pawn.headPos();
+                for (int c = 0; c < 3; ++c) centre[c] = h[c];
+                centre[1] -= 0.9f;      // head is centre + 0.9, per GetPawnHeadPos
+                physics.MovePawnProbe(centre, true);
+            }
             engine.TickTriggers();
             engine.TickLifetimes(1.f / 60.f);
         }
@@ -766,6 +782,9 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     // renderer, as they happen.
     PhysicsWorld physics;
     physics.SetProbeRadius(kCameraRadius);
+    // The player's own pusher: the widest of the four spheres the shape factory
+    // builds for BodyTypes.Player at bodyScale 1.0 (Engine.dll 0x101b3e20).
+    physics.SetPawnProbeRadius(0.4f);
     PlayerPawn pawn;
     Input input;
     LuaHost host;
@@ -1150,6 +1169,16 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
             // the scripts accumulated from MOUSE.GetDelta.
             if (scriptView) engine.TakeCameraPose(camera.pos, camera.yaw, camera.pitch);
             host.CallGlobal("Game_Tick3", d, 1);
+            // The player's pusher follows its centre. SlideSphere is a query
+            // and touches nothing, so without a body the pawn walks through
+            // corpses and loose props without either noticing.
+            {
+                float centre[3];
+                const float* h = pawn.headPos();
+                for (int c = 0; c < 3; ++c) centre[c] = h[c];
+                centre[1] -= 0.9f;      // head is centre + 0.9, per GetPawnHeadPos
+                physics.MovePawnProbe(centre, true);
+            }
             // Region transitions feed the message pump the way the engine's
             // phantoms do.
             engine.TickTriggers();
@@ -1820,6 +1849,9 @@ static int PhysicsCmd(const char* levelDir, const char* dataRoot) {
     // exactly where the camera does - so every probe below has to be run with
     // it present or it is not testing what the engine does.
     physics.SetProbeRadius(kCameraRadius);
+    // The player's own pusher: the widest of the four spheres the shape factory
+    // builds for BodyTypes.Player at bodyScale 1.0 (Engine.dll 0x101b3e20).
+    physics.SetPawnProbeRadius(0.4f);
 
     float spawn[3] = {level.info().startPos[0], level.info().startPos[1],
                       level.info().startPos[2]};
@@ -3234,6 +3266,36 @@ static int RagdollCmd(const char* path, const char* modelsRoot) {
                     c.planeMin * 180.f / 3.14159265f, c.planeMax * 180.f / 3.14159265f,
                     c.breakable ? "  BREAKABLE" : "");
         }
+    }
+
+    // Do the constraint anchors coincide at the pose the file was AUTHORED in?
+    // Each two-bodied constraint names a point in each body; if those two do
+    // not land on the same spot at rest, the ragdoll is torn before anything
+    // has touched it, and every joint inherits that error.
+    {
+        float worst = 0.f;
+        std::string worstPair;
+        size_t checked = 0;
+        for (const HkeConstraint& c : hke.constraints) {
+            if (c.worldSpace) continue;
+            const HkeBody* ba = hke.Body(c.bodyA);
+            const HkeBody* bb = hke.Body(c.bodyB);
+            if (ba == nullptr || bb == nullptr) continue;
+            const float* la = (c.kind == HkeConstraint::kHinge) ? c.hingePosA : c.csToRef[3];
+            const float* lb = (c.kind == HkeConstraint::kHinge) ? c.hingePosB : c.csToAtt[3];
+            Mat4 ra, rb;
+            ba->RestMatrix(ra.m);
+            bb->RestMatrix(rb.m);
+            float wa[3], wb[3];
+            ra.TransformPoint(la[0], la[1], la[2], wa);
+            rb.TransformPoint(lb[0], lb[1], lb[2], wb);
+            float d2 = 0.f;
+            for (int k = 0; k < 3; ++k) d2 += (wa[k] - wb[k]) * (wa[k] - wb[k]);
+            ++checked;
+            if (std::sqrt(d2) > worst) { worst = std::sqrt(d2); worstPair = c.bodyA + "->" + c.bodyB; }
+        }
+        LogInfo("  anchor gap at the authored rest pose: worst %.4f model units over %zu "
+                "constraints (%s)", worst, checked, worstPair.c_str());
     }
 
     // Which limbs are NOT part of the body - the answer Ragdoll::Joint_AreLinked

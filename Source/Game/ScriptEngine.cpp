@@ -298,10 +298,118 @@ static void ApplyHitImpulse(lua_State* L, PhysicsWorld* physics, int slot) {
     physics->AddScriptBodyImpulse(slot, at, impulse);
 }
 
+// The magnitude window PO_Hit drops an impulse outside (Engine.dll 0x101337a0,
+// the doubles at 0x102c02d0 and 0x102c5688).
+constexpr float kMinHitImpulse = 0.01f;
+constexpr float kMaxHitImpulse = 10000.f;
+
+// PhysicsObject::AddRotateActor's accumulation scale (_DAT_102c8528), and what
+// EffectRotateActor does with the result: below kSpinKick it has a one-in-eight
+// chance of being multiplied UP to it, and it is then clamped to +/-50 rad/s
+// (0x42480000 / 0xc2480000, against _DAT_102af16c = 10).
+constexpr float kSpinPerImpulse = 0.03f;
+constexpr float kSpinKick = 10.f;
+constexpr float kSpinClamp = 50.f;
+
+
+// ENTITY.PO_Hit(e, x,y,z, ix,iy,iz) - an impulse at a world point.
+//
+// A CORPSE IS HIT ON ITS RAGDOLL, NOT ON ITS PHYSICS OBJECT. CActor disables
+// the physics object the moment it dies (EnableRagdoll(true, DISABLE_PO)), so
+// routing every PO_Hit at the movement body means a shot into a body does
+// nothing at all - which is what "the corpses feel too heavy" actually is.
+//
+// The magnitude gate is the engine's own (0x101337a0): it drops the call
+// unless |impulse| is between 0.01 and 10000, read off the two doubles at
+// 0x102c02d0 and 0x102c5688. The weapons sit inside it by design - Shotgun
+// throws 200 (and 100 up), MiniGun 1400, DriverElectro 80.
 int ScriptEngine::L_PO_Hit(lua_State* L) {
     ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e) return 0;
+    const float at[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+                         float(luaL_optnumber(L, 4, 0))};
+    const float imp[3] = {float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
+                          float(luaL_optnumber(L, 7, 0))};
+    const float mag = std::sqrt(imp[0]*imp[0] + imp[1]*imp[1] + imp[2]*imp[2]);
+    if (!(mag > kMinHitImpulse && mag < kMaxHitImpulse)) return 0;
+
+    if (e->ragdollSlot >= 0 && self->physics_) {
+        self->physics_->AddRagdollImpulse(e->ragdollSlot, at, imp);
+        return 0;
+    }
+    // NOT YET DEAD, BUT ABOUT TO BE. The lethal pellet's PO_Hit arrives before
+    // OnDamage has run, so there is no ragdoll to give it to yet - bank it and
+    // spend it in EnableRagdoll. A monster that survives never activates one,
+    // and the banked impulse is simply overwritten by the next hit.
+    if (e->isMonster) {
+        for (int c = 0; c < 3; ++c) {
+            e->deathImpulse[c] = imp[c];
+            e->deathImpulseAt[c] = at[c];
+        }
+        e->hasDeathImpulse = true;
+        return 0;
+    }
+    ApplyHitImpulse(L, self->physics_, e->physicsBody);
+    return 0;
+}
+
+// ENTITY.PO_AccumulateRotation(e, x,y,z, ix,iy,iz) - the spin a shot puts on a
+// body it has not killed yet.
+//
+// THIS IS WHERE A DEATH GETS ITS IMPACT. The shotgun calls it for EVERY pellet
+// before any of them has killed anything: OnDamage runs afterwards, on the
+// accumulated damage, and only then is the ragdoll created. So the momentum
+// cannot be applied when it arrives - it has to be held and spent the moment
+// the corpse exists, which is what PhysicsObject::AddRotateActor (0x18bff0)
+// and EffectRotateActor (0x1893e0) do between them.
+//
+// AddRotateActor accumulates one float, the Y component of the cross product
+// of the offset and the impulse, times 0.03 (_DAT_102c8528):
+//
+//     spin += ((pz - bz) * ix - iz * (px - bx)) * 0.03
+//
+// Same magnitude gate as PO_Hit.
+int ScriptEngine::L_PO_AccumulateRotation(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e) return 0;
+    const float at[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+                         float(luaL_optnumber(L, 4, 0))};
+    const float imp[3] = {float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
+                          float(luaL_optnumber(L, 7, 0))};
+    const float mag = std::sqrt(imp[0]*imp[0] + imp[1]*imp[1] + imp[2]*imp[2]);
+    if (!(mag > kMinHitImpulse && mag < kMaxHitImpulse)) return 0;
+    e->deathSpin += ((at[2] - e->pos[2]) * imp[0] - imp[2] * (at[0] - e->pos[0])) * kSpinPerImpulse;
+    return 0;
+}
+
+// MDL.ApplyPointImpulseToRagdoll(e, x,y,z, ix,iy,iz) - the same thing said
+// directly, which is what CAction:Action_ImpulseToRagdoll uses to throw a body
+// from an animation. No magnitude gate on this one; the engine's version
+// (0x1012b8c0) has none either.
+int ScriptEngine::L_MDL_ApplyPointImpulseToRagdoll(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e || e->ragdollSlot < 0 || !self->physics_) return 0;
+    const float at[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+                         float(luaL_optnumber(L, 4, 0))};
+    const float imp[3] = {float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
+                          float(luaL_optnumber(L, 7, 0))};
+    self->physics_->AddRagdollImpulse(e->ragdollSlot, at, imp);
+    return 0;
+}
+
+// ENTITY.PO_ScaleInertiaTensor - s_Physics.InertiaTensorMultiplier, which is
+// 0.1 on every monster that declares one. CActor applies it 15 ticks AFTER
+// death (_inertiaTensorDelayedEnable), once the ragdoll has settled into the
+// solver. A tenth of the inertia is a body that tumbles instead of toppling.
+int ScriptEngine::L_PO_ScaleInertiaTensor(lua_State* L) {
+    ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
-    if (e) ApplyHitImpulse(L, self->physics_, e->physicsBody);
+    if (e && e->ragdollSlot >= 0 && self->physics_)
+        self->physics_->ScaleRagdollInertia(e->ragdollSlot,
+                                            float(luaL_optnumber(L, 2, 1.0)));
     return 0;
 }
 
@@ -1583,12 +1691,20 @@ int ScriptEngine::L_PO_GetMaxSphereRay(lua_State* L) {
     return 1;
 }
 
+// ENTITY.PO_SetMass. On an actor with a ragdoll this is the RAGDOLL's mass -
+// CActor:EnableRagdoll sets it immediately after activating one, with the
+// comment "dopiero po aktywacji moge pobrac i zmienic mase ragdolla" (only
+// after activation can I get and change the ragdoll's mass). The values are
+// whole-body: zombie 150, nun 120, up to 400, against the .hke's per-limb
+// masses which total far less. That total is what the weapons' impulses are
+// calibrated against.
 int ScriptEngine::L_PO_SetMass(lua_State* L) {
     ScriptEngine* self = From(L);
-    if (const Entity* e = self->Find(HandleArg(L, 1)))
-        if (self->physics_ && e->physicsBody >= 0)
-            self->physics_->SetScriptBodyMass(e->physicsBody,
-                                              float(luaL_optnumber(L, 2, 0)));
+    const Entity* e = self->Find(HandleArg(L, 1));
+    if (!e || !self->physics_) return 0;
+    const float mass = float(luaL_optnumber(L, 2, 0));
+    if (e->ragdollSlot >= 0) self->physics_->SetRagdollMass(e->ragdollSlot, mass);
+    else if (e->physicsBody >= 0) self->physics_->SetScriptBodyMass(e->physicsBody, mass);
     return 0;
 }
 
@@ -4537,6 +4653,25 @@ const std::vector<Mat4>& ScriptEngine::RagdollOffsets(const std::string& model,
         body->RestMatrix(rest.m);
         out[p] = Mat4::Mul(rest, Mat4::InvertAffine(skel.bindWorld[size_t(bone)]));
     }
+
+    // WHICH LIMBS ARE NOT PART OF THE BODY - the weapons.
+    //
+    // The .hke gives a monster's weapon a rigid body with no constraint
+    // attaching it to anything: evilmonkv2's axeL and axeR, zombie's joint1,
+    // 213 such bodies across 99 models. On activation they are free bodies and
+    // they fall away, which is the original dropping whatever the monster was
+    // carrying. So they must NOT be re-anchored to the parent chain the way a
+    // real limb is: an axe that has left the hand has no bone length left to
+    // preserve, and pinning it to the wrist welds the mesh back on while the
+    // collision shape sails off on its own.
+    std::vector<char>& freeParts = ragdollFree_[model];
+    freeParts.assign(parts.size(), 0);
+    std::string root;
+    for (const std::string& name : parts)
+        if (name == "root" || name == "ROOOT") { root = name; break; }
+    if (root.empty() && !parts.empty()) root = parts.front();
+    for (size_t p = 0; p < parts.size(); ++p)
+        freeParts[p] = def.Linked(parts[p], root) ? 0 : 1;
     return out;
 }
 
@@ -4590,7 +4725,88 @@ bool ScriptEngine::EnableRagdoll(Entity& e, bool enable) {
     }
     physics_->SetRagdollPose(slot, pose.data(), /*kinematic=*/false);
 
+    // Does the solver hold what it was handed? Straight back out again, with
+    // no step in between, so a seed that does not round-trip is separated from
+    // a simulation that drifts.
+    if (getenv("PAINFUL_RAGDOLL_DEBUG")) {
+        std::vector<float> back(parts.size() * 16, 0.f);
+        if (physics_->GetRagdollPose(slot, back.data())) {
+            float worst = 0.f;
+            std::string worstName;
+            for (size_t p = 0; p < parts.size(); ++p) {
+                float d2 = 0.f;
+                for (int c = 0; c < 3; ++c) {
+                    const float k = back[p * 16 + 12 + c] - pose[p * 16 + 12 + c];
+                    d2 += k * k;
+                }
+                if (std::sqrt(d2) > worst) { worst = std::sqrt(d2); worstName = parts[p]; }
+            }
+            LogInfo("rdseed %s round-trip worst %.4f (%s)", e.source.c_str(), worst,
+                    worstName.c_str());
+
+            // ARE THE CONSTRAINTS ALREADY TORN? Each one joins an anchor in one
+            // body to an anchor in the other, and the two coincide only if the
+            // bodies are in the relative configuration the file was authored
+            // in. Placing them from an ANIMATION pose does not guarantee that -
+            // and every unit of gap here is error the solver has to eat on the
+            // first step, which is what a corpse snapping instead of slumping
+            // looks like.
+            const auto partIndex = [&](const std::string& name) {
+                for (size_t i = 0; i < parts.size(); ++i)
+                    if (parts[i] == name) return int(i);
+                return -1;
+            };
+            const auto anchorWorld = [&](int p, const float local[3], float out[3]) {
+                const float* m = &pose[size_t(p) * 16];
+                for (int c = 0; c < 3; ++c)
+                    out[c] = m[12 + c] + e.scale * (local[0] * m[0 + c] + local[1] * m[4 + c] +
+                                                    local[2] * m[8 + c]);
+            };
+            float worstGap = 0.f;
+            std::string worstPair;
+            for (const HkeConstraint& c : def->constraints) {
+                if (c.worldSpace) continue;         // stated in world terms, no pair to compare
+                const int pa = partIndex(c.bodyA), pb = partIndex(c.bodyB);
+                if (pa < 0 || pb < 0) continue;
+                const float* la = (c.kind == HkeConstraint::kHinge) ? c.hingePosA : c.csToRef[3];
+                const float* lb = (c.kind == HkeConstraint::kHinge) ? c.hingePosB : c.csToAtt[3];
+                float wa[3], wb[3];
+                anchorWorld(pa, la, wa);
+                anchorWorld(pb, lb, wb);
+                float d2 = 0.f;
+                for (int k = 0; k < 3; ++k) d2 += (wa[k] - wb[k]) * (wa[k] - wb[k]);
+                if (std::sqrt(d2) > worstGap) {
+                    worstGap = std::sqrt(d2);
+                    worstPair = c.bodyA + "->" + c.bodyB;
+                }
+            }
+            LogInfo("rdseed %s worst anchor gap at activation %.3f (%s)", e.source.c_str(),
+                    worstGap, worstPair.c_str());
+        }
+    }
     e.ragdollSlot = slot;
+
+    // SPEND WHAT THE KILLING SHOT PUT ON IT. Ragdoll::Activate does this first
+    // thing, by calling PhysicsObject::EffectRotateActor - the spin the pellets
+    // accumulated while the monster was still alive becomes the corpse's
+    // angular velocity the instant it becomes a corpse. Without it a body that
+    // was shot apart at point blank slumps exactly like one that died of old
+    // age, which is the whole difference the impact makes.
+    //
+    // EffectRotateActor's rule, verbatim: under 10 rad/s there is a one-in-
+    // eight chance of being multiplied up to it, and the result is clamped to
+    // +/-50.
+    float spin = e.deathSpin;
+    if (std::fabs(spin) < kSpinKick && (std::rand() & 7) == 0) spin *= kSpinKick;
+    spin = std::max(-kSpinClamp, std::min(kSpinClamp, spin));
+    if (spin != 0.f) physics_->SetRagdollSpin(slot, spin);
+    // ...and the linear half, from the PO_Hit that arrived before there was a
+    // ragdoll to give it to.
+    if (e.hasDeathImpulse)
+        physics_->AddRagdollImpulse(slot, e.deathImpulseAt, e.deathImpulse);
+    e.deathSpin = 0.f;
+    e.hasDeathImpulse = false;
+
     e.ragdollPose.assign(skel->bones.size(), Mat4());
     LogInfo("ragdoll on: %s (%s, %zu parts)", e.name.c_str(), e.source.c_str(), parts.size());
     return true;
@@ -4618,6 +4834,24 @@ void ScriptEngine::TickRagdolls() {
         const std::vector<Mat4>& offsets = RagdollOffsets(e.source, parts, *def, *skel);
         std::vector<float> got(parts.size() * 16, 0.f);
         if (!physics_->GetRagdollPose(e.ragdollSlot, got.data())) continue;
+
+        // PAINFUL_RAGDOLL_DEBUG: the part positions in WORLD space, straight
+        // out of the solver. Everything the scripts can see goes through the
+        // entity transform, so a ragdoll falling rigidly and a ragdoll whose
+        // pose is not being updated at all look identical from Lua.
+        static const bool kDebug = getenv("PAINFUL_RAGDOLL_DEBUG") != nullptr;
+        if (kDebug) {
+            float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+            for (size_t p = 0; p < parts.size(); ++p)
+                for (int c = 0; c < 3; ++c) {
+                    const float v = got[p * 16 + 12 + c];
+                    lo[c] = std::min(lo[c], v);
+                    hi[c] = std::max(hi[c], v);
+                }
+            LogInfo("rdbg %s parts=%zu world extent %.2f x %.2f x %.2f  lo.y %.2f  p0 %.2f %.2f %.2f",
+                    e.name.c_str(), parts.size(), hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2],
+                    lo[1], got[12], got[13], got[14]);
+        }
 
         // THE ENTITY FOLLOWS ITS OWN CORPSE. The solver moves the body across
         // the floor; leaving the entity where it died would leave every
@@ -4647,34 +4881,167 @@ void ScriptEngine::TickRagdolls() {
             e.ragdollPose.assign(skel->bones.size(), Mat4());
 
         std::vector<bool> driven(skel->bones.size(), false);
+        // Bones whose body is not held by any constraint - see ragdollFree_.
+        std::vector<bool> loose(skel->bones.size(), false);
+        const std::vector<char>& freeParts = ragdollFree_[e.source];
         for (size_t p = 0; p < parts.size(); ++p)
             for (size_t b = 0; b < skel->bones.size(); ++b)
                 if (skel->bones[b].name == parts[p]) {
                     Mat4 w;
                     for (int i = 0; i < 16; ++i) w.m[i] = got[p * 16 + i];
-                    // Undo the body's own offset from its bone, then the
-                    // entity transform: Off * M * E is what put it there.
-                    e.ragdollPose[b] = Mat4::Mul(Mat4::InvertAffine(offsets[p]),
-                                                 Mat4::Mul(w, toModel));
+                    // MAKE IT RIGID BEFORE UNDOING THE OFFSET, not after.
+                    //
+                    // E carries the entity's scale, so W * E^-1 comes back
+                    // with a basis 1/scale long - about 8x. Composing Off^-1
+                    // onto that multiplies ITS translation by the same 8x, and
+                    // the offset is a limb length, so every bone lands metres
+                    // from its own body: measured, the root bone 1.3 below its
+                    // pelvis and the hips 2.5 ABOVE the neck.
+                    Mat4 partModel = Mat4::Mul(w, toModel);
+                    MakeRigid(partModel);
+                    e.ragdollPose[b] = Mat4::Mul(Mat4::InvertAffine(offsets[p]), partModel);
                     MakeRigid(e.ragdollPose[b]);
+                    driven[b] = true;
+                    // A limb the constraint graph does not hold is a dropped
+                    // weapon, not a bone: it keeps whatever its own body did.
+                    if (p < freeParts.size() && freeParts[p]) loose[b] = true;
                     break;
                 }
 
-        // BuildHierarchy leaves parents before children, so one pass is enough.
+        // Bones the ragdoll does not drive have to follow the ones it does,
+        // and they can sit on EITHER SIDE of it in the hierarchy.
+        //
+        // Below is the obvious case - hands, fingers, hair - and they chain
+        // down from their parent. ABOVE is the one that bites: the zombie's
+        // ragdoll starts at k_sub_root, so its `root` bone is an ANCESTOR of
+        // every driven bone and has no driven parent to inherit from. Left on
+        // its bind transform it stays at standing height above an entity now
+        // lying on the floor, which measured as a root bone 1.5 units above
+        // its own corpse.
+        //
+        // So resolve upward first, from any bone to its parent, walking from
+        // the leaves; then downward for everything still unresolved. A bone's
+        // rest transform relative to its parent is bindWorld[b] *
+        // inverse(bindWorld[parent]), and it inverts cleanly either way.
+        const auto restLocal = [&](size_t b, size_t par) {
+            return Mat4::Mul(skel->bindWorld[b], Mat4::InvertAffine(skel->bindWorld[par]));
+        };
+        for (size_t i = skel->bones.size(); i-- > 0;) {
+            if (!driven[i] || loose[i]) continue;   // a dropped weapon drags nothing
+            const int par = skel->bones[i].parent;
+            if (par < 0 || size_t(par) >= i || driven[size_t(par)]) continue;
+            e.ragdollPose[size_t(par)] =
+                Mat4::Mul(Mat4::InvertAffine(restLocal(i, size_t(par))), e.ragdollPose[i]);
+            driven[size_t(par)] = true;
+        }
+        // ONE DOWNWARD PASS FIXES EVERY POSITION FROM ITS PARENT.
+        //
+        // BONE LENGTHS ARE FIXED; ONLY ROTATIONS ARE NOT. Taking each bone's
+        // position from its own body lets the solver's residual constraint
+        // error - a few millimetres per joint, which is normal and which Jolt
+        // never drives to zero - land in the skin. The mesh is weighted across
+        // neighbouring bones, so two origins drifting apart stretch every
+        // vertex between them and a forearm ends up visibly longer than it was
+        // modelled. Measured before this: 13% on k_zebra -> k_szyja.
+        //
+        // It has to be EVERY bone, not just the driven ones. k_szyja's parent
+        // is k_ramiona, which the ragdoll does not drive, so a pass that only
+        // relates driven bones to driven parents skips exactly the joints that
+        // stretch most.
+        //
+        // So: keep the rotation each body computed, take the position from the
+        // parent chain using the bone's own bind offset, and give undriven
+        // bones their whole transform from the chain. BuildHierarchy leaves
+        // parents before children, so one pass in order is enough. The topmost
+        // resolved bone keeps the position its body reported, and the rest of
+        // the skeleton hangs off it at exactly its modelled proportions.
         for (size_t b = 0; b < skel->bones.size(); ++b) {
+            // A dropped weapon keeps its own body's place. It is no longer
+            // attached to anything, so there is no bone length to preserve and
+            // re-anchoring it to the wrist is what welded the axe back on
+            // while its collision shape sailed away on its own.
+            if (loose[b]) continue;
+            // A DRIVEN BONE KEEPS ITS BODY'S POSITION. This pass used to
+            // override it from the parent chain to stop the skin stretching -
+            // but the stretch was a bug in the hinge anchors (see
+            // BuildConstraint), not something inherent. With those correct the
+            // constraints hold their joints to 1-4% of a bone length, so
+            // re-anchoring buys nothing and costs everything: it is what made
+            // the collision hulls visibly lag the mesh they belong to.
+            //
+            // Undriven bones still chain, because nothing else places them.
             if (driven[b]) continue;
             const int par = skel->bones[b].parent;
             if (par < 0 || size_t(par) >= b) {
-                e.ragdollPose[b] = skel->bindWorld[b];
+                if (!driven[b]) e.ragdollPose[b] = skel->bindWorld[b];
                 continue;
             }
-            // bindWorld[b] * inverse(bindWorld[parent]) is the bone's rest
-            // transform relative to its parent; applying it to the parent's
-            // NEW matrix carries the bone along with whatever moved it.
-            const Mat4 local = Mat4::Mul(skel->bindWorld[b],
-                                         Mat4::InvertAffine(skel->bindWorld[size_t(par)]));
-            e.ragdollPose[b] = Mat4::Mul(local, e.ragdollPose[size_t(par)]);
+            const Mat4 rest = restLocal(b, size_t(par));
+            const Mat4& parent = e.ragdollPose[size_t(par)];
+            if (!driven[b]) e.ragdollPose[b] = Mat4::Mul(rest, parent);
+            Mat4& me = e.ragdollPose[b];
+            for (int c = 0; c < 3; ++c)
+                me.m[12 + c] = parent.m[12 + c] +
+                               rest.m[12] * parent.m[0 + c] +
+                               rest.m[13] * parent.m[4 + c] +
+                               rest.m[14] * parent.m[8 + c];
+            driven[b] = true;
         }
+
+        // AND PUSH IT TO THE RENDERER HERE, because nothing else will.
+        //
+        // TickAnimations is what normally hands a pose to the renderer, and it
+        // returns early for any entity with no animation running:
+        //
+        //     if (e.animIndex < 0 || e.animScale <= 0.f) continue;
+        //
+        // A dead actor is exactly that. CActor:Stop() is the line before
+        // EnableRagdoll, and CActor sets _CurAnimLength to 99999 so the clock
+        // never advances again. So the bodies simulate underneath a mesh still
+        // frozen in the frame it died on - which is the one thing a ragdoll
+        // must not look like, and it looks like nothing is happening at all.
+        // PAINFUL_RAGDOLL_DEBUG: how far each body is from the bone it drives.
+        //
+        // The bone-length pass takes a bone's ROTATION from its body but its
+        // POSITION from the parent chain, so the two are allowed to disagree by
+        // whatever the solver left unresolved. A small residual is normal and
+        // is exactly what that pass exists to keep out of the skin; a large one
+        // means the constraints are not actually holding and the ragdoll only
+        // looks connected because the skeleton is forcing it to.
+        if (kDebug) {
+            float worst = 0.f, sum = 0.f;
+            size_t counted = 0;
+            std::string worstName;
+            for (size_t p = 0; p < parts.size(); ++p) {
+                int bone = -1;
+                for (size_t b = 0; b < skel->bones.size(); ++b)
+                    if (skel->bones[b].name == parts[p]) { bone = int(b); break; }
+                if (bone < 0) continue;
+                // Where the bone says the body should be: Off * M * E.
+                const Mat4 want = Mat4::Mul(Mat4::Mul(offsets[p], e.ragdollPose[size_t(bone)]),
+                                            world);
+                float d2 = 0.f;
+                for (int c = 0; c < 3; ++c) {
+                    const float k = want.m[12 + c] - got[p * 16 + 12 + c];
+                    d2 += k * k;
+                }
+                const float d = std::sqrt(d2);
+                sum += d;
+                ++counted;
+                if (d > worst) { worst = d; worstName = parts[p]; }
+            }
+            if (counted)
+                LogInfo("rdsync %s  mean %.3f  worst %.3f (%s)", e.name.c_str(),
+                        sum / float(counted), worst, worstName.c_str());
+        }
+
+        SyncPose(e);
+        if (renderer_ && e.rendererInstance >= 0) {
+            BoneWorldToSkinning(skel->inverseBind, e.ragdollPose, skinScratch_);
+            renderer_->SetScriptSkinning(e.rendererInstance, skinScratch_.data(),
+                                         skinScratch_.size());
+        }
+
     }
 }
 
@@ -5303,8 +5670,6 @@ void ScriptEngine::TickProjectiles(float dt) {
 
 // R3D.DrawSprite(x, y, z, size, rot, colour, texture)
 //
-// One camera-facing sprite, this frame only. This is the MUZZLE FLASH: the
-// MuzzleFlash CProcess in CWeapon.lua lives 0.14s and calls this from Render
 // every frame, picking a random texture ("Items/1".."Items/3") and a random
 // angle each time. It is also how the item glows are drawn.
 //
@@ -5455,6 +5820,9 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"PHYSICS", "GetHavokBodyInfo", L_PHYSICS_GetHavokBodyInfo},
         {"MDL", "GetJointFromHavokBody", L_MDL_GetJointFromHavokBody},
         {"MDL", "JointsLinked", L_MDL_JointsLinked},
+        {"MDL", "ApplyPointImpulseToRagdoll", L_MDL_ApplyPointImpulseToRagdoll},
+        {"ENTITY", "PO_ScaleInertiaTensor", L_PO_ScaleInertiaTensor},
+        {"ENTITY", "PO_AccumulateRotation", L_PO_AccumulateRotation},
         {"MDL", "EnableRagdoll", L_MDL_EnableRagdoll},
         {"MDL", "IsRagdoll", L_MDL_IsRagdoll},
         {"MDL", "IsRagdollActive", L_MDL_IsRagdollActive},
