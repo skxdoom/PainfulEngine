@@ -12,8 +12,11 @@
 #include <Jolt/Physics/Collision/CollideShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
+#include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/ScaledShape.h>
+#include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/Collision/TransformedShape.h>
@@ -512,7 +515,45 @@ static JPH::ShapeSettings::ShapeResult BuildScaledPropShape(MeshPoints& mesh,
                                                             int bodyType,
                                                             float finalScale) {
     JPH::ShapeSettings::ShapeResult shape;
-    if (bodyType == 4 || bodyType == 5 || bodyType == 7 || bodyType == 11) {
+    if (bodyType == 2) {
+        // BodyTypes.Fatter - what 66 of the 82 monsters that declare a body
+        // type use, against 16 on Sphere and one on FromRagdoll. Collapsing it
+        // into the sphere branch gave two thirds of the bestiary the wrong
+        // shape, and all of them the same one.
+        //
+        // In the original this is the MULTI-PART case. The sizer (0x101B3E20)
+        // builds a compound - FUN_10211640 is a refcounted container of child
+        // shapes - and then, for every body type EXCEPT 2, collapses it into a
+        // single derived convex shape via FUN_10211040. Fatter is the one that
+        // keeps its parts, which is what the name is saying.
+        //
+        // A capsule is the approximation, not a recovered shape: the child
+        // records are 32-byte pairs of vectors, which is the layout of a
+        // segment with a radius, but no shape-type constant has been read to
+        // confirm it. It is the right SHAPE for a walking character either way
+        // - shoulders and legs you can slide along rather than a ball that
+        // either blocks or does not.
+        //
+        // Radius is the SMALLER horizontal half-extent. The larger one is arms:
+        // evilmonkv2's widest axis is its outstretched arms, 14.4 model units
+        // against a body 2.9 deep, and sizing by that makes a monster wider
+        // than it is tall that can never reach a wall.
+        const float half[3] = {(mesh.hi[0] - mesh.lo[0]) * 0.5f,
+                               (mesh.hi[1] - mesh.lo[1]) * 0.5f,
+                               (mesh.hi[2] - mesh.lo[2]) * 0.5f};
+        const float radius = std::max(0.05f, std::min(half[0], half[2]));
+        // The cylinder is what is left of the height once the two hemispheres
+        // have taken their radius; a squat body degenerates to a sphere.
+        const float cylinder = std::max(0.f, half[1] - radius);
+        JPH::CapsuleShapeSettings capsule(cylinder, radius);
+        capsule.SetEmbedded();
+        shape = capsule.Create();
+        if (shape.HasError()) {
+            JPH::SphereShapeSettings sphere(std::max(0.05f, mesh.radius()));
+            sphere.SetEmbedded();
+            shape = sphere.Create();
+        }
+    } else if (bodyType == 4 || bodyType == 5 || bodyType == 7 || bodyType == 11) {
         Thin(mesh);
         // A hull needs four points and a real volume. Debris packs are full of
         // pieces that have neither: a barrel's lid measures 2.18 x 0.15 x 2.18
@@ -898,18 +939,46 @@ void PhysicsWorld::SetScriptBodyEnabled(int slot, bool enabled) {
         bodies.DeactivateBody(impl_->scriptBodies[slot].body);
 }
 
-void PhysicsWorld::SetScriptBodyKinematic(int slot, float radius) {
+void PhysicsWorld::SetScriptBodyKinematic(int slot, float k, float rootOffsetY) {
     if (!ScriptBodyExists(slot)) return;
     JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
     const JPH::BodyID id = impl_->scriptBodies[slot].body;
 
-    if (radius > 0.f && radius != impl_->scriptBodies[slot].radius) {
-        JPH::SphereShapeSettings sphere(radius);
-        sphere.SetEmbedded();
-        JPH::ShapeSettings::ShapeResult shape = sphere.Create();
+    if (k > 0.f && k != impl_->scriptBodies[slot].radius) {
+        // THREE STACKED SPHERES - which is what BodyTypes.Fatter is.
+        //
+        // The sizer's Fatter branch (0x101B3E20 case 2) builds twelve floats
+        // that group as three (0, y, 0, r) records and hands them to a
+        // three-element constructor. Wide low, wider at the middle, narrow at
+        // the head: a "fatter" body, and the reason walking into one feels
+        // like a capsule without being one.
+        //
+        //     y = -2.2k  r = 2.6k
+        //     y = +1.0k  r = 3.0k
+        //     y = +4.0k  r = 1.5k
+        //
+        // with k = scale * 0.2. The bottom of the first sphere is -4.8k, which
+        // is exactly the other constant the branch computes - the corroboration
+        // that these are spheres rather than something else read the same way.
+        struct Ball { float y, r; };
+        static const Ball kBalls[3] = {{-2.2f, 2.6f}, {1.0f, 3.0f}, {4.0f, 1.5f}};
+
+        JPH::StaticCompoundShapeSettings compound;
+        compound.SetEmbedded();
+        for (const Ball& ball : kBalls) {
+            JPH::SphereShapeSettings* sphere = new JPH::SphereShapeSettings(ball.r * k);
+            compound.AddShape(JPH::Vec3(0.f, ball.y * k + rootOffsetY, 0.f),
+                              JPH::Quat::sIdentity(), sphere);
+        }
+        JPH::ShapeSettings::ShapeResult shape = compound.Create();
+        if (shape.HasError()) {
+            JPH::SphereShapeSettings sphere(k * 3.f);
+            sphere.SetEmbedded();
+            shape = sphere.Create();
+        }
         if (!shape.HasError()) {
             bodies.SetShape(id, shape.Get(), true, JPH::EActivation::Activate);
-            impl_->scriptBodies[slot].radius = radius;
+            impl_->scriptBodies[slot].radius = k;
         }
     }
 
@@ -923,6 +992,23 @@ void PhysicsWorld::SetScriptBodyKinematic(int slot, float radius) {
 
 float PhysicsWorld::ScriptBodyRadius(int slot) const {
     return ScriptBodyExists(slot) ? impl_->scriptBodies[slot].radius : 0.f;
+}
+
+// Where Jolt actually put the body, in world space.
+//
+// The only way to settle a placement argument: what we asked for and what the
+// solver holds are different questions, and a shape that looks wrong on screen
+// could be either. This answers the second one directly.
+bool PhysicsWorld::ScriptBodyBounds(int slot, float lo[3], float hi[3]) const {
+    if (!ScriptBodyExists(slot)) return false;
+    const JPH::AABox box =
+        impl_->system.GetBodyInterface().GetTransformedShape(impl_->scriptBodies[slot].body)
+            .GetWorldSpaceBounds();
+    for (int c = 0; c < 3; ++c) {
+        lo[c] = box.mMin[c];
+        hi[c] = box.mMax[c];
+    }
+    return true;
 }
 
 void PhysicsWorld::RemoveScriptBody(int slot) {

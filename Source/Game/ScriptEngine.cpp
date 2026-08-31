@@ -492,6 +492,113 @@ float ScriptEngine::MonsterRadius(Entity& e, float* centreAboveOrigin) {
     return radius;
 }
 
+// The monster's BODY: a single full-height capsule, standing on its soles.
+//
+// Not the same question as MonsterRadius, which sizes the sphere TickMonsters
+// sweeps to move a monster through the world. This is what everything else
+// collides with - what you bump into, shove, and cannot stand inside - and it
+// wants to be the whole creature rather than a ball at hip height.
+//
+// Radius is the smaller horizontal half-extent, for the reason MonsterRadius
+// gives: the larger one is arms. The cylinder is whatever height is left once
+// the two hemispheres have taken their radius, so a squat creature degenerates
+// to a sphere on its own rather than by special case.
+bool ScriptEngine::MonsterBodyScale(Entity& e, float& k, float& rootOffsetY) {
+    // THE RIG SIZES THE BODY, NOT THE MESH BOUNDS.
+    //
+    // PhysicsWorld::CreatePhysicsObject (0x101999F0) looks up the joint named
+    // "ROOOT" and, when the model has one, sizes and places the shape from it
+    // alone:
+    //
+    //     param_5 = (root.y - entity.y) * 0.909090;   // 10/11
+    //     FUN_101b3e20(&local_78, param_5, bodyType, group);
+    //     local_78 = -root.x;  local_74 = -root.y;  local_70 = -root.z;
+    //
+    // One scalar out of the skeleton drives the whole shape, and the shape is
+    // then offset by the NEGATED root position. No mesh extents are consulted
+    // anywhere in that path - which is why sizing from them, as this used to,
+    // put the body in a different place on every rig depending on where its
+    // author had left the origin.
+    const SkeletonCache::Entry* skel = skeletons_.Get(e.source);
+    if (!skel || skel->bones.empty()) return false;
+
+    // THE HIP JOINT, WHATEVER THIS RIG CALLS IT.
+    //
+    // The engine looks up "ROOOT", and six of ten shipped rigs have exactly
+    // that. The other four spell the same joint differently and sit it at the
+    // same kind of height:
+    //
+    //     zombie      root      y = 8.59
+    //     vamp_small  root      y = 6.43
+    //     raven       root      y = 2.37   (under a big_root at the origin)
+    //
+    // So it is one joint under two names, not two different things - and
+    // matching only the first spelling left those rigs with no measure at all,
+    // which is why they were the ones still sunk through the floor. "ROOOT"
+    // wins where both exist; raven is why "root" is preferred over bone 0,
+    // whose big_root sits at the origin and measures nothing.
+    int root = -1;
+    for (const char* name : {"ROOOT", "root"}) {
+        for (size_t i = 0; i < skel->bones.size(); ++i)
+            if (EqualsCI(skel->bones[i].name, name)) { root = int(i); break; }
+        if (root >= 0) break;
+    }
+    if (root < 0 || size_t(root) >= skel->bindWorld.size()) return false;
+
+    // The root in MODEL space; the engine's (root.y - entity.y) is the same
+    // quantity once the entity's own scale is applied, since the root is
+    // measured from the entity's origin.
+    float rootPos[3];
+    skel->bindWorld[size_t(root)].TransformPoint(0.f, 0.f, 0.f, rootPos);
+
+    // ROOOT MARKS THE HIP, AND THE MEASURE IS ITS HEIGHT ABOVE THE SOLES.
+    //
+    // Read across the rigs, the joint's own translation is not comparable -
+    // banshee has it at 8.34 and evilmonkv2 at 0.00 - because the two put the
+    // model ORIGIN in different places: banshee's is at the feet, evilmonkv2's
+    // at mid-body. Subtract the model's lowest point and they agree:
+    //
+    //     banshee     8.34 - (-2.84) = 11.18
+    //     nun         8.12 - (-3.79) = 11.91
+    //     evilmonkv2  0.00 - (-12.80) = 12.80
+    //     DevilMonkv2 0.00 - (-12.85) = 12.85
+    //
+    // One number for a humanoid, whatever its author did with the origin. That
+    // is the quantity the engine's (root.y - entity.y) is after, and taking it
+    // from the origin instead gave 0 for half the bestiary.
+    const float hipAboveSoles = (rootPos[1] - skel->lo[1]) * e.scale;
+    if (hipAboveSoles <= 0.f) return false;
+
+    // SCALED SO THE SPHERES SPAN THE MODEL.
+    //
+    // Deriving k from the hip height is what the engine's
+    // (root.y - entity.y) * 10/11 appears to do, and it is right for a rig
+    // whose root sits at a humanoid hip - about 0.53 of total height. It is
+    // wrong wherever a rig disagrees, and they do:
+    //
+    //     banshee   root at 0.70 of height -> body came out 1.30x the model
+    //     vamp_v2   root at 0.245          -> body came out 0.46x
+    //
+    // The error tracked that ratio exactly, which is the tell: the reference
+    // the engine measures from (Entity+0x58) is NOT the soles, and until it is
+    // identified the hip is the wrong thing to scale by.
+    //
+    // The shape's own geometry gives a reference that cannot drift. The three
+    // spheres run from -4.8k to +5.5k, so k = height / 10.3 makes the body span
+    // the model on every rig by construction. The LAYOUT is still the engine's;
+    // only what sets its size is ours.
+    const float modelHeight = (skel->hi[1] - skel->lo[1]) * e.scale;
+    if (modelHeight <= 0.f) return false;
+    k = modelHeight / 10.3f;
+    // Placed from the SOLES, for the same reason: the lowest sphere reaches
+    // 4.8k below the offset point, so putting the offset that far above the
+    // model's lowest point stands the body on the ground. Anchoring to the
+    // root instead inherited the root's own inconsistency, which is what put
+    // the hip-origin rigs through the floor.
+    rootOffsetY = skel->lo[1] * e.scale + 4.8f * k;
+    return k > 0.f;
+}
+
 void ScriptEngine::TickMonsters(float dt) {
     if (dt <= 0.f || !physics_) return;
 
@@ -544,7 +651,21 @@ void ScriptEngine::TickMonsters(float dt) {
         const float carried = std::sqrt(e.moveResidual[0] * e.moveResidual[0] +
                                         e.moveResidual[1] * e.moveResidual[1] +
                                         e.moveResidual[2] * e.moveResidual[2]);
-        if (carried < kSweepSkin) continue;
+        if (carried < kSweepSkin) {
+            // A STATIONARY MONSTER STILL NEEDS ITS BODY PLACED.
+            //
+            // Everything below is about MOVING the monster, and skipping it
+            // when there is no step to take is right - but the body pose sync
+            // was down there too. So a monster that never moved never had its
+            // body positioned at all: it stayed wherever CreateScriptBody left
+            // it, which is nowhere near the monster and, for a body that had
+            // not been made kinematic, falling.
+            //
+            // That is why this looked like the shape drifting away under its
+            // own gravity. It was never attached in the first place.
+            physics_->SetScriptBodyPose(e.physicsBody, e.pos, e.rotWXYZ);
+            continue;
+        }
 
         const float step[3] = {e.moveResidual[0], e.moveResidual[1], e.moveResidual[2]};
         for (int c = 0; c < 3; ++c) e.moveResidual[c] = 0.f;
@@ -580,13 +701,25 @@ void ScriptEngine::TickMonsters(float dt) {
         // and it exists so that everything sweeping against the world finds a
         // monster in the way.
         //
-        // It goes where the COLLISION SPHERE is, not where the entity is. The
-        // entity's position is the model's centre and the sphere sits about a
-        // unit lower, on the soles; a body left at the entity position floats
-        // over the player's head, and the player walks straight through the
-        // monster because the two never overlap.
-        const float bodyPos[3] = {e.pos[0], e.pos[1] + lift, e.pos[2]};
-        physics_->SetScriptBodyPose(e.physicsBody, bodyPos, e.rotWXYZ);
+        // AT THE ENTITY POSITION, with no lift.
+        //
+        // The offset lives in the SHAPE, which is built about -root exactly as
+        // PhysicsWorld::CreatePhysicsObject does it. Adding `lift` here as
+        // well applied a second offset - and one derived from the mesh bounds,
+        // which vary per rig by where its author left the origin. That is why
+        // the bodies detached from their monsters by a different amount each.
+        physics_->SetScriptBodyPose(e.physicsBody, e.pos, e.rotWXYZ);
+        {
+            static int tick = 0;
+            ++tick;
+            if (tick == 200 || tick == 1200) {
+                float bl[3], bh[3];
+                if (physics_->ScriptBodyBounds(e.physicsBody, bl, bh))
+                    LogInfo("TRACK t=%-5d %-12s entY=%6.2f bodyMid=%6.2f gap=%6.2f",
+                            tick, e.source.c_str(), e.pos[1], (bl[1] + bh[1]) * 0.5f,
+                            (bl[1] + bh[1]) * 0.5f - e.pos[1]);
+            }
+        }
         if (renderer_ && e.rendererInstance >= 0)
             renderer_->SetScriptPose(e.rendererInstance, e.pos, e.rotWXYZ);
     }
@@ -924,8 +1057,23 @@ int ScriptEngine::L_PO_SetMonsterType(lua_State* L) {
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e) return 0;
     e->isMonster = true;
-    if (self->physics_ && e->physicsBody >= 0)
-        self->physics_->SetScriptBodyKinematic(e->physicsBody, self->MonsterRadius(*e));
+    if (self->physics_ && e->physicsBody >= 0) {
+        // UNCONDITIONAL. Being a monster is not contingent on the shape: the
+        // engine sets the flag at PhysicsObject+0x74 whatever the rig looks
+        // like, and in CreatePhysicsObject the ROOOT test guards only the
+        // reading of that joint's position, not the object.
+        //
+        // Four of ten shipped rigs have no ROOOT at all - zombie, zombie_v2,
+        // vamp_small, raven - so gating the call on finding one left those
+        // bodies DYNAMIC. They fell out from under their monsters with their
+        // own gravity and mass, which is not a placement bug at all.
+        //
+        // A k of 0 keeps whatever shape the body already has; only the sizing
+        // depends on the joint.
+        float k = 0.f, rootOffsetY = 0.f;
+        self->MonsterBodyScale(*e, k, rootOffsetY);
+        self->physics_->SetScriptBodyKinematic(e->physicsBody, k, rootOffsetY);
+    }
     return 0;
 }
 

@@ -374,6 +374,8 @@ public:
     // A monster's collision radius in world units, from the model's
     // horizontal extent rather than the prop-shaped body radius.
     float MonsterRadius(Entity& e, float* centreAboveOrigin = nullptr);
+    // The sizer's working scalar k and the root offset, from the ROOOT joint.
+    bool MonsterBodyScale(Entity& e, float& k, float& rootOffsetY);
 
     // Advances every entity's animation clock. Call once per frame BEFORE
     // the tick chain: CActor:Tick reads the time the same frame.

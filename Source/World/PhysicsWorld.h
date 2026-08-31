@@ -129,7 +129,11 @@ public:
     // not the shape a character wants: CreateScriptBody sizes a sphere by the
     // LARGEST half-extent, which for a T-posed humanoid is its arm span. Pass
     // <= 0 to keep the body's existing radius.
-    void SetScriptBodyKinematic(int slot, float radius);
+    // The monster body: three stacked spheres, which is what BodyTypes.Fatter
+    // builds. k is the sizer's own working scalar (scale * 0.2) and
+    // rootOffsetY the negated ROOOT height - both from the engine's own rule,
+    // see MonsterBodyScale.
+    void SetScriptBodyKinematic(int slot, float k, float rootOffsetY = 0.f);
     // ENTITY.SetVelocity / GetVelocity. Setting one wakes the body: a
     // projectile is created, given its velocity and expected to fly.
     void SetScriptBodyVelocity(int slot, const float v[3]);
@@ -139,6 +143,8 @@ public:
     void AddScriptBodyImpulse(int slot, const float at[3], const float impulse[3]);
     // The world-space mesh radius, which is what PO_GetMaxSphereRay reports.
     float ScriptBodyRadius(int slot) const;
+    // Where Jolt actually put the body, world space. Settles placement.
+    bool ScriptBodyBounds(int slot, float lo[3], float hi[3]) const;
     void RemoveScriptBody(int slot);
     // Where the simulation has put the script bodies (slot in .slot).
     void CollectScriptPoses(std::vector<ScriptBodyPose>& out, bool activeOnly = true) const;
