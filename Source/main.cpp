@@ -35,6 +35,7 @@ namespace painful { extern bx::DefaultAllocator g_allocator; }
 #include "Render/DebugLines.h"
 #include "Render/Window.h"
 #include "World/Level.h"
+#include "World/Lighting.h"
 #include "World/PhysicsWorld.h"
 #include "World/Templates.h"
 #include "World/Zones.h"
@@ -487,12 +488,85 @@ static int LevelCmd(const char* levelDir, const char* dataRoot) {
 }
 
 // Diagnostic: where do placed entities sit relative to real world geometry?
-static int EntitiesCmd(const char* levelDir, const char* dataRoot) {
+// One property, printed the way the level file wrote it.
+static std::string Describe(const Value& v) {
+    switch (v.kind) {
+        case Value::Kind::Number: return std::to_string(v.number);
+        case Value::Kind::Bool:   return v.boolean ? "true" : "false";
+        case Value::Kind::String: return "\"" + v.text + "\"";
+        case Value::Kind::Ctor: {
+            std::string s = v.text + "(";
+            for (size_t i = 0; i < v.args.size(); ++i)
+                s += (i ? ", " : "") + std::to_string(v.args[i]);
+            return s + ")";
+        }
+    }
+    return "";
+}
+
+static int EntitiesCmd(const char* levelDir, const char* dataRoot, const char* type) {
     Level level;
     if (!level.Load(levelDir, dataRoot)) { LogInfo("failed: %s", level.error().c_str()); return 2; }
     TemplateCache templates;
     templates.Init(std::string(dataRoot) + "/LScripts/Templates");
     templates.SetLevelOverlay(std::string(levelDir) + "/Templates");
+
+    // `entities <level> <root> <Type>` dumps every property of the first few
+    // instances of one entity class, which is how the light and environment
+    // fields get read rather than guessed at.
+    if (type && type[0]) {
+        int shown = 0;
+        for (const Entity& e : level.entities()) {
+            if (e.type != type || shown >= 3) continue;
+            ++shown;
+            LogInfo("%s %s  base=%s  pos=(%.2f, %.2f, %.2f)", e.type.c_str(), e.name.c_str(),
+                    e.baseObj.c_str(), e.pos[0], e.pos[1], e.pos[2]);
+            for (const auto& kv : e.props.all())
+                LogInfo("    %-28s %s", kv.first.c_str(), Describe(kv.second).c_str());
+            // Then the BaseObj chain, because the instance only carries its
+            // overrides: a CLight that never declares Type is a point light
+            // because Point_White.CLight says so.
+            std::string base = e.baseObj;
+            for (int hop = 0; hop < 8 && !base.empty(); ++hop) {
+                const Properties* t = templates.Find(base);
+                if (!t) { LogInfo("  <- %s (not found)", base.c_str()); break; }
+                LogInfo("  <- %s", base.c_str());
+                for (const auto& kv : t->all())
+                    LogInfo("       %-25s %s", kv.first.c_str(), Describe(kv.second).c_str());
+                std::string next = t->String("BaseObj", "");
+                if (next == base) break;
+                base = next;
+            }
+        }
+        // Three instances show the shape; the tally shows the spread - which
+        // templates the level actually uses and every property any of them
+        // sets, so a field that only a handful of lights carry is not missed.
+        std::map<std::string, int> bases;
+        std::map<std::string, int> keys;
+        std::map<std::string, std::set<std::string>> scalars;
+        int total = 0;
+        for (const Entity& e : level.entities()) {
+            if (e.type != type) continue;
+            ++total;
+            ++bases[e.baseObj];
+            for (const auto& kv : e.props.all())
+                LogInfo("    %-28s %s", kv.first.c_str(), Describe(kv.second).c_str());
+        }
+        LogInfo("%d %s total", total, type);
+        for (const auto& kv : bases) LogInfo("  %5d  %s", kv.second, kv.first.c_str());
+        LogInfo("properties set, by count (distinct scalar values in braces):");
+        for (const auto& kv : keys) {
+            std::string vals;
+            auto it = scalars.find(kv.first);
+            if (it != scalars.end() && it->second.size() <= 12) {
+                for (const std::string& v : it->second) vals += (vals.empty() ? " {" : ", ") + v;
+                vals += "}";
+            }
+            LogInfo("  %5d  %s%s", kv.second, kv.first.c_str(), vals.c_str());
+        }
+        if (shown == 0) LogInfo("no %s in this level", type);
+        return 0;
+    }
 
     float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
     for (const MapObject& o : level.map().objects) {
@@ -939,6 +1013,29 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
                 seatPos[2]);
     engine.SetMouseLocked(true);
     host.CallGameOnPlay();
+
+    // Model lighting. In this path there is no Level object at all - the script
+    // layer creates the entities and hands the renderer state over through the
+    // WORLD.* natives - but the CLight and CEnvironment placements it works
+    // from are the same files on disk, so they are read directly.
+    //
+    // The scripts also create lights of their own at runtime (LIGHT.Setup,
+    // LIGHT.SetFalloff, ENVIRONMENT.AddLight are all still stubs), so muzzle
+    // flashes and fireballs do not light anything yet. Level lighting does.
+    {
+        Level lightingLevel;
+        const std::string levelDir = std::string(dataRoot) + "/Levels/" + levelName;
+        if (lightingLevel.Load(levelDir, dataRoot)) {
+            TemplateCache lightingTemplates;
+            lightingTemplates.Init(std::string(dataRoot) + "/LScripts/Templates");
+            lightingTemplates.SetLevelOverlay(levelDir + "/Templates");
+            entities.BuildLighting(lightingLevel, lightingTemplates);
+            LogInfo("entity lighting: %zu lights, %zu environment boxes",
+                    entities.lightCount(), entities.environmentCount());
+        } else {
+            LogWarn("no entity lighting: %s", lightingLevel.error().c_str());
+        }
+    }
 
     // Turn the recorded WORLD.* state into renderer state.
     const ScriptEngine::WorldState& ws = engine.world();
@@ -1536,6 +1633,99 @@ static int DatCmd(const char* path) {
 }
 
 // Diagnostic: parse the game's material scripts and dump what they define.
+// Lists a directory through the mounted archives, and prints a file when the
+// path names one. The .pak table of contents is hashed, so there is otherwise
+// no way to see what the game data actually contains.
+static int FilesCmd(const char* dataRoot, const char* dir) {
+    FileSystem::Get().MountData(dataRoot);
+    std::vector<uint8_t> data;
+    if (ReadFile(dir, data)) {
+        LogInfo("%s: %zu bytes", dir, data.size());
+        std::string text(data.begin(), data.end());
+        bool binary = false;
+        for (unsigned char c : text)
+            if (c != '\t' && c != '\n' && c != '\r' && (c < 32 || c > 126)) { binary = true; break; }
+        if (binary) {
+            // A .vso/.pso is compiled D3D shader bytecode: 32-bit tokens, the
+            // first 0xFFFE0101 for vs_1_1. Dumped as tokens so the constant
+            // registers a shader reads can be seen.
+            LogInfo("  (binary, %zu bytes / %zu tokens)", data.size(), data.size() / 4);
+            for (size_t i = 0; i + 4 <= data.size(); i += 4) {
+                uint32_t t = uint32_t(data[i]) | (uint32_t(data[i + 1]) << 8) |
+                             (uint32_t(data[i + 2]) << 16) | (uint32_t(data[i + 3]) << 24);
+                LogInfo("  %4zu  %08X", i / 4, t);
+            }
+            return 0;
+        }
+        else LogInfo("%s", text.c_str());
+        return 0;
+    }
+    const std::vector<DirEntry> entries = FileSystem::Get().List(dir);
+    LogInfo("%s: %zu entries", dir, entries.size());
+    for (const DirEntry& e : entries)
+        LogInfo("  %s%s", e.name.c_str(), e.isDirectory ? "/" : "");
+    return entries.empty() ? 2 : 0;
+}
+
+// Reports what the model lighting solver sees at a point: the level's own
+// ambient and directional, the CEnvironment box that overwrites them, and the
+// four CLights it picked. Entities carry no lightmap, so this is the whole of
+// their lighting and there is nowhere else to look when a model comes out
+// black.
+static int LightingCmd(const char* levelDir, const char* dataRoot,
+                       const float* at, const float* eye) {
+    Level level;
+    if (!level.Load(levelDir, dataRoot)) { LogInfo("failed: %s", level.error().c_str()); return 2; }
+    TemplateCache templates;
+    templates.Init(std::string(dataRoot) + "/LScripts/Templates");
+    templates.SetLevelOverlay(std::string(levelDir) + "/Templates");
+
+    const LevelInfo& info = level.info();
+    LogInfo("level ambient   (%.0f, %.0f, %.0f)", info.ambient[0], info.ambient[1], info.ambient[2]);
+    LogInfo("level dirlight  (%.0f, %.0f, %.0f) x %.2f  dir (%.2f, %.2f, %.2f)",
+            info.dirLightColor[0], info.dirLightColor[1], info.dirLightColor[2],
+            info.dirLightIntensity, info.dirLightDir[0], info.dirLightDir[1], info.dirLightDir[2]);
+
+    EntityLighting lighting;
+    lighting.Build(level, templates);
+    LogInfo("%zu CLights, %zu CEnvironment boxes", lighting.lightCount(),
+            lighting.environmentCount());
+
+    float pos[3] = {at[0], at[1], at[2]};
+    EntityLightFade fade;
+    EntityLightState lit;
+    lighting.Evaluate(pos, eye, 0.f, fade, lit);
+    LogInfo("at (%.1f, %.1f, %.1f), eye (%.1f, %.1f, %.1f):", pos[0], pos[1], pos[2],
+            eye[0], eye[1], eye[2]);
+    LogInfo("  ambient   %.3f %.3f %.3f", lit.ambient[0], lit.ambient[1], lit.ambient[2]);
+    LogInfo("  dirlight  %.3f %.3f %.3f   toward (%.2f, %.2f, %.2f)  (competes for a slot)",
+            fade.dirColor[0], fade.dirColor[1], fade.dirColor[2],
+            fade.dirDir[0], fade.dirDir[1], fade.dirDir[2]);
+    for (int s = 0; s < kMaxEntityLights; ++s) {
+        const EntityLightSlot& l = lit.slots[s];
+        if (l.dir[3] < 0.5f) { LogInfo("  light %d   -", s); continue; }
+        LogInfo("  light %d   %.3f %.3f %.3f  att %.3f  toward (%.2f, %.2f, %.2f)  %s",
+                s, l.color[0], l.color[1], l.color[2], l.color[3],
+                l.dir[0], l.dir[1], l.dir[2],
+                l.half[3] < 0.5f ? "specular only" : "diffuse+specular");
+    }
+    // What the fragment shader would end up multiplying a white texel by, for a
+    // normal facing straight at the camera.
+    float toEye[3] = {eye[0] - pos[0], eye[1] - pos[1], eye[2] - pos[2]};
+    const float n = std::sqrt(toEye[0] * toEye[0] + toEye[1] * toEye[1] + toEye[2] * toEye[2]);
+    if (n > 1e-4f) for (int i = 0; i < 3; ++i) toEye[i] /= n;
+    float diffuse[3] = {lit.ambient[0], lit.ambient[1], lit.ambient[2]};
+    for (int s = 0; s < kMaxEntityLights; ++s) {
+        const EntityLightSlot& l = lit.slots[s];
+        if (l.dir[3] < 0.5f) continue;
+        const float d = std::max(0.f, toEye[0] * l.dir[0] + toEye[1] * l.dir[1] + toEye[2] * l.dir[2]);
+        for (int i = 0; i < 3; ++i) diffuse[i] += l.color[i] * d * l.half[3];
+    }
+    LogInfo("  => a camera-facing white texel lands at %.3f %.3f %.3f",
+            diffuse[0], diffuse[1], diffuse[2]);
+    return 0;
+}
+
 static int ShadersCmd(const char* dataRoot, const char* single) {
     ShaderLibrary lib;
     if (!lib.LoadDirectory(std::string(dataRoot) + "/Shaders/Scripts")) {
@@ -1545,21 +1735,41 @@ static int ShadersCmd(const char* dataRoot, const char* single) {
     LogInfo("%zu shader definitions parsed", lib.size());
     for (const std::string& e : lib.errors()) LogInfo("  error: %s", e.c_str());
 
+    // A name matches every variant of that name, and a file name matches every
+    // shader the file defines: one shader is declared once per hardware tier,
+    // and reading only the first hides what the others say.
     if (single && single[0]) {
-        const ShaderDef* def = lib.Find(single);
-        if (!def) { LogInfo("'%s' not found", single); return 2; }
-        LogInfo("shader %s  variant=%s  (%s)", def->name.c_str(),
-                def->variant.empty() ? "any" : def->variant.c_str(),
-                def->sourceFile.c_str());
-        for (size_t p = 0; p < def->passes.size(); ++p) {
-            LogInfo("  pass %zu:", p);
-            for (const auto& kv : def->passes[p].keys) {
-                LogInfo("    %-14s %s", kv.first.c_str(), kv.second.c_str());
+        int shown = 0;
+        for (const ShaderDef& def : lib.all()) {
+            if (def.name != single && def.sourceFile != single) continue;
+            ++shown;
+            LogInfo("shader %s  variant=%s  (%s)", def.name.c_str(),
+                    def.variant.empty() ? "any" : def.variant.c_str(),
+                    def.sourceFile.c_str());
+            for (size_t p = 0; p < def.passes.size(); ++p) {
+                LogInfo("  pass %zu:", p);
+                for (const auto& kv : def.passes[p].keys)
+                    LogInfo("    %-14s %s", kv.first.c_str(), kv.second.c_str());
             }
         }
+        if (shown == 0) { LogInfo("'%s' not found", single); return 2; }
         return 0;
     }
 
+    // Which file declares what, so a shader can be found without knowing its
+    // name first - the scripts are inside a .pak with a hashed table of
+    // contents, so there is no directory listing to read.
+    std::map<std::string, std::vector<std::string>> byFile;
+    for (const ShaderDef& d : lib.all()) byFile[d.sourceFile].push_back(d.name);
+    LogInfo("shader scripts:");
+    for (const auto& kv : byFile) {
+        std::string names;
+        for (const std::string& n : kv.second) {
+            if (!names.empty()) names += " ";
+            names += n;
+        }
+        LogInfo("  %-22s %s", kv.first.c_str(), names.c_str());
+    }
     // Summary: names per variant, and every distinct vshader/fshader/fx used.
     std::map<std::string, int> variants;
     std::map<std::string, int> programs;
@@ -2640,6 +2850,7 @@ static int MapCmd(const char* path) {
     MapMesh::Load(path, m);
     size_t verts = 0, tris = 0;
     for (const MapObject& o : m.objects) { verts += o.vertexCount(); tris += o.triangleCount(); }
+
     float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
     for (const MapObject& o : m.objects) {
         for (size_t i = 0; i < o.vertexCount(); ++i) {
@@ -3388,6 +3599,7 @@ static int ModelCmd(const char* path) {
         verts += mesh.vertexCount();
         tris += mesh.triangleCount();
     }
+
     float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
     for (const ModelMesh& mesh : model.meshes) {
         for (size_t i = 0; i < mesh.vertexCount(); ++i) {
@@ -3406,15 +3618,48 @@ static int ModelCmd(const char* path) {
     // Per-mesh names and material texture references. The mesh name is what a
     // .shader script keys off for a per-object material override, so it has to
     // be visible to tell why a model did or did not pick one up.
+    // Do the normals point OUT? For a roughly closed character mesh most
+    // vertices should have their normal pointing away from the model centre.
+    // A majority pointing inward means the file's normals are inverted, which
+    // no amount of tuning the lighting will fix.
+    {
+        double outward = 0, inward = 0, degenerate = 0;
+        for (const ModelMesh& mesh : model.meshes) {
+            double c[3] = {0, 0, 0};
+            const size_t n = mesh.vertexCount();
+            if (n == 0) continue;
+            for (size_t i = 0; i < n; ++i)
+                for (int a = 0; a < 3; ++a) c[a] += mesh.verts[i * 8 + a];
+            for (int a = 0; a < 3; ++a) c[a] /= double(n);
+            for (size_t i = 0; i < n; ++i) {
+                double r[3], nv[3], dot = 0, rl = 0, nl = 0;
+                for (int a = 0; a < 3; ++a) {
+                    r[a] = mesh.verts[i * 8 + a] - c[a];
+                    nv[a] = mesh.verts[i * 8 + 3 + a];
+                    dot += r[a] * nv[a];
+                    rl += r[a] * r[a];
+                    nl += nv[a] * nv[a];
+                }
+                if (rl < 1e-12 || nl < 1e-12) { ++degenerate; continue; }
+                if (dot > 0) ++outward; else ++inward;
+            }
+        }
+        const double total = outward + inward;
+        LogInfo("  normals: %.1f%% outward, %.1f%% inward, %.0f degenerate",
+                total > 0 ? 100.0 * outward / total : 0.0,
+                total > 0 ? 100.0 * inward / total : 0.0, degenerate);
+    }
+
     for (const ModelMesh& mesh : model.meshes) {
         LogInfo("  mesh %-28s %6zu verts %6zu tris  skin %s  materials%s: %s",
                 mesh.name.c_str(), mesh.vertexCount(), mesh.triangleCount(),
                 mesh.hasSkin() ? "yes" : "no ", mesh.materialsExact ? "" : " (INEXACT)",
                 [&] {
                     std::string s;
-                    for (const std::string& m : mesh.materials) {
+                    for (const ModelMaterial& m : mesh.materials) {
                         if (!s.empty()) s += ", ";
-                        s += m;
+                        s += m.texture + "[" + std::to_string(m.firstIndex / 3) + ".." +
+                             std::to_string(m.firstIndex / 3 + m.triangles) + ")";
                     }
                     return s.empty() ? std::string("(none)") : s;
                 }().c_str());
@@ -3558,7 +3803,7 @@ int main(int argc, char** argv) {
                       entityCull, entityScale, skyOnly, novis, noclip, physicsDebug);
     }
     if (cmd == "level" && argc >= 4) return LevelCmd(argv[2], argv[3]);
-    if (cmd == "entities" && argc >= 4) return EntitiesCmd(argv[2], argv[3]);
+    if (cmd == "entities" && argc >= 4) return EntitiesCmd(argv[2], argv[3], argc >= 5 ? argv[4] : "");
     if (cmd == "fit" && argc >= 4) return FitCmd(argv[2], argv[3]);
     if (cmd == "levels") return LevelsCmd(argv[2]);
     if (cmd == "lua")
@@ -3600,6 +3845,16 @@ int main(int argc, char** argv) {
     }
     if (cmd == "ground" && argc >= 8) return GroundCmd(argv[2], argv[3], float(atof(argv[4])), float(atof(argv[5])), float(atof(argv[6])), float(atof(argv[7])));
     if (cmd == "skydump") return SkyDumpCmd(argv[2]);
+    if (cmd == "lighting" && argc >= 4) {
+        const float at[3] = {argc >= 7 ? float(atof(argv[4])) : 0.f,
+                             argc >= 7 ? float(atof(argv[5])) : 0.f,
+                             argc >= 7 ? float(atof(argv[6])) : 0.f};
+        const float eye[3] = {argc >= 10 ? float(atof(argv[7])) : at[0] - 5.f,
+                              argc >= 10 ? float(atof(argv[8])) : at[1] + 1.5f,
+                              argc >= 10 ? float(atof(argv[9])) : at[2]};
+        return LightingCmd(argv[2], argv[3], at, eye);
+    }
+    if (cmd == "files" && argc >= 4) return FilesCmd(argv[2], argv[3]);
     if (cmd == "shaders") return ShadersCmd(argv[2], argc >= 4 ? argv[3] : "");
     if (cmd == "dat") return DatCmd(argv[2]);
     if (cmd == "textures" && argc >= 5) return TexturesCmd(argv[2], argv[3], argv[4]);

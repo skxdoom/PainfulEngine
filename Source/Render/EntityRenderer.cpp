@@ -67,14 +67,35 @@ MaterialState LookupMaterial(ShaderLibrary* lib, const std::string& name, bool c
     return m;
 }
 
+// The specular exponent and strength. skin.shader only says `specular true`,
+// leaving the numbers to the fixed-function material, so these are tuned to the
+// look rather than read from data: a broad, weak sheen, which is all a
+// once-per-model half-vector can produce anyway. PAINFUL_SPECULAR overrides
+// them as "exponent,strength" while that is being judged.
+const float* SpecularParams() {
+    // z softens the N.L gate on the specular. The original switches on it
+    // hard, and can only do that because it lights per vertex and interpolates
+    // the result; per pixel the same switch draws a visible line. This is that
+    // interpolation put back as a ramp - roughly how much N.L varies across one
+    // triangle.
+    static float v[4] = {12.f, 0.35f, 0.25f, 0.f};
+    static const bool once = [] {
+        if (const char* s = getenv("PAINFUL_SPECULAR"))
+            sscanf(s, "%f,%f,%f", &v[0], &v[1], &v[2]);
+        return true;
+    }();
+    (void)once;
+    return v;
+}
+
 } // namespace
 
 bool EntityRenderer::Init(const std::string& shaderDir) {
     layout_ = MakeMeshLayout();
 
     namespace fs = std::filesystem;
-    bgfx::ShaderHandle vs = LoadShader((fs::path(shaderDir) / "vs_world.bin").string());
-    bgfx::ShaderHandle fsh = LoadShader((fs::path(shaderDir) / "fs_world.bin").string());
+    bgfx::ShaderHandle vs = LoadShader((fs::path(shaderDir) / "vs_entity.bin").string());
+    bgfx::ShaderHandle fsh = LoadShader((fs::path(shaderDir) / "fs_entity.bin").string());
     if (!bgfx::isValid(vs) || !bgfx::isValid(fsh)) return false;
 
     program_ = bgfx::createProgram(vs, fsh, true);
@@ -92,6 +113,10 @@ bool EntityRenderer::Init(const std::string& shaderDir) {
     uUv0_      = bgfx::createUniform("u_uv0",      bgfx::UniformType::Vec4);
     uUv1_      = bgfx::createUniform("u_uv1",      bgfx::UniformType::Vec4);
     uTile_     = bgfx::createUniform("u_tile",     bgfx::UniformType::Vec4);
+    uSpecular_ = bgfx::createUniform("u_specular", bgfx::UniformType::Vec4);
+    uLightColor_ = bgfx::createUniform("u_lightColor", bgfx::UniformType::Vec4, kMaxEntityLights);
+    uLightDir_   = bgfx::createUniform("u_lightDir",   bgfx::UniformType::Vec4, kMaxEntityLights);
+    uLightHalf_  = bgfx::createUniform("u_lightHalf",  bgfx::UniformType::Vec4, kMaxEntityLights);
     return true;
 }
 
@@ -157,38 +182,63 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
             }
         }
 
-        Part part;
-        // Keep the source mesh only when it is actually skinned: posing needs
-        // the bind-pose vertices and the weights back, and an unskinned model
-        // would be paying for a copy nothing ever reads.
-        if (mesh.hasSkin()) part.cpu = mesh;
-        part.indexCount = uint32_t(mesh.indices.size());
-        part.vbo = bgfx::createVertexBuffer(
+        // ONE PART PER MATERIAL SLOT. The slots are triangle runs over a shared
+        // vertex array (see ModelMaterial), so the vertices - and, when the mesh
+        // is skinned, the single posed buffer built from them - are shared, and
+        // each slot brings only its own slice of the index array. Drawing the
+        // whole mesh with materials[0] left every later run wearing the first
+        // run's texture, which on a monk reads as transparent holes: nun.pkmdl
+        // paints 148 triangles with NUNtexture4 and the next 240 with
+        // NUNtexture2, and apoc_zombie splits 7 of its 12 meshes this way.
+        const bgfx::VertexBufferHandle vbo = bgfx::createVertexBuffer(
             bgfx::copy(verts.data(), uint32_t(verts.size() * sizeof(MeshVertex))), layout_);
-        part.ibo = bgfx::createIndexBuffer(
-            bgfx::copy(mesh.indices.data(), uint32_t(mesh.indices.size() * sizeof(uint16_t))));
-        // Models carry one texture per material; the first covers the whole mesh.
-        part.diffuse = mesh.materials.empty() ? textures.White()
-                                              : textures.Get(mesh.materials[0], "");
-        // The override key is the MESH name, matching how the world path keys
-        // off each object's name. Swamp_dirtywater.pkmdl holds a mesh called
-        // "dirtywater", which is the skin.shader entry that makes the swamp
-        // water scroll; keying off the file name found nothing.
-        // THE MESH NAME PICKS THE SHADER FAMILY, for models exactly as it does
-        // for pack meshes a few lines down. evilmonkv2 has meshes called
-        // "polySurfa_2sided" (the robe) and "spodnica_2sided" (the skirt), and
-        // skin.shader ships `shader palskinned2sided copy palskinned { pass {
-        // cull none } }` for precisely them. Asking for plain palskinned
-        // backface-culls the robe, so half of it disappears and the monk looks
-        // like it has holes cut in it.
-        //
-        // The whole palskinned family has 2sided variants - _bloody, _freeze,
-        // _water, add, emissive - so the suffix goes on whatever the override
-        // resolved to rather than only on the default.
-        std::string family = "palskinned";
-        if (mesh.nameHas("2sided")) family += "2sided";
-        part.material = LookupMaterial(shaders_, family, true, mesh.name);
-        gpu.parts.push_back(part);
+        const uint32_t ownerIndex = uint32_t(gpu.parts.size());
+        const size_t slots = std::max<size_t>(mesh.materials.size(), 1);
+        for (size_t s = 0; s < slots; ++s) {
+            uint32_t first = 0, count = uint32_t(mesh.indices.size());
+            if (s < mesh.materials.size()) {
+                first = mesh.materials[s].firstIndex;
+                count = mesh.materials[s].triangles * 3;
+            }
+            if (count == 0 || first + count > mesh.indices.size()) continue;
+
+            Part part;
+            // Keep the source mesh only when it is actually skinned: posing
+            // needs the bind-pose vertices and the weights back, and an
+            // unskinned model would be paying for a copy nothing ever reads.
+            // Only the owning slot keeps it - the posed buffer is shared.
+            if (mesh.hasSkin() && s == 0) part.cpu = mesh;
+            part.vbo = vbo;
+            part.ownsVbo = gpu.parts.size() == ownerIndex;
+            part.vboOwner = ownerIndex;
+            part.indexCount = count;
+            part.ibo = bgfx::createIndexBuffer(
+                bgfx::copy(&mesh.indices[first], count * uint32_t(sizeof(uint16_t))));
+            part.diffuse = s < mesh.materials.size()
+                               ? textures.Get(mesh.materials[s].texture, "")
+                               : textures.White();
+            // The override key is the MESH name, matching how the world path keys
+            // off each object's name. Swamp_dirtywater.pkmdl holds a mesh called
+            // "dirtywater", which is the skin.shader entry that makes the swamp
+            // water scroll; keying off the file name found nothing.
+            // THE MESH NAME PICKS THE SHADER FAMILY, for models exactly as it does
+            // for pack meshes a few lines down. evilmonkv2 has meshes called
+            // "polySurfa_2sided" (the robe) and "spodnica_2sided" (the skirt), and
+            // skin.shader ships `shader palskinned2sided copy palskinned { pass {
+            // cull none } }` for precisely them. Asking for plain palskinned
+            // backface-culls the robe, so half of it disappears and the monk looks
+            // like it has holes cut in it.
+            //
+            // The whole palskinned family has 2sided variants - _bloody, _freeze,
+            // _water, add, emissive - so the suffix goes on whatever the override
+            // resolved to rather than only on the default.
+            std::string family = "palskinned";
+            if (mesh.nameHas("2sided")) family += "2sided";
+            part.material = LookupMaterial(shaders_, family, true, mesh.name);
+            gpu.parts.push_back(std::move(part));
+        }
+        // Every slot was empty or out of range: the vertices have no owner.
+        if (gpu.parts.size() == ownerIndex) bgfx::destroy(vbo);
     }
     if (gpu.parts.empty()) return false;
 
@@ -287,6 +337,7 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
             Part part;
             part.vbo = vbo;
             part.ownsVbo = gpu.parts.size() == partsBefore;
+            part.vboOwner = uint32_t(partsBefore);
             part.ibo = bgfx::createIndexBuffer(
                 bgfx::copy(o.indices.data() + first, count * sizeof(uint16_t)));
             part.indexCount = count;
@@ -320,6 +371,10 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
     return true;
 }
 
+void EntityRenderer::BuildLighting(const Level& level, TemplateCache& templates) {
+    lighting_.Build(level, templates);
+}
+
 void EntityRenderer::Build(const Level& level, TemplateCache& templates,
                            TextureCache& textures, const std::string& dataRoot,
                            ShaderLibrary* shaders) {
@@ -327,6 +382,10 @@ void EntityRenderer::Build(const Level& level, TemplateCache& templates,
     const std::string modelsRoot = dataRoot + "/Models";
     const std::string itemsRoot = dataRoot + "/Items";
     white_ = textures.White();
+
+    // The lights and CEnvironment boxes this level places. Models carry no
+    // lightmap, so this is the whole of their lighting.
+    BuildLighting(level, templates);
 
     const std::vector<Entity>& placedEntities = level.entities();
     for (size_t entityIndex = 0; entityIndex < placedEntities.size(); ++entityIndex) {
@@ -526,7 +585,6 @@ void EntityRenderer::SetScaleMultiplier(float k) {
 
 void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int height,
                           const LevelInfo& info, float timeSeconds) {
-    const float* ambient = info.ambient;
     drawCalls_ = 0;
     posedInstances_ = 0;
     posedModels_.clear();
@@ -550,6 +608,12 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
     const float fogParams[4] = {float(info.fogMode), info.fogStart, info.fogEnd,
                                 info.fogDensity};
     bgfx::setUniform(uFog_, fogParams);
+
+    // Frame time, for the CEnvironment cross-fade. Draw is the only per-frame
+    // hook this renderer has, and a level reload rewinds the clock.
+    float dt = timeSeconds - lastTime_;
+    if (dt < 0.f || dt > 0.5f) dt = 0.f;
+    lastTime_ = timeSeconds;
 
     for (Instance& instance : instances_) {
         if (!instance.alive || !instance.visible) continue;
@@ -603,7 +667,25 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
                              bgfx::copy(posedVerts_.data(), bytes));
             }
         }
-        size_t partIndex = 0;
+        // This model's lighting, evaluated once at its origin - which is what
+        // the original does too: ComputeVSLights takes the entity position, not
+        // a per-vertex one, so a monk is lit as a whole.
+        EntityLightState lit;
+        lighting_.Evaluate(instance.pos, camera.pos, dt, instance.lightFade, lit);
+        float lightColor[kMaxEntityLights][4], lightDir[kMaxEntityLights][4];
+        float lightHalf[kMaxEntityLights][4];
+        for (int s = 0; s < kMaxEntityLights; ++s)
+            for (int c = 0; c < 4; ++c) {
+                lightColor[s][c] = lit.slots[s].color[c];
+                lightDir[s][c] = lit.slots[s].dir[c];
+                lightHalf[s][c] = lit.slots[s].half[c];
+            }
+        bgfx::setUniform(uLightColor_, lightColor, kMaxEntityLights);
+        bgfx::setUniform(uLightDir_, lightDir, kMaxEntityLights);
+        bgfx::setUniform(uLightHalf_, lightHalf, kMaxEntityLights);
+        bgfx::setUniform(uSpecular_, SpecularParams());
+
+
         const float detail[4] = {1.f, 1.f, 0.f, 0.f};
         // Identity UV transform: entity meshes carry no per-slot xform.
         const float identityUv[4] = {1.f, 1.f, 0.f, 0.f};
@@ -614,8 +696,12 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
             const MaterialState& mat = part.material;
             // No lightmaps on entities, so u_ambient.w (the lightmap scale) is
             // never sampled; alpha test comes from the material scripts.
-            const float ambientValue[4] = {ambient[0] / 255.f, ambient[1] / 255.f,
-                                           ambient[2] / 255.f, mat.lightScale};
+            //
+            // The ambient is THIS MODEL'S, not the level's: the CEnvironment it
+            // stands in may have overwritten it, which is the whole reason
+            // those boxes exist.
+            const float ambientValue[4] = {lit.ambient[0], lit.ambient[1],
+                                           lit.ambient[2], mat.lightScale};
             // PAINFUL_NOATEST disables the alpha test, to tell "the texture alpha
             // is discarding this" apart from "this is not being drawn".
             static const bool kNoATest = getenv("PAINFUL_NOATEST") != nullptr;
@@ -640,11 +726,12 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
             // The posed buffer when there is one, the shared bind-pose buffer
             // otherwise. Indices never change: skinning moves vertices, it
             // does not retopologise.
-            const bool usePosed = posing && partIndex < instance.posed.size() &&
-                                  bgfx::isValid(instance.posed[partIndex]);
-            if (usePosed) bgfx::setVertexBuffer(0, instance.posed[partIndex]);
+            // The posed buffer belongs to the slot that owns the vertices.
+            const uint32_t owner = part.vboOwner;
+            const bool usePosed = posing && owner < instance.posed.size() &&
+                                  bgfx::isValid(instance.posed[owner]);
+            if (usePosed) bgfx::setVertexBuffer(0, instance.posed[owner]);
             else          bgfx::setVertexBuffer(0, part.vbo);
-            ++partIndex;
             bgfx::setIndexBuffer(part.ibo, 0, part.indexCount);
             bgfx::setTexture(0, sDiffuse_, part.diffuse, mat.sampler[0]);
             bgfx::setTexture(1, sLightmap_, white_);

@@ -201,42 +201,63 @@ bool Model::Load(const std::string& path, Model& out) {
         //   u32/char meshName
         //   u32 x3                     (lead; usually 12 bytes, all zero)
         //   u32 materialCount
-        //   material: u32/char textureName, separated by an 8-byte pair
-        //             (no separator after the last material)
-        // Every candidate offset and layout variant must land EXACTLY on the
-        // geometry header, so a wrong guess is rejected rather than accepted.
+        //   material: u32/char textureName, u32 firstIndex, u32 triangleCount
+        //
+        // Those last two used to be treated as an unknown separator and
+        // skipped, which is why every mesh drew with materials[0]. They are the
+        // triangle RUN each slot covers - see ModelMaterial - and they let the
+        // header be checked rather than guessed: the runs must tile the index
+        // array exactly, in order, and end on the geometry header.
         {
             static const int kLeads[] = {12, 8, 16, 4, 0};
-            static const int kSeps[]  = {8, 0, 4, 12, 16};
-            size_t headerEnd = g.idxAt - 12;
+            // The header ends four bytes before the index data, on a u32
+            // holding the index count - so a candidate parse can be checked
+            // against the geometry rather than trusted.
+            size_t headerEnd = g.idxAt - 4;
+            if (g.idxAt < 4 || r.peekU32(headerEnd) != g.ic) headerEnd = 0;
             bool done = false;
-            for (size_t off = prevEnd; !done && off + 20 < headerEnd; ++off) {
+            // Search back from the index data rather than forward from the
+            // previous mesh: the header sits immediately before its own
+            // geometry, and the first mesh in a file has no previous mesh to
+            // start from - drzwi3.pkmdl put its first header behind the bone
+            // table, where a forward scan never reached it.
+            const size_t scanFrom = headerEnd > 8192 ? headerEnd - 8192 : 0;
+            for (size_t off = scanFrom; !done && headerEnd && off + 20 < headerEnd; ++off) {
                 size_t afterName = off;
                 std::string nm;
                 if (!ReadStr(r, afterName, 256, nm) || nm.empty()) continue;
                 for (int lead : kLeads) {
-                    if (done) break;
                     size_t q0 = afterName + lead;
                     if (q0 + 4 > data.size()) continue;
-                    uint32_t matCount = r.peekU32(q0);
+                    const uint32_t matCount = r.peekU32(q0);
                     if (matCount == 0 || matCount > 64) continue;
-                    for (int sep : kSeps) {
-                        size_t q = q0 + 4;
-                        std::vector<std::string> mats;
-                        bool ok = true;
-                        for (uint32_t mi = 0; mi < matCount; ++mi) {
-                            if (mi > 0) q += sep;
-                            std::string tex;
-                            if (!ReadStr(r, q, 256, tex)) { ok = false; break; }
-                            mats.push_back(tex);
-                        }
-                        if (!ok || q != headerEnd) continue;
-                        mesh.name = nm;
-                        mesh.materials = std::move(mats);
-                        mesh.materialsExact = true;
-                        done = true;
-                        break;
+                    size_t q = q0 + 4;
+                    std::vector<ModelMaterial> mats;
+                    bool ok = true;
+                    uint32_t expect = 0;         // where the next run must start
+                    for (uint32_t mi = 0; mi < matCount && ok; ++mi) {
+                        ModelMaterial m;
+                        if (!ReadStr(r, q, 256, m.texture)) { ok = false; break; }
+                        if (q + 8 > data.size()) { ok = false; break; }
+                        m.firstIndex = r.peekU32(q);
+                        m.triangles = r.peekU32(q + 4);
+                        q += 8;
+                        // Contiguous, in order, and inside the mesh.
+                        // A zero-triangle slot is legal: klatka.pkmdl ends its
+                        // list with one named "Models/" covering nothing.
+                        if (m.firstIndex != expect ||
+                            m.firstIndex + m.triangles * 3 > g.ic) { ok = false; break; }
+                        expect = m.firstIndex + m.triangles * 3;
+                        mats.push_back(std::move(m));
                     }
+                    // The runs must cover the whole index array and the header
+                    // must land exactly on the geometry.
+                    if (!ok || expect != g.ic || q != headerEnd) continue;
+                    mesh.name = nm;
+                    mesh.materials = std::move(mats);
+                    mesh.materialsExact = true;
+                    done = true;
+                    break;
                 }
             }
         }
@@ -259,6 +280,18 @@ bool Model::Load(const std::string& path, Model& out) {
             }
         }
 
+
+        // A mesh whose header did not parse still has to draw. One slot over
+        // the whole index array, textured with whatever image name was lying
+        // near it, is what this did before the runs were understood - kept as
+        // the fallback rather than the rule.
+        if (mesh.materials.empty() && !mesh.textures.empty()) {
+            ModelMaterial m;
+            m.texture = mesh.textures.front();
+            m.firstIndex = 0;
+            m.triangles = g.ic / 3;
+            mesh.materials.push_back(std::move(m));
+        }
         mesh.indices.resize(g.ic);
         for (uint32_t i = 0; i < g.ic; ++i) mesh.indices[i] = r.peekU16(g.idxAt + i * 2);
         mesh.verts.resize(static_cast<size_t>(g.vc) * 8);

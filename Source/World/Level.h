@@ -65,6 +65,12 @@ struct LevelInfo {
     std::string detailTex = "special/detail";   // DetailMap.Tex
     float detailTileU = 8.2f, detailTileV = 7.1f;
     float ambient[3] = {0, 0, 0};
+    // o.DirLight - the level's own directional light, which every entity gets
+    // unless a CEnvironment it stands in overwrites it. The world mesh does not
+    // use this: its lighting is baked. Colour is 0..255 as authored.
+    float dirLightColor[3] = {0, 0, 0};
+    float dirLightDir[3] = {0, -1, 0};
+    float dirLightIntensity = 1.f;
     float fogColor[3] = {0, 0, 0};
     float fogDensity = 0.f, fogStart = 0.f;
     float fogEnd = 90.f;             // Fog.End, class default 90

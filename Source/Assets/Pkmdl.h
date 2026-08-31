@@ -18,6 +18,29 @@ struct SkinInfluence {
     float weight = 0;
 };
 
+// One MATERIAL SLOT: a texture and the run of triangles it covers.
+//
+// A mesh is not one material. The nun's polySurfaceShape41 is three - a face,
+// a habit and a trim - and 17 of the 113 meshes across the monsters we have
+// looked at carry more than one. Drawing the whole mesh with the first one
+// puts the wrong image on whole regions of a model, and where that image is an
+// alpha-cut one (NUNtexture3.tga, NUNtexture4.tga) under palskinned's
+// `alphatest greater 128` the region does not draw at all.
+//
+// The range is in the file and was being skipped as an unknown separator:
+//
+//     [u32 len][name\0][u32 firstIndex][u32 triangleCount]
+//
+// firstIndex indexes the INDEX array, so it advances by 3 per triangle.
+// Verified on nun.pkmdl: polySurfaceShape41 (1000 tris) reads
+// [0,148] [444,240] [1164,612] - 444 = 148*3, 1164 = 444 + 240*3, and
+// 148+240+612 = 1000; polySurfaceShape1044 (186 tris) reads [0,98] [294,88].
+struct ModelMaterial {
+    std::string texture;
+    uint32_t firstIndex = 0;
+    uint32_t triangles = 0;
+};
+
 struct ModelMesh {
     std::string name;
     std::vector<std::string> textures;
@@ -32,9 +55,9 @@ struct ModelMesh {
     // palskinned2sided for it.
     bool nameHas(const char* token) const;
 
-    // One texture name per material, in order. Unlike .mpk materials these carry
-    // only a texture reference - no triangle range or UV transform.
-    std::vector<std::string> materials;
+    // The material slots, in order. See ModelMaterial: each carries the
+    // triangle run it covers, so a mesh draws as one call per slot.
+    std::vector<ModelMaterial> materials;
     // True when the material header parsed and landed EXACTLY on the geometry
     // header, i.e. the layout is fully accounted for.
     bool materialsExact = false;

@@ -6,6 +6,7 @@
 #include "../Assets/ShaderScript.h"
 #include "MaterialState.h"
 #include "../World/Level.h"
+#include "../World/Lighting.h"
 #include "../World/Templates.h"
 #include "Camera.h"
 #include "TextureCache.h"
@@ -28,6 +29,13 @@ public:
 
     bool Init(const std::string& shaderDir);
     void Shutdown();
+
+    // The CLight and CEnvironment placements that light the models. Build
+    // does this too; the script-driven path has no Level to pass to Build
+    // and calls this on its own.
+    void BuildLighting(const Level& level, TemplateCache& templates);
+    size_t lightCount() const { return lighting_.lightCount(); }
+    size_t environmentCount() const { return lighting_.environmentCount(); }
 
     void Build(const Level& level, TemplateCache& templates, TextureCache& textures,
                const std::string& dataRoot, ShaderLibrary* shaders = nullptr);
@@ -100,6 +108,10 @@ private:
         bgfx::TextureHandle diffuse = BGFX_INVALID_HANDLE;
         uint32_t indexCount = 0;
         bool ownsVbo = true;               // parts of one pack object share a vbo
+        // Which part owns the vertex buffer this one draws from. A model mesh
+        // split across material slots shares one set of vertices and one posed
+        // buffer; each slot brings only its own index run.
+        uint32_t vboOwner = 0;
         // Per part, because a .shader override keys off the MESH name, not the
         // file name: Swamp_dirtywater.pkmdl holds a mesh called "dirtywater",
         // which is the entry that makes the swamp water scroll. One material
@@ -146,6 +158,10 @@ private:
         // hidden.
         bool alive = true;
         bool visible = true;
+        // The environment cross-fade this instance is in the middle of. Per
+        // instance because two monks either side of a doorway are at different
+        // points of the same fade.
+        EntityLightFade lightFade;
     };
 
     // Recomputes the instance's world-space bounds from its model's bbox.
@@ -185,6 +201,14 @@ private:
     bgfx::UniformHandle uUv0_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle uUv1_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle uTile_ = BGFX_INVALID_HANDLE;
+    // The model lighting block - the engine's c10 ambient and its c12..c23
+    // four-light set. See World/Lighting.h.
+    bgfx::UniformHandle uLightColor_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle uLightDir_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle uLightHalf_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle uSpecular_ = BGFX_INVALID_HANDLE;
+    EntityLighting lighting_;
+    float lastTime_ = 0.f;
     bgfx::TextureHandle white_ = BGFX_INVALID_HANDLE;
     size_t unresolved_ = 0, packed_ = 0, hidden_ = 0, drawCalls_ = 0, posedInstances_ = 0;
     std::set<std::string> posedModels_;

@@ -151,6 +151,7 @@ target_link_libraries(painful_script PUBLIC painful_core painful_lua)
 
 add_library(painful_world STATIC
   Source/World/Level.cpp
+  Source/World/Lighting.cpp
   Source/World/Templates.cpp
   Source/World/Zones.cpp
   Source/World/CollisionMesh.cpp
@@ -233,6 +234,8 @@ endfunction()
 
 add_shader(vs_world v s_5_0)
 add_shader(fs_world f s_5_0)
+add_shader(vs_entity v s_5_0)
+add_shader(fs_entity f s_5_0)
 add_shader(fs_sky   f s_5_0)
 add_shader(vs_particle v s_5_0)
 add_shader(fs_particle f s_5_0)

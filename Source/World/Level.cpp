@@ -64,6 +64,9 @@ bool Level::LoadSettings(const std::string& levelDir) {
     info_.farClip = static_cast<float>(p.Number("FarClipDist", 1024.0));
     info_.meshFriction = static_cast<float>(p.Number("Physics.DefaultMeshFriction", 0.7));
     p.Vector3("Ambient", info_.ambient);
+    p.Vector3("DirLight.Color", info_.dirLightColor);
+    p.Vector3("DirLight.Dir", info_.dirLightDir);
+    info_.dirLightIntensity = static_cast<float>(p.Number("DirLight.Intensity", 1.0));
     p.Vector3("Fog.Color", info_.fogColor);
     p.Vector3("Pos", info_.startPos);
     p.Vector3("Ang", info_.angles);
