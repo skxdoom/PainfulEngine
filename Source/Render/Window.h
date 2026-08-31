@@ -31,7 +31,7 @@ public:
     bool TakeNoclipToggle();
     // True once per press of the collision-wireframe key.
     bool TakePhysicsDebugToggle();
-    // True once per press of F1..F3, the in-game debug overlays. Indexed 0..2
+    // True once per press of F1..F4, the in-game debug modes. Indexed 0..3
     // so the game loop can keep its own modes without the window knowing what
     // any of them mean.
     bool TakeDebugToggle(int index);
@@ -107,7 +107,7 @@ private:
     int levelStep_ = 0;
     bool noclipToggle_ = false;
     bool physicsDebugToggle_ = false;
-    bool debugToggles_[3] = {false, false, false};   // F1, F2, F3
+    bool debugToggles_[4] = {false, false, false, false};   // F1..F4
     bool vkDown_[256] = {};
     int wheelSteps_ = 0;
 };

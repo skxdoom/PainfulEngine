@@ -75,6 +75,20 @@ public:
         // SOUND name, which SND.Setup3D is what supplies.
         std::vector<int> children;
         std::string soundName;
+        // What this entity is bound to, and where on it.
+        //
+        // ENTITY.RegisterChild names the parent; PARTICLE.SetParentOffset gives
+        // the offset and, usually, the JOINT it hangs off. CActor:BindFX does
+        // both for every effect a monster carries. Without the pair being
+        // acted on, a bound effect never moves: it stays wherever it was made,
+        // which is the world origin - and DevilMonk decides whether to poison
+        // the player by measuring the distance to its gas cloud, so a cloud
+        // left at the origin poisons anyone who spawns there.
+        int parent = 0;                  // 0 = not bound to anything
+        float parentOffset[3] = {0, 0, 0};
+        std::string parentJoint;         // empty = the parent's own transform
+        int parentJointIndex = -2;       // -2 not resolved, -1 absent
+        bool parentBound = false;        // SetParentOffset was called
         // A projectile: PO_Create was given ECollisionGroups.Noncolliding, so
         // this is moved along its velocity by TickProjectiles rather than
         // simulated. The scripts find their own hits with a line trace.
@@ -331,6 +345,9 @@ public:
     // Re-places every view-attached entity from the camera as it will actually
     // be rendered. Called after the tick chain has settled the camera.
     void UpdateViewAttached();
+    // Places every entity bound with RegisterChild + SetParentOffset. Run
+    // after the parents have moved for the frame, or the effects lag them.
+    void UpdateAttached();
     void PlaceViewAttached(Entity& entity);
     void TickTriggers();
 
@@ -414,6 +431,8 @@ private:
     // Bone-local point to WORLD, through the entity's own transform. Used by
     // every joint query, so they cannot disagree about the entity's placement.
     bool JointToWorld(Entity& e, int joint, const float local[3], float out[3]);
+    int JointIndexByName(Entity& e, const std::string& name);
+    void PlaceAttached(Entity& e);
     void UpdateAttachments(Entity& e);
     bool SplitPackSource(const std::string& source, std::string& packName) const;
 
@@ -430,6 +449,7 @@ private:
     static int L_EnableDraw(lua_State* L);
     static int L_PARTICLE_AddEmitter(lua_State* L);
     static int L_PARTICLE_SetupEmitter(lua_State* L);
+    static int L_PARTICLE_SetParentOffset(lua_State* L);
     static int L_NoOpNative(lua_State* L);
     static int L_BILLBOARD_SetupCorona(lua_State* L);
     static int L_GetVelocity(lua_State* L);

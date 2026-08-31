@@ -3983,11 +3983,81 @@ int ScriptEngine::L_ENTITY_RegisterChild(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* parent = self->Find(HandleArg(L, 1));
     const int child = HandleArg(L, 2);
-    if (!parent || child == 0 || !self->Find(child)) return 0;
+    Entity* childEntity = self->Find(child);
+    if (!parent || child == 0 || !childEntity) return 0;
     if (std::find(parent->children.begin(), parent->children.end(), child) ==
         parent->children.end())
         parent->children.push_back(child);
+    // The back-link, which is what lets the child be PLACED. The parent's list
+    // alone says who owns the child, not where it goes.
+    childEntity->parent = HandleArg(L, 1);
     return 0;
+}
+
+// PARTICLE.SetParentOffset(pfx, x, y, z, joint, ...)
+//
+// Where a bound effect sits on the thing it is bound to. Arguments 2..4 are the
+// offset and argument 5 is the JOINT - an index when it is a number, a name
+// when it is a string, which is the branch the engine takes on the Lua type
+// (0x10139e30 tests for LUA_TNUMBER before choosing GetInt or GetString).
+//
+// CActor:BindFX calls this for every effect a monster carries, right after
+// RegisterChild. Unimplemented, every one of them stayed at the world origin.
+int ScriptEngine::L_PARTICLE_SetParentOffset(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e) return 0;
+    for (int c = 0; c < 3; ++c)
+        e->parentOffset[c] = float(luaL_optnumber(L, c + 2, 0));
+
+    e->parentJoint.clear();
+    e->parentJointIndex = -2;
+    if (lua_isnumber(L, 5)) {
+        e->parentJointIndex = int(lua_tonumber(L, 5));
+    } else if (lua_isstring(L, 5)) {
+        e->parentJoint = lua_tostring(L, 5);
+    }
+    e->parentBound = true;
+    self->PlaceAttached(*e);
+    return 0;
+}
+
+// A bone by name, or -1. The same lookup MDL.GetJointIndex does, factored out
+// because an attachment resolves its joint once and then rides it.
+int ScriptEngine::JointIndexByName(Entity& e, const std::string& name) {
+    if (e.type != kModel || name.empty()) return -1;
+    const SkeletonCache::Entry* skel = skeletons_.Get(e.source);
+    if (!skel) return -1;
+    for (size_t i = 0; i < skel->bones.size(); ++i)
+        if (EqualsCI(skel->bones[i].name, name.c_str())) return int(i);
+    return -1;
+}
+
+// Puts one bound entity where its parent says it goes.
+void ScriptEngine::PlaceAttached(Entity& e) {
+    if (!e.parentBound || e.parent == 0) return;
+    Entity* parent = Find(e.parent);
+    if (!parent) return;
+
+    // A named joint is resolved once and remembered: the lookup is by string
+    // against the skeleton, and these are placed every frame.
+    if (e.parentJointIndex == -2 && !e.parentJoint.empty())
+        e.parentJointIndex = JointIndexByName(*parent, e.parentJoint);
+
+    float world[3];
+    if (e.parentJointIndex < 0 || !JointToWorld(*parent, e.parentJointIndex,
+                                                e.parentOffset, world)) {
+        // No joint, or a skeleton that cannot answer: the parent's own frame.
+        for (int c = 0; c < 3; ++c) world[c] = parent->pos[c] + e.parentOffset[c];
+    }
+    for (int c = 0; c < 3; ++c) e.pos[c] = world[c];
+    SyncPose(e);
+}
+
+// Every bound entity, once the parents have finished moving for the frame.
+void ScriptEngine::UpdateAttached() {
+    for (auto& kv : entities_)
+        if (kv.second.parentBound) PlaceAttached(kv.second);
 }
 
 // Returns the child handle, or 0 for "no such child" - the value the scripts
@@ -4211,6 +4281,7 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"ENTITY", "EnableDraw", L_EnableDraw},
         {"PARTICLE", "AddEmitter", L_PARTICLE_AddEmitter},
         {"PARTICLE", "SetupEmitter", L_PARTICLE_SetupEmitter},
+        {"PARTICLE", "SetParentOffset", L_PARTICLE_SetParentOffset},
         {"PARTICLE", "SetEvolve", L_PARTICLE_SetEvolve},
         {"MDL", "SetAnim", L_MDL_SetAnim},
         {"MDL", "GetAnimLength", L_MDL_GetAnimLength},

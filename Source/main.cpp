@@ -6,6 +6,7 @@
 #include "Assets/Dat.h"
 #include "Assets/ShaderScript.h"
 #include "Assets/Ani.h"
+#include "Assets/Rde.h"
 #include "Assets/Mpk.h"
 #include "Assets/Pkmdl.h"
 #include "Assets/Skeleton.h"
@@ -821,6 +822,37 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
     }
     bool nameplates = std::getenv("PAINFUL_NAMEPLATES") != nullptr;
     constexpr float kNameplateRadius = 20.f;
+
+    // F4 stops the monsters THINKING, which is not the same as stopping them
+    // ticking. CAiBrain:PreUpdate and OnUpdate are the deciding - target,
+    // approach, attack - while CActor:Tick carries animation, damage
+    // reactions and the ragdoll. Stubbing the brain alone leaves an enemy
+    // standing there alive and fully hittable, which is exactly the bench you
+    // want for hitboxes and ragdolls.
+    //
+    // Every actor holds its OWN brain: CActor makes it with Clone(CAiBrain),
+    // and Clone is a shallow copy, so the functions are copied by value. The
+    // class has to be stubbed for actors spawned later AND every live brain
+    // for the ones already standing. Re-enabling walks the same two places.
+    bool aiDisabled = std::getenv("PAINFUL_NOAI") != nullptr;
+    bool aiApplied = false;
+    static const char* const kAiOff =
+        "do local function off(b)"
+        "  if b and not b.__aiOff then"
+        "    b.__aiOff = true"
+        "    b.__aiOnUpdate = b.OnUpdate  b.__aiPreUpdate = b.PreUpdate"
+        "    b.OnUpdate = function() end  b.PreUpdate = function() end"
+        "  end end"
+        " off(CAiBrain)"
+        " if Actors then for i,o in Actors do off(o._AIBrain) end end end";
+    static const char* const kAiOn =
+        "do local function on(b)"
+        "  if b and b.__aiOff then"
+        "    b.OnUpdate = b.__aiOnUpdate  b.PreUpdate = b.__aiPreUpdate"
+        "    b.__aiOnUpdate = nil  b.__aiPreUpdate = nil  b.__aiOff = nil"
+        "  end end"
+        " on(CAiBrain)"
+        " if Actors then for i,o in Actors do on(o._AIBrain) end end end";
     engine.SetScreenSize(window.width(), window.height());
     engine.SetResolutions(window.DisplayModes());
     engine.AttachPlayer(&pawn);
@@ -994,6 +1026,18 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
         if (window.TakeDebugToggle(0)) geoWire = !geoWire;
         if (window.TakeDebugToggle(1)) collisionWire = !collisionWire;
         if (window.TakeDebugToggle(2)) nameplates = !nameplates;
+        if (window.TakeDebugToggle(3)) aiDisabled = !aiDisabled;
+        // Applied from the state rather than from the keypress, so that
+        // PAINFUL_NOAI takes effect on the first frame - the scripts have to
+        // exist before there is a CAiBrain to stub, so it cannot happen at
+        // startup. Actors created later inherit whatever CAiBrain is now and
+        // are born stubbed; ones already standing keep their own brain, which
+        // is why the switch walks the live ones too.
+        if (aiDisabled != aiApplied) {
+            host.RunString(aiDisabled ? kAiOff : kAiOn);
+            aiApplied = aiDisabled;
+            LogInfo("AI %s", aiDisabled ? "disabled" : "enabled");
+        }
         renderer.SetWireframe(geoWire);
         // Who steers the view. While the player is walking it is the SCRIPTS:
         // Game:Tick2 calls UpdateViewFromPlayer, which reads MOUSE.GetDelta,
@@ -1082,6 +1126,10 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
             // phantoms do.
             engine.TickTriggers();
             engine.TickLifetimes(dt);
+            // Bound effects follow their parents here, after the actors have
+            // finished moving and their joints are posed for the frame. Placed
+            // any earlier and every effect trails its owner by a frame.
+            engine.UpdateAttached();
             // Last, once the camera has settled: a view-attached weapon is
             // re-placed from the eye that will actually be rendered. Baked
             // during the tick it lags the shake by a frame, and the weapon
@@ -1315,10 +1363,13 @@ static int GameCmd(const char* dataRoot, const char* levelName, const char* exeP
                            window.mouseCaptured() ? "mouse captured" : "menu",
                            walking ? "WASD walk, space jump, mouse look, N to fly"
                                    : "WASD move, shift fast, space/ctrl up-down, N to walk");
-        renderer.DebugText(8, "F1 geometry: %s   F2 collision: %s   F3 nameplates: %s%s",
+        renderer.DebugText(8,
+                           "F1 geometry: %s   F2 collision: %s   F3 nameplates: %s   "
+                           "F4 AI: %s%s",
                            geoWire ? "wireframe" : "off",
                            collisionWire ? "dynamic" : "off",
                            nameplates ? "on (20m)" : "off",
+                           aiDisabled ? "DISABLED" : "on",
                            collisionWire
                                ? "   |   green awake, yellow asleep, magenta script, "
                                  "red non-colliding, GREEN BOX = no physics body"
@@ -2816,6 +2867,49 @@ static int PoseCmd(const char* modelPath, const char* animName, const char* time
     return 0;
 }
 
+// What the ragdoll definition names, and how big each limb actually is.
+//
+// The .rde carries no shape at all - only mass and material - so this is the
+// check that the shapes CAN be derived from the model, and that the bone names
+// in the two files agree. A limb the .rde names but the model never weights a
+// vertex to would come back with no box, and that is worth seeing.
+static int HitboxesCmd(const char* modelPath) {
+    Model model;
+    if (!Model::Load(modelPath, model)) {
+        LogInfo("failed to load %s", modelPath);
+        return 2;
+    }
+    std::string rdePath = modelPath;
+    const size_t dot = rdePath.find_last_of('.');
+    if (dot != std::string::npos) rdePath = rdePath.substr(0, dot);
+    rdePath += ".rde";
+
+    Ragdoll ragdoll;
+    if (!Ragdoll::Load(rdePath, ragdoll)) {
+        LogInfo("%s: %s", rdePath.c_str(), ragdoll.error.c_str());
+        return 2;
+    }
+
+    const std::vector<LimbBounds> limbs = BuildLimbBounds(model, ragdoll);
+    LogInfo("%s: %zu bones, %zu limbs named by %s, %zu resolved", modelPath,
+            model.bones.size(), ragdoll.limbs.size(), rdePath.c_str(), limbs.size());
+
+    size_t missing = 0, unweighted = 0;
+    for (const RagdollLimb& limb : ragdoll.limbs) {
+        bool found = false;
+        for (const Bone& bone : model.bones) if (bone.name == limb.bone) found = true;
+        if (!found) { LogInfo("  NOT A BONE: %s", limb.bone.c_str()); ++missing; }
+    }
+    for (const LimbBounds& limb : limbs) {
+        if (!limb.valid()) { ++unweighted; LogInfo("  %-20s no vertices", limb.name.c_str()); continue; }
+        LogInfo("  %-20s %6zu verts   %.3f x %.3f x %.3f", limb.name.c_str(),
+                limb.vertices, limb.extent(0), limb.extent(1), limb.extent(2));
+    }
+    LogInfo("  %zu named bones absent from the model, %zu limbs with no vertices",
+            missing, unweighted);
+    return 0;
+}
+
 static int ModelCmd(const char* path) {
     Model model;
     if (!Model::Load(path, model)) { LogInfo("failed to load %s", path); return 2; }
@@ -3039,6 +3133,7 @@ int main(int argc, char** argv) {
     if (cmd == "dat") return DatCmd(argv[2]);
     if (cmd == "textures" && argc >= 5) return TexturesCmd(argv[2], argv[3], argv[4]);
     if (cmd == "model") return ModelCmd(argv[2]);
+    if (cmd == "hitboxes") return HitboxesCmd(argv[2]);
     if (cmd == "pose" && argc >= 4)
         return PoseCmd(argv[2], argv[3], argc >= 5 ? argv[4] : nullptr);
     if (cmd == "particles" && argc >= 4) return ParticlesCmd(argv[2], argv[3]);

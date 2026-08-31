@@ -131,6 +131,7 @@ add_library(painful_assets STATIC
   Source/Assets/ShaderScript.cpp
   Source/Assets/Pkmdl.cpp
   Source/Assets/Ani.cpp
+  Source/Assets/Rde.cpp
   Source/Assets/AnimationCache.cpp
   Source/Assets/SkeletonCache.cpp
   Source/Assets/Waypoints.cpp
