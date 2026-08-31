@@ -904,10 +904,30 @@ int PhysicsWorld::CreateScriptBody(int bodyType, const std::string& modelName,
     // its velocity inside a single step with gravity off and nothing to collide
     // against. A projectile has no business being integrated.
     const bool projectile = collisionGroup == 7;
+
+    // ECollisionGroups.Fixed (1) is RIGID, NOT SIMULATED.
+    //
+    // It is what the ambush barriers and the lifts are made with -
+    // Slab.CItem's OnCreateEntity is
+    //
+    //     self:PO_Create(BodyTypes.FromMesh, nil, ECollisionGroups.Fixed)
+    //     ENTITY.PO_SetMovedByExplosions(self._Entity, false)
+    //
+    // and the slab is then driven by script, a little further up its own Y
+    // every tick, to rise into the player's path. C5L2_Winda (the lift) does
+    // the same with FromMeshNonConvex.
+    //
+    // Dynamic is wrong for all of them twice over: the solver pushes them out
+    // of the floor they are authored inside and they never rise at all, and
+    // anything that touches one shoves it off its track. Kinematic is what
+    // "fixed" means here - it blocks whatever runs into it, nothing moves it
+    // but the script that owns it, and it passes through the static world it
+    // is rising out of.
+    const bool fixedRigid = collisionGroup == 1;
     JPH::BodyCreationSettings body(shape.Get(), JPH::RVec3(pos[0], pos[1], pos[2]),
                                    EngineQuatToJolt(rotWXYZ),
-                                   projectile ? JPH::EMotionType::Kinematic
-                                              : JPH::EMotionType::Dynamic,
+                                   (projectile || fixedRigid) ? JPH::EMotionType::Kinematic
+                                                              : JPH::EMotionType::Dynamic,
                                    projectile ? Layers::kNoCollide : Layers::kMoving);
     body.mMotionQuality = JPH::EMotionQuality::LinearCast;
 

@@ -1,9 +1,25 @@
+#include <cctype>
+#include <cstring>
 #include "Pkmdl.h"
 #include "Skeleton.h"
 #include <algorithm>
 #include <cmath>
 
 namespace painful {
+// Case-insensitive substring, the same test MapObject::nameHas applies to world
+// object names. The model exporter uses the same convention.
+bool ModelMesh::nameHas(const char* token) const {
+    if (token == nullptr || *token == '\0') return false;
+    const size_t n = std::strlen(token);
+    if (name.size() < n) return false;
+    for (size_t i = 0; i + n <= name.size(); ++i) {
+        size_t k = 0;
+        while (k < n && std::tolower(uint8_t(name[i + k])) == std::tolower(uint8_t(token[k]))) ++k;
+        if (k == n) return true;
+    }
+    return false;
+}
+
 
 static constexpr uint32_t kMaxName = 1024;   // bone names can be Maya DAG paths
 

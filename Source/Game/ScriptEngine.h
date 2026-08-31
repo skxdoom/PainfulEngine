@@ -77,6 +77,17 @@ public:
         // sounds BindSoundToEntity attaches. GetChildByName searches these by
         // SOUND name, which SND.Setup3D is what supplies.
         std::vector<int> children;
+
+        // ENTITY.RegisterChild's fifth argument, which DEFAULTS TO TRUE: the
+        // engine writes it to child+0x11a (0x1012fad0) and Entity::
+        // KillAllChildren (0x1d2bc0) deletes a child only when it is set.
+        //
+        // Every pickup relies on it. IShotgunFZ:Client_OnCreateEntity makes a
+        // SEPARATE billboard entity for its corona and registers it as a child
+        // with four arguments - so the flag is on - and expects it to go when
+        // the pickup does. Without honouring it the corona outlives the thing
+        // it was drawn for and hangs in the air.
+        bool dieWithParent = true;
         std::string soundName;
         // What this entity is bound to, and where on it.
         //

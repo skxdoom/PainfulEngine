@@ -27,6 +27,11 @@ struct ModelMesh {
     size_t offset = 0;
     size_t indexOffset = 0;
 
+    // Same convention the world meshes use: the NAME carries the material
+    // variant. evilmonkv2's robe is "polySurfa_2sided", and skin.shader ships
+    // palskinned2sided for it.
+    bool nameHas(const char* token) const;
+
     // One texture name per material, in order. Unlike .mpk materials these carry
     // only a texture reference - no triangle range or UV transform.
     std::vector<std::string> materials;

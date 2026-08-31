@@ -174,7 +174,20 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
         // off each object's name. Swamp_dirtywater.pkmdl holds a mesh called
         // "dirtywater", which is the skin.shader entry that makes the swamp
         // water scroll; keying off the file name found nothing.
-        part.material = LookupMaterial(shaders_, "palskinned", true, mesh.name);
+        // THE MESH NAME PICKS THE SHADER FAMILY, for models exactly as it does
+        // for pack meshes a few lines down. evilmonkv2 has meshes called
+        // "polySurfa_2sided" (the robe) and "spodnica_2sided" (the skirt), and
+        // skin.shader ships `shader palskinned2sided copy palskinned { pass {
+        // cull none } }` for precisely them. Asking for plain palskinned
+        // backface-culls the robe, so half of it disappears and the monk looks
+        // like it has holes cut in it.
+        //
+        // The whole palskinned family has 2sided variants - _bloody, _freeze,
+        // _water, add, emissive - so the suffix goes on whatever the override
+        // resolved to rather than only on the default.
+        std::string family = "palskinned";
+        if (mesh.nameHas("2sided")) family += "2sided";
+        part.material = LookupMaterial(shaders_, family, true, mesh.name);
         gpu.parts.push_back(part);
     }
     if (gpu.parts.empty()) return false;

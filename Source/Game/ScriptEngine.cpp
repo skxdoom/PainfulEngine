@@ -241,6 +241,38 @@ int ScriptEngine::L_Create(lua_State* L) {
 void ScriptEngine::ReleaseEntity(int handle) {
     auto it = entities_.find(handle);
     if (it == entities_.end()) return;   // nil and doubles are routine
+
+    // CHILDREN GO WITH THE PARENT, which is what RegisterChild's fifth
+    // argument says and what nothing here was doing. A pickup's corona is its
+    // own Billboard entity registered as a child; releasing only the pickup
+    // left the corona drawn, in mid-air, for the rest of the level.
+    //
+    // Taken by value and cleared first: the recursive release erases from
+    // entities_, and a child that unregisters itself on the way out would
+    // otherwise mutate the list being walked.
+    {
+        const std::vector<int> kids = it->second.children;
+        it->second.children.clear();
+        for (int kid : kids) {
+            auto k = entities_.find(kid);
+            if (k == entities_.end()) continue;
+            k->second.parent = 0;                 // no back-link into a dying parent
+            if (k->second.dieWithParent) ReleaseEntity(kid);
+        }
+        // The map may have rehashed under the recursion.
+        it = entities_.find(handle);
+        if (it == entities_.end()) return;
+    }
+    // And drop the back-link from whatever owns this one, so a parent released
+    // later does not walk a handle that is already gone.
+    if (it->second.parent != 0) {
+        auto p = entities_.find(it->second.parent);
+        if (p != entities_.end()) {
+            std::vector<int>& siblings = p->second.children;
+            siblings.erase(std::remove(siblings.begin(), siblings.end(), handle),
+                           siblings.end());
+        }
+    }
     if (renderer_ && it->second.rendererInstance >= 0)
         renderer_->ReleaseScript(it->second.rendererInstance);
     if (physics_ && it->second.physicsBody >= 0) {
@@ -4491,6 +4523,8 @@ int ScriptEngine::L_ENTITY_RegisterChild(lua_State* L) {
     // The back-link, which is what lets the child be PLACED. The parent's list
     // alone says who owns the child, not where it goes.
     childEntity->parent = HandleArg(L, 1);
+    // Fifth argument, default true - see Entity::dieWithParent.
+    childEntity->dieWithParent = lua_isnone(L, 5) || lua_toboolean(L, 5) != 0;
     return 0;
 }
 
@@ -5555,7 +5589,14 @@ int ScriptEngine::L_ENTITY_KillAllChildren(lua_State* L) {
     if (!parent) return 0;
     const std::vector<int> kids = parent->children;
     parent->children.clear();
-    for (int handle : kids) self->ReleaseEntity(handle);
+    // Only the ones that asked to die with their parent, which is what
+    // Entity::KillAllChildren checks (child+0x11a at 0x1d2bc0).
+    for (int handle : kids) {
+        Entity* kid = self->Find(handle);
+        if (kid == nullptr) continue;
+        kid->parent = 0;
+        if (kid->dieWithParent) self->ReleaseEntity(handle);
+    }
     return 0;
 }
 
