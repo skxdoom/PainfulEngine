@@ -10,6 +10,7 @@
 #include "MenuSystem.h"
 #include "../Assets/Mpk.h"
 #include "../Assets/Rde.h"
+#include "../Assets/Hke.h"
 #include "../Script/LuaHost.h"
 #include "../World/Level.h"
 #include "../World/PhysicsWorld.h"
@@ -242,6 +243,12 @@ public:
         // AddRagdollToIntersectionSolver (0x10134830) sets only this one.
         // TraceLimbs honours this flag; the body exclusion honours inSolver.
         bool ragdollInSolver = true;
+        // Joints MDL.EnableJoint has switched OFF, which takes that limb out
+        // of the ragdoll entirely. The scripts use it on a weapon the monster
+        // has already thrown - EvilMonkV2 does it to axeL/axeR inside
+        // CustomOnGib - so the bone stays in the rig while its body stops
+        // being part of the ragdoll.
+        std::vector<int> disabledJoints;
     };
 
     // What the scripts told WORLD.* to set up; the game loop turns this into
@@ -458,6 +465,15 @@ private:
     // The limb boxes of a model, derived once from its .rde and skin weights.
     // An empty vector is cached too - a model with no ragdoll is an answer.
     const std::vector<LimbBounds>* Hitboxes(const std::string& model);
+    // The ragdoll definition of a model, parsed once and kept. Null when the
+    // model has no .hke or has only the binary form.
+    const Hke* RagdollDef(const std::string& model);
+    // Is one joint connected to another through the ragdoll's constraint
+    // graph, honouring whatever MDL.EnableJoint has switched off? This is what
+    // separates a limb from a weapon: see Hke::Linked.
+    bool JointsLinked(Entity& e, int a, int b);
+    // The bone name a joint index refers to, or empty.
+    std::string JointName(Entity& e, int joint);
 
     // What a line trace found on one posed limb box: which actor was hit and
     // which of its bones. The joint index is what MDL.GetJointFromHavokBody
@@ -591,6 +607,12 @@ private:
     // MDL.GetJointFromHavokBody(e, he) -> joint, or -1. The engine checks the
     // body belongs to THAT entity's ragdoll (0x1012d320); so does this.
     static int L_MDL_GetJointFromHavokBody(lua_State* L);
+    // MDL.JointsLinked(e, a, b) -> are these two joints connected through the
+    // ragdoll? MDL.EnableJoint(e, joint, on) takes one out of it.
+    static int L_MDL_JointsLinked(lua_State* L);
+    static int L_MDL_EnableJoint(lua_State* L);
+    // PHYSICS.RemoveHavokBodyFromIS(he, on) - one BODY out of the traces.
+    static int L_PHYSICS_RemoveHavokBodyFromIS(lua_State* L);
     static int L_SetPosAndRotRelativeToCamera(lua_State* L);
     static int L_GetType(lua_State* L);
     static int L_PARTICLE_SetEvolve(lua_State* L);
@@ -782,6 +804,9 @@ private:
     // the answer to texture the parts and set them alight.
     std::unordered_map<int, std::vector<int>> lastExploded_;
     std::unordered_map<std::string, std::vector<LimbBounds>> hitboxes_;
+    // Ragdoll definitions by model, parsed once. A model with no .hke gets an
+    // entry too - a miss is an answer, not something to retry every frame.
+    std::unordered_map<std::string, Hke> ragdolls_;
     // Limb body handles, dense and permanent for the life of the process. A
     // handle is kLimbHandleBase + index, which cannot be mistaken for a script
     // body slot (small and positive) or for the world (-1).
@@ -794,6 +819,10 @@ private:
     // very boxes that are meant to replace it. Rebuilt each frame in
     // TickMonsters, which already walks exactly this set.
     std::vector<int> limbShadowed_;
+    // Limb handles PHYSICS.RemoveHavokBodyFromIS has taken out of the traces.
+    // Per BODY, where the solver flags are per entity: the stake removes the
+    // ONE limb it just hit and traces again, to see what is behind it.
+    std::vector<int> suppressedLimbs_;
     // Scratch for TraceRay: excludedSlots_ followed by limbShadowed_. A member
     // so a shotgun's dozen traces in one frame do not each allocate.
     mutable std::vector<int> traceExclude_;

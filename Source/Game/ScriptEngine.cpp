@@ -4425,6 +4425,111 @@ void ScriptEngine::UpdateAttached() {
         if (kv.second.parentBound) PlaceAttached(kv.second);
 }
 
+// The ragdoll definition of one model, parsed once and kept.
+//
+// Cached on a miss too. A model with no .hke, or with only the binary form, is
+// a settled answer - retrying the open every time a stake asks about a joint
+// would be a file operation per shot.
+const Hke* ScriptEngine::RagdollDef(const std::string& model) {
+    if (model.empty()) return nullptr;
+    const auto it = ragdolls_.find(model);
+    if (it != ragdolls_.end()) return it->second.bodies.empty() ? nullptr : &it->second;
+
+    Hke& slot = ragdolls_[model];
+    if (!Hke::Load(dataRoot_ + "/Models/" + model + ".hke", slot)) {
+        // Say so once. A binary .hke is a KNOWN model with an undecoded
+        // encoding, which is a different thing from a model with no ragdoll,
+        // and the difference matters when a monster behaves oddly.
+        if (slot.binary) LogInfo("ragdoll: %s is a binary .hke, not decoded", model.c_str());
+        return nullptr;
+    }
+    LogInfo("ragdoll: %s -> %zu bodies, %zu constraints", model.c_str(),
+            slot.bodies.size(), slot.constraints.size());
+    return &slot;
+}
+
+std::string ScriptEngine::JointName(Entity& e, int joint) {
+    if (e.type != kModel) return std::string();
+    const SkeletonCache::Entry* skel = skeletons_.Get(e.source);
+    if (!skel || joint < 0 || size_t(joint) >= skel->bones.size()) return std::string();
+    return skel->bones[size_t(joint)].name;
+}
+
+// MDL.JointsLinked(e, a, b) - are these two joints connected through the
+// RAGDOLL, as opposed to through the skeleton?
+//
+// THE SKELETON WOULD ALWAYS SAY YES. It is a tree, so every bone reaches the
+// root by definition - evilmonkv2's axeL runs axeL -> dlo_lewa_root ->
+// r_l_lokiec -> r_l_bark -> ... -> root. The ragdoll is a different graph: the
+// .hke gives a weapon a rigid body with NO constraint attaching it to
+// anything, so axeL is linked to nothing at all.
+//
+// That is what the question is for. Stake, BoltStick and PainHead ask it
+// before doing damage and, when the answer is no, take that body out of the
+// traces and shoot again - passing through "some detachable element, e.g. a
+// scythe or a pauldron", in their own words.
+bool ScriptEngine::JointsLinked(Entity& e, int a, int b) {
+    const Hke* def = RagdollDef(e.source);
+    if (!def) return false;
+    // A joint EnableJoint has switched off is out of the ragdoll, so it is
+    // linked to nothing - which is exactly what the scripts want after a
+    // monster has thrown the weapon that bone carried.
+    for (int d : e.disabledJoints)
+        if (d == a || d == b) return false;
+    return def->Linked(JointName(e, a), JointName(e, b));
+}
+
+int ScriptEngine::L_MDL_JointsLinked(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    const int a = int(luaL_optnumber(L, 2, -1));
+    const int b = int(luaL_optnumber(L, 3, -1));
+    lua_pushboolean(L, e && self->JointsLinked(*e, a, b));
+    return 1;
+}
+
+// MDL.EnableJoint(e, joint, on) - take one limb out of the ragdoll, or put it
+// back. Called on exactly four bones in the whole game (axeL, axeR, joint21,
+// br1), always from CustomOnGib and only once the monster has already thrown
+// that weapon: the mesh is hidden and the body it drove stops being part of
+// the ragdoll.
+int ScriptEngine::L_MDL_EnableJoint(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e) return 0;
+    const int joint = int(luaL_optnumber(L, 2, -1));
+    if (joint < 0) return 0;
+    const bool on = lua_toboolean(L, 3) != 0;
+    auto& v = e->disabledJoints;
+    const auto at = std::find(v.begin(), v.end(), joint);
+    if (on) { if (at != v.end()) v.erase(at); }
+    else    { if (at == v.end()) v.push_back(joint); }
+    return 0;
+}
+
+// PHYSICS.RemoveHavokBodyFromIS(he, on) - take ONE BODY out of the traces.
+//
+// The finest grain in the whole intersection-solver family: the entity pair
+// switches a whole actor, the ragdoll pair switches all of its limbs, and this
+// switches a single limb. The stake needs exactly that - it has just hit a
+// weapon, wants to know what is BEHIND it, and cannot afford to make the rest
+// of the monster invisible to do so.
+//
+// The argument reads backwards and does in the engine too: `true` REMOVES.
+int ScriptEngine::L_PHYSICS_RemoveHavokBodyFromIS(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (!lua_isnumber(L, 1)) return 0;
+    const int handle = int(lua_tonumber(L, 1));
+    int entity = 0, joint = -1;
+    if (!self->LimbFromHandle(handle, entity, joint)) return 0;
+    const bool remove = lua_toboolean(L, 2) != 0;
+    auto& v = self->suppressedLimbs_;
+    const auto at = std::find(v.begin(), v.end(), handle);
+    if (remove) { if (at == v.end()) v.push_back(handle); }
+    else        { if (at != v.end()) v.erase(at); }
+    return 0;
+}
+
 // The limb boxes of one model, derived once and kept.
 //
 // Deriving them means loading the model again for its SKIN WEIGHTS, which the
@@ -4604,6 +4709,23 @@ bool ScriptEngine::TraceLimbs(const float from[3], const float to[3], float maxD
         for (const LimbBounds& limb : *limbs) {
             if (!limb.valid()) continue;
             if (limb.bone < 0 || size_t(limb.bone) >= bones->size()) continue;
+            // A joint EnableJoint has switched off is out of the ragdoll, so
+            // there is no body there to hit.
+            if (!e.disabledJoints.empty() &&
+                std::find(e.disabledJoints.begin(), e.disabledJoints.end(), limb.bone) !=
+                    e.disabledJoints.end())
+                continue;
+            // ...and one PHYSICS.RemoveHavokBodyFromIS has taken out, which is
+            // how the stake looks BEHIND the weapon it just hit. Only consulted
+            // when something is actually suppressed, which is almost never.
+            if (!suppressedLimbs_.empty()) {
+                const auto key = limbHandleIndex_.find((long long(kv.first) << 32) |
+                                                       (unsigned int)(limb.bone));
+                if (key != limbHandleIndex_.end() &&
+                    std::find(suppressedLimbs_.begin(), suppressedLimbs_.end(),
+                              kLimbHandleBase + key->second) != suppressedLimbs_.end())
+                    continue;
+            }
 
             const Mat4 toWorld = Mat4::Mul((*bones)[size_t(limb.bone)], world);
             const Mat4 toLimb = Mat4::InvertAffine(toWorld);
@@ -4692,8 +4814,6 @@ void ScriptEngine::CollectHitboxLines(const float around[3], float radius,
         if (!limbs) continue;
 
         for (const LimbBounds& limb : *limbs) {
-            if (!limb.valid()) continue;
-
             // Each corner goes bone-local -> world through the POSED bone, so
             // the box follows the animation without being rebuilt.
             float corner[8][3];
@@ -5025,6 +5145,9 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"ENTITY", "IsFixedMesh", L_IsFixedMesh},
         {"PHYSICS", "GetHavokBodyInfo", L_PHYSICS_GetHavokBodyInfo},
         {"MDL", "GetJointFromHavokBody", L_MDL_GetJointFromHavokBody},
+        {"MDL", "JointsLinked", L_MDL_JointsLinked},
+        {"MDL", "EnableJoint", L_MDL_EnableJoint},
+        {"PHYSICS", "RemoveHavokBodyFromIS", L_PHYSICS_RemoveHavokBodyFromIS},
         {"ENTITY", "GetType", L_GetType},
         {"ENTITY", "SetPosAndRotRelativeToCamera", L_SetPosAndRotRelativeToCamera},
         {"MOUSE", "Lock", L_MOUSE_Lock},
