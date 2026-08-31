@@ -116,6 +116,11 @@ The two jobs want different things, and the second one is a real system:
 (1) reuses the skeleton, the `.rde` and the skinning weights that already
 exist. It belongs with the ragdoll work rather than with movement.
 
+**Since written:** (1) and (3) are done - the movement shape is the recovered
+three-sphere compound, and shooting now tests the limb boxes rather than it. (2)
+is done too - the ragdoll and body trace switches are separate. See
+[The trace](#the-trace) and [The intersection solver](#the-intersection-solver-is-two-switches-not-one) below.
+
 
 ---
 
@@ -233,7 +238,7 @@ Being a monster is not contingent on the shape: the kinematic conversion has to
 happen whatever the rig looks like, and the body pose has to be synced every
 frame, including for a monster that is standing still.
 
-## Per-limb hitboxes: derived, posed, drawn - not yet traced against
+## Per-limb hitboxes: derived, posed, drawn - and traced against
 
 `.rde` parsing and `BuildLimbBounds` live in `Source/Assets/Rde.h/.cpp`. A
 vertex counts towards the bone that influences it MOST; splitting it across
@@ -243,8 +248,177 @@ nothing.
 
 Across all 220 shipped ragdolls: **220 parsed, 0 named bones absent from their
 model, 0 limbs with no vertices weighted.** `painful hitboxes <model>` dumps any
-of them, and **F2** draws them in orange over the collision they are meant to
-replace.
+of them, and **F2** draws them in orange over the collision they replace.
 
-Shooting still tests the movement shape. That trace is what turns this from a
-picture into gameplay.
+### The .rde is a bone list, not a tuning file
+
+Worth knowing before building anything on it. Across all 2076 limbs in all 220
+files:
+
+```
+Mass            = -1.0    x2076   (every single one)
+LinearDamping   = 0.05    x2076
+AngularDamping  = 0.05    x2076
+Restitution     = 0.4     x2076
+Friction        = 2.5     x2071   (3x "1", 2x "400")
+```
+
+Five limbs in the entire game deviate, all in `Friction`. So the file's real
+information content is **which bones are limbs**; the material is one global
+constant, and `Mass = -1` universally means *derive it*. There is also no shape
+data and no joint limits - the shapes come from the skin weights, and the limits
+exist nowhere in the shipped data.
+
+## The trace
+
+`ScriptEngine::TraceLimbs` is the shooting shape. `WORLD.LineTrace` runs it
+alongside the Jolt cast and takes whichever is nearer; the limb search is handed
+the world hit's distance, so a shot that stops at a wall cannot reach the monster
+behind it.
+
+The test runs in bone space rather than world space. The boxes are already held
+there, so transforming the ray into a box's own frame turns an oriented-box
+intersection into a plain slab test, and no box is ever rebuilt or re-cornered
+for a pose.
+
+**The movement body stops answering shots.** `TraceRay` excludes every body that
+limb boxes have taken over from (`limbShadowed_`, rebuilt each frame in
+`TickMonsters`). Without that the three-sphere walking shape - wider than the
+arms it contains - swallows the very shots the limbs exist to answer, and the
+boxes would be derived, posed, drawn and never reached. The body stays in the
+simulation: it is still what you bump into and cannot stand inside. It just
+stops being what a shot tests against.
+
+`LineTraceFixedGeom` never consults limbs. It asks about the world mesh alone,
+and the actors use it for their ground and step probes, where finding each
+other's limbs would be noise. `Sees` / `SeesEntity` are `staticOnly` and are
+likewise untouched.
+
+## What is shootable is not what has a body
+
+The original keeps the two at different offsets on the entity - `PhysicsObject`
+at `+0xac`, `Ragdoll` at `+0x7b8` - each with its own
+`EnableLineTraceCollision`, and `AddRagdollToIntersectionSolver` switches only
+the second. So a thing can be shootable through its ragdoll while having no
+physics object at all.
+
+Cathedral is the case in point: its 32 bats have a `bat.rde` and
+`PO_Exist == false`. Gating limb traces on the monster flag left a swarm of
+enemies that shots passed straight through. The gate is therefore **a monster,
+or anything with no body of its own** - where limbs can only add, because there
+is nothing for them to shadow. A prop with a working script body is left on it;
+routing that through limbs would change what `he` means for something whose
+`PO_Hit` and `IsFixedMesh` handling reads it as a body slot.
+
+## The handle is what carries the bone
+
+`PHYSICS.GetHavokBodyInfo(he)` is the native the weak-point scripts actually
+use - the Tank doubles damage on `b1` / `b2`, the Gladiator refuses it on
+`sword1`, Apoc_zombie checks `k_szyja`. About twenty monsters have a
+`CustomOnDamage` that turns on it.
+
+**The number of return values is part of the contract.** The engine
+(`0x101291a0`) branches on what `PhysicsEngine::RigidBodyInfo` made of the body
+and pushes a different count for each:
+
+| kind | pushes | scripts see |
+|---|---|---|
+| unrecognised body | `0` | `t=0`, `e=nil`, `j=nil` |
+| plain physics object | `1`, entity | `t=1`, `e=<entity>`, `j=nil` |
+| ragdoll limb | `2`, entity, joint | `t=2`, `e=<entity>`, `j=<bone>` |
+
+That is why every caller writes `local t,e,j` and then `if j then` - a hit on
+something that is not a limb has to leave the joint **nil**, not -1. Returning
+three values with `j = -1` would make those tests true for a shot at a barrel
+and send them looking up bone -1.
+
+A limb hit therefore reports a handle that names `(entity, joint)` rather than a
+body slot. `MDL.GetJointFromHavokBody(e, he)` decodes it, and like the engine's
+version (`0x1012d320`) it checks the body belongs to **that** entity - the
+projectile scripts call it with `e_other` and a handle from the same collision,
+and would otherwise trust a bone index from the wrong skeleton.
+
+## Measured
+
+`PainfulEngine lua <DataRoot> 60 C1L1_Cathedral --exec <chunk>` firing horizontal
+traces through every live actor at 0.2-unit height steps:
+
+| | |
+|---|---|
+| limb hits | 226 |
+| hits that still resolved to an actor's **movement body** | **0** |
+| limbs leaked into `LineTraceFixedGeom` | **0** |
+| floor under the player | `t=0`, `IsFixedMesh` true |
+
+and the bones a single monster resolves down its height are distinct and
+plausible - `k_szyja` (neck), `k_zebra` (ribs), `r_p_bark` / `r_l_bark`
+(shoulders), `r_p_lokiec` (elbow), `axeR` / `axeL` (the axe it carries) for an
+evilmonk; `s_l_*` / `s_p_*` (wing segments) and `ogon` (tail) for a bat.
+
+## The intersection solver is two switches, not one
+
+The entity carries a `PhysicsObject` at `+0xac` and a `Ragdoll` at `+0x7b8`,
+each with its own `EnableLineTraceCollision`, and the script pairs are not the
+same call:
+
+| native | address | switches |
+|---|---|---|
+| `AddToIntersectionSolver` | `0x101349a0` | body **and** ragdoll |
+| `RemoveFromIntersectionSolver` | `0x101348e0` | body **and** ragdoll |
+| `AddRagdollToIntersectionSolver` | `0x10134830` | ragdoll **only** |
+| `RemoveRagdollFromIntersectionSolver` | `0x10134630` | ragdoll **only** |
+
+(The ragdoll pair is additionally gated on the entity being type 4 - which is
+`ETypes.Model`, the RENDER type, not the script class - and on it actually
+having a ragdoll.)
+
+Aliasing the two pairs was harmless while a monster was a single sphere: there
+was one shape, so it did not matter which switch hid it. It stops being harmless
+the moment the limbs are real, because the scripts bracket a shot with the
+RAGDOLL pair - that is what those ~15,600 calls a run are for, telling the engine
+which limbs are shootable this instant - and putting that through the body flag
+would hide the walking shape while leaving the limbs shootable, exactly
+backwards.
+
+So `Entity` now carries `inSolver` (the body, which drives the `RayCast`
+exclusion list) and `ragdollInSolver` (the limbs, which `TraceLimbs` honours),
+and the four natives are four distinct functions.
+
+Measured on an evilmonk, one trace per 0.2 units of height:
+
+| | limb hits | body hits |
+|---|---|---|
+| baseline | 9 | 0 |
+| ragdoll removed | **0** | 0 |
+| ragdoll restored | 9 | 0 |
+| whole entity removed | **0** | 0 |
+| whole entity restored | 9 | 0 |
+
+### A duplicate registration was hiding half of this
+
+Worth recording, because nothing about it was visible from the outside.
+`ENTITY.RemoveFromIntersectionSolver` was registered **twice** in the natives
+table - once to the trace-exclusion function and once, further down, to a
+projectile-marking one. `RegisterNative` ends in `lua_rawset`, so the later
+registration silently won and the trace half had never run at all: the native
+that every weapon uses to avoid shooting itself was only setting
+`isProjectile`.
+
+They are merged now, keeping both effects, so nothing is taken away. The
+projectile marking staying on this native is its own question and is left as
+found: it cannot simply move to `PO_Create`, because the rocket is built in the
+`Particles` group (8), which `CreateScriptBody` deliberately does **not** treat
+as driven - shell casings live there too and are meant to tumble. What actually
+distinguishes the rocket's "I am driven" call from an ordinary trace bracket is
+that it is never paired with an `Add`, and that is a signal only over time.
+
+## Still open
+
+- **No ragdoll simulation.** Nothing falls. The boxes are posed by the
+  animation, which is `Ragdoll::Animate`; `Activate` - handing them to the
+  solver on death - is the next system, and the joint limits it needs are in
+  neither the `.rde` nor anywhere else in the shipped data.
+- **`MakeGib`, `EnableRagdoll` and the rest of the ragdoll natives are still
+  stubs**, so death still freezes a monster in its last pose.
+- **Props with an `.rde` still answer on their script body**, not per limb.
+  Breakable props and `BodyTypes.FromRagdoll` are their own question.

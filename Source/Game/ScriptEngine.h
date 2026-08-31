@@ -2,6 +2,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <utility>
 
 #include "../Assets/AnimationCache.h"
 #include "../Assets/SkeletonCache.h"
@@ -233,6 +234,14 @@ public:
         // so a shot does not hit whatever fired it - that is what the
         // "intersection solver" is, a trace visibility set.
         bool inSolver = true;
+        // The RAGDOLL's own line-trace collision, which is a SEPARATE switch
+        // from the body's. The engine keeps the two objects at different
+        // offsets on the entity - PhysicsObject at +0xac, Ragdoll at +0x7b8 -
+        // and gives each its own EnableLineTraceCollision:
+        // AddToIntersectionSolver (0x101349a0) sets both, while
+        // AddRagdollToIntersectionSolver (0x10134830) sets only this one.
+        // TraceLimbs honours this flag; the body exclusion honours inSolver.
+        bool ragdollInSolver = true;
     };
 
     // What the scripts told WORLD.* to set up; the game loop turns this into
@@ -449,6 +458,38 @@ private:
     // The limb boxes of a model, derived once from its .rde and skin weights.
     // An empty vector is cached too - a model with no ragdoll is an answer.
     const std::vector<LimbBounds>* Hitboxes(const std::string& model);
+
+    // What a line trace found on one posed limb box: which actor was hit and
+    // which of its bones. The joint index is what MDL.GetJointFromHavokBody
+    // answers and what every weak-point script branches on.
+    struct LimbHit {
+        int entity = 0;
+        int joint = -1;
+        float distance = 0.f;
+        float point[3] = {0, 0, 0};
+        float normal[3] = {0, 0, 0};
+    };
+
+    // THE SHOOTING SHAPE, as opposed to the walking one.
+    //
+    // A monster's movement body is three stacked spheres sized off its rig's
+    // root - what you bump into and cannot stand inside. Testing a shot
+    // against it makes a headshot and a shot at the ankle the same event.
+    // These are the boxes the .rde names, one per limb, posed by the same
+    // skinning matrices the draw already computed.
+    //
+    // maxDistance clamps the search to whatever the world trace already found,
+    // so a shot that stops at a wall cannot reach the monster behind it. Pass
+    // a NEGATIVE maxDistance for the whole segment.
+    bool TraceLimbs(const float from[3], const float to[3], float maxDistance,
+                    LimbHit& out);
+
+    // An opaque body handle naming one limb of one actor - what the scripts
+    // carry as `he` out of a trace and hand back to PHYSICS.GetHavokBodyInfo.
+    // A registry rather than a bit-packing, so the entity handle stays
+    // whatever the entity registry made it.
+    int LimbHandle(int entity, int joint);
+    bool LimbFromHandle(int handle, int& entity, int& joint) const;
     void PlaceAttached(Entity& e);
     void UpdateAttachments(Entity& e);
     bool SplitPackSource(const std::string& source, std::string& packName) const;
@@ -535,7 +576,21 @@ private:
     static int L_WORLD_LineTraceFixedGeom(lua_State* L);
     static int L_AddToIntersectionSolver(lua_State* L);
     static int L_RemoveFromIntersectionSolver(lua_State* L);
+    static int L_AddRagdollToIntersectionSolver(lua_State* L);
+    static int L_RemoveRagdollFromIntersectionSolver(lua_State* L);
+    // The body half of the intersection solver: keeps inSolver and the
+    // excludedSlots_ list in step, so a Remove cannot be leaked or doubled.
+    void SetSolverBody(Entity& e, bool on);
     static int L_IsFixedMesh(lua_State* L);
+    // PHYSICS.GetHavokBodyInfo(he) -> type, entity, joint. The engine's own
+    // shape (0x101291a0) returns a DIFFERENT NUMBER OF VALUES per kind: 1 for
+    // an unknown body, 2 for a plain physics object, 3 for a ragdoll limb.
+    // That is why every caller writes `if j then` - a body that is not a limb
+    // leaves the joint nil rather than reporting -1.
+    static int L_PHYSICS_GetHavokBodyInfo(lua_State* L);
+    // MDL.GetJointFromHavokBody(e, he) -> joint, or -1. The engine checks the
+    // body belongs to THAT entity's ragdoll (0x1012d320); so does this.
+    static int L_MDL_GetJointFromHavokBody(lua_State* L);
     static int L_SetPosAndRotRelativeToCamera(lua_State* L);
     static int L_GetType(lua_State* L);
     static int L_PARTICLE_SetEvolve(lua_State* L);
@@ -661,7 +716,6 @@ private:
     static int L_ENTITY_UnregisterAllChildren(lua_State* L);
     static int L_SND_Setup3D(lua_State* L);
     static int L_PO_EnableGravity(lua_State* L);
-    static int L_ENTITY_RemoveFromIntersectionSolver(lua_State* L);
     static int L_PMENU_AddStaticText(lua_State* L);
     static int L_PMENU_AddTextButton(lua_State* L);
     static int L_PMENU_SetItemText(lua_State* L);
@@ -728,6 +782,21 @@ private:
     // the answer to texture the parts and set them alight.
     std::unordered_map<int, std::vector<int>> lastExploded_;
     std::unordered_map<std::string, std::vector<LimbBounds>> hitboxes_;
+    // Limb body handles, dense and permanent for the life of the process. A
+    // handle is kLimbHandleBase + index, which cannot be mistaken for a script
+    // body slot (small and positive) or for the world (-1).
+    static const int kLimbHandleBase = 0x40000000;
+    std::vector<std::pair<int, int>> limbHandles_;         // index -> entity, joint
+    std::unordered_map<long long, int> limbHandleIndex_;   // entity,joint -> index
+    // The movement bodies that limb boxes have taken over from. An actor whose
+    // .rde gives it limbs is shot at through those, so its walking shape must
+    // stop answering traces - otherwise the fat three-sphere body shadows the
+    // very boxes that are meant to replace it. Rebuilt each frame in
+    // TickMonsters, which already walks exactly this set.
+    std::vector<int> limbShadowed_;
+    // Scratch for TraceRay: excludedSlots_ followed by limbShadowed_. A member
+    // so a shotgun's dozen traces in one frame do not each allocate.
+    mutable std::vector<int> traceExclude_;
     // Body slots currently taken out of the intersection solver. Kept as a
     // list rather than rebuilt per trace: a shotgun fires a dozen traces in
     // one frame and the set is only ever a couple of entities deep.

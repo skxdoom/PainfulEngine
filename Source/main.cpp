@@ -2120,7 +2120,10 @@ static int BonesCmd(const char* path, const char* animName, const char* timeArg,
     Model m;
     if (!Model::Load(path, m)) { LogInfo("failed"); return 2; }
     LogInfo("%s: %zu bones", path, m.bones.size());
-    for (size_t i = 0; i < m.bones.size() && i < 6; ++i) {
+    // Every bone, not the first handful: the question this answers is
+    // usually about ONE named bone deep in the list - where a weapon or a
+    // shield hangs off the rig - and a truncated dump cannot answer it.
+    for (size_t i = 0; i < m.bones.size(); ++i) {
         const Bone& b = m.bones[i];
         const float* v = b.bind.m;
         double sx = std::sqrt(double(v[0])*v[0] + double(v[1])*v[1] + double(v[2])*v[2]);

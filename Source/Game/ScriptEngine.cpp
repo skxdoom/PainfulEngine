@@ -252,6 +252,13 @@ void ScriptEngine::ReleaseEntity(int handle) {
         excludedSlots_.erase(
             std::remove(excludedSlots_.begin(), excludedSlots_.end(), it->second.physicsBody),
             excludedSlots_.end());
+        // Same for the shooting shadow list. It is rebuilt every frame, but a
+        // frame with no tick (a pause, a load) would otherwise leave a dead
+        // slot in it - and a reused slot would take a live body out of every
+        // trace.
+        limbShadowed_.erase(
+            std::remove(limbShadowed_.begin(), limbShadowed_.end(), it->second.physicsBody),
+            limbShadowed_.end());
     }
     if (billboards_ && it->second.spriteSlot >= 0)
         billboards_->RemoveScriptSprite(it->second.spriteSlot);
@@ -602,6 +609,12 @@ bool ScriptEngine::MonsterBodyScale(Entity& e, float& k, float& rootOffsetY) {
 void ScriptEngine::TickMonsters(float dt) {
     if (dt <= 0.f || !physics_) return;
 
+    // Rebuilt every frame: which movement bodies the limb boxes have taken
+    // over from, for TraceRay. Rebuilt rather than tracked at creation because
+    // it depends on the entity's MODEL - a script can give an actor a
+    // different one, and a body slot outlives that change.
+    limbShadowed_.clear();
+
     // PAINFUL_PLAYER_AT lands HERE rather than at spawn: the scripts place the
     // player themselves during level load, so an override applied any earlier
     // is simply overwritten before the first frame.
@@ -619,6 +632,14 @@ void ScriptEngine::TickMonsters(float dt) {
     for (auto& kv : entities_) {
         Entity& e = kv.second;
         if (!e.isMonster || e.physicsBody < 0) continue;
+
+        // An actor whose .rde gives it limbs is shot at through those, so its
+        // walking body stops answering traces. One that has none keeps it -
+        // otherwise a monster with no ragdoll definition becomes unshootable.
+        {
+            const std::vector<LimbBounds>* shootable = Hitboxes(e.source);
+            if (shootable && !shootable->empty()) limbShadowed_.push_back(e.physicsBody);
+        }
 
         // Comfortably above SlideSphere's own 0.02 skin.
         static constexpr float kSweepSkin = 0.05f;
@@ -2195,7 +2216,20 @@ int ScriptEngine::TraceCommon(lua_State* L, bool staticOnly) {
                          float(luaL_optnumber(L, 6, 0))};
 
     PhysicsWorld::RayHit hit;
-    const bool got = self->TraceRay(from, to, hit, staticOnly);
+    const bool gotWorld = self->TraceRay(from, to, hit, staticOnly);
+
+    // THE LIMB BOXES ARE THE SHOOTING SHAPE; the world trace is everything
+    // else. Whichever is nearer is what the shot hit, and TraceLimbs is handed
+    // the world hit's distance so it can only report something in FRONT of it -
+    // a shot that stops at a wall must not reach the monster behind.
+    //
+    // LineTraceFixedGeom never consults them. It asks about the world mesh
+    // alone, and the actors use it for their ground and step probes, where
+    // finding each other's limbs would be noise.
+    LimbHit limb;
+    const bool gotLimb =
+        !staticOnly && self->TraceLimbs(from, to, gotWorld ? hit.distance : -1.f, limb);
+    const bool got = gotWorld || gotLimb;
 
     // A MISS RETURNS ONE VALUE. The engine pushes the boolean and stops
     // (0x1012cea0: PushBool(0) then return 1), so a script reading
@@ -2208,6 +2242,21 @@ int ScriptEngine::TraceCommon(lua_State* L, bool staticOnly) {
     // appears in every projectile script, so this was all of them.
     lua_pushboolean(L, got);
     if (!got) return 1;
+
+    // A LIMB HIT REPORTS THE LIMB'S HANDLE, NOT A BODY SLOT. That ninth value
+    // is what the scripts carry into OnDamage as `he` and hand straight back
+    // to PHYSICS.GetHavokBodyInfo, which is where the bone comes from: the
+    // Tank doubles damage on `b1` / `b2`, the Gladiator refuses it on
+    // `sword1`. Without a handle that names a bone, every one of those tests
+    // reads the same on a shot to the head as on a shot to the foot.
+    if (gotLimb) {
+        lua_pushnumber(L, limb.distance);
+        for (int c = 0; c < 3; ++c) lua_pushnumber(L, limb.point[c]);
+        for (int c = 0; c < 3; ++c) lua_pushnumber(L, limb.normal[c]);
+        lua_pushnumber(L, self->LimbHandle(limb.entity, limb.joint));
+        lua_pushnumber(L, limb.entity);
+        return 10;
+    }
 
     lua_pushnumber(L, hit.distance);
     for (int c = 0; c < 3; ++c) lua_pushnumber(L, hit.point[c]);
@@ -2241,9 +2290,26 @@ int ScriptEngine::L_WORLD_LineTraceFixedGeom(lua_State* L) {
 bool ScriptEngine::TraceRay(const float from[3], const float to[3],
                             PhysicsWorld::RayHit& hit, bool staticOnly) const {
     if (!physics_) return false;
-    return physics_->RayCast(from, to, hit, staticOnly,
-                             excludedSlots_.empty() ? nullptr : excludedSlots_.data(),
-                             excludedSlots_.size());
+    // The scripts' own exclusions, plus every movement body the limb boxes
+    // have taken over from.
+    //
+    // A monster's walking shape is three stacked spheres wider than its arms,
+    // so leaving it in the trace would swallow the very shots the limbs exist
+    // to answer: the boxes would be derived, posed, drawn and never reached.
+    // It stays in the simulation - it is still what you bump into and cannot
+    // stand inside - it just stops being what a shot tests against.
+    //
+    // staticOnly never needs it: LineTraceFixedGeom is the world mesh alone
+    // and no script body is in that layer to begin with.
+    const int* exclude = excludedSlots_.empty() ? nullptr : excludedSlots_.data();
+    size_t count = excludedSlots_.size();
+    if (!staticOnly && !limbShadowed_.empty()) {
+        traceExclude_ = excludedSlots_;
+        traceExclude_.insert(traceExclude_.end(), limbShadowed_.begin(), limbShadowed_.end());
+        exclude = traceExclude_.data();
+        count = traceExclude_.size();
+    }
+    return physics_->RayCast(from, to, hit, staticOnly, exclude, count);
 }
 
 int ScriptEngine::EntityForBody(int bodySlot) const {
@@ -2255,27 +2321,145 @@ int ScriptEngine::EntityForBody(int bodySlot) const {
 // ENTITY.RemoveFromIntersectionSolver(e) / AddToIntersectionSolver(e) - take
 // an entity out of the traces and put it back. Always bracketed, so this has
 // to be exact: leaking a Remove would leave something permanently unhittable.
-// The ragdoll variants say the same thing about an actor's ragdoll, which is
-// the same body here.
+//
+// THE ENTITY HAS TWO TRACE SWITCHES, NOT ONE. The engine keeps a PhysicsObject
+// at +0xac and a Ragdoll at +0x7b8, each with its own
+// EnableLineTraceCollision, and the two script pairs are not the same call:
+//
+//   AddToIntersectionSolver       (0x101349a0)  body AND ragdoll
+//   AddRagdollToIntersectionSolver(0x10134830)  ragdoll ONLY
+//
+// (and the Remove pair, symmetrically, at 0x101348e0 and 0x10134630). Aliasing
+// them was harmless while a monster was a single sphere and there was only one
+// shape to hide. It is not any more: the scripts bracket a shot with the
+// RAGDOLL pair, and putting that through the body flag would hide the walking
+// shape while leaving the limbs shootable - exactly backwards.
+void ScriptEngine::SetSolverBody(Entity& e, bool on) {
+    if (e.inSolver == on) return;              // idempotent: no doubled entries
+    e.inSolver = on;
+    if (e.physicsBody < 0) return;
+    if (on) {
+        auto& v = excludedSlots_;
+        v.erase(std::remove(v.begin(), v.end(), e.physicsBody), v.end());
+    } else {
+        excludedSlots_.push_back(e.physicsBody);
+    }
+}
+
 int ScriptEngine::L_RemoveFromIntersectionSolver(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
-    if (!e || !e->inSolver) return 0;
-    e->inSolver = false;
-    if (e->physicsBody >= 0) self->excludedSlots_.push_back(e->physicsBody);
+    if (!e) return 0;
+    // The engine's own meaning (0x101348e0): line-trace collision off, on the
+    // body and the ragdoll both.
+    self->SetSolverBody(*e, false);
+    e->ragdollInSolver = false;
+
+    // AND the projectile reading, which this native has carried on its own
+    // until now. THESE WERE TWO SEPARATE FUNCTIONS REGISTERED UNDER ONE NAME,
+    // and lua_rawset means the later one won - so the trace half above has
+    // never actually run, and RemoveFromIntersectionSolver has only ever
+    // marked projectiles. Merging them is what restores the half the scripts
+    // are really asking for; nothing is taken away.
+    //
+    // The projectile half stays because it is load-bearing and cannot simply
+    // move to PO_Create: the rocket is made in the PARTICLES group, which
+    // CreateScriptBody deliberately does NOT treat as driven because shell
+    // casings live there too and are meant to tumble. Rocket:OnCreateEntity
+    // asks for it outright and never pairs the call with an Add, which is the
+    // signal - but it is a signal only over time, and this native cannot see
+    // it. Left as found; that is its own question.
+    e->isProjectile = true;
+    if (self->physics_ && e->physicsBody >= 0)
+        self->physics_->MakeScriptBodyNonColliding(e->physicsBody);
     return 0;
 }
 
 int ScriptEngine::L_AddToIntersectionSolver(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
-    if (!e || e->inSolver) return 0;
-    e->inSolver = true;
-    if (e->physicsBody >= 0) {
-        auto& v = self->excludedSlots_;
-        v.erase(std::remove(v.begin(), v.end(), e->physicsBody), v.end());
-    }
+    if (!e) return 0;
+    self->SetSolverBody(*e, true);
+    e->ragdollInSolver = true;
     return 0;
+}
+
+// The ragdoll half alone. In the engine both of these are also gated on the
+// entity being a MODEL (ETypes.Model = 4 - the gate is on the render type, not
+// on being a CActor) and having a ragdoll; here an entity with no limb boxes
+// simply has nothing for the flag to govern, which comes to the same thing.
+int ScriptEngine::L_RemoveRagdollFromIntersectionSolver(lua_State* L) {
+    Entity* e = From(L)->Find(HandleArg(L, 1));
+    if (e) e->ragdollInSolver = false;
+    return 0;
+}
+
+int ScriptEngine::L_AddRagdollToIntersectionSolver(lua_State* L) {
+    Entity* e = From(L)->Find(HandleArg(L, 1));
+    if (e) e->ragdollInSolver = true;
+    return 0;
+}
+
+// PHYSICS.GetHavokBodyInfo(he) -> type [, entity [, joint ]]
+//
+// THE NUMBER OF RETURN VALUES IS PART OF THE CONTRACT. The engine
+// (0x101291a0) branches on what PhysicsEngine::RigidBodyInfo made of the body
+// and pushes a different count for each: one value for a body it does not
+// recognise, two for a plain physics object, three for a ragdoll limb.
+//
+// That is why every weak-point script reads `local t,e,j` and then asks
+// `if j then` - a hit on something that is not a limb has to leave the joint
+// NIL, not -1. Returning three values with j = -1 would make Apoc_zombie's
+// `if j then` true for a shot at a barrel and send it looking up bone -1.
+int ScriptEngine::L_PHYSICS_GetHavokBodyInfo(lua_State* L) {
+    ScriptEngine* self = From(L);
+    // A missing or non-numeric handle is NOT body slot 0. lua_tonumber would
+    // quietly make it one, and slot 0 is a real body someone owns.
+    if (!lua_isnumber(L, 1)) {
+        lua_pushnumber(L, 0);
+        return 1;
+    }
+    const int handle = int(lua_tonumber(L, 1));
+
+    int entity = 0, joint = -1;
+    if (self->LimbFromHandle(handle, entity, joint)) {
+        lua_pushnumber(L, 2);               // a ragdoll limb: it has a joint
+        lua_pushnumber(L, entity);
+        lua_pushnumber(L, joint);
+        return 3;
+    }
+
+    const int owner = (handle >= 0) ? self->EntityForBody(handle) : 0;
+    if (owner != 0) {
+        lua_pushnumber(L, 1);               // a plain physics object
+        lua_pushnumber(L, owner);
+        return 2;
+    }
+
+    lua_pushnumber(L, 0);                   // the world, or nothing we know
+    return 1;
+}
+
+// MDL.GetJointFromHavokBody(e, he) -> joint index, or -1.
+//
+// The engine (0x1012d320) resolves the entity, checks it is a MODEL (type 4 is
+// ETypes.Model, which is our kModel - the gate is the RENDER type, not the
+// script class) and that it HAS a ragdoll, and then asks that ragdoll which of
+// its own bodies this is. A handle belonging to a different monster answers -1
+// rather than leaking a joint index across actors, which matters because the
+// projectile scripts call this with `e_other` and a handle from the same
+// collision, and would otherwise trust a bone index from the wrong skeleton.
+int ScriptEngine::L_MDL_GetJointFromHavokBody(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const int owner = HandleArg(L, 1);
+    int entity = 0, joint = -1;
+    if (!lua_isnumber(L, 2) ||
+        !self->LimbFromHandle(int(lua_tonumber(L, 2)), entity, joint) || entity != owner) {
+        lua_pushnumber(L, -1);
+        return 1;
+    }
+    lua_pushnumber(L, joint);
+    return 1;
 }
 
 // ENTITY.IsFixedMesh(e) - is this the immovable world rather than something
@@ -4266,6 +4450,231 @@ const std::vector<LimbBounds>* ScriptEngine::Hitboxes(const std::string& model) 
     return &slot;
 }
 
+// ---------------------------------------------------------------- limb traces
+//
+// A monster has two shapes and they answer two different questions.
+//
+// The MOVEMENT shape - three stacked spheres sized off the rig's ROOOT joint -
+// is what you walk into, shove and cannot stand inside. The SHOOTING shape is
+// the set of limb boxes the .rde names, one per bone, derived from the
+// vertices that bone drives. Testing a shot against the movement shape makes a
+// headshot and a shot at the ankle the same event, which is what this replaces.
+//
+// The test runs in BONE SPACE. The boxes are already held there - that is the
+// whole point of BuildLimbBounds - so transforming the ray into a box's own
+// frame turns an oriented-box intersection into a plain slab test, and no box
+// ever has to be rebuilt or re-cornered for a pose.
+
+namespace {
+
+// Ray vs axis-aligned box, both in the same space. `dir` spans the WHOLE
+// segment, so t comes back in 0..1 and needs no length anywhere.
+//
+// `axis` names the face the segment entered through, or stays -1 when the
+// segment STARTS INSIDE the box - a point-blank shot, which has no entry face
+// to take a normal from and which the caller has to answer for separately.
+bool SlabTest(const float o[3], const float dir[3], const float lo[3], const float hi[3],
+              float& tHit, int& axis, float& sign) {
+    float tmin = 0.f, tmax = 1.f;
+    axis = -1;
+    sign = -1.f;
+    for (int c = 0; c < 3; ++c) {
+        if (std::fabs(dir[c]) < 1e-9f) {
+            // Parallel to this pair of planes: either between them for the
+            // whole segment or outside them for all of it.
+            if (o[c] < lo[c] || o[c] > hi[c]) return false;
+            continue;
+        }
+        const float inv = 1.f / dir[c];
+        float t1 = (lo[c] - o[c]) * inv;
+        float t2 = (hi[c] - o[c]) * inv;
+        float faceSign = -1.f;                  // entered through the low face
+        if (t1 > t2) { std::swap(t1, t2); faceSign = 1.f; }
+        if (t1 > tmin) { tmin = t1; axis = c; sign = faceSign; }
+        if (t2 < tmax) tmax = t2;
+        if (tmin > tmax) return false;
+    }
+    tHit = tmin;
+    return true;
+}
+
+// A direction through an affine matrix: the 3x3 alone, so the translation does
+// not apply. TransformPoint would move the ray's direction by the entity's
+// position, which points every shot at the world origin.
+void TransformDir(const Mat4& m, const float v[3], float out[3]) {
+    out[0] = v[0] * m.m[0] + v[1] * m.m[4] + v[2] * m.m[8];
+    out[1] = v[0] * m.m[1] + v[1] * m.m[5] + v[2] * m.m[9];
+    out[2] = v[0] * m.m[2] + v[1] * m.m[6] + v[2] * m.m[10];
+}
+
+// Does the segment from + t*span (t in 0..1) pass within `radius` of `p`? The
+// broad phase, so the matrix work only happens for actors near the shot.
+bool SegmentNearPoint(const float from[3], const float span[3], const float p[3],
+                      float radius) {
+    float d[3];
+    for (int c = 0; c < 3; ++c) d[c] = p[c] - from[c];
+    const float len2 = span[0] * span[0] + span[1] * span[1] + span[2] * span[2];
+    float t = (len2 > 1e-12f) ? (d[0] * span[0] + d[1] * span[1] + d[2] * span[2]) / len2 : 0.f;
+    t = std::max(0.f, std::min(1.f, t));
+    float away = 0.f;
+    for (int c = 0; c < 3; ++c) {
+        const float k = d[c] - t * span[c];
+        away += k * k;
+    }
+    return away <= radius * radius;
+}
+
+} // namespace
+
+bool ScriptEngine::TraceLimbs(const float from[3], const float to[3], float maxDistance,
+                              LimbHit& out) {
+    float span[3];
+    for (int c = 0; c < 3; ++c) span[c] = to[c] - from[c];
+    const float length =
+        std::sqrt(span[0] * span[0] + span[1] * span[1] + span[2] * span[2]);
+    if (length < 1e-6f) return false;
+
+    // NOTHING BEYOND WHAT THE WORLD TRACE ALREADY FOUND. A shot that stops at
+    // a wall must not reach through it to the monster standing behind, so the
+    // search is clamped to the distance already established rather than run
+    // over the whole segment and reconciled afterwards.
+    float bestT = (maxDistance >= 0.f && maxDistance < length) ? maxDistance / length : 1.f;
+    bool got = false;
+
+    for (auto& kv : entities_) {
+        Entity& e = kv.second;
+        if (e.type != kModel || !e.visible) continue;
+        // WHAT IS SHOOTABLE BY LIMB IS NOT THE SAME SET AS WHAT HAS A BODY.
+        //
+        // The original keeps them at different offsets on the entity - the
+        // PhysicsObject at +0xac, the Ragdoll at +0x7b8 - each with its own
+        // EnableLineTraceCollision, and AddRagdollToIntersectionSolver
+        // switches only the second. So a thing can be shootable through its
+        // ragdoll while having no physics object at all, and Cathedral's 32
+        // bats are exactly that: bat.rde exists, PO_Exist is false, and
+        // gating on the monster flag would leave a swarm of enemies that
+        // shots pass straight through.
+        //
+        // A monster, then, or anything with no body of its own - where limbs
+        // can only ADD, because there is nothing for them to shadow. A PROP
+        // with a working script body is deliberately left on it: that path
+        // answers today, and routing it through limbs would change what `he`
+        // means for something whose PO_Hit and IsFixedMesh handling reads it
+        // as a body slot. Breakable props are their own question.
+        if (!e.isMonster && e.physicsBody >= 0) continue;
+        // The RAGDOLL's trace switch, not the body's. The scripts bracket a
+        // shot with AddRagdollToIntersectionSolver / Remove... precisely to
+        // say which limbs are shootable this instant, and that is a different
+        // question from whether the walking shape is in the traces.
+        if (!e.ragdollInSolver) continue;
+
+        const std::vector<LimbBounds>* limbs = Hitboxes(e.source);
+        if (!limbs || limbs->empty()) continue;
+
+        // Broad phase off the model's own bounds. An animated pose is not
+        // guaranteed to stay inside its bind-pose bounds - an arm swings wide
+        // of them - so the radius is deliberately generous. It only has to
+        // save the matrix work for actors nowhere near the shot; being loose
+        // costs a slab test, being tight would lose a hit.
+        const SkeletonCache::Entry* skel = skeletons_.Get(e.source);
+        if (!skel) continue;
+        float reach = 0.f;
+        for (int c = 0; c < 3; ++c)
+            reach = std::max(reach,
+                             std::max(std::fabs(skel->lo[c]), std::fabs(skel->hi[c])));
+        if (!SegmentNearPoint(from, span, e.pos, reach * e.scale * 1.5f + 0.5f)) continue;
+
+        const std::vector<Mat4>* bones = PosedBones(e);
+        if (!bones) continue;
+
+        // The entity's own model -> world, built EXACTLY as JointToWorld
+        // builds it. If these two ever disagree, the box a shot tests is not
+        // the box F2 draws, and no amount of looking at the picture would
+        // show it.
+        float rot[9];
+        EngineQuatToRot9(e.rotWXYZ, rot);
+        Mat4 world;
+        for (int r = 0; r < 3; ++r) {
+            for (int c = 0; c < 3; ++c) world.m[r * 4 + c] = e.scale * rot[r * 3 + c];
+            world.m[r * 4 + 3] = 0.f;
+        }
+        for (int c = 0; c < 3; ++c) world.m[12 + c] = e.pos[c];
+        world.m[15] = 1.f;
+
+        for (const LimbBounds& limb : *limbs) {
+            if (!limb.valid()) continue;
+            if (limb.bone < 0 || size_t(limb.bone) >= bones->size()) continue;
+
+            const Mat4 toWorld = Mat4::Mul((*bones)[size_t(limb.bone)], world);
+            const Mat4 toLimb = Mat4::InvertAffine(toWorld);
+
+            float o[3], dir[3];
+            toLimb.TransformPoint(from[0], from[1], from[2], o);
+            TransformDir(toLimb, span, dir);
+
+            float t = 0.f;
+            int axis = -1;
+            float sign = -1.f;
+            if (!SlabTest(o, dir, limb.min, limb.max, t, axis, sign)) continue;
+            if (t >= bestT) continue;
+
+            bestT = t;
+            got = true;
+            out.entity = kv.first;
+            out.joint = limb.bone;
+            out.distance = t * length;
+            for (int c = 0; c < 3; ++c) out.point[c] = from[c] + t * span[c];
+
+            if (axis < 0) {
+                // The segment started inside this limb - a muzzle pressed
+                // against a chest. There is no entry face, so face back down
+                // the ray, which is the same answer PhysicsWorld::RayCast
+                // gives for a degenerate contact. Anything else here is a NaN
+                // waiting to spread through every decal and effect the hit
+                // spawns.
+                for (int c = 0; c < 3; ++c) out.normal[c] = -span[c] / length;
+            } else {
+                float n[3] = {0, 0, 0};
+                n[axis] = sign;
+                TransformDir(toWorld, n, out.normal);
+                const float n2 = out.normal[0] * out.normal[0] +
+                                 out.normal[1] * out.normal[1] +
+                                 out.normal[2] * out.normal[2];
+                if (n2 > 1e-12f) {
+                    const float inv = 1.f / std::sqrt(n2);
+                    for (int c = 0; c < 3; ++c) out.normal[c] *= inv;
+                } else {
+                    for (int c = 0; c < 3; ++c) out.normal[c] = -span[c] / length;
+                }
+            }
+        }
+    }
+    return got;
+}
+
+// The handle for one limb of one actor, stable for as long as the process
+// runs. Stability matters: the scripts do not treat `he` as a value that
+// expires - CActor stores it, passes it into OnDamage, and a monster like the
+// Tank keeps what it learned from it (_hitGasTank) until it dies.
+int ScriptEngine::LimbHandle(int entity, int joint) {
+    const long long key = (long long(entity) << 32) | (unsigned int)(joint);
+    const auto it = limbHandleIndex_.find(key);
+    if (it != limbHandleIndex_.end()) return kLimbHandleBase + it->second;
+    const int index = int(limbHandles_.size());
+    limbHandles_.push_back({entity, joint});
+    limbHandleIndex_[key] = index;
+    return kLimbHandleBase + index;
+}
+
+bool ScriptEngine::LimbFromHandle(int handle, int& entity, int& joint) const {
+    if (handle < kLimbHandleBase) return false;
+    const size_t index = size_t(handle - kLimbHandleBase);
+    if (index >= limbHandles_.size()) return false;
+    entity = limbHandles_[index].first;
+    joint = limbHandles_[index].second;
+    return true;
+}
+
 void ScriptEngine::CollectHitboxLines(const float around[3], float radius,
                                       std::vector<DebugLine>& out) {
     // The twelve edges of a box, as pairs of corner indices.
@@ -4463,24 +4872,6 @@ void ScriptEngine::TickProjectiles(float dt) {
     }
 }
 
-
-// ENTITY.RemoveFromIntersectionSolver(e)
-//
-// The scripts' way of saying "this is driven, not simulated". Rocket:
-// OnCreateEntity asks for it outright, having made its body in the Particles
-// group, and BoltStick does the same. Taking it at its word is what turns a
-// rocket from a prop that falls over into something that flies.
-int ScriptEngine::L_ENTITY_RemoveFromIntersectionSolver(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    if (!e) return 0;
-    e->isProjectile = true;
-    if (self->physics_ && e->physicsBody >= 0)
-        self->physics_->MakeScriptBodyNonColliding(e->physicsBody);
-    return 0;
-}
-
-
 // R3D.DrawSprite(x, y, z, size, rot, colour, texture)
 //
 // One camera-facing sprite, this frame only. This is the MUZZLE FLASH: the
@@ -4627,11 +5018,13 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"WORLD", "LineTraceHitPlayerBalls", L_WORLD_LineTrace},
         {"ENTITY", "AddToIntersectionSolver", L_AddToIntersectionSolver},
         {"ENTITY", "RemoveFromIntersectionSolver", L_RemoveFromIntersectionSolver},
-        // An actor's ragdoll is the same body as the actor here, so the
-        // ragdoll pair says the same thing as the plain pair.
-        {"ENTITY", "AddRagdollToIntersectionSolver", L_AddToIntersectionSolver},
-        {"ENTITY", "RemoveRagdollFromIntersectionSolver", L_RemoveFromIntersectionSolver},
+        // The ragdoll variants are NOT the same call: they switch only the
+        // ragdoll's line-trace collision, leaving the movement body alone.
+        {"ENTITY", "AddRagdollToIntersectionSolver", L_AddRagdollToIntersectionSolver},
+        {"ENTITY", "RemoveRagdollFromIntersectionSolver", L_RemoveRagdollFromIntersectionSolver},
         {"ENTITY", "IsFixedMesh", L_IsFixedMesh},
+        {"PHYSICS", "GetHavokBodyInfo", L_PHYSICS_GetHavokBodyInfo},
+        {"MDL", "GetJointFromHavokBody", L_MDL_GetJointFromHavokBody},
         {"ENTITY", "GetType", L_GetType},
         {"ENTITY", "SetPosAndRotRelativeToCamera", L_SetPosAndRotRelativeToCamera},
         {"MOUSE", "Lock", L_MOUSE_Lock},
@@ -4701,7 +5094,6 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"ENTITY", "UnregisterAllChildren", L_ENTITY_UnregisterAllChildren},
         {"SND", "Setup3D", L_SND_Setup3D},
         {"ENTITY", "PO_EnableGravity", L_PO_EnableGravity},
-        {"ENTITY", "RemoveFromIntersectionSolver", L_ENTITY_RemoveFromIntersectionSolver},
         {"MOUSE", "GetPos", L_MOUSE_GetPos},
         {"PMENU", "Activate", L_PMENU_Activate},
         {"PMENU", "Active", L_PMENU_Active},
