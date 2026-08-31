@@ -7,6 +7,7 @@
 #include "Assets/ShaderScript.h"
 #include "Assets/Ani.h"
 #include "Assets/Rde.h"
+#include "Assets/Hke.h"
 #include "Assets/Mpk.h"
 #include "Assets/Pkmdl.h"
 #include "Assets/Skeleton.h"
@@ -2908,6 +2909,208 @@ static int PoseCmd(const char* modelPath, const char* animName, const char* time
 // check that the shapes CAN be derived from the model, and that the bone names
 // in the two files agree. A limb the .rde names but the model never weights a
 // vertex to would come back with no box, and that is worth seeing.
+// What the .hke actually says, and whether it agrees with everything else.
+//
+// Given one model it dumps the ragdoll; given a DIRECTORY it sweeps every .hke
+// beside it and reports the totals. The sweep is the real test: a parser that
+// reads one file proves nothing about a format nobody has documented, and the
+// `unknown keywords` count is what says the coverage is complete rather than
+// merely tolerant.
+static int RagdollCmd(const char* path, const char* modelsRoot) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+
+    if (fs::is_directory(path, ec)) {
+        size_t ascii = 0, binary = 0, failed = 0;
+        size_t bodies = 0, constraints = 0, hulls = 0, hullVerts = 0;
+        size_t hinges = 0, ragdolls = 0, breakable = 0, limited = 0;
+        size_t danglingGeom = 0, detached = 0, withDetached = 0;
+        size_t withModel = 0, bodiesNoBone = 0, withRde = 0, rdeNoBody = 0;
+        std::vector<std::string> noBoneNames;
+        std::vector<std::string> unknown;
+        std::vector<std::string> detachedNames;
+
+        std::vector<fs::path> files;
+        for (const auto& e : fs::directory_iterator(path, ec))
+            if (e.path().extension() == ".hke") files.push_back(e.path());
+        std::sort(files.begin(), files.end());
+
+        for (const fs::path& f : files) {
+            Hke hke;
+            if (!Hke::Load(f.string(), hke)) {
+                if (hke.binary) ++binary;
+                else { ++failed; LogInfo("  FAILED %s: %s", f.filename().string().c_str(),
+                                         hke.error.c_str()); }
+                continue;
+            }
+            ++ascii;
+            bodies += hke.bodies.size();
+            constraints += hke.constraints.size();
+            hulls += hke.geometries.size();
+            for (const HkeGeometry& g : hke.geometries) hullVerts += g.vertexCount();
+            for (const HkeConstraint& c : hke.constraints) {
+                if (c.kind == HkeConstraint::kHinge) { ++hinges; if (c.limited) ++limited; }
+                else ++ragdolls;
+                if (c.breakable) ++breakable;
+            }
+            // Every primitive must resolve its hull by name, or the shape it
+            // is meant to carry is not there.
+            for (const HkeBody& b : hke.bodies)
+                if (!b.geometry.empty() && !hke.Find(b.geometry)) ++danglingGeom;
+            for (const std::string& u : hke.unknown)
+                if (std::find(unknown.begin(), unknown.end(), u) == unknown.end())
+                    unknown.push_back(u);
+
+            // Against the model, which is the check that matters for building
+            // bodies: a ragdoll body whose bone the rig does not have cannot
+            // be posed by anything.
+            Model model;
+            if (Model::Load(f.parent_path().string() + "/" + f.stem().string() + ".pkmdl",
+                            model)) {
+                ++withModel;
+                for (const HkeBody& b : hke.bodies) {
+                    bool found = false;
+                    for (const Bone& bone : model.bones)
+                        if (bone.name == b.bone) { found = true; break; }
+                    if (!found) {
+                        ++bodiesNoBone;
+                        if (noBoneNames.size() < 12)
+                            noBoneNames.push_back(f.stem().string() + ":" + b.bone);
+                    }
+                }
+            }
+            // And against the .rde, which names a subset and only overrides
+            // material.
+            Ragdoll rde;
+            if (Ragdoll::Load(f.parent_path().string() + "/" + f.stem().string() + ".rde",
+                              rde)) {
+                ++withRde;
+                for (const RagdollLimb& limb : rde.limbs)
+                    if (!hke.Body(limb.bone)) ++rdeNoBody;
+            }
+            // THE WEAPON RULE, counted across the whole set: a body that no
+            // constraint touches is a limb you can hit which is not part of
+            // the body.
+            bool any = false;
+            for (const HkeBody& b : hke.bodies) {
+                bool referenced = false;
+                for (const HkeConstraint& c : hke.constraints)
+                    if (c.bodyA == b.bone || c.bodyB == b.bone) { referenced = true; break; }
+                if (referenced) continue;
+                ++detached;
+                any = true;
+                if (detachedNames.size() < 24)
+                    detachedNames.push_back(f.stem().string() + ":" + b.bone);
+            }
+            if (any) ++withDetached;
+        }
+
+        LogInfo("%zu .hke: %zu text parsed, %zu binary (not decoded), %zu failed",
+                files.size(), ascii, binary, failed);
+        LogInfo("  %zu rigid bodies, %zu hulls (%zu vertices), %zu dangling hull refs",
+                bodies, hulls, hullVerts, danglingGeom);
+        LogInfo("  %zu constraints: %zu ragdoll (cone/twist), %zu hinge (%zu limited), "
+                "%zu breakable", constraints, ragdolls, hinges, limited, breakable);
+        LogInfo("  %zu detached bodies in %zu models - the weapons", detached, withDetached);
+        for (const std::string& n : detachedNames) LogInfo("    %s", n.c_str());
+        LogInfo("  cross-check: %zu have a model, %zu ragdoll bodies with no bone; "
+                "%zu have an .rde, %zu .rde limbs with no body",
+                withModel, bodiesNoBone, withRde, rdeNoBody);
+        for (const std::string& n : noBoneNames) LogInfo("    %s", n.c_str());
+        LogInfo("  unknown keywords: %zu", unknown.size());
+        for (const std::string& u : unknown) LogInfo("    %s", u.c_str());
+        return failed == 0 ? 0 : 3;
+    }
+
+    std::string base = path;
+    const size_t dot = base.find_last_of('.');
+    if (dot != std::string::npos) base = base.substr(0, dot);
+
+    Hke hke;
+    if (!Hke::Load(base + ".hke", hke)) {
+        LogInfo("%s.hke: %s", base.c_str(), hke.error.c_str());
+        return 2;
+    }
+    LogInfo("%s.hke: version %d, world scale %.3f, gravity %.2f %.2f %.2f",
+            base.c_str(), hke.version, hke.worldScale,
+            hke.gravity[0], hke.gravity[1], hke.gravity[2]);
+    LogInfo("  drag %.3f linear / %.3f angular, deactivation threshold %.2f",
+            hke.linearDrag, hke.angularDrag, hke.deactivationThreshold);
+
+    LogInfo("  %zu bodies:", hke.bodies.size());
+    for (const HkeBody& b : hke.bodies) {
+        const HkeGeometry* g = hke.Find(b.geometry);
+        LogInfo("    %-16s mass %-8.2f rest %.2f fric %.2f/%.2f  hull %s (%zu verts, %zu tris)"
+                "  at %.2f %.2f %.2f",
+                b.bone.c_str(), b.mass, b.elasticity, b.staticFriction, b.dynamicFriction,
+                b.geometry.c_str(), g ? g->vertexCount() : 0, g ? g->triangleCount() : 0,
+                b.translation[0], b.translation[1], b.translation[2]);
+    }
+
+    LogInfo("  %zu constraints:", hke.constraints.size());
+    for (const HkeConstraint& c : hke.constraints) {
+        if (c.kind == HkeConstraint::kHinge) {
+            LogInfo("    hinge   %-14s -> %-14s  limit %7.2f .. %7.2f deg%s%s",
+                    c.bodyA.c_str(), c.bodyB.c_str(),
+                    c.limitMinAngle * 180.f / 3.14159265f,
+                    c.limitMaxAngle * 180.f / 3.14159265f,
+                    c.limited ? "" : "  (unlimited)", c.breakable ? "  BREAKABLE" : "");
+        } else {
+            LogInfo("    ragdoll %-14s -> %-14s  twist %6.1f..%6.1f  cone %6.1f..%6.1f  "
+                    "plane %6.1f..%6.1f%s",
+                    c.bodyA.c_str(), c.bodyB.c_str(),
+                    c.twistMin * 180.f / 3.14159265f, c.twistMax * 180.f / 3.14159265f,
+                    c.coneMin * 180.f / 3.14159265f, c.coneMax * 180.f / 3.14159265f,
+                    c.planeMin * 180.f / 3.14159265f, c.planeMax * 180.f / 3.14159265f,
+                    c.breakable ? "  BREAKABLE" : "");
+        }
+    }
+
+    // Which limbs are NOT part of the body - the answer Ragdoll::Joint_AreLinked
+    // gives the stake, and the reason a thrown weapon is not a hit.
+    std::string root = hke.Body("root") ? "root" : (hke.Body("ROOOT") ? "ROOOT" : "");
+    if (root.empty() && !hke.bodies.empty()) root = hke.bodies.front().bone;
+    LogInfo("  linkage to \"%s\":", root.c_str());
+    for (const HkeBody& b : hke.bodies)
+        if (!hke.Linked(b.bone, root))
+            LogInfo("    DETACHED  %s   (a stake passes through this)", b.bone.c_str());
+
+    // And what the .rde has to say, which is only ever material - the shapes
+    // and the mass are here, which is why every .rde mass is -1.
+    Ragdoll rde;
+    if (Ragdoll::Load(base + ".rde", rde)) {
+        size_t matched = 0, missing = 0;
+        for (const RagdollLimb& limb : rde.limbs)
+            (hke.Body(limb.bone) ? matched : missing)++;
+        LogInfo("  .rde: %zu limbs, %zu matched to a body, %zu with no body",
+                rde.limbs.size(), matched, missing);
+        for (const RagdollLimb& limb : rde.limbs)
+            if (!hke.Body(limb.bone)) LogInfo("    no body for .rde limb %s", limb.bone.c_str());
+    } else {
+        LogInfo("  .rde: %s", rde.error.c_str());
+    }
+
+    // And whether the model has a bone for every body the ragdoll names.
+    Model model;
+    if (Model::Load(base + ".pkmdl", model)) {
+        size_t absent = 0;
+        for (const HkeBody& b : hke.bodies) {
+            bool found = false;
+            for (const Bone& bone : model.bones)
+                if (bone.name == b.bone) { found = true; break; }
+            if (!found) { ++absent; LogInfo("    no BONE for body %s", b.bone.c_str()); }
+        }
+        LogInfo("  model: %zu bones, %zu ragdoll bodies with no bone",
+                model.bones.size(), absent);
+    }
+    if (!hke.unknown.empty()) {
+        LogInfo("  unknown keywords:");
+        for (const std::string& u : hke.unknown) LogInfo("    %s", u.c_str());
+    }
+    (void)modelsRoot;
+    return 0;
+}
+
 static int HitboxesCmd(const char* modelPath) {
     Model model;
     if (!Model::Load(modelPath, model)) {
@@ -3169,6 +3372,7 @@ int main(int argc, char** argv) {
     if (cmd == "textures" && argc >= 5) return TexturesCmd(argv[2], argv[3], argv[4]);
     if (cmd == "model") return ModelCmd(argv[2]);
     if (cmd == "hitboxes") return HitboxesCmd(argv[2]);
+    if (cmd == "ragdoll") return RagdollCmd(argv[2], argc >= 4 ? argv[3] : nullptr);
     if (cmd == "pose" && argc >= 4)
         return PoseCmd(argv[2], argv[3], argc >= 5 ? argv[4] : nullptr);
     if (cmd == "particles" && argc >= 4) return ParticlesCmd(argv[2], argv[3]);
