@@ -128,6 +128,13 @@ what the HUD already prints. It is applied on the first `TickMonsters` rather
 than at spawn, because the scripts place the player themselves during level
 load and overwrite anything set earlier.
 
+**`PAINFUL_MONSTER_TRACE=<frame>`** dumps, once at that frame, every monster's
+mesh bounds, sweep radius, lift, sphere bottom and the floor under it. The
+sphere, the lift and the model bounds are all engine-side, so a script-side
+`WORLD.LineTraceFixedGeom` cannot answer "is this monster sunk" - and a trace
+started well above an actor silently measures the CEILING, which is how the
+first reading of the anchor problem below came out inverted.
+
 **Wrapping `Game_Tick` from the exec chunk** reads live script state headlessly:
 
 ```lua
@@ -263,7 +270,47 @@ after    t1400 | reached 16, STUCK 0 | net 9.2  path 22.6
 the number this document predicted would move, and the reason it was the top
 item. All sixteen still arrive; nothing is stuck.
 
-## Five things reported from play
+
+## OPEN: every mid-body-origin rig draws half buried
+
+Found with `PAINFUL_MONSTER_TRACE` while chasing the pile-up above, and not
+fixed. It is not level-specific - Cathedral and City On Water both show it.
+
+`EntityRenderer::SetScriptPose` draws a model with its OWN origin at the
+entity position, with no vertical offset. The bestiary does not agree on where
+that origin is:
+
+| rig | `lo[1]` | origin | drawn |
+|---|---|---|---|
+| raven | -0.10 | at the feet | correct |
+| hellbiker | -11.32 | mid-body | buried |
+| evilmonkv2 | -12.80 | mid-body | buried |
+| hellangel | -13.09 | mid-body | buried |
+
+Measured on Cathedral: `evilmonkv2` at `scale 0.120`, soles at -4.460 against a
+floor at -3.072 - **1.39 below it, on a model 2.75 tall**. City On Water:
+hellbiker 1.68 under, hellangel 1.62 under. Level authors place actors
+0.08-0.25 above the floor whatever the rig, which only makes sense if the
+engine anchors an entity near its FEET; the ravens look right because their
+origin already is one.
+
+Two things to settle before changing it, in this order:
+
+1. **The binary.** This is the `Entity+0x58` reference that
+   `PhysicsWorld::CreatePhysicsObject` (0x101999F0) measures from, already
+   listed as unidentified above. It decides the anchor for the mover AND the
+   renderer, so guessing it changes two systems at once.
+2. **The animated pose.** The figures above are BIND-POSE bounds. Animation
+   plays now, so the drawn vertices come from the bone palette and the animated
+   root may not sit where `lo[1]` does. A debug draw of the sweep sphere
+   against the drawn model settles it in one screenshot.
+
+Note the earlier warning in this file: assuming a foot origin once "made monks
+climb out of the world at exactly one radius per tick". That attempt lifted by
+the RADIUS; lifting by `-lo[1] * scale` is a different quantity, but the same
+care applies.
+
+## Six things reported from play
 
 **The player walked through monsters.** The body was being placed at the
 entity's position - the model's CENTRE - while the collision sphere it stands
@@ -317,6 +364,49 @@ Measured on Cathedral, `EvilMonkV2_WalkOnlyNoThrow_001` pinned stationary with
 |---|---|---|
 | before | 0.000 of 0.15 recovered | 0.000 - stuck |
 | after | 0.150 recovered | 0.150, stable to 4 dp |
+
+**A monk spawning onto another drove it through the floor.** Reported from
+play: an ambush spawns three monks with a delay, and each new one shoved the
+previous one down and out of the level. Two separate causes.
+
+*The ejection.* `Depenetrate` resolves the single deepest overlap by moving the
+full penetration depth along the contact axis. For two character spheres at the
+same spot that axis is degenerate, and vertical is as valid as any: the second
+monk arriving sent the first **0.704 straight down in one frame**. Below the
+floor mesh a sphere overlaps nothing, so no later pass can recover it - the
+failure is one-way, which is why it looked permanent.
+
+*The player was invisible to them.* `CameraBlockerFilter` takes the player's
+pusher as a body to pass through, and every call site handed it in - so it was
+excluded from **everyone's** queries, not just the player's own. A monster could
+not feel the player at all: it walked through them, and the player could not
+shoulder one aside. Measured: a monk placed on the player separated by 0.000
+and then sank.
+
+**The rule now: a character overlap is a PUSH, not an ejection.** Two upright
+characters standing on ground separate SIDEWAYS, so the correction is projected
+onto the horizontal plane, and it is rate-limited to 0.05 per step. The player's
+pusher counts as a character, and is excluded only from the player's own
+queries. Where the axis is degenerate - one character directly above another,
+which is exactly how a spawning monk arrives - the direction comes from the
+horizontal offset between the centres, and failing that from body order, so the
+two pick OPPOSITE directions instead of travelling together.
+
+**GUESS: the 0.05 rate is not recovered.** It is set so a coincident pair of
+monks separates over about a quarter of a second, which reads as shouldering
+rather than a shove. What would settle it is the character separation term in
+the monster update inside Engine.dll.
+
+Measured on Cathedral, both actors pinned with `PO_Move(e,0,0,0)`:
+
+| | before | after |
+|---|---|---|
+| monk dropped on monk, vertical | -0.704 in one frame, fell to -1.913 and stayed | 0.000, `onFloor` true through 400 frames |
+| monk dropped on monk, horizontal gap | 0.000 - never parted | 0.100 at f+1, 0.988 by f+10, stable |
+| monk placed on the player | 0.000 - no interaction, then sank | 0.050 at f+1, 0.819 by f+50, stable |
+
+Player walking speed is unchanged at 8.000 against `PlayerSpeed` 8.0, and the
+physics report's cross-frame-rate push check still agrees (7.03 / 7.14 / 7.10).
 
 ---
 

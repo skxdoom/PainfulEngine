@@ -233,7 +233,9 @@ public:
     // ignoreSlot passes one script body straight through, for a body that is
     // sweeping ITSELF through the world (see CameraBlockerFilter).
     void SlideSphere(float pos[3], const float delta[3], float radius,
-                     bool solidProps = false, int ignoreSlot = -1) const;
+                     bool solidProps = false, int ignoreSlot = -1,
+                     bool collideWithPlayer = false,
+                     bool* separatedFromCharacter = nullptr) const;
 
     // True when a sphere at this position overlaps anything solid.
     bool SphereOverlaps(const float pos[3], float radius) const;
@@ -262,7 +264,9 @@ public:
     // a cast that starts inside geometry hits at zero distance whichever way
     // it goes, which is indistinguishable from being wedged for good.
     int Depenetrate(float pos[3], float radius, int iterations = 4,
-                    bool solidProps = false, int ignoreSlot = -1) const;
+                    bool solidProps = false, int ignoreSlot = -1,
+                    bool collideWithPlayer = false,
+                    bool* separatedFromCharacter = nullptr) const;
 
     // The camera's body in the simulation: a kinematic sphere that follows it.
     //

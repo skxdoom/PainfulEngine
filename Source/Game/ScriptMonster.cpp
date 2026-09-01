@@ -152,6 +152,16 @@ bool ScriptEngine::MonsterBodyScale(Entity& e, float& k, float& rootOffsetY) {
 void ScriptEngine::TickMonsters(float dt) {
     if (dt <= 0.f || !physics_) return;
 
+    // PAINFUL_MONSTER_TRACE=<frame> dumps, once, the numbers that decide
+    // whether a model stands ON the floor or IN it: the mesh bounds, the
+    // sphere the mover sweeps, and where its soles land against the geometry
+    // below. None of it is reachable from Lua, which is why a script-side
+    // trace cannot answer "is this monster sunk".
+    static int traceTick = 0;
+    ++traceTick;
+    const char* traceAt = std::getenv("PAINFUL_MONSTER_TRACE");
+    const bool dumpGround = traceAt && traceTick == std::atoi(traceAt);
+
     // Rebuilt every frame: which movement bodies the limb boxes have taken
     // over from, for TraceRay. Rebuilt rather than tracked at creation because
     // it depends on the entity's MODEL - a script can give an actor a
@@ -245,8 +255,12 @@ void ScriptEngine::TickMonsters(float dt) {
         // model's own bounds.
         float pos[3] = {e.pos[0], e.pos[1] + lift, e.pos[2]};
         const float before[3] = {pos[0], pos[1], pos[2]};
-        physics_->SlideSphere(pos, step, radius, true, e.physicsBody);
-        if (!spend) {
+        // collideWithPlayer: a monster feels the player, so the player can
+        // shoulder it aside and it cannot walk through them.
+        bool pushedByCharacter = false;
+        physics_->SlideSphere(pos, step, radius, true, e.physicsBody, true,
+                              &pushedByCharacter);
+        if (!spend && !pushedByCharacter) {
             // Depenetration only. Adopt it when it is a real extraction, not the
             // hairline overlap a resting sphere reports every frame: taking that
             // walks a standing actor upward a fraction at a time, which is this
@@ -264,7 +278,7 @@ void ScriptEngine::TickMonsters(float dt) {
         // ground the actor is falling towards.
         const float below[3] = {0.f, -(radius * 0.25f), 0.f};
         float probe[3] = {pos[0], pos[1], pos[2]};
-        physics_->SlideSphere(probe, below, radius, true, e.physicsBody);
+        physics_->SlideSphere(probe, below, radius, true, e.physicsBody, true);
         e.onFloor = (probe[1] - pos[1]) > below[1] * 0.5f;
         if (e.onFloor) e.fallSpeed = 0.f;
         pos[1] -= lift;
@@ -273,6 +287,21 @@ void ScriptEngine::TickMonsters(float dt) {
         e.floorNormal[0] = 0.f;
         e.floorNormal[1] = 1.f;
         e.floorNormal[2] = 0.f;
+
+        if (dumpGround) {
+            const SkeletonCache::Entry* s = skeletons_.Get(e.source);
+            const float soles = e.pos[1] + (s ? s->lo[1] * e.scale : 0.f);
+            PhysicsWorld::RayHit hit;
+            const float from[3] = {e.pos[0], e.pos[1] + lift, e.pos[2]};
+            const float to[3] = {e.pos[0], e.pos[1] + lift - 30.f, e.pos[2]};
+            const bool got = physics_->RayCast(from, to, hit, true);
+            LogInfo("MONSTER %-12s pos=%8.3f scale=%.3f lo=%7.2f hi=%7.2f r=%.3f lift=%+.3f "
+                    "sphereBottom=%8.3f floor=%8.3f soles=%8.3f soleGap=%+.3f onFloor=%d",
+                    e.source.c_str(), e.pos[1], e.scale, s ? s->lo[1] : 0.f,
+                    s ? s->hi[1] : 0.f, radius, lift, e.pos[1] + lift - radius,
+                    got ? hit.point[1] : 0.f, soles,
+                    got ? soles - hit.point[1] : 0.f, e.onFloor ? 1 : 0);
+        }
 
         for (int c = 0; c < 3; ++c) e.pos[c] = pos[c];
         // The body is kinematic, so it does not move itself - it is carried,

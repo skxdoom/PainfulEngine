@@ -294,16 +294,23 @@ The ordered work queue, with the evidence behind each item, is
   `Main/Utils.lua` funnels every explosion in the game through it — 91 call
   sites. Nothing takes radius damage or blast impulse: grenades, rockets,
   barrels, the exploding cars. This is the largest single gap left.
-- **Monster ground contact.** They walk, and a stationary one is now
-  depenetrated rather than left embedded — but there is still no step-up, so
-  any lip stops them dead; the floor normal handed to `CAiBrain` is a hardcoded
-  `(0,1,0)`; and the shape that sweeps is a ball at shin height rather than the
-  body everything else collides with.
+- **Monster ground contact.** They walk, a stationary one is depenetrated
+  rather than left embedded, and characters now part sideways instead of
+  ejecting each other — a monk spawning onto another no longer drives it
+  through the floor, and the player can shoulder one aside
+  ([`MonsterMovement.md`](Reference/MonsterMovement.md)). Still open: no
+  step-up, so any lip stops them dead; the floor normal handed to `CAiBrain`
+  is a hardcoded `(0,1,0)`; and the shape that sweeps is a ball at shin height
+  rather than the body everything else collides with.
 - **Pinning.** The stakegun cannot pin a corpse to a wall — its handler raises
   on a nil from `PHYSICS.GetHavokBodyPosition` before it ever reaches the wall
   test. `PinHavokBody`, `ENTITY.PO_SetPinned`, `MDL.SetPinned` /
   `SetPinnedJoint` are all stubs, though `World/PhysicsWorld.cpp` already
   branches `pinned ? Static : Dynamic` on the ragdoll path.
+- **Humanoid monsters draw half buried.** The renderer puts a model's own
+  origin at the entity position, and most rigs put that origin at mid-body
+  rather than the feet. Not level-specific; measured and left open in
+  [`MonsterMovement.md`](Reference/MonsterMovement.md).
 - **Waypoint self-placement.** Routing works (`PATH.GetShortest` and friends
   over a real `.wps`), but `WPT.GetClosest` / `GetPosition` are stubs, so the
   "put this monster back on the walkable set" correction in five monster

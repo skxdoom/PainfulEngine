@@ -46,6 +46,7 @@
 #include <thread>
 #include <mutex>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace painful {
 
@@ -399,6 +400,11 @@ struct PhysicsWorld::Impl {
         bool inWorld = true;
     };
     std::vector<ScriptBody> scriptBodies;
+    // Which script bodies are CHARACTERS (PO_SetMonsterType, so kinematic and
+    // carried by their own mover). Depenetrate separates two characters
+    // horizontally: see the comment there. Keyed on the raw id, since
+    // JPH::BodyID has no std::hash.
+    std::unordered_set<uint32_t> characterBodies;
 
     // Ragdoll settings are per MODEL and shared between every instance of it;
     // the bone order is the part order, which only the builder knows.
@@ -1200,6 +1206,9 @@ void PhysicsWorld::SetScriptBodyKinematic(int slot, float k, float rootOffsetY) 
     if (!ScriptBodyExists(slot)) return;
     JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
     const JPH::BodyID id = impl_->scriptBodies[slot].body;
+    // Only PO_SetMonsterType reaches here, so this is the character set that
+    // Depenetrate separates horizontally instead of ejecting.
+    impl_->characterBodies.insert(id.GetIndexAndSequenceNumber());
 
     if (k > 0.f && k != impl_->scriptBodies[slot].radius) {
         // THREE STACKED SPHERES - which is what BodyTypes.Fatter is.
@@ -1275,6 +1284,7 @@ void PhysicsWorld::RemoveScriptBody(int slot) {
     // A disabled body is already out of the world, and Jolt asserts on the
     // second remove.
     if (sb.inWorld) bodies.RemoveBody(sb.body);
+    impl_->characterBodies.erase(sb.body.GetIndexAndSequenceNumber());
     bodies.DestroyBody(sb.body);
     sb.body = JPH::BodyID();
     sb.inWorld = false;
@@ -2069,17 +2079,39 @@ bool PhysicsWorld::SphereOverlaps(const float pos[3], float radius) const {
     return collector.HadHit();
 }
 
+// How far one character may be separated from another in a single call.
+//
+// A character overlap is resolved as a PUSH, not an ejection. Two upright
+// characters standing on the ground separate SIDEWAYS, and the vertical
+// component is the one that cannot be undone: a sphere driven below the floor
+// mesh overlaps nothing, so no later pass can recover it. Measured before this
+// existed - a monk spawning onto another sent it 0.704 straight down in one
+// frame and it fell out of the level for good.
+//
+// GUESS: the rate is not recovered. It is set so a coincident pair of monks
+// (radius 0.35) separates over about a quarter of a second, which is the
+// "shoulder them aside gently" the original shows rather than a shove. What
+// would settle it is the character separation term in the monster update
+// inside Engine.dll. Docs/Reference/MonsterMovement.md
+constexpr float kCharacterPushPerStep = 0.05f;
+
 int PhysicsWorld::Depenetrate(float pos[3], float radius, int iterations,
-                              bool solidProps, int ignoreSlot) const {
+                              bool solidProps, int ignoreSlot,
+                              bool collideWithPlayer,
+                              bool* separatedFromCharacter) const {
     if (!loaded()) return 0;
 
+    const JPH::BodyID self = ScriptBodyExists(ignoreSlot)
+                                 ? impl_->scriptBodies[ignoreSlot].body
+                                 : JPH::BodyID();
     const JPH::SphereShape sphere(radius);
     sphere.SetEmbedded();
+    // The player's pusher is excluded from its OWN queries only. Leaving it out
+    // of everyone's is why a monster could not feel the player at all - it
+    // walked through them, and the player could not shoulder one aside.
     const CameraBlockerFilter blockers(impl_->probe, solidProps ? kSolidProps : maxPushMass_,
-                                      ScriptBodyExists(ignoreSlot)
-                                          ? impl_->scriptBodies[ignoreSlot].body
-                                          : JPH::BodyID(),
-                                      impl_->pawnProbe);
+                                      self,
+                                      collideWithPlayer ? JPH::BodyID() : impl_->pawnProbe);
 
     int resolved = 0;
     for (int pass = 0; pass < iterations; ++pass) {
@@ -2110,15 +2142,49 @@ int PhysicsWorld::Depenetrate(float pos[3], float radius, int iterations,
 
         // mPenetrationAxis moves shape 2 out of the collision, so the sphere -
         // shape 1 - goes the other way.
-        const JPH::Vec3 out = -deepest->mPenetrationAxis.NormalizedOr(JPH::Vec3::sAxisY());
-        for (int c = 0; c < 3; ++c) pos[c] += out[c] * deepest->mPenetrationDepth;
+        JPH::Vec3 out = -deepest->mPenetrationAxis.NormalizedOr(JPH::Vec3::sAxisY());
+        float depth = deepest->mPenetrationDepth;
+
+        const uint32_t hitId = deepest->mBodyID2.GetIndexAndSequenceNumber();
+        const bool character = impl_->characterBodies.count(hitId) != 0 ||
+                               deepest->mBodyID2 == impl_->pawnProbe;
+        if (character) {
+            out = JPH::Vec3(out.GetX(), 0.f, out.GetZ());
+            if (out.LengthSq() < 1e-8f) {
+                // One character directly above the other - which is exactly how
+                // a monk spawning onto another arrives. The axis says nothing
+                // about which way to part, so take the horizontal offset
+                // between the centres, and failing that a fixed axis signed by
+                // body order so the two pick OPPOSITE directions rather than
+                // travelling together forever.
+                const JPH::RVec3 otherCom =
+                    impl_->system.GetBodyInterface().GetCenterOfMassPosition(deepest->mBodyID2);
+                JPH::Vec3 away(pos[0] - float(otherCom.GetX()), 0.f,
+                               pos[2] - float(otherCom.GetZ()));
+                if (away.LengthSq() < 1e-8f)
+                    away = JPH::Vec3(self.GetIndex() < deepest->mBodyID2.GetIndex() ? 1.f : -1.f,
+                                     0.f, 0.f);
+                out = away.Normalized();
+            } else {
+                out = out.Normalized();
+            }
+            depth = std::min(depth, kCharacterPushPerStep);
+            if (separatedFromCharacter) *separatedFromCharacter = true;
+        }
+
+        for (int c = 0; c < 3; ++c) pos[c] += out[c] * depth;
         ++resolved;
+        // A character push is rate-limited, so re-running the loop would just
+        // spend the budget several times over in one call.
+        if (character) break;
     }
     return resolved;
 }
 
 void PhysicsWorld::SlideSphere(float pos[3], const float delta[3], float radius,
-                               bool solidProps, int ignoreSlot) const {
+                               bool solidProps, int ignoreSlot,
+                               bool collideWithPlayer,
+                               bool* separatedFromCharacter) const {
     const JPH::BodyID self = ScriptBodyExists(ignoreSlot)
                                  ? impl_->scriptBodies[ignoreSlot].body
                                  : JPH::BodyID();
@@ -2130,7 +2196,8 @@ void PhysicsWorld::SlideSphere(float pos[3], const float delta[3], float radius,
     // Get out of anything first. A cast that starts inside geometry reports a
     // hit at zero distance in every direction, which is indistinguishable from
     // being wedged - and being wedged for good is exactly what it looks like.
-    Depenetrate(pos, radius, 4, solidProps, ignoreSlot);
+    Depenetrate(pos, radius, 4, solidProps, ignoreSlot, collideWithPlayer,
+                separatedFromCharacter);
 
     JPH::Vec3 at(pos[0], pos[1], pos[2]);
     JPH::Vec3 remaining(delta[0], delta[1], delta[2]);
@@ -2142,7 +2209,8 @@ void PhysicsWorld::SlideSphere(float pos[3], const float delta[3], float radius,
     const JPH::SphereShape sphere(radius);
     sphere.SetEmbedded();
     const CameraBlockerFilter blockers(impl_->probe, solidProps ? kSolidProps : maxPushMass_,
-                                      self, impl_->pawnProbe);
+                                      self,
+                                      collideWithPlayer ? JPH::BodyID() : impl_->pawnProbe);
 
     // Keeps the sphere just clear of the surface so the next cast starts
     // outside it. The original calls the same idea PhantomTolerance.

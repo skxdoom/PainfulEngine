@@ -135,8 +135,10 @@ plausible-but-wrong this project has paid for before.
 
 ### Stage 14 — monster ground contact
 
-I2 is fixed. Three structural problems sit behind it, all in
-`Game/ScriptMonster.cpp`:
+I2 is fixed, and so is the character pile-up that came out of testing it:
+two characters now part sideways at a limited rate instead of ejecting each
+other, and a monster can feel the player. Three structural problems remain,
+all in `Game/ScriptMonster.cpp`:
 
 1. **No step-up.** `PlayerPawn` runs the recovered `StepCheck` ladder and climbs to
    0.86 (see [`PlayerMovement.md`](Reference/PlayerMovement.md)). `TickMonsters`
