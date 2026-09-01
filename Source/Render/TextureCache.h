@@ -44,6 +44,14 @@ public:
     // has not been loaded, or resolved to the white fallback.
     bool Size(const std::string& reference, int& w, int& h) const;
 
+    // Pixel size WITHOUT a graphics device: resolves the reference and parses
+    // the image header on the CPU, recording the result for Size(). This is
+    // what lets a headless run lay the HUD out - MATERIAL.Size is how every
+    // HUD script scales itself, and the layout is not part of the drawing.
+    // Pairs with Init(root, createWhite=false).
+    bool Measure(const std::string& reference, const std::string& levelHint,
+                 int& w, int& h);
+
 private:
 
     std::map<std::string, std::string> index_;              // key -> absolute path

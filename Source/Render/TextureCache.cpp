@@ -91,6 +91,27 @@ bool TextureCache::Size(const std::string& reference, int& w, int& h) const {
     return true;
 }
 
+bool TextureCache::Measure(const std::string& reference, const std::string& levelHint,
+                           int& w, int& h) {
+    if (reference.empty()) return false;
+    auto it = sizes_.find(reference);
+    if (it != sizes_.end()) { w = it->second.first; h = it->second.second; return true; }
+
+    // bimg parses the header on the CPU; only bgfx::copy/createTexture2D in
+    // Get() need a device, so this works with Init(root, createWhite=false).
+    const std::string path = Resolve(reference, levelHint);
+    std::vector<uint8_t> data;
+    if (path.empty() || !ReadFile(path, data) || data.empty()) return false;
+    bimg::ImageContainer* image =
+        bimg::imageParse(&g_allocator, data.data(), static_cast<uint32_t>(data.size()));
+    if (!image) return false;
+    w = int(image->m_width);
+    h = int(image->m_height);
+    sizes_[reference] = {w, h};
+    bimg::imageFree(image);
+    return true;
+}
+
 std::string TextureCache::Resolve(const std::string& reference,
                                   const std::string& levelHint) const {
     std::string key = StripExtension(Lower(reference));

@@ -368,6 +368,12 @@ public:
         menu_.SetPauseHandler([this](bool p) { gamePaused_ = p; });
     }
 
+    // Headless: the texture index alone, with no renderer behind it. The
+    // MATERIAL natives then answer real sizes off the image headers, so the
+    // scripts' HUD layout arithmetic runs exactly as it does in the window.
+    // Drawing is what is missing on a headless run, not sizing.
+    void AttachHudTextures(TextureCache* textures) { hudTextures_ = textures; }
+
     // The menu owns its own widget tree; the game loop drives and draws it.
     MenuSystem& menu() { return menu_; }
 
@@ -958,6 +964,9 @@ private:
     // --- the 2D layer -----------------------------------------------------
     HudRenderer* hud_ = nullptr;
     TextureCache* hudTextures_ = nullptr;
+    // Sizes for MATERIAL.Create/Size when no HudRenderer is attached. Indexed
+    // 1-based to match HudRenderer::Material, so handle 0 stays "no texture".
+    std::vector<std::pair<int, int>> headlessMaterials_;
     MenuSystem menu_;
     // WORLD.IsGamePaused reads this; Engine.dll keeps the same byte on the
     // World object at +0x10. No shipped script ever calls SetGamePaused, so

@@ -263,7 +263,7 @@ after    t1400 | reached 16, STUCK 0 | net 9.2  path 22.6
 the number this document predicted would move, and the reason it was the top
 item. All sixteen still arrive; nothing is stuck.
 
-## Four things reported from play
+## Five things reported from play
 
 **The player walked through monsters.** The body was being placed at the
 entity's position - the model's CENTRE - while the collision sphere it stands
@@ -295,6 +295,28 @@ nearest waypoint by 3D distance, floor index ignored: an actor can bind to a
 waypoint on the floor above or below and be handed a route it cannot walk. The
 `floor` field exists precisely to disambiguate that, and is currently parsed
 and unused.
+
+**A stationary monster sank and stayed sunk.** `TickMonsters` accumulates a
+sub-skin step rather than sweeping it, and the skip path returned before
+`SlideSphere` - which is the only thing that calls `Depenetrate`. An actor with
+`onFloor` latched true has `fallSpeed` 0, so its residual never grows, so it
+never sweeps again: anything that put it inside geometry left it there for the
+rest of the level. The skip path now sweeps a ZERO delta, which depenetrates and
+advances nothing.
+
+Adopting that result unconditionally trades the bug for its mirror image. A
+sphere at rest reports a hairline overlap every frame, and taking it walked a
+standing actor upward 0.0007 a frame - 0.19 over 250 frames. The correction is
+only adopted when it exceeds the 0.05 sweep skin, i.e. when it is a real
+extraction rather than resting contact.
+
+Measured on Cathedral, `EvilMonkV2_WalkOnlyNoThrow_001` pinned stationary with
+`PO_Move(e,0,0,0)` and pushed 0.15 into the floor at frame 50:
+
+| | frame 51 | frame 300 |
+|---|---|---|
+| before | 0.000 of 0.15 recovered | 0.000 - stuck |
+| after | 0.150 recovered | 0.150, stable to 4 dp |
 
 ---
 

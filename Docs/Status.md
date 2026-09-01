@@ -294,20 +294,22 @@ The ordered work queue, with the evidence behind each item, is
   `Main/Utils.lua` funnels every explosion in the game through it — 91 call
   sites. Nothing takes radius damage or blast impulse: grenades, rockets,
   barrels, the exploding cars. This is the largest single gap left.
-- **Monster ground contact.** They walk, but: a stationary monster is never
-  depenetrated (so one embedded in geometry stays embedded), there is no
-  step-up so any lip stops them dead, the floor normal handed to `CAiBrain` is
-  a hardcoded `(0,1,0)`, and the shape that sweeps is a ball at shin height
-  rather than the body everything else collides with.
+- **Monster ground contact.** They walk, and a stationary one is now
+  depenetrated rather than left embedded — but there is still no step-up, so
+  any lip stops them dead; the floor normal handed to `CAiBrain` is a hardcoded
+  `(0,1,0)`; and the shape that sweeps is a ball at shin height rather than the
+  body everything else collides with.
 - **Pinning.** The stakegun cannot pin a corpse to a wall — its handler raises
   on a nil from `PHYSICS.GetHavokBodyPosition` before it ever reaches the wall
   test. `PinHavokBody`, `ENTITY.PO_SetPinned`, `MDL.SetPinned` /
   `SetPinnedJoint` are all stubs, though `World/PhysicsWorld.cpp` already
   branches `pinned ? Static : Dynamic` on the ragdoll path.
-- **Navigation queries.** `WPT.Load` parses the graph and nothing ever asks it
-  anything: `WPT.GetClosest` and `GetPosition` are stubs, so the "put this
-  monster back on the walkable set" correction in five monster scripts is
-  silently skipped by its own `if idx > -1` guard.
+- **Waypoint self-placement.** Routing works (`PATH.GetShortest` and friends
+  over a real `.wps`), but `WPT.GetClosest` / `GetPosition` are stubs, so the
+  "put this monster back on the walkable set" correction in five monster
+  scripts is silently skipped by its own `if idx > -1` guard. `GetShortest`
+  also ignores the waypoint `floor` index, which can hand an actor a route on
+  the wrong storey.
 - **Flying and scripted movers.** `PO_SetFlying`, `PO_MaintainVelocity` /
   `MaintainLinearMovement` / `MaintainPosition`, `PO_EnableSpeedDamping`.
   Alastor and the ravens have no mover at all.
@@ -375,14 +377,12 @@ The ordered work queue, with the evidence behind each item, is
 
 ### A caveat on the measurement
 
-The headless report currently raises a Lua error on every frame in
-`Hud:Quad`, because `AttachHud` is only called from the windowed path and
-`MATERIAL.Create` answers nil without it. The error unwinds out of
-`Game:PostRender`, so the report undercounts everything downstream of
-`Hud:Render`. It is also an idle run — nothing fires and no monster engages —
-so the weapon, explosion and AI natives are absent from its ranked list for
-lack of exercise rather than because they work. Both are covered in
-[`Plan.md`](Plan.md).
+The headless report runs clean — 0 script errors, and the HUD lays itself out
+from real material sizes (see [`Hud.md`](Reference/Hud.md)) — but it is an
+**idle run**: nothing fires, nothing takes damage and no monster engages. The
+weapon, explosion and pin natives are absent from its ranked list for lack of
+exercise rather than because they work. The static sweep across the shipped
+scripts is the fuller picture; both are in [`Plan.md`](Plan.md).
 
 ## Why it is built this way
 

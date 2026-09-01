@@ -192,6 +192,23 @@ Metrics:
   (positive angle turns clockwise, y being down). The compass is the only
   caller and has not been checked against the original frame by frame.
 
+## Sizing without a renderer
+
+`MATERIAL.Create` returns nil when it cannot make a texture, and `Hud:Quad`
+answers a `MATERIAL.Size` of -1 by printing `'... '..mat..' not found!'` - which
+CONCATENATES the handle. A nil there raises inside the diagnostic itself, and
+the error unwinds out of `Game:PostRender`, taking `Editor:Render` and
+everything after it with it. One unresolved HUD texture kills the whole 2D
+layer for the frame, and the traceback names `Hud:Quad`, not the texture.
+
+That is why the headless `lua` report gets the texture INDEX (`TextureCache::
+Init(root, createWhite=false)`) even though it has no renderer:
+`TextureCache::Measure` parses the image header on the CPU, so `MATERIAL.Size`
+answers real dimensions and the scripts' layout arithmetic is the one the
+window runs. Drawing is what a headless run is missing, not sizing. Before
+this the report threw on all 400 frames and `Hud:Render` never reached a single
+`DrawQuad`; after it, 5592 quads over 200 frames.
+
 ## Verification
 
 ```bash

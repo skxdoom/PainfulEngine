@@ -44,69 +44,55 @@ then prints every native the scripts called that we have not written. Current
 reading:
 
 ```
-boot: 964 files loaded, 0 missing, 400 script errors
-entities: 796 created, 189 released, 655 live
+boot: 964 files loaded, 0 missing, 0 script errors
+entities: 797 created, 189 released, 656 live
 unimplemented natives hit: 102 distinct, 11618 calls
 ```
 
 against 153 distinct / 82,843 calls at the start of Stage 7. Re-run after every
 stage; the report is the progress bar.
 
-**Two things the report does not see, and both matter for reading it.**
-
-1. **It is an idle run.** Nothing fires, nothing takes damage, no monster engages a
-   target. So the weapon path, the explosion family, the pin family and most of the
-   AI natives are absent from the ranked list for lack of exercise, not because they
-   work. The static sweep — every `MODULE.Fn` reference across the shipped
-   `.lua`/`.state`/property files, intersected with the stub set — is the fuller
-   picture, and it is what ranks the stages below.
-2. **It is currently throwing every frame** (see I1 below), which truncates
-   `Game:PostRender` and undercounts everything downstream of `Hud:Render`.
+**What the report still does not see.** It is an **idle run**: nothing fires,
+nothing takes damage, no monster engages a target. So the weapon path, the
+explosion family, the pin family and most of the AI natives are absent from the
+ranked list for lack of exercise, not because they work. The static sweep —
+every `MODULE.Fn` reference across the shipped `.lua`/`.state`/property files,
+intersected with the stub set — is the fuller picture, and it is what ranks the
+stages below. (It used to throw every frame as well; that is I1, now fixed.)
 
 
-## Immediate — three localised defects
+## Immediate — DONE
 
-These are small, they are not stages, and two of them are probably a day between
-them. The first blocks measurement, so it goes first.
+All three landed together. The report now exits 0 with **0 script errors**
+(was 400) and **102 distinct / 11,618 calls**.
 
-### I1. The headless report throws on all 400 frames
+### I1. The headless report threw on all 400 frames — fixed
 
-```
-HUD.lua:865: attempt to concatenate local `mat' (a nil value)
-  Hud:Quad → Hud:Render → Game:PostRender → Game_PostRender
-```
+`MATERIAL.Create` answered nil without a renderer, and `Hud:Quad`'s own
+"material not found" diagnostic concatenates the handle, so the error rose out
+of `Game:PostRender` and took everything after `Hud:Render` with it. The `lua`
+command now gets the texture INDEX only — `TextureCache::Init(root, false)`,
+no graphics device — and a new `TextureCache::Measure` reads image headers on
+the CPU, so `MATERIAL.Size` answers real dimensions. `Hud:Render` went from
+aborting on frame 1 to 5592 `DrawQuad` calls over 200 frames. Rule and
+evidence: [`Hud.md`](Reference/Hud.md).
 
-`ScriptEngine::AttachHud` is called only from `App/GameApp.cpp`, so under
-`PainfulTools` `hud_` is null, `MATERIAL.Create` returns nil
-(`Game/ScriptHud.cpp`, `L_MATERIAL_Create`), `MATERIAL.Size` answers -1, and
-`Hud:Quad`'s own "material not found" diagnostic then concatenates the nil handle
-and raises. The error unwinds out of `Game:PostRender`, so `Editor:Render` and
-everything after it never runs while we are measuring.
+### I2. A stationary monster was never depenetrated — fixed
 
-Either attach a headless HUD in the `lua` command or make `MATERIAL.Create` answer a
-resolvable null handle rather than nil. The report cannot be trusted until this is
-gone.
+The sub-skin skip path in `TickMonsters` returned before `SlideSphere`, the
+only caller of `Depenetrate`, and an actor with `onFloor` latched true never
+accumulates enough residual to sweep again. It now sweeps a zero delta
+instead, with the correction adopted only when it exceeds the sweep skin —
+taking the hairline overlap a resting sphere reports walks the actor upward
+instead. Measured both ways against the same probe:
+[`MonsterMovement.md`](Reference/MonsterMovement.md).
 
-### I2. A stationary monster is never depenetrated — this is the sinking
+### I3. Leftover scaffolding — partly done
 
-`Game/ScriptMonster.cpp`, `TickMonsters`: the accumulated step is compared against
-the 0.05 sweep skin and, when it falls short, the loop `continue`s straight to
-`SetScriptBodyPose`. `SlideSphere` — and therefore `Depenetrate`, which only runs
-inside it — is reached on the moving branch alone.
-
-A monster with `onFloor` latched true and no move wish has `fallSpeed = 0`, so its
-residual stays at zero permanently: if it is embedded in geometry it stays embedded,
-and `e.onFloor` never re-evaluates either. That is the "stuck under the ground"
-report, and it is a missing `Depenetrate` call on the skip path.
-
-### I3. Leftover scaffolding
-
-- `Game/ScriptMonster.cpp` carries a `static int tick` debug `TRACK` log firing at
-  ticks 200 and 1200, inside the per-monster loop.
-- The physics natives (`PO_SetMass` / `SetFriction` / `SetRestitution` /
-  `SetLinearDamping` / `SetAngularDamping`) and `SeesEntity` live in
-  `Game/ScriptSound.cpp`. Misfiled since the file split.
-
+The `TRACK` debug log is out of `TickMonsters`. Still misfiled: the physics
+natives (`PO_SetMass` / `SetFriction` / `SetRestitution` / `SetLinearDamping` /
+`SetAngularDamping`) and `SeesEntity` live in `Game/ScriptSound.cpp`. Moving
+them is a rename-only change and wants its own commit.
 
 ## The stages
 
@@ -149,7 +135,7 @@ plausible-but-wrong this project has paid for before.
 
 ### Stage 14 — monster ground contact
 
-I2 above is the acute bug. Three structural ones sit behind it, all in
+I2 is fixed. Three structural problems sit behind it, all in
 `Game/ScriptMonster.cpp`:
 
 1. **No step-up.** `PlayerPawn` runs the recovered `StepCheck` ladder and climbs to
@@ -195,23 +181,33 @@ Behind that sits the corpse-pin layer the feature actually rests on —
 
 ### Stage 16 — navigation queries
 
-`WPT.Load` is the only implemented WPT native: the graph is parsed and then never
-asked anything. `WPT.GetClosest` and `WPT.GetPosition` are stubs, and the recovery
-that uses them —
+**Routing already works** — `PATH.Create` / `Release` / `GetShortest` /
+`IsFinished` / `GetNextPoint` run over a real `.wps` graph, and `WPT.Load`
+parses it. What is missing is narrower, and it is self-placement rather than
+navigation:
+
+`WPT.GetClosest` and `WPT.GetPosition` are stubs, and the recovery that uses
+them —
 
 ```lua
 local zn,idx = WPT.GetClosest(x,y,z)
 if idx > -1 then x,y,z = WPT.GetPosition(zn,idx) end
 ```
 
-— appears in `Zombie_2`, `Apoc_zombie_V2`, `StoneGolem`, `Lucifer` and `AlastorKing`,
-guarded exactly like that. The stub returns nil, the guard reads false, and the
-correction is **silently skipped**. A monster that leaves the walkable set is never
-put back on it.
+— appears in `Zombie_2`, `Apoc_zombie_V2`, `StoneGolem`, `Lucifer` and
+`AlastorKing`, guarded exactly like that. The stub returns nil, the guard reads
+false, and the correction is **silently skipped**, so a monster that leaves the
+walkable set is never put back on it.
+
+Worth doing first, from [`MonsterMovement.md`](Reference/MonsterMovement.md)'s
+own open lead: `GetShortest` snaps to the nearest waypoint by 3D distance with
+the **floor index ignored**, so an actor can bind to a waypoint on the storey
+above or below and be handed a route it cannot walk. The `floor` field is
+parsed and unused, and it exists precisely to disambiguate that. That is the
+likeliest cause of "some monsters walk in place".
 
 Then `WPT.GetPathsNumber`, `GetWaypointByPathNumber`, `GetLength`,
-`FastPickCurrentSet`, `EnableDisableSet` for the patrol paths. The `Assets/Waypoints`
-parser is already in place.
+`FastPickCurrentSet`, `EnableDisableSet` for the patrol paths.
 
 ### Stage 17 — the scripted and flying movers
 

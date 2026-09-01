@@ -29,6 +29,13 @@ int LuaCmd(const char* dataRoot, int frames, const char* level,
     engine.AttachPhysics(&physics, dataRoot);
     engine.AttachPlayer(&pawn);
     engine.AttachInput(&input);
+    // The texture INDEX only (createWhite=false, so no graphics device). It
+    // gives MATERIAL.Size real dimensions, which is what the HUD scripts lay
+    // themselves out from - without it Hud:Render aborts on its own
+    // "material not found" diagnostic and takes the rest of PostRender with it.
+    TextureCache hudTextures;
+    hudTextures.Init(std::string(dataRoot) + "/Textures", false);
+    engine.AttachHudTextures(&hudTextures);
     const bool ok = host.Boot();
     if (ok) {
         host.CallGameInit();

@@ -117,11 +117,24 @@ void ScriptEngine::HudResolveFont(const char* name, int size, std::string& outNa
 int ScriptEngine::L_MATERIAL_Create(lua_State* L) {
     ScriptEngine* self = From(L);
     const char* name = luaL_optstring(L, 1, nullptr);
-    if (!self->hud_ || !self->hudTextures_ || !name || !*name) {
+    if (!self->hudTextures_ || !name || !*name) {
         lua_pushnil(L);
         return 1;
     }
-    PushMaterial(L, self->hud_->CreateMaterial(name, *self->hudTextures_, ""));
+    if (self->hud_) {
+        PushMaterial(L, self->hud_->CreateMaterial(name, *self->hudTextures_, ""));
+        return 1;
+    }
+    // Headless: no renderer to hold the texture, but the size still has to be
+    // right or every script that lays itself out from MATERIAL.Size takes its
+    // "material not found" branch and the HUD never runs on this path.
+    int w = 0, h = 0;
+    if (!self->hudTextures_->Measure(name, "", w, h)) {
+        lua_pushnil(L);
+        return 1;
+    }
+    self->headlessMaterials_.emplace_back(w, h);
+    PushMaterial(L, int(self->headlessMaterials_.size()));
     return 1;
 }
 
@@ -139,7 +152,13 @@ int ScriptEngine::L_MATERIAL_Release(lua_State* L) {
 int ScriptEngine::L_MATERIAL_Size(lua_State* L) {
     ScriptEngine* self = From(L);
     int w = -1, h = -1;
-    if (self->hud_) self->hud_->MaterialSize(ToMaterial(L, 1), w, h);
+    const int m = ToMaterial(L, 1);
+    if (self->hud_) {
+        self->hud_->MaterialSize(m, w, h);
+    } else if (m > 0 && size_t(m) <= self->headlessMaterials_.size()) {
+        w = self->headlessMaterials_[size_t(m) - 1].first;
+        h = self->headlessMaterials_[size_t(m) - 1].second;
+    }
     lua_pushnumber(L, w);
     lua_pushnumber(L, h);
     return 2;

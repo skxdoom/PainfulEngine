@@ -219,24 +219,21 @@ void ScriptEngine::TickMonsters(float dt) {
         const float carried = std::sqrt(e.moveResidual[0] * e.moveResidual[0] +
                                         e.moveResidual[1] * e.moveResidual[1] +
                                         e.moveResidual[2] * e.moveResidual[2]);
-        if (carried < kSweepSkin) {
-            // A STATIONARY MONSTER STILL NEEDS ITS BODY PLACED.
-            //
-            // Everything below is about MOVING the monster, and skipping it
-            // when there is no step to take is right - but the body pose sync
-            // was down there too. So a monster that never moved never had its
-            // body positioned at all: it stayed wherever CreateScriptBody left
-            // it, which is nowhere near the monster and, for a body that had
-            // not been made kinematic, falling.
-            //
-            // That is why this looked like the shape drifting away under its
-            // own gravity. It was never attached in the first place.
-            physics_->SetScriptBodyPose(e.physicsBody, e.pos, e.rotWXYZ);
-            continue;
+        // A step shorter than the skin is CARRIED, not spent - but the sphere
+        // still has to be pushed out of anything it is inside, and the floor
+        // still has to be re-tested. Skipping the sweep entirely left an actor
+        // embedded in geometry embedded for good: with onFloor latched true its
+        // residual never grows enough to sweep again. SlideSphere with a zero
+        // delta is exactly the missing half - it depenetrates, then finds
+        // nothing to advance.
+        const bool spend = carried >= kSweepSkin;
+        float step[3] = {0.f, 0.f, 0.f};
+        if (spend) {
+            for (int c = 0; c < 3; ++c) {
+                step[c] = e.moveResidual[c];
+                e.moveResidual[c] = 0.f;
+            }
         }
-
-        const float step[3] = {e.moveResidual[0], e.moveResidual[1], e.moveResidual[2]};
-        for (int c = 0; c < 3; ++c) e.moveResidual[c] = 0.f;
 
         // The SAME swept sphere the player moves with, so a monster is stopped
         // by exactly the geometry the player is stopped by. solidProps=true
@@ -247,7 +244,20 @@ void ScriptEngine::TickMonsters(float dt) {
         // the origin afterwards; MonsterRadius works that offset out from the
         // model's own bounds.
         float pos[3] = {e.pos[0], e.pos[1] + lift, e.pos[2]};
+        const float before[3] = {pos[0], pos[1], pos[2]};
         physics_->SlideSphere(pos, step, radius, true, e.physicsBody);
+        if (!spend) {
+            // Depenetration only. Adopt it when it is a real extraction, not the
+            // hairline overlap a resting sphere reports every frame: taking that
+            // walks a standing actor upward a fraction at a time, which is this
+            // same bug with its sign flipped (measured 0.0007/frame before the
+            // guard, 0.19 over 250 frames).
+            float moved = 0.f;
+            for (int c = 0; c < 3; ++c)
+                moved += (pos[c] - before[c]) * (pos[c] - before[c]);
+            if (std::sqrt(moved) < kSweepSkin)
+                for (int c = 0; c < 3; ++c) pos[c] = before[c];
+        }
 
         // Floor state, for PO_IsOnFloor. A short probe straight down: far
         // enough to survive the gap a slide leaves, short enough not to claim
@@ -277,17 +287,6 @@ void ScriptEngine::TickMonsters(float dt) {
         // which vary per rig by where its author left the origin. That is why
         // the bodies detached from their monsters by a different amount each.
         physics_->SetScriptBodyPose(e.physicsBody, e.pos, e.rotWXYZ);
-        {
-            static int tick = 0;
-            ++tick;
-            if (tick == 200 || tick == 1200) {
-                float bl[3], bh[3];
-                if (physics_->ScriptBodyBounds(e.physicsBody, bl, bh))
-                    LogInfo("TRACK t=%-5d %-12s entY=%6.2f bodyMid=%6.2f gap=%6.2f",
-                            tick, e.source.c_str(), e.pos[1], (bl[1] + bh[1]) * 0.5f,
-                            (bl[1] + bh[1]) * 0.5f - e.pos[1]);
-            }
-        }
         if (renderer_ && e.rendererInstance >= 0)
             renderer_->SetScriptPose(e.rendererInstance, e.pos, e.rotWXYZ);
     }
