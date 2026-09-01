@@ -176,6 +176,12 @@ void ScriptEngine::SyncPose(Entity& e) {
         renderer_->SetScriptPose(e.rendererInstance, e.pos, e.rotWXYZ);
         renderer_->SetScriptVisible(e.rendererInstance, e.visible && e.inWorld);
     }
+    // A billboard is not a model instance, and EnableDraw never reached one:
+    // its sprite kept drawing at full alpha until the entity was released and
+    // then vanished between frames. Routed through the fade instead.
+    if (billboards_ && e.spriteSlot >= 0) {
+        billboards_->SetScriptSpriteVisible(e.spriteSlot, e.visible && e.inWorld);
+    }
     UpdateAttachments(e);
 }
 

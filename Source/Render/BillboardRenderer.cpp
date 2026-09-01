@@ -279,6 +279,11 @@ void BillboardRenderer::SetScriptSpritePos(int slot, const float pos[3]) {
     for (int i = 0; i < 3; ++i) sprites_[slot].pos[i] = pos[i] * scaleMultiplier_;
 }
 
+void BillboardRenderer::SetScriptSpriteVisible(int slot, bool visible) {
+    if (slot < 0 || size_t(slot) >= sprites_.size()) return;
+    sprites_[slot].scriptVisible = visible;
+}
+
 void BillboardRenderer::RemoveScriptSprite(int slot) {
     if (slot < 0 || size_t(slot) >= sprites_.size()) return;
     sprites_[slot].alive = false;
@@ -321,6 +326,10 @@ void BillboardRenderer::Update(const Camera& camera, float dt, const CollisionMe
                 s.blocked = collision.Occluded(from, to);
             }
             nowVisible = !s.blocked;
+        }
+        // The script can hide it outright; the fade still runs it down.
+        if (!s.scriptVisible) {
+            nowVisible = false;
         }
         // Runs even past OffDistance, so a corona left behind fades out
         // instead of vanishing between frames.

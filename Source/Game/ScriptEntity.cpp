@@ -895,6 +895,35 @@ int ScriptEngine::L_ENTITY_RegisterChild(lua_State* L) {
     return 0;
 }
 
+// ENTITY.GetPtrByIndex(entity) -> the entity's pointer, or NIL when it is gone.
+//
+// 0x1012f690 bounds-checks the index against the entity table, reads the slot,
+// and pushes nil when the index is out of range or the slot is empty; otherwise
+// it pushes an int off the entity. The scripts use it as an existence test, and
+// the pointer value itself is never compared to anything.
+//
+// Left unbound it returned nil, which reads as "this entity is gone" - and
+// ShurikenW:Tick opens with
+//
+//     if not ENTITY.GetPtrByIndex(self._Entity) or self._ExplodeTimer <= 0 then
+//         ... Explosion(...) ... GObjects:ToKill(self)
+//
+// so the electro shuriken detonated on its FIRST tick, every time, with the
+// timer never reaching zero because nothing waited for it. BoltStick and Stake
+// ask the same question.
+int ScriptEngine::L_ENTITY_GetPtrByIndex(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const int handle = HandleArg(L, 1);
+    if (handle == 0 || !self->Find(handle)) {
+        lua_pushnil(L);
+        return 1;
+    }
+    // The handle IS our pointer: stable for the entity's life and never zero,
+    // which is all the scripts ask of it.
+    lua_pushnumber(L, handle);
+    return 1;
+}
+
 // PARTICLE.SetParentOffset(pfx, x, y, z, joint, ...)
 //
 // Where a bound effect sits on the thing it is bound to. Arguments 2..4 are the

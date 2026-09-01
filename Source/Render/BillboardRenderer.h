@@ -50,6 +50,7 @@ public:
                           uint32_t packedColor, int blendMode, bool spriteOnly,
                           TextureCache& textures, const std::string& levelHint);
     void SetScriptSpritePos(int slot, const float pos[3]);
+    void SetScriptSpriteVisible(int slot, bool visible);
 
     // R3D.DrawSprite: one billboard, this frame only. The muzzle flash is a
     // CProcess that calls it from Render every frame it lives, so there is no
@@ -99,6 +100,10 @@ private:
         float traceTimer = 0.f;      // +0x6fc, counts down to the next trace
         bool  wasVisible = false;    // +0x6c0
         bool  blocked = true;        // +0x6c4, last trace result
+        // ENTITY.EnableDraw, which never reached a sprite at all. Hiding a
+        // billboard has to go through the FADE like every other visibility
+        // change, or a VFX that should dim out pops instead.
+        bool  scriptVisible = true;
 
         bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
         uint64_t blendState = 0;

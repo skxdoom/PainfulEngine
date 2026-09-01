@@ -71,10 +71,20 @@ Note that mode 1, the class default, is `SRCALPHA / ONE` — additive.
 
 ### Colour
 
-`Color:Compose()` is `R3D.RGBA(r,g,b,a)`, which packs `0xAARRGGBB`. The corona
-vertex colour is that RGB with the *faded* alpha substituted, which is why every
-shipped template writes `Color:New(r,g,b,0)` — the fourth argument never
-mattered.
+`Color:Compose()` is `R3D.RGBA(r,g,b,a)`, which packs `0xAARRGGBB` — alpha is
+the **fourth** argument (`0x10122c10`). The corona vertex colour is that RGB
+with the *faded* alpha substituted, which is why every shipped template writes
+`Color:New(r,g,b,0)` — the fourth argument never mattered.
+
+`R3D.RGB(r,g,b)` (`0x10122b70`) is **not** the same shape with alpha zero. It
+computes `((r | 0xffffff00) << 8 | g) << 8 | b` = **`0xFFRRGGBB`**, i.e. fully
+opaque. Worth stating because the obvious assumption is the other way round,
+and a draw that special-cases "alpha 0 means opaque" to compensate would then
+be wrong for a genuinely transparent `RGBA`.
+
+Both push a **signed** int, so anything at or above `0x80000000` reaches the
+script as a negative number; every native that reads a colour round-trips it
+through `int64` on the way back.
 
 ## Behaviour
 
@@ -116,6 +126,20 @@ D3Dev, taken straight from the corona flag: set for a plain billboard, cleared
 for a corona. Occlusion is the line trace and nothing else, so once the trace
 says the light is in view the sprite draws over whatever is in front of it.
 
+### The script can hide one, and that has to fade too
+
+`ENTITY.EnableDraw(e, false)` on a billboard entity must run the sprite down
+through `FadeTick`, not cut it. This was missed for a long time because
+`spriteSlot` appeared in **no visibility path in the engine at all** — the
+entity's `visible` flag reached its model instance and its children and
+stopped there. A hidden billboard therefore kept drawing at full alpha until
+its entity was released, and then vanished between one frame and the next.
+
+The symptom is a VFX that pops out of existence instead of dimming, and it is
+general: anything a script hides rather than releases.
+
+The fade machinery itself was already right — this was only a missing input.
+
 ## The line trace
 
 The original asks Havok: `PhysicsWorld::LineTraceFirstHit`. The physics world
@@ -132,6 +156,36 @@ and AI visibility all want the same query.
 Measured: 275k–341k triangles per level, BVH built in 100–170 ms at load, and
 the whole billboard update costs 2–11 µs per frame (Cathedral 46 coronas /
 338 traces per 300 frames; Oriental Castle 112 coronas / 999 traces).
+
+## Immediate sprites, and the one with an axis
+
+Two of the script-facing draws land in this renderer rather than in the
+billboard set, because they are drawn for a single frame and forgotten:
+
+`R3D.DrawSprite(x,y,z, size, rot, argb, texture)` — a camera-facing quad,
+turned in the view plane by `rot`. A muzzle flash is the caller, from a
+`CProcess:Render`, alive for about 0.14s; consecutive flashes are the same
+texture at a different angle, which is what the rotation is for.
+
+`R3D.DrawSprite1DOF(x1,y1,z1, x2,y2,z2, width, argb, texture, [flags])`
+(`0x1013f170`) — **one degree of freedom**: the quad's long edge *is* the
+segment between the two points, and it turns about that axis to face the eye.
+The native builds a `Sprite1DOF` and hands it to
+`ParticleSystem::RenderSprites` with the camera, so it is a particle-style
+quad rather than anything to do with the corona set.
+
+Two details it is easy to get wrong:
+
+- The side vector is **`axis × lineOfSight`**, not a camera axis. Using the
+  camera's right vector makes a beam aimed at the viewer flip inside out as it
+  crosses the view direction. When the two are parallel — looking straight down
+  the beam — any perpendicular will do, because the quad is edge-on anyway.
+- **U runs along the beam, V across it**, so a trail texture stretches from one
+  end to the other instead of tiling.
+
+`PainKiller:Render` draws one of these every frame from the gun to its stuck
+head — the energy beam the alt fire is named for — gated on the same test that
+starts `electro_loop` and `shock_loop`.
 
 ## What this port does not do yet
 

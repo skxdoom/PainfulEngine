@@ -276,11 +276,52 @@ distinction its `FromMesh` / `FromMeshNotCentered` body types draw) is the
 thread to pull next; until then the renderer is the one placing them wrongly,
 and physics quietly corrects it on load.
 
+## A body handle can go stale, and the scripts check
+
+`PHYSICS.IsHavokBodyInWorld(body)` (`0x101297d0`) takes one handle and pushes a
+bool. It exists because a body can be gone by the time a hit is resolved — the
+thing gibbed, and `Ragdoll.Remove` took it — so a handle a trace reported an
+instant ago may name nothing.
+
+`PainHead:Tick` guards on it before every impulse:
+
+```lua
+if not PHYSICS.IsHavokBodyInWorld(he) then he = nil end
+```
+
+Leaving it unimplemented was worse than leaving it out. The call returned nil,
+`not nil` is true, and `he` was cleared on **every** hit — so every
+`WORLD.HitPhysicObject` below that line got nothing. The alt fire moved debris,
+which is spawned fresh and shoved through another path, but never an intact
+prop. **A native whose absence inverts a script's test is worse than one that
+does nothing**, and this is the third of that species: `GetChildByName` and
+`KillAllChildrenByName`'s return value were the other two.
+
+Both handle kinds a trace can report have to answer here: the script body slot,
+and the encoded limb handle a hit on a monster's bone reports.
+
 ## What is missing
 
-- **Little disturbs the props once they settle.** The camera's body can shove
-  them, but the things that would really move them — weapons, explosions,
-  `PO_Hit`, `PhysicsWorld::Explosion` — are all script-driven.
+- **Nothing reports contacts.** There is no Jolt `ContactListener` at all, so
+  the engine never posts `COLLISION_WITH_OTHER_ENTITY` into `Game_GetMsg` and
+  no script ever sees a collision. That is the whole of collision-driven
+  gameplay: `CItem:Apply` installs `StdOnCollision` on anything carrying
+  `Destroy.MinSpeedOnCollision` (BarrelBig 18, AmmoBox 13), which is how a
+  destructible breaks when something fast enough runs into it — the shotgun's
+  freeze bolt breaks crates that way, not by damaging them. The channel itself
+  already exists (`LuaHost::PostMsg`, used for `REGION_ENTERED`); what is
+  missing is the listener, plus two natives the handler needs:
+  `PHYSICS.GetHavokBodyVelocity` (the impact speed `MinSpeedOnCollision` is
+  compared against) and `ENTITY.EnableCollisions` (15 call sites — which bodies
+  report contacts at all). The message shape is
+  `(msg, e_me, x,y,z, nx,ny,nz, e_other, h_me, h_other)`; the script fills in
+  the velocity arguments itself from the two body handles.
+
+- **Weapons now disturb the props, explosions still do not.** `PO_Hit` and
+  `WORLD.HitPhysicObject` reach a settled body — the impulse wakes it first,
+  and the stale-handle check above is what let it through at all. What is still
+  missing is area damage: `PhysicsWorld::Explosion` is unimplemented, so a
+  barrel detonating shoves nothing around it.
 - **A few props leave the level.** One Cathedral barrel travels 27 units, and
   seven vases drift. Those are individual shapes or placements, not the
   systematic 1.08 above.

@@ -322,6 +322,35 @@ Bone names are frequently Polish anatomy: `k_glowa` (head), `k_szyja` (neck),
 `rotateHeadBone = "k_szyja"`, and `k_szyja` is present among the 99 bones parsed
 from `Alastor.pkmdl` — the Lua content layer and the binary model format agree.
 
+### `.pkmdl` mesh names — a shape name, never a path
+
+Each mesh carries a name, and it is the **Maya shape name** the model was
+authored with: `butyShape`, `dlonieShape`, `polySurfaceShape709`. That name is
+load-bearing in two places, so reading the wrong string for it is not cosmetic:
+
+- **Material variants.** The name carries the token — `evilmonkv2`'s robe is
+  `polySurfa_2sided`, and `skin.shader` ships a `palskinned2sided` entry for it.
+  Per-object material overrides are looked up by this name.
+- **`MDL.SetMeshVisibility(entity, meshName, on)`** (`0x1013c780`) addresses one
+  mesh of one model by it. The Painkiller's alt fire hides nine — the blade
+  assembly — so the gun reads as empty while its head is away; monsters drop gib
+  parts and the menu swaps heads the same way, about 30 call sites. The original
+  skips any entity whose type is not `Model` (it tests against 4 first).
+
+The name usually comes from the leading string of the material header, **but not
+always**: every one of `pkw.pkmdl`'s 13 meshes has a texture path there
+(`Models/PKW_PB.tga`), not a shape name. Taking it verbatim left all 13 sharing
+one name, so neither material overrides nor visibility could tell them apart.
+
+A mesh name is never a path. When the header yields one, fall through to the
+last non-path string instead.
+
+**Still open:** 4 of `pkw.pkmdl`'s 13 meshes parse with no name at all by either
+route, and 5 of the 9 the alt fire hides do not resolve
+(`polySurfaceShape50/47/44/29`, `kolekShape`). So the gun currently hides 4 of
+its 9 blade meshes. The remaining names are somewhere in the per-mesh header
+that is not yet fully mapped.
+
 ### `.ani` — skeletal animation — SOLVED
 Parser: `tools/AniTool.ps1` (list / CSV export), `tools/AniPreview.ps1` (renders
 posed skeletons). **All 1,228 shipped animations parse exactly — 2,120,173

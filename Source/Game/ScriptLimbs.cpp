@@ -519,13 +519,41 @@ int ScriptEngine::L_R3D_DrawSprite1DOF(lua_State* L) {
 
     const uint32_t al = (argb >> 24) & 0xFF, r = (argb >> 16) & 0xFF;
     const uint32_t g = (argb >> 8) & 0xFF, bl = argb & 0xFF;
-    // R3D.RGB leaves the alpha byte at zero and the beam is additive, so an
-    // absent alpha means opaque rather than invisible.
-    const uint32_t abgr = ((al ? al : 255u) << 24) | (bl << 16) | (g << 8) | r;
+    const uint32_t abgr = (al << 24) | (bl << 16) | (g << 8) | r;
 
     self->billboards_->DrawBeamImmediate(a, b, width, abgr,
                                          self->hudTextures_->Get(texture, ""));
     return 0;
+}
+
+// R3D.RGB(r,g,b) and R3D.RGBA(r,g,b,a) - the scripts' colour packers.
+//
+// 0x10122b70 computes ((r | 0xffffff00) << 8 | g) << 8 | b, which is 0xFFRRGGBB
+// - RGB is OPAQUE, not alpha-zero. 0x10122c10 takes alpha as the FOURTH
+// argument and packs ((a << 8 | r) << 8 | g) << 8 | b = 0xAARRGGBB.
+//
+// Both push a signed int, so 0xFF...  arrives at the caller as a negative
+// number; every native that reads a colour already round-trips it through
+// int64. Left unbound these returned nil and 24 call sites in the weapon
+// scripts alone silently fell back to whatever default the draw used.
+static uint32_t ColorByte(lua_State* L, int index) {
+    const double v = luaL_optnumber(L, index, 0.0);
+    const int i = int(v);
+    return uint32_t(i < 0 ? 0 : (i > 255 ? 255 : i));
+}
+
+int ScriptEngine::L_R3D_RGB(lua_State* L) {
+    const uint32_t packed = 0xFF000000u | (ColorByte(L, 1) << 16) |
+                            (ColorByte(L, 2) << 8) | ColorByte(L, 3);
+    lua_pushnumber(L, double(int32_t(packed)));
+    return 1;
+}
+
+int ScriptEngine::L_R3D_RGBA(lua_State* L) {
+    const uint32_t packed = (ColorByte(L, 4) << 24) | (ColorByte(L, 1) << 16) |
+                            (ColorByte(L, 2) << 8) | ColorByte(L, 3);
+    lua_pushnumber(L, double(int32_t(packed)));
+    return 1;
 }
 
 

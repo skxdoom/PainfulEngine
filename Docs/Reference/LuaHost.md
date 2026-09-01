@@ -99,6 +99,44 @@ nil". Bare globals (49, registered individually) include `DoFile`, `Log`, the
 quaternion/vector helpers (flat multi-value: `EulerToQuat(ax,ay,az) →
 w,x,y,z`, engine order `(w,x,y,z)`), and the build/edition/CD-check flags.
 
+## A missing native that INVERTS a test is worse than one that does nothing
+
+An unimplemented native returns nothing. In Lua that is `nil`, and `nil` is
+falsy — so any script that *tests* the result takes a branch it would never have
+taken, confidently and silently. This has now cost four bugs, every one of them
+found from the symptom rather than from the stub:
+
+| native | the test | what the absence did |
+|---|---|---|
+| `ENTITY.GetChildByName` | `if quad ~= 0` | `nil ~= 0` is TRUE, so the player was holding every powerup and the damage loop ran on every shot |
+| `ENTITY.KillAllChildrenByName` | `if KillAllChildrenByName(se,"stakeflame")` | returned nothing, so a burning stake never smoked |
+| `PHYSICS.IsHavokBodyInWorld` | `if not IsHavokBodyInWorld(he) then he = nil end` | cleared the body handle on EVERY hit, so no weapon could shove an intact prop |
+| `ENTITY.GetPtrByIndex` | `if not GetPtrByIndex(self._Entity) or timer <= 0` | read as "this entity is gone", so the electro shuriken detonated on its first tick |
+
+The shape is always the same and it is worth searching for directly rather than
+waiting for the symptom. Diff the natives the engine binds against the ones a
+script family calls, then grep the unbound ones for a use inside `if` / `while`
+/ `and` / `or` / `not`:
+
+```
+bind list:  grep -oE '\{"[A-Z0-9_]+", *"[A-Za-z0-9_]+"' Source/Game/ScriptBind.cpp
+call list:  grep -rhoE '\b(ENTITY|WORLD|MDL|PHYSICS|...)\.[A-Za-z0-9_]+' <scripts>
+```
+
+Run over the weapon scripts that was 52 unbound natives, of which **six** appear
+inside a condition — a far shorter list to reason about than 52, and it is the
+one that produces visible bugs rather than missing features.
+
+Two corollaries:
+
+- **A stub that returns a plausible value is not safer than one that returns
+  nothing.** It is worse, because it cannot be told apart from a real answer.
+  Prefer implementing the handful that are tested.
+- **Turning a stub on will expose bugs behind it**, in the code that finally
+  runs for the first time. Implementing `SND.Play` immediately surfaced two
+  latent bugs in child management, one of them an access violation that had
+  simply never been reachable.
+
 ## The instrumentation loop
 
 Unimplemented natives are stubs that log their first three calls with

@@ -815,6 +815,9 @@ private:
     static int L_R3D_GetAvailableResolutions(lua_State* L);
     static int L_R3D_DrawSprite(lua_State* L);
     static int L_R3D_DrawSprite1DOF(lua_State* L);
+    static int L_R3D_RGB(lua_State* L);
+    static int L_R3D_RGBA(lua_State* L);
+    static int L_ENTITY_GetPtrByIndex(lua_State* L);
     static int L_ENTITY_RegisterChild(lua_State* L);
     static int L_ENTITY_GetChildByName(lua_State* L);
     static int L_ENTITY_KillAllChildrenByName(lua_State* L);
