@@ -245,7 +245,7 @@ Details, the numbers, and the sizeable list of what is still missing are in
 - The Lua 5.0.2 host boots the real game scripts: `Loader.lua` (68 files),
   `Game:Init()` — 1054 templates preloaded — and the per-frame
   `Game_Tick*/Render/GC` chain, with zero script errors, from the archives or
-  a loose tree alike (`PainfulEngine lua <DataRoot> [frames] [level]`).
+  a loose tree alike (`PainfulTools lua <DataRoot> [frames] [level]`).
   Unimplemented natives are instrumented stubs that report what the scripts
   call, which is how the remaining API gets recovered.
 - **Script-driven level loading works**: `Game:LoadLevel` runs its own

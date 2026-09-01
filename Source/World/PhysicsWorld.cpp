@@ -21,6 +21,7 @@
 #include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/Collision/TransformedShape.h>
 #include <Jolt/Physics/PhysicsSettings.h>
+#include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Math/Math.h>
 #include <Jolt/Physics/Constraints/HingeConstraint.h>
@@ -43,6 +44,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <thread>
+#include <mutex>
 #include <unordered_map>
 
 namespace painful {
@@ -285,6 +287,82 @@ bool ModelPoints(const std::string& modelsRoot, const std::string& modelName, Me
 
 } // namespace
 
+// Records contacts between script bodies for the frame.
+//
+// Jolt calls this from the physics JOBS, so several threads at once: the list
+// is guarded, and nothing is looked up or dispatched here. Turning a BodyID
+// back into a script slot and deciding who wants to hear about it happens on
+// the game thread, once the step is over.
+//
+// OnContactAdded only - persisted contacts are a body resting on another and
+// would report every frame. The scripts' own MinTime gate exists for the
+// remaining chatter.
+class ScriptContactListener final : public JPH::ContactListener {
+public:
+    void OnContactAdded(const JPH::Body& a, const JPH::Body& b,
+                        const JPH::ContactManifold& manifold,
+                        JPH::ContactSettings&) override {
+        Pending p;
+        p.a = a.GetID();
+        p.b = b.GetID();
+        const JPH::RVec3 point = manifold.GetWorldSpaceContactPointOn1(0);
+        p.point[0] = float(point.GetX());
+        p.point[1] = float(point.GetY());
+        p.point[2] = float(point.GetZ());
+        p.normal[0] = manifold.mWorldSpaceNormal.GetX();
+        p.normal[1] = manifold.mWorldSpaceNormal.GetY();
+        p.normal[2] = manifold.mWorldSpaceNormal.GetZ();
+        // Sampled HERE, mid-step: this callback runs before the contact is
+        // solved, so these are the closing velocities. Read after the step they
+        // are both near zero, and every impact would measure as a nudge.
+        const JPH::Vec3 va = a.GetLinearVelocity();
+        const JPH::Vec3 vb = b.GetLinearVelocity();
+        for (int k = 0; k < 3; ++k) {
+            p.velA[k] = va[k];
+            p.velB[k] = vb[k];
+        }
+        // How hard, along the contact normal. Kept so that a full buffer can
+        // drop the GENTLEST contact rather than the newest: the scripts only
+        // care about hard ones, and dropping by arrival silently threw away a
+        // vase's landing while two dozen other props were settling.
+        const JPH::Vec3 rel = va - vb;
+        p.strength = std::fabs(rel.Dot(manifold.mWorldSpaceNormal));
+
+        std::lock_guard<std::mutex> guard(lock_);
+        if (pending_.size() < kMaxPerStep) {
+            pending_.push_back(p);
+            return;
+        }
+        auto weakest = std::min_element(pending_.begin(), pending_.end(),
+                                        [](const Pending& l, const Pending& r) {
+                                            return l.strength < r.strength;
+                                        });
+        if (weakest != pending_.end() && weakest->strength < p.strength) *weakest = p;
+    }
+
+    struct Pending {
+        JPH::BodyID a, b;
+        float point[3];
+        float normal[3];
+        float velA[3];
+        float velB[3];
+        float strength = 0.f;
+    };
+
+    void Take(std::vector<Pending>& out) {
+        std::lock_guard<std::mutex> guard(lock_);
+        out.swap(pending_);
+        pending_.clear();
+    }
+
+private:
+    // Big enough to hold a whole load-time settle: Settle() runs 90 steps with
+    // no drain between them, and a level places over a hundred props.
+    static constexpr size_t kMaxPerStep = 4096;
+    std::mutex lock_;
+    std::vector<Pending> pending_;
+};
+
 struct PhysicsWorld::Impl {
     JPH::TempAllocatorImpl temp{16 * 1024 * 1024};
     JPH::JobSystemThreadPool jobs{JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers,
@@ -294,6 +372,7 @@ struct PhysicsWorld::Impl {
     ObjectVsBroadPhaseLayerFilterImpl objectVsBroadPhase;
     ObjectLayerPairFilterImpl objectPairs;
     JPH::PhysicsSystem system;
+    ScriptContactListener contacts;
 
     JPH::BodyID worldBody;
     size_t worldTriangles = 0;
@@ -343,6 +422,7 @@ struct PhysicsWorld::Impl {
     bool probePush = false;
 
     Impl() {
+        system.SetContactListener(&contacts);
         system.Init(kMaxBodies, 0, kMaxBodyPairs, kMaxContactConstraints, broadPhaseLayers,
                     objectVsBroadPhase, objectPairs);
     }
@@ -942,6 +1022,52 @@ int PhysicsWorld::CreateScriptBody(int bodyType, const std::string& modelName,
 bool PhysicsWorld::ScriptBodyExists(int slot) const {
     return slot >= 0 && size_t(slot) < impl_->scriptBodies.size() &&
            !impl_->scriptBodies[slot].body.IsInvalid();
+}
+
+// Turns the step's raw contacts into script slots, on the game thread.
+//
+// Both sides must be script bodies. A prop striking the static world is a real
+// contact but not this message - COLLISION_WITH_OTHER_ENTITY names two
+// entities, and the world is not one.
+void PhysicsWorld::CollectScriptContacts(std::vector<ScriptContact>& out) {
+    out.clear();
+    std::vector<ScriptContactListener::Pending> pending;
+    impl_->contacts.Take(pending);
+    if (pending.empty()) return;
+
+    // BodyID -> slot, built per call rather than kept: bodies come and go every
+    // frame and a stale map would report a contact against whatever took the
+    // slot. The body count here is in the hundreds.
+    // Keyed on the raw id: JPH::BodyID has no std::hash.
+    std::unordered_map<uint32_t, int> slotOf;
+    slotOf.reserve(impl_->scriptBodies.size());
+    for (size_t i = 0; i < impl_->scriptBodies.size(); ++i) {
+        const auto& sb = impl_->scriptBodies[i];
+        if (!sb.body.IsInvalid())
+            slotOf[sb.body.GetIndexAndSequenceNumber()] = int(i);
+    }
+
+    for (const ScriptContactListener::Pending& p : pending) {
+        const auto a = slotOf.find(p.a.GetIndexAndSequenceNumber());
+        const auto b = slotOf.find(p.b.GetIndexAndSequenceNumber());
+        // ONE side is enough. Requiring both was wrong and it hid the common
+        // case: almost everything a prop hits is the STATIC WORLD - a vase
+        // pushed off a balcony lands on the floor, not on another prop - and
+        // that collision is exactly the one a destructible breaks on. The world
+        // side reports slot -1, which becomes entity 0 in the message, the same
+        // stand-in a world hit already uses in the traces.
+        if (a == slotOf.end() && b == slotOf.end()) continue;
+        ScriptContact c;
+        c.slotA = a == slotOf.end() ? -1 : a->second;
+        c.slotB = b == slotOf.end() ? -1 : b->second;
+        for (int k = 0; k < 3; ++k) {
+            c.point[k] = p.point[k];
+            c.normal[k] = p.normal[k];
+            c.velA[k] = p.velA[k];
+            c.velB[k] = p.velB[k];
+        }
+        out.push_back(c);
+    }
 }
 
 void PhysicsWorld::SetScriptBodyMass(int slot, float mass) {

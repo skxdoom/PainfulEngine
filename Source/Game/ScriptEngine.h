@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -98,6 +99,13 @@ public:
         float soundInterval = -1.f;      // arg 5: >= 0 loops, -1 plays once
         float soundStartIn = -1.f;       // SND.Play's delay, counted down
         int soundVoice = 0;              // the AudioEngine voice, 0 when silent
+        // ENTITY.EnableCollisions(e, on, minTime=0.4, minStrength=0.6) - whether
+        // this body reports contacts to the scripts, and how often. The cooldown
+        // is what stops a prop resting against another from reporting forever.
+        bool collisionsOn = false;
+        float collisionMinTime = 0.4f;
+        float collisionMinStrength = 0.6f;
+        float collisionCooldown = 0.f;
         // MDL.SetMeshVisibility, kept so it survives the renderer instance
         // being rebuilt. name -> shown.
         std::map<std::string, bool> hiddenMeshes;
@@ -430,6 +438,9 @@ public:
     // Counts down ENTITY.SetTimeToDie and reaps whatever has run out. Call
     // once per frame; transient debris and spent projectiles depend on it.
     void TickLifetimes(float dt);
+    // Contacts the physics step recorded, reported to the scripts as
+    // COLLISION_WITH_OTHER_ENTITY.
+    void TickCollisions(float dt);
     // Bound 3D sounds: start the delayed ones, follow what they hang off.
     void StartBoundSound(Entity& e);
     void TickSounds(float dt);
@@ -695,6 +706,10 @@ private:
     // PHYSICS.RemoveHavokBodyFromIS(he, on) - one BODY out of the traces.
     static int L_PHYSICS_RemoveHavokBodyFromIS(lua_State* L);
     static int L_PHYSICS_IsHavokBodyInWorld(lua_State* L);
+    static int L_PHYSICS_GetHavokBodyVelocity(lua_State* L);
+    static int L_ENTITY_EnableCollisions(lua_State* L);
+    static int L_INP_GetTimeMultiplier(lua_State* L);
+    static int L_INP_SetTimeMultiplier(lua_State* L);
     static int L_SetPosAndRotRelativeToCamera(lua_State* L);
     static int L_GetType(lua_State* L);
     static int L_PARTICLE_SetEvolve(lua_State* L);
@@ -986,6 +1001,15 @@ private:
     std::vector<Mat4> skinScratch_;
     std::vector<const AnimTrack*> curveTracks_;   // scratch for AnimMovement
     std::vector<ScriptBodyPose> poseScratch_;
+    std::vector<ScriptContact> contactScratch_;
+    // INP.Get/SetTimeMultiplier - the game-speed scale, 1 at normal speed.
+    // StdOnCollision multiplies the impact speed by it before comparing, so an
+    // absent one would throw rather than merely read wrong.
+    float timeMultiplier_ = 1.f;
+    // The velocity each body had when this frame's contact was recorded.
+    // PHYSICS.GetHavokBodyVelocity answers from here while the scripts are
+    // handling those collisions - see TickCollisions.
+    std::unordered_map<int, std::array<float, 3>> contactVelocity_;
 };
 
 } // namespace painful

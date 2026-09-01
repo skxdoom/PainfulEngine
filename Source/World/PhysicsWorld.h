@@ -30,6 +30,20 @@ struct BodyPose {
 
 // A script body that has moved, in the terms the script layer holds
 // transforms in: position plus an engine-order (w,x,y,z) quaternion.
+// One contact between two script bodies, as the listener recorded it during
+// the step. The engine reports these to the scripts as
+// COLLISION_WITH_OTHER_ENTITY; see ScriptEngine::TickCollisions.
+struct ScriptContact {
+    int slotA = -1, slotB = -1;
+    float point[3] = {0, 0, 0};
+    float normal[3] = {0, 0, 0};   // pointing from A toward B
+    // The two velocities AS THE CONTACT WAS RECORDED, mid-step and before the
+    // solver has spent the impact. By the time the scripts run, the bodies have
+    // already stopped - and the impact speed is the whole question they ask.
+    float velA[3] = {0, 0, 0};
+    float velB[3] = {0, 0, 0};
+};
+
 struct ScriptBodyPose {
     int slot = -1;
     float pos[3] = {0, 0, 0};
@@ -99,6 +113,10 @@ public:
                          // nothing - and 0 means the script named none.
                          int collisionGroup = 0);
     bool ScriptBodyExists(int slot) const;
+    // The contacts recorded during the last step, then cleared. Only pairs where
+    // BOTH sides are script bodies: a prop hitting the static world is not a
+    // COLLISION_WITH_OTHER_ENTITY, which is an entity-to-entity message.
+    void CollectScriptContacts(std::vector<ScriptContact>& out);
     void SetScriptBodyMass(int slot, float mass);
     void SetScriptBodyFriction(int slot, float friction);
     void SetScriptBodyRestitution(int slot, float restitution);

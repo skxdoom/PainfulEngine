@@ -129,7 +129,7 @@ Lua. `LANG.ParseLangFile` (already implemented) reads a `Lang_*.txt` of
 Verified working:
 
 ```
-$ PainfulEngine lua Data 3 C1L1_Cathedral 'print(TXT.Menu.SignAPact)'
+$ PainfulTools lua Data 3 C1L1_Cathedral 'print(TXT.Menu.SignAPact)'
 Sign the Pact
 ```
 

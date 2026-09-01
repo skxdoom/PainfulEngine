@@ -560,6 +560,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
             // any earlier and every effect trails its owner by a frame.
             engine.UpdateAttached();
             engine.TickSounds(dt);
+            engine.TickCollisions(dt);
             // Last, once the camera has settled: a view-attached weapon is
             // re-placed from the eye that will actually be rendered. Baked
             // during the tick it lags the shake by a frame, and the weapon

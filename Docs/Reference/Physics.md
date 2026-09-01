@@ -245,7 +245,7 @@ reading would have found:
 ## Checking it without a window
 
 ```
-PainfulEngine physics <levelDir> <DataRoot>
+PainfulTools physics <levelDir> <DataRoot>
 ```
 
 prints the tweak values it read, what went into the world, whether a sphere
@@ -300,22 +300,64 @@ does nothing**, and this is the third of that species: `GetChildByName` and
 Both handle kinds a trace can report have to answer here: the script body slot,
 and the encoded limb handle a hit on a monster's bone reports.
 
-## What is missing
+## Contacts, and how a destructible breaks
 
-- **Nothing reports contacts.** There is no Jolt `ContactListener` at all, so
-  the engine never posts `COLLISION_WITH_OTHER_ENTITY` into `Game_GetMsg` and
-  no script ever sees a collision. That is the whole of collision-driven
-  gameplay: `CItem:Apply` installs `StdOnCollision` on anything carrying
-  `Destroy.MinSpeedOnCollision` (BarrelBig 18, AmmoBox 13), which is how a
-  destructible breaks when something fast enough runs into it — the shotgun's
-  freeze bolt breaks crates that way, not by damaging them. The channel itself
-  already exists (`LuaHost::PostMsg`, used for `REGION_ENTERED`); what is
-  missing is the listener, plus two natives the handler needs:
-  `PHYSICS.GetHavokBodyVelocity` (the impact speed `MinSpeedOnCollision` is
-  compared against) and `ENTITY.EnableCollisions` (15 call sites — which bodies
-  report contacts at all). The message shape is
-  `(msg, e_me, x,y,z, nx,ny,nz, e_other, h_me, h_other)`; the script fills in
-  the velocity arguments itself from the two body handles.
+Nothing damages a crate to destroy it. `CItem:Apply` installs `StdOnCollision`
+on anything carrying `Destroy.MinSpeedOnCollision`, and that handler compares
+the **impact speed** against it:
+
+```lua
+vl = vl * INP.GetTimeMultiplier()
+if vl >= self.Destroy.MinSpeedOnCollision then
+    self:OnDamage(vl * 0.3, self, AttackTypes.ItemCollision)
+```
+
+So a vase (Health 2, MinSpeed 10) shatters on any qualifying impact, while
+BarrelBig (Health 40, MinSpeed 18) survives a long fall and needs roughly 133
+units/s to go in one hit. It is also why the shotgun's freeze bolt breaks
+crates while correctly imparting no impulse: it breaks them by *arriving fast*,
+not by dealing damage.
+
+The engine reports a contact as
+
+```
+Game_GetMsg('COLLISION_WITH_OTHER_ENTITY',
+            e_me, x,y,z, nx,ny,nz, e_other, h_me, h_other)
+```
+
+and the script fills the rest in itself — `Game_GetMsg` reads both bodies back
+through `PHYSICS.GetHavokBodyVelocity` and stores the relative speed as
+`arg[14]`, which is the `vl` above. That is why the message carries body
+handles as well as entities: without them the handler has nothing to measure.
+`Game:ExecMsgQueue`, at the end of `Game:Tick2`, is what drains it.
+
+Four things about this were easy to get wrong, and three of them were:
+
+- **Sample the velocities inside the contact callback, mid-step.** Read after
+  the step, both bodies have already been stopped by the solver and every crash
+  measures as a nudge. `PHYSICS.GetHavokBodyVelocity` answers from that
+  snapshot while the scripts are handling the messages, and from the live body
+  otherwise.
+- **One side being a script body is enough.** Requiring both hid the common
+  case: almost everything a prop hits is the *static world* — a vase pushed off
+  a balcony lands on the floor, not on another prop, and that is exactly the
+  collision it is supposed to break on. The world reports as entity 0, the same
+  stand-in a world hit already uses in the traces.
+- **A capped contact buffer must drop the GENTLEST contact, not the newest.**
+  `Settle()` runs 90 steps with no drain between them, so a level's whole load
+  settle arrives in one batch; discarding by arrival threw away a vase's landing
+  while two dozen other props were settling, and the same landing measured
+  correctly with the level otherwise empty.
+- Only `OnContactAdded` is recorded. Persisted contacts would report every frame
+  for a body merely resting on another; the scripts' own `MinTime` gate
+  (`EnableCollisions`) handles what chatter remains.
+
+`ENTITY.EnableCollisions(e, on, minTime = 0.4, minStrength = 0.6)`
+(`0x10130420`) is what asks for any of this. For a destructible `CItem:Apply`
+passes `(true, 0.5, MinSpeedOnCollision * 0.2)` when the item has an impact
+sound, so the engine's gate sits well below the script's and the script decides.
+
+## What is missing
 
 - **Weapons now disturb the props, explosions still do not.** `PO_Hit` and
   `WORLD.HitPhysicObject` reach a settled body — the impulse wakes it first,

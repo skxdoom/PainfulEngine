@@ -65,7 +65,7 @@ do not have.
 normal.** This is measured, not inferred - the `map` diagnostic reports it:
 
 ```
-$ PainfulEngine map Data/Maps/1x01_Chaos.mpk
+$ PainfulTools map Data/Maps/1x01_Chaos.mpk
   winding: 44 triangles agree with their vertex normals, 283457 oppose
 ```
 
@@ -97,7 +97,7 @@ through to drawing everything, which the visibility code handles.
 ## The `mklevel` command
 
 ```bash
-PainfulEngine mklevel Data TestFloor 200 0 beton_tile_all
+PainfulTools mklevel Data TestFloor 200 0 beton_tile_all
 ```
 
 `mklevel <root> [name] [extent] [height] [texture]` writes a complete level
@@ -115,7 +115,7 @@ mean what they say. The shipped levels use 0.3 to 1.2.
 Round-trip through the reader:
 
 ```
-$ PainfulEngine map Data/Maps/TestFloor.mpk
+$ PainfulTools map Data/Maps/TestFloor.mpk
   1 objects, 4225 verts, 8192 tris, terminator OK
   bounds x[-200.0..200.0] y[0.0..0.0] z[-200.0..200.0]
   winding: 0 triangles agree with their vertex normals, 8192 oppose

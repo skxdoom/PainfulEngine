@@ -146,7 +146,7 @@ that genuinely needs a value errors loudly — which names the next native to
 implement). The loop:
 
 ```
-PainfulEngine lua <DataRoot> [frames]
+PainfulTools lua <DataRoot> [frames]
 ```
 
 boots, calls `Game:Init()`, ticks N frames, and prints the report. Current
@@ -296,7 +296,7 @@ The `lua` command's fourth argument runs an arbitrary chunk after
 `Game:OnPlay`, which is how gameplay is tested headless:
 
 ```
-PainfulEngine lua <DataRoot> 120 C1L1_Cathedral "ENTITY.SetPosition(Player._Entity,-142.7,8.1,-2.3)"
+PainfulTools lua <DataRoot> 120 C1L1_Cathedral "ENTITY.SetPosition(Player._Entity,-142.7,8.1,-2.3)"
 ```
 
 teleports the player into Cathedral's first ambush box and the monsters

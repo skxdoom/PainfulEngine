@@ -52,7 +52,7 @@ These are the honest gaps that will need work during the port:
 ## The measurement
 
 ```
-PainfulEngine lua D:/Dev/PKRE/Data 400 C1L1_Cathedral
+PainfulTools lua <DataRoot> 400 C1L1_Cathedral
 ```
 
 boots the shipped scripts, loads Cathedral, runs `Game:OnPlay` and ticks 400

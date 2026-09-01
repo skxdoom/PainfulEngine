@@ -340,7 +340,7 @@ and would otherwise trust a bone index from the wrong skeleton.
 
 ## Measured
 
-`PainfulEngine lua <DataRoot> 60 C1L1_Cathedral --exec <chunk>` firing horizontal
+`PainfulTools lua <DataRoot> 60 C1L1_Cathedral --exec <chunk>` firing horizontal
 traces through every live actor at 0.2-unit height steps:
 
 | | |
