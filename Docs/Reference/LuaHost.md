@@ -185,11 +185,12 @@ ambient from `WORLD.SetupFog`/`AmbientColor`, the layered sky through
 own object names), light coronas through `BILLBOARD.SetupCorona`, particle
 effects through `PARTICLE.AddEmitter`/`SetupEmitter` (the effect resolution
 stays script-side in `LoadParticleFX`), and every entity the class scripts
-created. On Cathedral: 958 files, **631 entities created by the scripts**
-(571 live after the cache pass), zero script errors, from the archives or a
-loose tree alike. The script path even runs MORE effects than the
-hand-driven one - it creates the item-bound flames (`bindFX`) the batch
-loader never resolved. Not yet on this path: sound, player.
+created. On Cathedral: 964 files, **796 entities created by the scripts**
+(655 live after the cache pass), from the archives or a loose tree alike.
+The script path even runs MORE effects than the hand-driven one - it creates
+the item-bound flames (`bindFX`) the batch loader never resolved. Sound, the
+player and the camera are all on this path now; what is still missing from it
+is listed in [`../Status.md`](../Status.md).
 
 **Physics is on this path.** `WORLD.LoadMap` builds the Jolt static world the
 moment the scripts ask (entity bodies follow through `PO_Create` in the same

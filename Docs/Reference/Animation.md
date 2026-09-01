@@ -315,17 +315,18 @@ the whole loop's travel as one backwards lurch.
 3. ~~**Joints.**~~ **Done.** `GetJointIndex`, `GetJointName`, `GetJointPos`,
    `GetJointRotation`, `TransformPointByJoint` and `ApplyJointRotation`, off a
    pose that now lives on the script side.
-4. **Ragdoll.** Its own system, on Jolt, and its own scope document.
+4. ~~**Ragdoll.**~~ **Done.** On Jolt, with the boxes handed to the solver on death — see [`Hitboxes.md`](Hitboxes.md).
 
 ## Unknowns to settle rather than guess
 
 - **`SetAnim` returns an index the scripts keep** (`_CurAnimIndex`) and hand
   back to every other call. Per-entity, stable, and `-1` must stay the
   "no such track" answer the scripts already handle.
-- **Root motion.** `SetAnim`'s `mcurve` / `hasMovingCurveRot` arguments and
-  `GetAnimMovement` are how an actor translates during an attack. This likely
-  interacts with `ENTITY.PO_Move`, the single busiest unimplemented native.
-  Do not guess the relationship; measure it once the clock runs.
+- ~~**Root motion.**~~ **Settled.** `GetAnimMovement` is real, read out of
+  Engine.dll rather than inferred, and it is what carries an actor forward
+  during an attack — independently of any AI. How it comes out of the pose is
+  its own section below; `ENTITY.PO_Move` turned out to be a separate,
+  pure setter.
 - **Whether `GetAnimTimeScale` is the speed or a play/pause flag.** The guard
   is `> 0`, and `CActor` pauses an animation by setting it to 0 and restoring
   it later, which reads as speed. Confirm against a template's declared speed.

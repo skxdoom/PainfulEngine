@@ -134,19 +134,18 @@ open item in [`Particles.md`](Particles.md).
 `texcoord0 * (TileU, TileV)`. Both were already right; they are now established
 rather than assumed, which is what this decode was for.
 
-**Not implemented: `tile[N]`.** A first attempt at it — parsing the key into
-`MaterialState` and multiplying it in after the pan, plus routing the stage-1
-pan to the blend slot instead of the lightmap — regressed world texturing badly
-(`C1L1_Cathedral` came out with garbled tiling on walls and niches) and was
-reverted. The *decode* above is believed sound; the fault was somewhere in
-wiring it through `fs_world.sc` and the two renderers, and was not identified
-before the revert. Anything trying again should:
+**Implemented: `tile[N]`.** Parsed in `MaterialState` (`tile[0]` / `tile[1]`,
+defaulting to 1,1) and applied last in `fs_world.sc`, so the whole stage
+transform is `uv' = ((uv * slotXform) + pan * t) * tile` — a stage with both
+scrolls `tile` times faster than the pan figure alone reads.
 
-- check the uniform is set on **every** path that binds `fs_world` (the world
-  pass, the entity pass, and any future one) — a stale or unset value there
-  would corrupt materials that never mention `tile`;
-- verify a map that uses no `tile` at all is pixel-identical before and after;
-- only then look at the lava maps.
+A first attempt regressed world texturing badly (`C1L1_Cathedral` came out with
+garbled tiling on walls and niches) and was reverted; the decode was sound and
+the fault was in the wiring. What made the second attempt hold was the
+condition the first one missed: `u_tile` is created **and set** on every path
+that binds `fs_world` — `WorldRenderer` for both the ordinary and the water
+pass, and `EntityRenderer` — so no material that never mentions `tile` can pick
+up a stale value.
 
 **Not implemented: the rotation term.** No shipped `.shader` sets a rotation —
 it can only arrive through `$blendxform` / `$alphaxform` / `$detailxform`, whose

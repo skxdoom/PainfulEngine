@@ -399,11 +399,10 @@ sound, so the engine's gate sits well below the script's and the script decides.
 
 ## What is missing
 
-- **Weapons now disturb the props, explosions still do not.** `PO_Hit` and
-  `WORLD.HitPhysicObject` reach a settled body — the impulse wakes it first,
-  and the stale-handle check above is what let it through at all. What is still
-  missing is area damage: `PhysicsWorld::Explosion` is unimplemented, so a
-  barrel detonating shoves nothing around it.
+Since this list was written the player controller and ragdolls have both
+landed — see [`PlayerMovement.md`](PlayerMovement.md) and
+[`Hitboxes.md`](Hitboxes.md). What is left:
+
 - **A few props leave the level.** One Cathedral barrel travels 27 units, and
   seven vases drift. Those are individual shapes or placements, not the
   systematic 1.08 above.
@@ -412,17 +411,22 @@ sound, so the engine's gate sits well below the script's and the script decides.
   models and leaves 420 entities unresolved. Most of that gap is entities that
   legitimately have no model, but the hull view also shows at least one hull
   with nothing drawn at it, so the two disagree somewhere real.
-- **No player controller.** It belongs with the Lua host: the player body is
-  created by `EngineGame::CreatePlayer`, driven by `PhysicsObject::PlayerAction`
-  from an action bitfield the scripts fill in, and `SetPlayerSpeed` /
-  `GetPlayerSpeed` are natives the game calls constantly. The constants are all
-  recovered (above) and `PlayerAction` is decompiled, so this is a matter of
-  wiring, not of research.
-- **No ragdolls, no glass, no explosions, no water buoyancy, no ladders, no
-  ice.** Each is a named piece of the original: `PrecacheRagdoll` /
-  `SetRagdollCollisionGroup`, `Glass` and `Tweak.Glass`,
-  `PhysicsWorld::Explosion`, `EnableUnderwaterWorld` and `Tweak.Underwater`,
-  `World::NearLadder`, `World::OnIce`.
+- **No glass, no water buoyancy, no ladders, no ice.** Each is a named piece of
+  the original: `Glass` and `Tweak.Glass`, `EnableUnderwaterWorld` and
+  `Tweak.Underwater`, `World::NearLadder`, `World::OnIce`.
+- **No area damage.** `PhysicsWorld::Explosion` is unimplemented and
+  `WORLD.Explosion2` — which every explosion in the game funnels through — is
+  still a stub, so a detonating barrel shoves nothing around it. The largest
+  gap left; see [`../Plan.md`](../Plan.md).
+- **Monster ground contact is wrong in four specific ways** — no depenetration
+  on the stationary path, no step-up, a hardcoded floor normal, and a sweep
+  shape that is not the collision shape. Listed with the evidence in
+  [`../Plan.md`](../Plan.md); the rig measurements are in
+  [`MonsterMovement.md`](MonsterMovement.md).
+- **Nothing can be pinned.** `PhysicsWorld` already builds ragdoll parts with a
+  `pinned ? Static : Dynamic` branch, but `PHYSICS.PinHavokBody`,
+  `ENTITY.PO_SetPinned` and the `MDL.SetPinned*` family are stubs, so the
+  branch is unreachable and the stakegun cannot pin a corpse to a wall.
 - **`World/CollisionMesh` still exists** and still answers the corona
   line-of-sight trace. Jolt can answer the same query; the BVH stays until
   there is a reason to move it.

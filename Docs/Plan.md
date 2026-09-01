@@ -18,35 +18,19 @@ finite rather than open-ended:
 |---|---|
 | Native Lua functions recovered from `Engine.dll` | 941 |
 | ...excluding Lua's own standard library | ~846 |
-| ...actually called by the shipped scripts | **790** |
-| ...covering **80%** of all 14,387 call sites | **113** |
+| ...in the generated surface (`NativeList.inc`) | 839 |
+| ...referenced by the shipped scripts | 638 |
+| **of those 638: implemented** | **227** |
+| **of those 638: still instrumented stubs** | **411** |
 
-A prioritised, call-frequency-ranked list is in
-[`native_priority.tsv`](Data/native_priority.tsv) (name, call count, module). Start at
-the top of that file; it is the work queue.
+A call-frequency-ranked list is in [`native_priority.tsv`](Data/native_priority.tsv)
+(name, call count, module). 33 further natives are implemented outside the generated
+list — aliases and helpers such as `WORLD.LineTraceHitPlayerBalls` — so the whole
+implemented set is 307.
 
-The top of the queue is dominated by a few modules — ragdoll/joints
-(`GetJointIndex`, `SetAnim`, `GetJointPos`, `TransformPointByJoint`), world
-mesh/collision (`PO_Create`, `SetVelocity`, `GetPosition`, `EnableCollisions`),
-console/logging (`Print`, `AddMessage`), and sound. Implement those and a large
-fraction of the scripts start doing something.
-
-
-## Known unknowns
-
-These are the honest gaps that will need work during the port:
-- Material blocks are now solved for both formats, so exports can be textured.
-  Remaining: 7 of 2,532 model meshes still fail the exact-landing material parse,
-  and a few per-object bytes after the last `.mpk` material are unmapped. Neither
-  blocks rendering.
-- **Native signatures.** We have names and addresses but not argument lists. M2's
-  instrumented stubs are the cheapest way to recover them — log the actual Lua
-  arguments at runtime rather than reading disassembly.
-- **`.pfx` particles** and the remaining small unidentified native tables.
-- **Gameplay feel.** `PhysicsObject::FixHavokPositionBug` shows behaviour was tuned
-  around Havok's quirks; ragdoll feel under Jolt will differ and need retuning.
-- The `.pkmdl` geometry header preceding the index array varies between models, so
-  PainKit uses a strict-then-loose heuristic. Fully mapping it would remove that.
+Excluding the families that are not gameplay — `NET`, `MPSTATS`, `GAMESPY`, `PMENU`,
+`CONSOLE`, `EDITOR`, `FS`, `MBOARD` — **268 stubs remain that shipped scripts call.**
+That number is the remaining work, and the stages below are it, ordered.
 
 
 ## The measurement
@@ -55,235 +39,293 @@ These are the honest gaps that will need work during the port:
 PainfulTools lua <DataRoot> 400 C1L1_Cathedral
 ```
 
-boots the shipped scripts, loads Cathedral, runs `Game:OnPlay` and ticks 400
-frames, then prints every native the scripts called that we have not written.
-Current reading, after Stages 7 and 8:
+boots the shipped scripts, loads Cathedral, runs `Game:OnPlay` and ticks 400 frames,
+then prints every native the scripts called that we have not written. Current
+reading:
 
 ```
-boot: 962 files loaded, 0 missing, 0 script errors
-entities: 678 created, 108 released, 618 live
-unimplemented natives hit: 134 distinct, 50095 calls
+boot: 964 files loaded, 0 missing, 400 script errors
+entities: 796 created, 189 released, 655 live
+unimplemented natives hit: 102 distinct, 11618 calls
 ```
 
-against a starting point of 153 distinct / 82,843 calls and 634 entities.
-Zero script errors throughout: the game's own logic runs end to end, and what
-it could not do was *act*, because the natives that carry action were stubs.
-Re-run this after every stage; the report is the progress bar.
+against 153 distinct / 82,843 calls at the start of Stage 7. Re-run after every
+stage; the report is the progress bar.
 
-## The gap as it stood at the start, ranked by what the scripts asked for
+**Two things the report does not see, and both matter for reading it.**
 
-| calls | native | system |
-|------:|--------|--------|
-| 15238 | `ENTITY.PO_Move` | monster locomotion |
-| 11192 | `HUD.DrawQuad` | HUD |
-|  8000 | `ENTITY.RemoveRagdollFromIntersectionSolver` | hit detection |
-|  7600 | `ENTITY.AddRagdollToIntersectionSolver` | hit detection |
-|  7186 | `ENTITY.PO_IsActionState` | player + actor actions |
-|  4076 | `PMENU.LoadingProgress` | menus |
-|  2800 | `INP.Action` | input |
-|  2521 | `HUD.DrawQuadRGBA` | HUD |
-|  2400 | `MDL.ApplyJointRotation` | animation |
-|  2398 | `INP.UIAction` | input |
-|  1271 | `ENTITY.SeesEntity` | AI |
-|  1200 | `ENTITY.PO_IsOnFloor` | AI |
-|   402 | `CAM.SetPos` / `CAM.SetAng` | camera |
-|   400 | `PLAYER.ExecAction` / `PLAYER.FloorCheck` | player |
-|   400 | `SOUND.SetPlayerPos` / `SetPlayerOrientation` | audio |
-|   502 | `LIGHT.Setup` / `LIGHT.SetFalloff` | dynamic lights |
+1. **It is an idle run.** Nothing fires, nothing takes damage, no monster engages a
+   target. So the weapon path, the explosion family, the pin family and most of the
+   AI natives are absent from the ranked list for lack of exercise, not because they
+   work. The static sweep — every `MODULE.Fn` reference across the shipped
+   `.lua`/`.state`/property files, intersected with the stub set — is the fuller
+   picture, and it is what ranks the stages below.
+2. **It is currently throwing every frame** (see I1 below), which truncates
+   `Game:PostRender` and undercounts everything downstream of `Hud:Render`.
 
-Plus the whole `SOUND` / `SOUND2D` / `SOUND3D` family, `WORLD.LineTrace` and
-`LineTraceFixedGeom` (not in the report only because nothing fires yet), and
-`MESH.SetNormalMap` / `SetDetailMap` / `SetCubeMap`.
 
-## Two findings that set the order
+## Immediate — three localised defects
 
-**1. The player's controls are a script path, not a C++ path.** The original
-divides the work exactly at `CPlayer:Tick`:
+These are small, they are not stages, and two of them are probably a day between
+them. The first blocks measurement, so it goes first.
 
-```lua
-local action = INP.GetActionStatus(self._Entity)   -- bitmask of Actions.*
-... script overrides for weapon-select, switched fire, rocket jump ...
-ENTITY.PO_SetAction(self._Entity, self.CurAction)
-PLAYER.ExecAction(self._Entity, 0, fv.X,fv.Y,fv.Z, rv.X,rv.Y,rv.Z)
+### I1. The headless report throws on all 400 frames
+
+```
+HUD.lua:865: attempt to concatenate local `mat' (a nil value)
+  Hud:Quad → Hud:Render → Game:PostRender → Game_PostRender
 ```
 
-`PLAYER.ExecAction` *is* the entry to `PhysicsObject::PlayerAction`
-(0x10192260) already recovered in [`PlayerMovement.md`](Reference/PlayerMovement.md).
-`PlayerPawn` used to bypass this and derive its own wish-direction from the
-C++ camera, which works for walking around and can never produce firing,
-weapon switching, rocket jumps or the bunny-hop windows, because all of those
-live in the bits the script never gets to set. Closed in Stage 7.
+`ScriptEngine::AttachHud` is called only from `App/GameApp.cpp`, so under
+`PainfulTools` `hud_` is null, `MATERIAL.Create` returns nil
+(`Game/ScriptHud.cpp`, `L_MATERIAL_Create`), `MATERIAL.Size` answers -1, and
+`Hud:Quad`'s own "material not found" diagnostic then concatenates the nil handle
+and raises. The error unwinds out of `Game:PostRender`, so `Editor:Render` and
+everything after it never runs while we are measuring.
 
-Supporting facts recovered from the scripts:
+Either attach a headless HUD in the `lua` command or make `MATERIAL.Create` answer a
+resolvable null handle rather than nil. The report cannot be trusted until this is
+gone.
 
-- `Actions` (`Main/Definitions.lua:190`) is a 32-bit mask:
-  `Forward=2, Backward=4, Left=8, Right=16, Jump=32, Fire=64, AltFire=128,
-  NextWeapon=256, PrevWeapon=512, Weapon1..14 = 1024<<n,
-  FireBestWeapon1=0x1000000, FireBestWeapon2=0x2000000, RocketJump=0x4000000,
-  ForwardRocketJump=0x8000000, UseCards=0x10000000, ComboFire=0x20000000,
-  SelectBestWeapon1=0x40000000, SelectBestWeapon2=0x80000000`.
-- `Keys` (`Definitions.lua:9`) are **Windows virtual-key codes** verbatim
-  (`Space=32`, `A=65`, `MouseButtonLeft=1`), so `INP.Key` is a direct map off
-  SDL.
-- `INP.Key(k)` is tri-state, not boolean: call sites pair `==1` for the press
-  edge with `==2` for held (`INP.Key(Keys.G)==1 and INP.Key(Keys.RightShift)==2`,
-  `Game.lua:568`).
-- The movement basis is derived in **pure Lua** from `CAM.GetAngRad()`:
-  `CPlayer:SetupAction` (`CPlayer.lua:1672`) packs the angles to 16 bits,
-  unpacks them, and builds forward/right through `Quaternion:New_FromEuler`.
-  So `CAM.GetAngRad` must return the engine's own convention or the player
-  walks sideways. Free check: the script's derived forward vector must equal
-  what our C++ `CAM.GetForwardVector` returns from the same camera.
-- `CAM.GetRightVector` is **not implemented** and is reached only under
-  `Game._loonyProc`; the ordinary path goes through `SetupAction` above.
+### I2. A stationary monster is never depenetrated — this is the sinking
 
-**2. Animation is a gameplay dependency, not polish.** `CActor:Tick`
-(`CActor.lua:300`) opens its animation-event loop with
+`Game/ScriptMonster.cpp`, `TickMonsters`: the accumulated step is compared against
+the 0.05 sweep skin and, when it falls short, the loop `continue`s straight to
+`SetScriptBodyPose`. `SlideSphere` — and therefore `Depenetrate`, which only runs
+inside it — is reached on the moving branch alone.
 
-```lua
-local animSpeed = MDL.GetAnimTimeScale(self._Entity, self._CurAnimIndex)
-if animSpeed > 0 then ... while self._AnimationEvents[i] do ... end
-```
+A monster with `onFloor` latched true and no move wish has `fallSpeed = 0`, so its
+residual stays at zero permanently: if it is embedded in geometry it stays embedded,
+and `e.onFloor` never re-evaluates either. That is the "stuck under the ground"
+report, and it is a missing `Depenetrate` call on the skip path.
 
-We return `0`, so the loop never runs. Those events are how melee damage
-lands, how footsteps and attack sounds fire, and how actors sequence their
-state machine against `_CurAnimTime` / `_CurAnimLength`. Monsters can spawn
-and chase and still never hurt anything until the animation clock is real.
+### I3. Leftover scaffolding
+
+- `Game/ScriptMonster.cpp` carries a `static int tick` debug `TRACK` log firing at
+  ticks 200 and 1200, inside the per-monster loop.
+- The physics natives (`PO_SetMass` / `SetFriction` / `SetRestitution` /
+  `SetLinearDamping` / `SetAngularDamping`) and `SeesEntity` live in
+  `Game/ScriptSound.cpp`. Misfiled since the file split.
+
 
 ## The stages
 
-### Stage 7 - the player acts — DONE
+Ordered gameplay first. Presentation — decals, dynamic lights, model materials, FOV,
+acoustics, portal switching — is real work and it is at the bottom, because none of
+it changes what the game *does*.
 
-Turned the pawn from a camera-driven debug body into the game's own control
-path, all six steps. The report is down to **139 distinct natives / 66,894
-calls** from 153 / 82,843, the movement measures against `Tweak.PlayerMove`
-(7.9999 m/s against `PlayerSpeed` 8.0), and the scripts now steer the view
-through `Game:Tick2`. Air control, pawn height, the step ladder and what the
-player collides with were all corrected against the binary along the way —
-[`PlayerMovement.md`](Reference/PlayerMovement.md) and [`LuaHost.md`](Reference/LuaHost.md) carry
-the recovered rules.
+### Stages 7–12 — LANDED
 
-1. **Input state** - an `Input` service fed from SDL, exposing virtual-key
-   state with press-edge tracking. Natives: `INP.Key` (tri-state),
-   `INP.GetTime`, `INP.Reset`, `INP.ResetTimer`.
-2. **Bindings** - `INP.LoadBindings()` takes no arguments; the original reads
-   them engine-side. Ship Painkiller's defaults in C++ (WASD, Space, LMB
-   fire, RMB alt-fire, wheel and 1..7 for weapons, E use) until the menu can
-   rebind them.
-3. **Action mask** - `INP.GetActionStatus(e)` folds the bindings into the
-   `Actions` bitmask; `INP.Action(mask)` and `INP.UIAction(mask)` answer the
-   global queries; `INP.IsFireSwitched` from config.
-4. **Action state store** - `ENTITY.PO_SetAction` / `PO_AddAction` /
-   `PO_IsActionState` / `PO_JumpedInLastAction` against a per-entity mask.
-5. **`PLAYER.ExecAction(e, 0, fwd, right)`** drives `PlayerPawn` from the
-   action bits and the passed basis instead of the camera, per
-   [`PlayerMovement.md`](Reference/PlayerMovement.md). `PLAYER.FloorCheck` reports the
-   ground test.
-6. **Camera handover** - `CAM.SetPos` / `SetAng` / `SetPositionDisplacement` /
-   `EnableInterpolation`, `MOUSE.GetDelta` fed with real motion and
-   `MOUSE.SetSensitivity`, so `Game:Tick2` steers the view as the original
-   does. Verify against the free check above before trusting it.
+Player actions and the camera handover (7), weapons fire and the intersection solver
+(8), the animation clock and skinning (9), monster locomotion and the `PO_Move` /
+`PO_IsOnFloor` / `SeesEntity` / `WPT.Load` chain (10), the HUD quad pipeline (11) and
+the `SOUND` families (12) are all in. What each of them does now is in
+[`Status.md`](Status.md); the rules they obey are in [`Reference/`](Reference).
 
-### Stage 8 - weapons fire — DONE
+The lesson from Stage 8 is worth carrying forward: **before building a system, check
+whether the scripts already are it.** Damage needed no native work at all — a weapon
+traces, looks the hit entity up in `EntityToObject` and calls `obj:OnDamage`. Only
+the *reaction* was missing.
 
-Traces, the intersection solver, the view model and the hit reaction have
-landed (report down to **134 distinct / 50,095 calls** from 139 / 66,894).
+### Stage 13 — explosions
 
-**Damage needed no work at all, which the roadmap got wrong.** It is entirely
-script-side: a weapon traces, takes the entity the trace reports, looks it up
-with `EntityToObject[e]` and calls `obj:OnDamage(...)`. Once the trace
-resolved to the right entity handle, the whole chain was already live.
-Measured on Cathedral: aim a shotgun at a spawned `EvilMonkV2` with `Health
-= 9`, fire, and it goes to `Health = 0`, `_died = true`. Worth remembering as
-a general lesson here - before building a system, check whether the scripts
-already are it.
+**The single highest-leverage item left.** `Explosion()` in `Main/Utils.lua` funnels
+every explosion in the game into `WORLD.Explosion2` — 91 call sites — and it is a
+stub. Nothing takes radius damage and nothing takes blast impulse: grenades, rockets,
+barrels, the exploding cars, `Alastor`'s fly-by attacks, the player's own death
+explosion.
 
-What was genuinely missing was the REACTION: a shot landed and nothing moved.
-`ENTITY.PO_Hit` and `WORLD.HitPhysicObject` are an impulse at the point of
-impact, applied through a new `PhysicsWorld::AddScriptBodyImpulse`. The one
-real bug was ordering - a body has to be WOKEN before the impulse, because
-Jolt drops an impulse applied to a sleeping body and props are asleep the
-moment a level finishes loading, so every shot at a standing barrel did
-nothing.
+- `WORLD.Explosion2(x, y, z, strength, range, clientID, attackType, damage)`
+- `WORLD.ExplosionUp`, `WORLD.ExplosionParabolic`, `WORLD.MultiplayerExplosion`
 
-Verified three ways: a single pellet-sized impulse (188 against the barrel's
-declared mass of 200) nudges it about 0.05 and friction settles it; the same
-total in one call throws it five units; and every pellet of a shotgun volley
-resolves to the right body with the right magnitude. One thing NOT explained:
-fifteen pellet impulses spread over a second move the barrel markedly less
-than the same total delivered at once. That is plausible contact-and-friction
-behaviour on a heavy resting body rather than a demonstrated defect, and no
-defect could be found - recorded here rather than quietly assumed away.
+`WORLD.GetLastExplodedEntities` is already implemented and reads a list nothing ever
+fills, so the collection side has a place to land. `ENTITY.ExplodeItem` is the
+*debris* spawner and is separate — it works.
 
-Still stubs, deliberately: `ENTITY.PO_AccumulateRotation` (the knockback spin
-- "accumulate" suggests it buffers for the ragdoll, and guessing at that is
-how earlier convention bugs happened) and `ENTITY.PO_SetPlayerShocked`.
+Ask the binary for the falloff curve, and for whether `strength` (impulse) and
+`damage` fall off on the same law: the script numbers straddle a wide range
+(`3000`/`2`, `5000`/`8`, `15000`/`5`) and guessing the curve is exactly the kind of
+plausible-but-wrong this project has paid for before.
+
+### Stage 14 — monster ground contact
+
+I2 above is the acute bug. Three structural ones sit behind it, all in
+`Game/ScriptMonster.cpp`:
+
+1. **No step-up.** `PlayerPawn` runs the recovered `StepCheck` ladder and climbs to
+   0.86 (see [`PlayerMovement.md`](Reference/PlayerMovement.md)). `TickMonsters`
+   calls raw `SlideSphere`, so a monster stops dead at any lip the player strolls
+   over. The ladder should be shared, not reimplemented.
+2. **The floor normal is a literal.** `e.floorNormal` is hardcoded to `(0,1,0)` with
+   a comment saying it is not measured yet. `CAiBrain.lua` reads it back out of
+   `PO_IsOnFloor`, so the AI cannot tell a slope from flat ground. `SlideSphere`
+   already has the contact normal in hand.
+3. **Two different shapes.** Movement sweeps a sphere of the *smaller* horizontal
+   half-extent placed at soles+radius — a ball at shin height — while the body
+   everything else collides with is three stacked spheres spanning the model. The
+   torso is swept by nothing.
+
+Also open from Stage 10: `MonsterBodyScale`'s `k = height / 10.3` is a shape
+argument, not a recovered constant. The engine's reference point (`Entity+0x58`) is
+still unidentified — see [`MonsterMovement.md`](Reference/MonsterMovement.md).
+
+### Stage 15 — pinning, and the stakegun
+
+The stake's pin handler dies on a nil **nine lines before** it reaches the wall test.
+`Templates/Weapons/Stake.lua`:
+
+```lua
+local hx,hy,hz = PHYSICS.GetHavokBodyPosition(he)   -- stub: returns nothing
+self.ox,self.oy,self.oz = x-hx,y-hy,z-hz            -- raises here
+```
+
+So `Stake:Tick` never reaches `if b and ENTITY.IsFixedMesh(e1)`, and no stake has
+ever attempted to pin anything. `IsFixedMesh` and `WORLD.LineTrace` are both fine;
+only the body accessors are missing.
+
+The rest of the chain, all stubs: `PHYSICS.PinHavokBody`, `SetHavokBodyPosition`,
+`IsHavokBodyPinned`, `ENTITY.GetIndex`, `ENTITY.PO_GetPhysicsBody`,
+`MDL.ApplyVelocitiesToAllJoints`.
+
+Behind that sits the corpse-pin layer the feature actually rests on —
+`ENTITY.PO_SetPinned` (48 sites), `MDL.SetRagdollCollisionGroup` (47),
+`MDL.SetPinnedJoint` (38), `MDL.SetPinned` (17), `MDL.IsPinned`, `MDL.IsPinnedJoint`,
+`ENTITY.PO_IsPinned`. `World/PhysicsWorld.cpp` already branches
+`pinned ? Static : Dynamic` when building ragdoll parts; nothing reaches it yet.
+
+### Stage 16 — navigation queries
+
+`WPT.Load` is the only implemented WPT native: the graph is parsed and then never
+asked anything. `WPT.GetClosest` and `WPT.GetPosition` are stubs, and the recovery
+that uses them —
+
+```lua
+local zn,idx = WPT.GetClosest(x,y,z)
+if idx > -1 then x,y,z = WPT.GetPosition(zn,idx) end
+```
+
+— appears in `Zombie_2`, `Apoc_zombie_V2`, `StoneGolem`, `Lucifer` and `AlastorKing`,
+guarded exactly like that. The stub returns nil, the guard reads false, and the
+correction is **silently skipped**. A monster that leaves the walkable set is never
+put back on it.
+
+Then `WPT.GetPathsNumber`, `GetWaypointByPathNumber`, `GetLength`,
+`FastPickCurrentSet`, `EnableDisableSet` for the patrol paths. The `Assets/Waypoints`
+parser is already in place.
+
+### Stage 17 — the scripted and flying movers
+
+Whole families of monster motion have no mover at all. Flying enemies (Alastor, the
+ravens) currently cannot move by any path:
+
+`ENTITY.PO_SetFlying` (24 sites), `PO_SetPlayerFlying` (11), `PO_IsFlying`,
+`PO_MaintainVelocity` (29), `PO_MaintainLinearMovement` (21), `PO_MaintainPosition`
+(14), `PO_EnableSpeedDamping` (12).
+
+`Sees()` in `Game/ScriptSound.cpp` also measures between entity **origins**, where
+`CalculatePawnToEntityVisibility` (0x10198D30) takes both pawns' **head** positions.
+Worth correcting here, since it is the same subsystem.
+
+### Stage 18 — grenade body semantics
+
+With Stage 13 done the blast works; this is the bounce and the tumble.
+
+- `ENTITY.PO_SetGrenade` — `Grenade.lua` calls it on both the SP and client paths.
+- `ENTITY.PO_SetFreedomOfRotation` — `Grenade.CItem` declares `Softness = 1`, which
+  `CObject:PO_Create` routes here with mode 4. Never applied, so no tumble
+  constraint.
+- `ENTITY.PO_SetMissile`, and `MPProjectileTypes` behind it.
+
+One thing to *check rather than assume*: `Grenade.Restitution = 1.4` is handed raw to
+`JPH::BodyInterface::SetRestitution` in `World/PhysicsWorld.cpp`. Havok's >1
+restitution is not Jolt's, and a grenade that gains energy on every bounce is a
+plausible-looking wrong answer. Read `PhysicsObject::SetRestitution` before tuning.
+
+### Stage 19 — collision-group and contact plumbing
+
+Broad, cheap, and it unblocks parts of the four stages above:
+
+`ENTITY.PO_SetCollisionGroup` (91 sites), `PO_SetMovedByExplosions` (71 — Stage 13
+needs it to know what a blast may push), `EnableCollisionsToRagdoll` (25),
+`EnableCollisionsToAll`, `PO_Activate`, `PO_SetPlayerShocked`, `EnableGunPass`,
+`EnableDeathZoneTest`, `WORLD.EnableDeathZone`, `WORLD.SetCollisionGroupMeshGroup`.
+
+`CreateScriptBody` already takes the group and switches on 1 (Fixed) and 7
+(Noncolliding); this is the rest of that switch reaching the layer filters.
+
+### Stage 20 — gibbing and the ragdoll joint API
+
+`MDL.MakeGib`, `RagdollSelfExplosion`, `SetRagdollMovedByExplosions`,
+`SetRagdollRestitution`, `SetRagdollBreakablesThreshold`, `SetRagdollHardDeactivator`,
+`GetRagdollJointPos` / `GetRagdollJointRotation`, `BreakConstraintsForJoint`,
+`ApplyVelocitiesToJoint` / `ToJointLinked` / `ToAllJoints`, `ApplyPositionToJoint`,
+`ApplyRotationToJoint` / `ApplyRotationQuaternionToJoint`, `MoveAllJoints`,
+`CopyMatrixFromJointToJoint`, `GetClosestJoint`, `SetJointPositionLowLevel`,
+`ENTITY.RecreateRagdollIfNone`.
+
+Gate this on Stage 13: `RagdollSelfExplosion` and the `MovedByExplosions` pair have
+nothing to react to until explosions exist.
+
+### Stage 21 — world and lifetime
+
+- `PARTICLE.Die` — 68 sites, and it is how a one-shot effect *stops*. Emitters
+  currently leak for the life of the level. `PARTICLE.Restart` and `SetImmortal` sit
+  with it.
+- `WORLD.SetWorldSpeed` — slow motion; already flagged as an assumption in
+  `Game/PlayerPawn.h`. `PHYSICS.SetBunnyHopAcceleration` and `PHYSICS.SetGravity`
+  belong here too.
+- `WORLD.RemoveEntity`, `DeleteDyingEntities`, `DeleteDelayedEntities`,
+  `UpdateAllEntities`, `GetEntityList`, `AdvanceFrameCounter` / `GetFrameCounter`.
+- `WORLD.CheckStartGlass`, `IsUnderwater` / `MakeUnderwater`,
+  `PHYSICS.ActiveMeshGroup*` (the breakable mesh groups).
+- `INP.GetTimeFromTimerReset` and the rest of the `INP` timer family.
+
+### Stage 22 and after — presentation
+
+Real work, none of it changes behaviour. Roughly in the order things stop looking
+wrong:
+
+| | |
+|---|---|
+| Decals | `ENTITY.SpawnDecal` (35), `SpawnOrientedDecal`, `ReloadDecalSystem`, `R3D.KeepDecals`. Every impact mark in the game. |
+| Dynamic lights | `LIGHT.Setup` / `SetFalloff` (502 calls a run) and the six flag setters; `ENVIRONMENT.SetAmbient` / `SetFog` / `SetDirLight` / `RemoveLights` (250). |
+| Model materials | `MESH.SetDetailMap` / `SetNormalMap` / `SetCubeMap` / `SetSpecular` / `AddSpecularLight` (648); `MDL.SetMaterial`, `SetTexture`, `EnableNormalMaps`, `MATERIAL.Replace` (44). |
+| Camera | `R3D.SetCameraFOV` (401) — FOV is fixed, so no zoom and no FX. |
+| Acoustics | `WORLD.FindEnvironmentAtPoint` (200), `SOUND.SetRoomType`, `SOUND3D.SetObstructed` / `SetIntensity`, `SOUND.SetSoundProperties` (468 together). |
+| Visibility switching | `WORLD.UseSwitchZones` (398), `EnablePortal`, the antiportal family, `EnableDrawMeshGroup`. |
+| Streams | `SOUND.StreamLoad` / `StreamPlay` / `StreamPause` / `StreamSetVolume` — music. |
+| Menus and save/load | the `PMENU` surface (102 stubs), `WORLD.SaveGame` / `LoadGame`. |
+| Netcode | `NET`, `MPSTATS`, `GAMESPY`, `ENTITY.EnableNetworkSynchronization`, `SetSynchroString`. Last, and possibly never. |
 
 
-### Stage 9 - animation and the actor clock
+## Known unknowns
 
-`MDL.LoadAnim` / `SetAnim` returning a real index, `GetAnimTime` /
-`GetAnimLength` / `GetAnimTimeScale` / `SetAnimTimeScale` / `ResetFrame`,
-`MDL.ApplyJointRotation` and `TransformPointByJoint`, and skinning in
-`EntityRenderer` (the maths already exists in `Assets/Skeleton`; the renderer
-has no skinned path and no `vs_model` shader yet). Unblocks the animation
-event loop, and with it melee damage, footsteps and every actor state that
-waits on a track to finish. Also ends the bind-pose look.
-
-### Stage 10 - monsters move
-
-`ENTITY.PO_Move` (15 238 calls, currently always `(e,0,0,0)` because nothing
-upstream has a destination), `PO_IsOnFloor`, `SeesEntity`, `WPT.Load` for the
-waypoint graph, and the `PO_SetMonsterType` / `MovementConst` / `SightParams`
-chain that already fires on spawn.
-
-**Started.** Two pieces are in:
-
-- **Root motion.** `GetAnimMovement` is real, read out of Engine.dll rather
-  than inferred; see Docs/Animation.md. This is how an attack carries a monster
-  forward, and it works without any AI at all.
-- **`VectorRotate`.** A bare global that was returning nothing, so `mvx` came
-  back nil and the arithmetic in `CActor:Update` aborted the tick. `CAiBrain`,
-  `farattack` and `jumpUp` all build their movement directions with it, so
-  nothing in the AI movement path could have worked until it existed.
-
-The two agree on which way an actor faces, from independent sources: `CActor`
-builds facing as `VectorRotate(1,0,0, 0, -angle + pi/2, 0)`, which at angle 0
-is **+Z** - the same axis the walk animation's own root travel runs along.
-That is the `+pi/2` engine-turn offset the camera work already established,
-turning up again in the AI.
-
-Still to do: `PO_IsOnFloor`, `SeesEntity` (a line trace - `PhysicsWorld::RayCast`
-already exists), `WPT.Load`, and `PO_Move` itself.
-
-### Stage 11 - HUD
-
-`HUD.DrawQuad` / `DrawQuadRGBA` / `DrawQuadRotated`, `GetTransparency` /
-`SetTransparency`, and a real `MATERIAL.Create` / `Replace` / `Size`. Note the
-report shows `HUD.DrawQuad(nil, ...)` - the material handle is nil, so the
-2D material pipeline is absent entirely and the current 256x256 `MATERIAL.Size`
-stub is holding up a wall that is not there.
-
-### Stage 12 - sound
-
-The `SOUND` / `SOUND2D` / `SOUND3D` families, ~2 000 calls a run. Deliberately
-after animation, because most of the 3D triggers are animation events.
-
-Menus (`PMENU`), dynamic lights (`LIGHT.Setup`), material extras
-(`MESH.SetNormalMap` / `SetDetailMap` / `SetCubeMap`) and save/load sit
-outside this line and can be picked up whenever they block something.
+- **Native signatures.** We have names and addresses but not argument lists. The
+  instrumented stubs are the cheapest way to recover them — log the actual Lua
+  arguments at runtime rather than reading disassembly.
+- **Explosion falloff.** See Stage 13.
+- **Havok vs Jolt restitution.** See Stage 18.
+- **`MonsterBodyScale`.** See Stage 14.
+- **Gameplay feel.** `PhysicsObject::FixHavokPositionBug` shows behaviour was tuned
+  around Havok's quirks; ragdoll feel under Jolt will differ and need retuning.
+- Material blocks are solved for both formats. Remaining: 7 of 2,532 model meshes
+  fail the exact-landing material parse, and a few per-object bytes after the last
+  `.mpk` material are unmapped. Neither blocks rendering.
+- The `.pkmdl` geometry header preceding the index array varies between models, so
+  PainKit uses a strict-then-loose heuristic. Fully mapping it would remove that.
 
 
 ## Open questions
 
 - The ~11 small unidentified `luaL_reg` tables (1–8 functions each) in
-  `Engine_LuaAPI.md` — worth naming to complete the module map.
-- 158 of the 941 recovered names are never called by the shipped scripts. Dead
-  API, debug-only, or used by content not in this install? Some may be interesting.
+  `PainfulEngineHelpers/Engine_LuaAPI.md` — worth naming to complete the module map.
+- 201 of the 839 names in the generated surface are never referenced by the shipped
+  scripts. Dead API, debug-only, or used by content not in this install? Some may be
+  interesting.
 - Exact `k0` seed generator (per-entry). Brute force sidesteps it for extraction,
   but repacking to a byte-identical archive needs the real formula. Leads: `k0`
   correlates loosely with entry index; `r = (k0 - 2*(nl+1)) & 0xFF` tracks the index
   with noise — likely a running counter or an FIdx-derived value.
-- Loose-dir vs pak precedence (see section 4 caveat).
+- Loose-dir vs pak precedence.
 - `.pkm` internal format (same as `.pak`? a zip? — `GZipPack::GetFile` exists,
   suggesting the engine also supports real ZIP archives).

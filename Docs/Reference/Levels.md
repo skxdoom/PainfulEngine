@@ -43,7 +43,7 @@ do not serve, so a new name resolves and a shipped name cannot be shadowed.
 
 ## The world mesh
 
-`MapMesh::Write` in [Mpk.cpp](../Source/Assets/Mpk.cpp) emits what `MapMesh::Load`
+`MapMesh::Write` in [Mpk.cpp](../../Source/Assets/Mpk.cpp) emits what `MapMesh::Load`
 reads. Two conventions have to be right, and neither is guessable.
 
 ### Vertex layout
@@ -70,7 +70,7 @@ $ PainfulTools map Data/Maps/1x01_Chaos.mpk
 ```
 
 Everything downstream is built on that. The renderer culls CCW to suit
-([WorldRenderer.cpp:253](../Source/Render/WorldRenderer.cpp)), and
+([WorldRenderer.cpp:253](../../Source/Render/WorldRenderer.cpp)), and
 `PhysicsWorld` feeds Jolt the *reverse* of each triangle because Jolt takes
 counter-clockwise as the front face. Wound the intuitive way instead, a floor
 is invisible from above **and** bodies fall through it - each half of the

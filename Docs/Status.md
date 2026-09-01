@@ -73,7 +73,6 @@ Docs/       Reference/ the recovered rules, Status and Plan, Data/ the work queu
 ```
 
 Headers sit beside their sources rather than in a parallel `include/` tree.
-Headers sit beside their sources rather than in a parallel `include/` tree.
 
 ## What works
 
@@ -209,117 +208,181 @@ the engine reads too. `P` draws the collision shapes.
 Details, the numbers, and the sizeable list of what is still missing are in
 [`Physics.md`](Reference/Physics.md).
 
+### Entity lighting
+
+Models carry no lightmap and are lit at runtime instead, as
+`Entity::ComputeVSLights` does it: level ambient overwritten by whichever
+`CEnvironment` box the entity stands in, one cross-faded directional from
+`o.DirLight`, and the nearest four `CLight`s by attenuated intensity — all
+evaluated once at the entity origin, including the specular half-vector. That
+coarse, per-entity half-vector is why the original's sheen is low-frequency,
+and it is reproduced rather than improved on. See
+[`Lighting.h`](../Source/World/Lighting.h).
+
+### The script layer
+
+The Lua 5.0.2 host boots the real game scripts — `Loader.lua`, `Game:Init()`
+with 1054 templates preloaded, and the per-frame `Game_Tick*/Render/GC` chain —
+from the archives or a loose tree alike. 964 files load, none missing.
+Unimplemented natives are instrumented stubs that report what the scripts
+asked for, which is how the remaining API gets recovered; the reading and the
+work queue are in [`Plan.md`](Plan.md).
+
+Of the 638 natives the shipped scripts reference, 227 are implemented. What
+that buys:
+
+- **Levels load through the game's own pipeline.** `Game:LoadLevel` runs
+  `.CLevel` via LoadObj, level templates, every entity instance file,
+  `Lev:Apply()` and `GObjects:Apply()`, and the `ENTITY.*` / `WORLD.*` natives
+  land in a real registry (`Game/ScriptEngine`). Cathedral creates 796
+  entities.
+- **Physics runs on the script path.** `WORLD.LoadMap` builds the Jolt static
+  world, `ENTITY.PO_Create` makes each body bare and the scripts dress it
+  through the `PO_Set*` family — the original's own division of work. Items
+  settle onto the floor before the first frame.
+- **Sky, particles and coronas** come through `WORLD.LoadSky` /
+  `SetupSkyLayer`, `PARTICLE.AddEmitter` / `SetupEmitter` and
+  `BILLBOARD.SetupCorona`, with resolution staying script-side.
+- **The player walks, and acts through the game's own seam.** Keys and
+  bindings live in `Game/Input`, read out of the scripts' `Cfg` table the way
+  `INP.LoadBindings` does; `CPlayer:Tick` turns them into an `Actions` bitmask
+  that reaches the mover through `ENTITY.PO_SetAction` and
+  `PLAYER.ExecAction`. Measured against `Tweak.PlayerMove`: walking settles at
+  7.9999 m/s against `PlayerSpeed` 8.0, and a jump rises 0.753 m. Air control,
+  the step ladder and what the player collides with all come from the binary —
+  see [`PlayerMovement.md`](Reference/PlayerMovement.md).
+- **The scripts own the camera.** `Game:Tick2` reads `MOUSE.GetDelta`,
+  accumulates onto `CAM.GetRawRotation` and writes back through `CAM.SetPos` /
+  `SetAng`; the C++ loop feeds the mouse in and adopts the result. The free
+  camera keeps its own look for noclip and for levels with no player yet.
+- **Triggers fire.** CBox ambushes poll the player globals in Lua, engine
+  regions post `REGION_ENTERED` / `REGION_LEFT` into `Game_GetMsg`, and hard
+  landings post `PLAYER_HIT_GROUND`.
+- **Weapons fire and land.** `WORLD.LineTrace` / `LineTraceFixedGeom`, the
+  ragdoll intersection-solver registry, the view model, and the hit reaction
+  through `ENTITY.PO_Hit` / `WORLD.HitPhysicObject`. Damage needed no native
+  work: a weapon traces, looks the entity up in `EntityToObject` and calls
+  `obj:OnDamage` — the chain was already live once the trace resolved to the
+  right handle.
+- **Contacts reach the scripts.** `COLLISION_WITH_OTHER_ENTITY` carries both
+  body handles and the velocity each had *at the contact*, so
+  `StdOnCollision` can compare impact speed against
+  `Destroy.MinSpeedOnCollision` and destructibles break when hit hard enough.
+- **Animation plays.** `MDL.LoadAnim` / `SetAnim` return real indices, the
+  clock natives (`GetAnimTime` / `GetAnimLength` / `GetAnimTimeScale` /
+  `SetAnimTimeScale` / `ResetFrame`) answer truthfully, and `EntityRenderer`
+  poses skinned models on the CPU. That also opens `CActor`'s animation-event
+  loop, which is how melee damage, footsteps and attack sounds fire.
+- **Monsters move.** `ENTITY.PO_Move`, `PO_IsOnFloor`, `SeesEntity` and
+  `WPT.Load` are real, root motion comes out of `GetAnimMovement`, and
+  `TickMonsters` sweeps each actor with the same swept sphere the player uses.
+  Their ground contact is still wrong in specific ways — see below.
+- **Ragdolls.** `MDL.EnableRagdoll`, the joint damping and friction setters,
+  `ApplyPointImpulseToRagdoll`, and `TickRagdolls` in the frame.
+- **HUD and sound.** The `HUD.DrawQuad` family with a real `MATERIAL.Create` /
+  `Size`, and the `SOUND` / `SOUND2D` / `SOUND3D` families over one mixed
+  device stream.
+
 ## What is missing
+
+The ordered work queue, with the evidence behind each item, is
+[`Plan.md`](Plan.md). This is the inventory.
+
+### Gameplay
+
+- **Explosions.** `WORLD.Explosion2` is a stub, and `Explosion()` in
+  `Main/Utils.lua` funnels every explosion in the game through it — 91 call
+  sites. Nothing takes radius damage or blast impulse: grenades, rockets,
+  barrels, the exploding cars. This is the largest single gap left.
+- **Monster ground contact.** They walk, but: a stationary monster is never
+  depenetrated (so one embedded in geometry stays embedded), there is no
+  step-up so any lip stops them dead, the floor normal handed to `CAiBrain` is
+  a hardcoded `(0,1,0)`, and the shape that sweeps is a ball at shin height
+  rather than the body everything else collides with.
+- **Pinning.** The stakegun cannot pin a corpse to a wall — its handler raises
+  on a nil from `PHYSICS.GetHavokBodyPosition` before it ever reaches the wall
+  test. `PinHavokBody`, `ENTITY.PO_SetPinned`, `MDL.SetPinned` /
+  `SetPinnedJoint` are all stubs, though `World/PhysicsWorld.cpp` already
+  branches `pinned ? Static : Dynamic` on the ragdoll path.
+- **Navigation queries.** `WPT.Load` parses the graph and nothing ever asks it
+  anything: `WPT.GetClosest` and `GetPosition` are stubs, so the "put this
+  monster back on the walkable set" correction in five monster scripts is
+  silently skipped by its own `if idx > -1` guard.
+- **Flying and scripted movers.** `PO_SetFlying`, `PO_MaintainVelocity` /
+  `MaintainLinearMovement` / `MaintainPosition`, `PO_EnableSpeedDamping`.
+  Alastor and the ravens have no mover at all.
+- **Grenade body semantics.** `PO_SetGrenade`, `PO_SetMissile` and
+  `PO_SetFreedomOfRotation` (which `Grenade.CItem`'s `Softness = 1` routes to)
+  are stubs, so there is no tumble constraint and no grenade-specific
+  handling. Mass, friction, restitution and damping do land.
+- **Collision-group plumbing.** `PO_SetCollisionGroup` (91 sites),
+  `PO_SetMovedByExplosions`, `EnableCollisionsToRagdoll` / `ToAll`,
+  `PO_Activate`. `CreateScriptBody` switches on groups 1 and 7 only.
+- **Gibbing and the ragdoll joint API.** `MDL.MakeGib`, `RagdollSelfExplosion`,
+  the `ApplyVelocitiesToJoint` / `ApplyRotationToJoint` family.
+- **Lifetime and world state.** `PARTICLE.Die` (68 sites — one-shot effects
+  never stop, so emitters leak), `WORLD.SetWorldSpeed` (slow motion),
+  `WORLD.RemoveEntity` / `DeleteDyingEntities`, `PHYSICS.SetGravity`.
+- No glass, buoyancy, ladders or ice. See [`Physics.md`](Reference/Physics.md).
+- `PLAYER.GetCameraFix` answers a literal 0, so there is no view bob or crouch
+  offset on the camera.
 
 ### Rendering
 
+- Decals and trails: `ENTITY.SpawnDecal` / `SpawnOrientedDecal` and
+  `AttachTrailToBones` are stubs, so no impact marks and no projectile trails.
+- Script-driven dynamic lights: `LIGHT.Setup` / `SetFalloff` and the
+  `ENVIRONMENT.Set*` family are stubs. Static `CLight`s already light models
+  (see Entity lighting above); what is missing is the runtime kind the scripts
+  create and retune.
+- Model material extras: `MESH.SetDetailMap` / `SetNormalMap` / `SetCubeMap` /
+  `SetSpecular`, `MDL.SetMaterial` / `SetTexture`, `MATERIAL.Replace`.
+- `R3D.SetCameraFOV` is a stub, so the field of view is fixed — no weapon zoom
+  and no FOV effects.
 - Water above the fixed-function tier: the EMBM cube pass, reflection and
   refraction render targets, and the `FXWater` programs inside `Water.fxo`.
-  See [`Water.md`](Reference/Water.md).
-- Texture rotation in the stage transform is not implemented either. Nothing in
-  the shipped data sets one - it can only arrive through a named xform, whose
-  contexts leave it at zero - so it is currently unreachable.
+  Also the water combine above the reflection — which `o.Water` property feeds
+  the diffuse and specular terms of `mad r0, t3, v0, v1` is not recoverable
+  from the shipped files — the vertex wave, and the swamp surface's
+  `$envcubemap`. See [`Water.md`](Reference/Water.md).
+- Texture rotation in the stage transform is not implemented. Nothing in the
+  shipped data sets one — it can only arrive through a named xform, whose
+  contexts leave it at zero — so it is currently unreachable.
 - The Factory conveyor strip (`tasmashape`) renders as grey mush where the
   original shows crisp ridges, and too bright. Several causes ruled out; the
   remaining suspect is its lightmap atlas region. Details in
   [`TextureTransforms.md`](Reference/TextureTransforms.md).
-- The water combine above the reflection: which `o.Water` property feeds the
-  diffuse and specular terms of `mad r0, t3, v0, v1` is not recoverable from
-  the shipped files. Also the vertex wave, and the swamp surface's
-  `$envcubemap`. See [`Water.md`](Reference/Water.md).
 - Post-processing: no bloom (`Bloom.fxo`), no shadow maps, no motion blur.
-- Dynamic lights and specular are not implemented — lighting is baked
-  lightmaps plus level ambient only.
-- Skeletal animation does not play back; models render in bind pose.
-- No decals (`Scripts/Decals`) and no trails (`Scripts/Trails`).
 - Particle texture animation uses frame 0 only, and the `WarpTex` refraction
   pass is not implemented.
-- Antiportal occlusion is parsed but unused, and portal frustum clipping is
+- Antiportal occlusion is parsed but unused, portal frustum clipping is
   approximate (a portal in view opens its zones, where the original narrows
-  the frustum through the portal polygon).
+  the frustum through the portal polygon), and `WORLD.UseSwitchZones` /
+  `EnablePortal` are stubs so levels cannot switch their own visibility.
 - A few `.mpk` per-object trailing bytes are still unparsed; they appear to
   hold extra blend-layer materials.
 
-### Script layer
-
-- The Lua 5.0.2 host boots the real game scripts: `Loader.lua` (68 files),
-  `Game:Init()` — 1054 templates preloaded — and the per-frame
-  `Game_Tick*/Render/GC` chain, with zero script errors, from the archives or
-  a loose tree alike (`PainfulTools lua <DataRoot> [frames] [level]`).
-  Unimplemented natives are instrumented stubs that report what the scripts
-  call, which is how the remaining API gets recovered.
-- **Script-driven level loading works**: `Game:LoadLevel` runs its own
-  pipeline — `.CLevel` via LoadObj, level templates, every entity instance
-  file, `Lev:Apply()`, `GObjects:Apply()` — and the `ENTITY.*`/`WORLD.*`
-  natives land in a real registry (`Source/Game/ScriptEngine`).
-  `PainfulEngine game <DataRoot> [level]` renders the result: on Cathedral
-  the scripts create 631 entities and the window shows the world, fog and
-  models they asked for.
-- **Physics runs on the script path**: `WORLD.LoadMap` builds the Jolt
-  static world synchronously, `ENTITY.PO_Create` makes each body bare and
-  the scripts dress it through the `PO_Set*` family — the original's own
-  division of work. Items settle onto the floor before the first frame, and
-  the camera collides and pushes props as in `run`.
-- **Sky, particles and coronas run on the script path**: the layered sky
-  through `WORLD.LoadSky`/`SetupSkyLayer`, effects through
-  `PARTICLE.AddEmitter`/`SetupEmitter` (resolution stays script-side), and
-  coronas through `BILLBOARD.SetupCorona`. The scripts create the item-bound
-  flames the hand-driven batch loader never resolved, so `game` shows more
-  than `run`.
-- **The player walks.** `Game:OnPlay` creates it through `CreatePlayer`, the
-  engine-side pawn moves from the `Tweak.PlayerMove` constants (as the
-  original divides the work — the mover recovered from
-  `PhysicsObject::PlayerAction`, see
-  [`PlayerMovement.md`](Reference/PlayerMovement.md)), the camera rides the pawn's
-  head, and `Game.Active` turns the whole gameplay loop on - actors tick,
-  weapons tick, and every item polls `PLAYER.GetDistanceFromPoint` for
-  pickup. `N` switches walk/fly.
-- **Triggers fire.** CBox ambushes poll the player globals in Lua (kept
-  alive by truthful mouse-lock natives), engine regions post
-  `REGION_ENTERED`/`REGION_LEFT` into `Game_GetMsg`, and hard landings post
-  `PLAYER_HIT_GROUND`. Walking into an ambush box spawns its monsters
-  through the full `CActor` chain — in bind pose, until animation lands.
-  Not yet: input actions (fire/use), entity-collision events, sound. See
-  [`LuaHost.md`](Reference/LuaHost.md).
-- **The player acts through the game's own seam.** Keys and bindings live in
-  `Source/Game/Input`, the bindings read out of the scripts' `Cfg` table the
-  way `INP.LoadBindings` does, and `CPlayer:Tick` turns them into an
-  `Actions` bitmask that reaches the mover through `ENTITY.PO_SetAction` and
-  `PLAYER.ExecAction` — so `PlayerPawn` now runs inside `Game_Tick` on the
-  scripts' mask rather than off the camera. Measured against
-  `Tweak.PlayerMove`: walking settles at 7.9999 m/s against `PlayerSpeed`
-  8.0, and a jump rises 0.753 m, which is what the recovered
-  `JumpStrength × PlayerSpeed × 0.7` gives under the same semi-implicit
-  step. Air control, the step ladder and what the player collides with all
-  come from the binary too — see [`PlayerMovement.md`](Reference/PlayerMovement.md).
-- **The scripts own the camera.** `Game:Tick2` reads `MOUSE.GetDelta`,
-  accumulates onto `CAM.GetRawRotation` and writes back through
-  `CAM.SetPos`/`SetAng`; the C++ loop feeds the mouse in and adopts the
-  result. The free camera keeps its own look for noclip and for levels with
-  no player yet.
-
 ### Everything else
 
-- `.pkm` mod packages do not auto-mount yet (their internal format is still an
-  open question — `GZipPack` exports hint the engine also reads real ZIPs).
-- `PLAYER.GetCameraFix` still answers 0, so there is no view bob or crouch
-  offset on the camera yet.
-- Firing has nowhere to land: the fire bits reach the weapon code, but
-  `WORLD.LineTrace` and the intersection-solver registry are still stubs.
-- **Nothing is animated.** `MDL.SetAnim` answers -1 and `MDL.GetAnimTimeScale`
-  answers 0, which also closes `CActor`'s animation-event loop — the path
-  melee damage, footsteps and attack sounds travel down. Entities draw in
-  bind pose.
-- **Monsters do not move.** They spawn from triggers through the full
-  `CActor` chain and then stand still: `ENTITY.PO_Move` is a stub (15 238
-  calls in a 400-frame run), as are `SeesEntity`, `PO_IsOnFloor` and
-  `WPT.Load`.
-- No ragdolls, glass, explosions, buoyancy, ladders or ice. See
-  [`Physics.md`](Reference/Physics.md).
-- No sound, no HUD, no menus, no save/load, no netcode.
+- Acoustic environments and sound occlusion: `WORLD.FindEnvironmentAtPoint`,
+  `SOUND.SetRoomType`, `SOUND3D.SetObstructed` / `SetIntensity`. Music streams
+  (`SOUND.StreamLoad` / `StreamPlay`) too.
+- No menus (the `PMENU` surface), no save/load (`WORLD.SaveGame` / `LoadGame`),
+  no netcode.
+- `.pkm` mod packages do not auto-mount yet — their internal format is still an
+  open question, and the `GZipPack` exports hint the engine also reads real
+  ZIPs.
 
-The measured gap and the order for closing it are in
-[`Gameplay_Roadmap.md`](Plan.md).
+### A caveat on the measurement
+
+The headless report currently raises a Lua error on every frame in
+`Hud:Quad`, because `AttachHud` is only called from the windowed path and
+`MATERIAL.Create` answers nil without it. The error unwinds out of
+`Game:PostRender`, so the report undercounts everything downstream of
+`Hud:Render`. It is also an idle run — nothing fires and no monster engages —
+so the weapon, explosion and AI natives are absent from its ranked list for
+lack of exercise rather than because they work. Both are covered in
+[`Plan.md`](Plan.md).
 
 ## Why it is built this way
 

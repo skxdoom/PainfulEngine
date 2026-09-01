@@ -2,8 +2,8 @@
 
 Asked because shots at a monster land against one small sphere near its feet.
 The answer is that PainEngine keeps **two entirely separate collision
-representations per entity**, and we currently implement one of them and use it
-for both jobs.
+representations per entity**. Both are now implemented; this is what each
+one is, and which job it does.
 
 ## Two representations, independently switchable
 
@@ -414,11 +414,19 @@ that it is never paired with an `Add`, and that is a signal only over time.
 
 ## Still open
 
-- **No ragdoll simulation.** Nothing falls. The boxes are posed by the
-  animation, which is `Ragdoll::Animate`; `Activate` - handing them to the
-  solver on death - is the next system, and the joint limits it needs are in
-  neither the `.rde` nor anywhere else in the shipped data.
-- **`MakeGib`, `EnableRagdoll` and the rest of the ragdoll natives are still
-  stubs**, so death still freezes a monster in its last pose.
+Ragdoll simulation has since landed: `MDL.EnableRagdoll` hands the boxes to the
+solver, `IsRagdoll` / `IsRagdollActive` answer truthfully, and `TickRagdolls`
+runs in the frame, so a dead monster falls instead of freezing in its last pose.
+What remains:
+
+- **The mover and the body are still two shapes.** `TickMonsters` sweeps its own
+  sphere, sized from mesh bounds, while the three-sphere body is only what
+  others hit — so the body work does not affect pathing. Unifying them on the
+  recovered shape is the remaining piece, and it is what makes monsters stop at
+  ledges the player walks over. See [`../Plan.md`](../Plan.md).
+- **`MDL.MakeGib` and the pin family are still stubs** — `SetPinned`,
+  `SetPinnedJoint`, `SetRagdollCollisionGroup`, `RagdollSelfExplosion`,
+  `SetRagdollMovedByExplosions`. So a corpse cannot be gibbed, and nothing can
+  be pinned to a wall.
 - **Props with an `.rde` still answer on their script body**, not per limb.
   Breakable props and `BodyTypes.FromRagdoll` are their own question.
