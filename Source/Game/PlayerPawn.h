@@ -64,6 +64,10 @@ public:
         out[2] = head_[2];
     }
     bool onGround() const { return onGround_; }
+    // Whether the LAST Move actually performed a jump. ENTITY.PO_JumpedInLastAction
+    // answers with this: CPlayer:Tick plays hero_jump on it, and inferring it
+    // from "left the ground" made every stair play the sound.
+    bool jumpedLastMove() const { return jumpedThisMove_; }
     float currentSpeed() const { return speed_; }
 
     // The pawn's actual world velocity this frame, which is what
@@ -148,6 +152,7 @@ private:
     float groundedTime_ = 0.f;       // seconds since touchdown
     float jumpQueuedFor_ = 0.f;      // before-landing buffer countdown
     bool jumpHeld_ = false;          // edge detection for hop presses
+    bool jumpedThisMove_ = false;    // an actual jump, not just airborne
     uint32_t takeoffMask_ = 0;       // movement bits frozen at takeoff
     float airDir_[2] = {0, 0};       // last frame's travel direction (x, z)
     float landingImpact_ = 0.f;      // fall speed at the last touchdown

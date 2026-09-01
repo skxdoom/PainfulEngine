@@ -156,6 +156,49 @@ covers 7.33 and gains 1.42 height; another goes 5.46 → 7.23. Flat directions
 are untouched at 7.98–8.00, and a descending one pays the penalty, 7.99 →
 7.22.
 
+
+### The step must not fire against a wall, and must land somewhere it can stand
+
+Reported from play: the player jumps when pushing a prop or walking into a
+wall, and a small step reads as a weak jump with the jump sound on it.
+
+Three separate faults, all in the port rather than in the recovered ladder.
+
+**A swept sphere SLIDES, so pressing into a wall looked like progress.** The
+engine's top rung is a forward LINE TRACE at 0.86 and a block there is a wall -
+direction cleared, no vertical response. Retrying the move from `startY + 0.86`
+with a swept sphere and comparing raw distance let sliding ALONG the wall count
+as "higher up there is room", so the pawn climbed a fraction every frame and
+gravity pulled it back. The gain is now measured along the WISH DIRECTION, and
+must beat the ground result by more than SlideSphere's own skin.
+
+**A step was kept even where the pawn could not rest.** Placed on an edge, the
+ground probe below then reported it airborne and gravity returned it next
+frame. The step is now only taken when a short probe at the new position comes
+back grounded.
+
+Measured on Cathedral, walking into one obstacle for 800 frames: **712 frames
+with vertical movement before, 0 after** - a fall of about 0.15 followed by a
+pop of +0.14 to +0.22, repeating. Walking eight directions for a second each,
+the ratchet shows up as height gained while going nowhere:
+
+| direction | dist before → after | height before → after |
+|---|---|---|
+| back-left | 1.77 → **2.42** | **+1.52** → +0.44 |
+| forward-left | 8.82 → **9.81** | -0.07 → +0.09 |
+| left | 2.49 → **2.85** | +0.63 → +0.61 |
+| forward | 8.00 → 8.00 | -0.06 → -0.06 |
+
+Climbing is preserved and horizontal progress improves, because a frame spent
+ratcheting up a wall is a frame not spent sliding along it.
+
+**`PO_JumpedInLastAction` has to mean an actual jump.** It was inferred as
+"was grounded, now is not", which a step-up satisfies - and `CPlayer:Tick`
+plays `hero_jump_1/2` on it, which is where the sound on a stair came from.
+`PlayerPawn` now records whether the move really applied the jump velocity.
+Measured: walking into an obstacle for 460 frames reports 0 jump frames, an
+actual jump reports 1.
+
 ## What the player collides with
 
 `Tweak.PlayerMove.MaximalItemPushMass` (2500) is the line between what can be

@@ -21,6 +21,7 @@ void PlayerPawn::SetHeadPos(const float p[3]) {
 void PlayerPawn::Move(const PhysicsWorld& physics, const Tweaks& tweaks,
                       uint32_t action, const float right[3], float dt) {
     if (dt <= 0.f) return;
+    jumpedThisMove_ = false;
     dt = std::min(dt, 0.05f);   // a hitch must not become a teleport
 
     const float playerSpeed = float(tweaks.Number("PlayerMove.PlayerSpeed", 8.0));
@@ -88,6 +89,9 @@ void PlayerPawn::Move(const PhysicsWorld& physics, const Tweaks& tweaks,
         if (wantsJump) {
             // The engine's jump: JumpStrength * PlayerSpeed * 0.7.
             velY_ = jumpStrength * playerSpeed * 0.7f;
+            // The scripts' jump sound hangs off this, so it must mean an actual
+            // jump and not merely leaving the ground - a step-up does that too.
+            jumpedThisMove_ = true;
             if (wantsHop) {
                 // A timely hop grows the speed toward the cap; a plain jump
                 // from standing keeps whatever speed stood.
@@ -180,38 +184,62 @@ void PlayerPawn::Move(const PhysicsWorld& physics, const Tweaks& tweaks,
     // StepCheck, after the engine's own ladder (see kStepMax in the header).
     // When a grounded move comes up short of what was asked, retry it from
     // the top of what the engine would still climb and settle back down onto
-    // whatever is there. Keep it only if it actually got further.
+    // whatever is there.
     const float wantX = vx * dt, wantZ = vz * dt;
     const float want2 = wantX * wantX + wantZ * wantZ;
     if (wasGrounded && want2 > 1e-8f) {
         const float gotX = feet[0] - startX, gotZ = feet[2] - startZ;
         const float got2 = gotX * gotX + gotZ * gotZ;
         if (got2 < want2 * 0.81f) {           // blocked: under 90% of the ask
+            // MEASURED ALONG THE WISH, NOT AS ANY MOTION AT ALL.
+            //
+            // The engine's top rung is a forward LINE TRACE at 0.86, and a
+            // block there is a WALL - direction cleared, no vertical response.
+            // A swept sphere SLIDES instead, so pressing into a wall produces
+            // lateral motion, and comparing raw distances let that count as
+            // "higher up there is room": the pawn climbed a fraction every
+            // frame and gravity pulled it back down. Measured wedged against
+            // one obstacle on Cathedral, 712 vertical moves in 800 frames -
+            // a fall of ~0.15 followed by a +0.14 to +0.22 pop, forever.
+            const float invWant = 1.f / std::sqrt(want2);
+            const float wishX = wantX * invWant, wishZ = wantZ * invWant;
+            const float gotAlong = gotX * wishX + gotZ * wishZ;
+
             float step[3] = {startX, startY + kStepMax, startZ};
             const float over[3] = {wantX, 0.f, wantZ};
             physics.SlideSphere(step, over, kRadius, true);
-            const float sX = step[0] - startX, sZ = step[2] - startZ;
-            if (sX * sX + sZ * sZ > got2) {
-                // Higher up there is room. Drop back onto the step; if
-                // nothing is under it the descent finds the original floor
-                // again, so this cannot leave the player hovering.
+            const float sAlong = (step[0] - startX) * wishX + (step[2] - startZ) * wishZ;
+            // Comfortably past SlideSphere's own 0.02 skin, so a step is taken
+            // for real progress rather than for numerical noise.
+            if (sAlong > gotAlong + 0.05f) {
+                // Drop back onto the step.
                 const float back[3] = {0.f, -kStepMax, 0.f};
                 physics.SlideSphere(step, back, kRadius, true);
-                for (int c = 0; c < 3; ++c) feet[c] = step[c];
 
-                // Anything above the free rung is charged for: the engine
-                // scales that frame's velocity by 0.3, which on a fixed step
-                // is the same as scaling the distance it just covered. That
-                // cut, against a rise of up to 0.86 in one frame, is what
-                // gives a step its small hop.
-                if (feet[1] - startY > kStepFree) {
-                    feet[0] = startX + (feet[0] - startX) * kStepPenalty;
-                    feet[2] = startZ + (feet[2] - startZ) * kStepPenalty;
+                // ONLY IF THE PAWN CAN STAND THERE.
+                //
+                // A step it cannot rest on is the other half of the bounce:
+                // the pawn was placed on an edge, the ground probe below
+                // reported it airborne, and gravity returned it next frame.
+                float rest[3] = {step[0], step[1], step[2]};
+                const float settle[3] = {0.f, -0.06f, 0.f};
+                physics.SlideSphere(rest, settle, kRadius, true);
+                if ((step[1] - rest[1]) < 0.045f) {
+                    for (int c = 0; c < 3; ++c) feet[c] = step[c];
+
+                    // Anything above the free rung is charged for: the engine
+                    // scales that frame's velocity by 0.3, which on a fixed
+                    // step is the same as scaling the distance it just
+                    // covered. That cut, against a rise of up to 0.86 in one
+                    // frame, is what gives a step its small hop.
+                    if (feet[1] - startY > kStepFree) {
+                        feet[0] = startX + (feet[0] - startX) * kStepPenalty;
+                        feet[2] = startZ + (feet[2] - startZ) * kStepPenalty;
+                    }
                 }
             }
         }
     }
-
     // A downhill ground-follow was tried here - cast a step down after the
     // move and take the contact, so a descent does not drop the pawn into
     // the airborne branch. Measured across eight directions it helped

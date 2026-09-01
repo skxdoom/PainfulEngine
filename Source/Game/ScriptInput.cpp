@@ -134,10 +134,9 @@ int ScriptEngine::L_PLAYER_ExecAction(lua_State* L) {
     const float right[3] = {float(luaL_optnumber(L, 6, 0)),
                             float(luaL_optnumber(L, 7, 0)),
                             float(luaL_optnumber(L, 8, 0))};
-    const bool wasOnGround = self->pawn_->onGround();
     self->pawn_->Move(*self->physics_, self->physics_->tweaks(), e->action, right,
                       self->frameDelta_);
-    e->jumpedLastAction = wasOnGround && !self->pawn_->onGround();
+    e->jumpedLastAction = self->pawn_->jumpedLastMove();
     self->SyncPlayerFromPawn();
     return 0;
 }
