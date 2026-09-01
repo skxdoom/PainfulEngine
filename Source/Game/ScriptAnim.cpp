@@ -602,4 +602,30 @@ void ScriptEngine::TickAnimations(float dt) {
 }
 
 
+// MDL.SetMeshVisibility(entity, meshName, on)
+//
+// One named mesh of one model, shown or hidden. 0x1013c780 reads the handle,
+// the name and a BOOL DEFAULTING TO FALSE, and skips anything that is not a
+// Model (it tests the entity's type against 4 before touching it).
+//
+// The Painkiller's alt fire hides nine of them - polySurfaceShape28, 49, 46,
+// 50, 47, 44, pCylinderShape14, 29 and kolekShape - so the gun reads as empty
+// while its head is away, and BackHeadSFX shows them again when it returns.
+// Monsters use the same call to drop gib parts, and the menu to swap heads.
+int ScriptEngine::L_MDL_SetMeshVisibility(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e || e->type != kModel) return 0;
+    const char* mesh = luaL_optstring(L, 2, "");
+    if (!mesh || !*mesh) return 0;
+    const bool on = lua_toboolean(L, 3) != 0;
+    // Remembered on the entity as well as pushed at the renderer: a script
+    // instance is rebuilt whenever its model is reassigned, and the hidden
+    // set has to survive that or the blades come back on their own.
+    e->hiddenMeshes[mesh] = on;
+    if (self->renderer_ && e->rendererInstance >= 0)
+        self->renderer_->SetScriptMeshVisibility(e->rendererInstance, mesh, on);
+    return 0;
+}
+
 }  // namespace painful

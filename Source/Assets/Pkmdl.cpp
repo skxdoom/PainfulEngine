@@ -261,9 +261,21 @@ bool Model::Load(const std::string& path, Model& out) {
                 }
             }
         }
-        // Fall back to the last non-path string only if the material header did
-        // not already yield the mesh name.
-        if (mesh.name.empty()) {
+        // Fall back to the last non-path string when the material header did
+        // not yield a mesh name - or yielded a PATH instead of one.
+        //
+        // The header's leading string is usually the shape name, but not
+        // always: every one of pkw.pkmdl's 13 meshes comes through it as
+        // "Models/PKW_PB.tga", the texture. A mesh name is never a path - the
+        // format's own convention is the Maya shape name, which is what carries
+        // the material variant ("polySurfa_2sided") and what the scripts
+        // address meshes by (MDL.SetMeshVisibility hides "polySurfaceShape28"
+        // on exactly this model). Taking the texture left all 13 sharing one
+        // name, so per-mesh material overrides and visibility could not tell
+        // them apart.
+        const bool namedLikeAPath = mesh.name.find('/') != std::string::npos ||
+                                    mesh.name.find('.') != std::string::npos;
+        if (mesh.name.empty() || namedLikeAPath) {
             for (size_t i = pending.size(); i-- > 0;) {
                 const std::string& str = pending[i];
                 if (str.find('.') == std::string::npos && str.find('/') == std::string::npos) {

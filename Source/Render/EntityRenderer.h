@@ -72,6 +72,10 @@ public:
     // returns the instance to its bind pose.
     void SetScriptSkinning(int slot, const Mat4* skin, size_t count);
     void SetScriptVisible(int slot, bool visible);
+    // MDL.SetMeshVisibility(entity, meshName, on) - hides ONE named mesh of an
+    // instance. The Painkiller hides nine of them so the gun reads as empty
+    // while its head is away; monsters hide gib parts the same way.
+    void SetScriptMeshVisibility(int slot, const std::string& meshName, bool visible);
     void ReleaseScript(int slot);
     // World-space size of the instance's model (bind-pose bounds times its
     // scale) - what ENTITY.GetDimensions reports.
@@ -117,6 +121,9 @@ private:
         // which is the entry that makes the swamp water scroll. One material
         // for a whole model could never see that.
         MaterialState material;
+        // The mesh this part came from. SetMeshVisibility addresses parts by
+        // name, and cpu is dropped for anything unskinned, so it is kept here.
+        std::string name;
     };
     struct GpuModel {
         std::vector<Part> parts;
@@ -158,6 +165,10 @@ private:
         // hidden.
         bool alive = true;
         bool visible = true;
+        // MDL.SetMeshVisibility: which of the model's parts this instance hides.
+        // Per instance, not per model - the viewmodel hides its blades while
+        // another copy of the same model keeps them. Empty means all shown.
+        std::vector<uint8_t> hiddenParts;
         // The environment cross-fade this instance is in the middle of. Per
         // instance because two monks either side of a doorway are at different
         // points of the same fade.

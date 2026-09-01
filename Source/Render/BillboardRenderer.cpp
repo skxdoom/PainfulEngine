@@ -354,10 +354,21 @@ void BillboardRenderer::DrawImmediate(const float pos[3], float size, float rot,
     immediate_.push_back(s);
 }
 
+void BillboardRenderer::DrawBeamImmediate(const float a[3], const float b[3], float width,
+                                          uint32_t abgr, bgfx::TextureHandle texture) {
+    Beam beam;
+    for (int c = 0; c < 3; ++c) { beam.a[c] = a[c]; beam.b[c] = b[c]; }
+    beam.width = width;
+    beam.abgr = abgr;
+    beam.texture = texture;
+    beams_.push_back(beam);
+}
+
 void BillboardRenderer::Draw(bgfx::ViewId view, const Camera& camera) {
     drawCalls_ = 0;
-    if (!bgfx::isValid(program_) || (sprites_.empty() && immediate_.empty())) {
+    if (!bgfx::isValid(program_) || (sprites_.empty() && immediate_.empty() && beams_.empty())) {
         immediate_.clear();
+        beams_.clear();
         return;
     }
 
@@ -469,6 +480,72 @@ void BillboardRenderer::Draw(bgfx::ViewId view, const Camera& camera) {
         ++drawCalls_;
     }
     immediate_.clear();
+
+    // The beams. One degree of freedom: the quad's long edge IS the segment,
+    // and it turns about that segment so its face is toward the eye. The side
+    // vector is therefore the axis crossed with the line of sight, not a
+    // camera axis - a beam pointing at the viewer must not flip inside out.
+    for (const Beam& beam : beams_) {
+        if (bgfx::getAvailTransientVertexBuffer(4, layout_) < 4) break;
+        if (bgfx::getAvailTransientIndexBuffer(6) < 6) break;
+
+        float axis[3] = {beam.b[0] - beam.a[0], beam.b[1] - beam.a[1], beam.b[2] - beam.a[2]};
+        const float len = std::sqrt(axis[0]*axis[0] + axis[1]*axis[1] + axis[2]*axis[2]);
+        if (len < 1e-5f) continue;
+        for (int c = 0; c < 3; ++c) axis[c] /= len;
+
+        // Toward the eye from the middle of the segment.
+        const float mid[3] = {(beam.a[0] + beam.b[0]) * 0.5f, (beam.a[1] + beam.b[1]) * 0.5f,
+                              (beam.a[2] + beam.b[2]) * 0.5f};
+        float toEye[3] = {camera.pos[0] - mid[0], camera.pos[1] - mid[1],
+                          camera.pos[2] - mid[2]};
+        float side[3] = {axis[1]*toEye[2] - axis[2]*toEye[1],
+                         axis[2]*toEye[0] - axis[0]*toEye[2],
+                         axis[0]*toEye[1] - axis[1]*toEye[0]};
+        float sideLen = std::sqrt(side[0]*side[0] + side[1]*side[1] + side[2]*side[2]);
+        if (sideLen < 1e-5f) {
+            // Looking straight down the beam: any perpendicular will do, and
+            // the quad is edge-on anyway.
+            const float alt[3] = {axis[1], axis[2], axis[0]};
+            side[0] = axis[1]*alt[2] - axis[2]*alt[1];
+            side[1] = axis[2]*alt[0] - axis[0]*alt[2];
+            side[2] = axis[0]*alt[1] - axis[1]*alt[0];
+            sideLen = std::sqrt(side[0]*side[0] + side[1]*side[1] + side[2]*side[2]);
+            if (sideLen < 1e-5f) continue;
+        }
+        for (int c = 0; c < 3; ++c) side[c] *= beam.width / sideLen;
+
+        bgfx::TransientVertexBuffer tvb;
+        bgfx::TransientIndexBuffer tib;
+        bgfx::allocTransientVertexBuffer(&tvb, 4, layout_);
+        bgfx::allocTransientIndexBuffer(&tib, 6);
+        BillboardVertex* v = reinterpret_cast<BillboardVertex*>(tvb.data);
+        uint16_t* idx = reinterpret_cast<uint16_t*>(tib.data);
+
+        // V runs across the beam, U along it, so a trail texture stretches from
+        // one end to the other rather than tiling.
+        v[0] = {beam.a[0] - side[0], beam.a[1] - side[1], beam.a[2] - side[2],
+                beam.abgr, 0.f, 0.f};
+        v[1] = {beam.a[0] + side[0], beam.a[1] + side[1], beam.a[2] + side[2],
+                beam.abgr, 0.f, 1.f};
+        v[2] = {beam.b[0] + side[0], beam.b[1] + side[1], beam.b[2] + side[2],
+                beam.abgr, 1.f, 1.f};
+        v[3] = {beam.b[0] - side[0], beam.b[1] - side[1], beam.b[2] - side[2],
+                beam.abgr, 1.f, 0.f};
+        idx[0] = 0; idx[1] = 1; idx[2] = 2;
+        idx[3] = 0; idx[4] = 2; idx[5] = 3;
+
+        // Same alpha-weighted additive the sprites use, and depth-tested: the
+        // beam is hidden by anything between the gun and the head.
+        bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_MSAA | BGFX_STATE_DEPTH_TEST_LESS |
+                       BlendModeState(kBlendAlpha));
+        bgfx::setVertexBuffer(0, &tvb);
+        bgfx::setIndexBuffer(&tib);
+        bgfx::setTexture(0, sDiffuse_, beam.texture);
+        bgfx::submit(view, program_);
+        ++drawCalls_;
+    }
+    beams_.clear();
 }
 
 } // namespace painful

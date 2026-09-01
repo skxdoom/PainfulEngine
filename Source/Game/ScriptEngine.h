@@ -1,4 +1,5 @@
 #pragma once
+#include <map>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -97,6 +98,9 @@ public:
         float soundInterval = -1.f;      // arg 5: >= 0 loops, -1 plays once
         float soundStartIn = -1.f;       // SND.Play's delay, counted down
         int soundVoice = 0;              // the AudioEngine voice, 0 when silent
+        // MDL.SetMeshVisibility, kept so it survives the renderer instance
+        // being rebuilt. name -> shown.
+        std::map<std::string, bool> hiddenMeshes;
         // What this entity is bound to, and where on it.
         //
         // ENTITY.RegisterChild names the parent; PARTICLE.SetParentOffset gives
@@ -690,10 +694,12 @@ private:
     static int L_MDL_EnableJoint(lua_State* L);
     // PHYSICS.RemoveHavokBodyFromIS(he, on) - one BODY out of the traces.
     static int L_PHYSICS_RemoveHavokBodyFromIS(lua_State* L);
+    static int L_PHYSICS_IsHavokBodyInWorld(lua_State* L);
     static int L_SetPosAndRotRelativeToCamera(lua_State* L);
     static int L_GetType(lua_State* L);
     static int L_PARTICLE_SetEvolve(lua_State* L);
     static int L_MDL_SetAnim(lua_State* L);
+    static int L_MDL_SetMeshVisibility(lua_State* L);
     static int L_MDL_GetAnimLength(lua_State* L);
     static int L_MDL_GetAnimTime(lua_State* L);
     static int L_MDL_SetAnimTime(lua_State* L);
@@ -808,6 +814,7 @@ private:
     static int L_PMENU_SetBorderColumn(lua_State* L);
     static int L_R3D_GetAvailableResolutions(lua_State* L);
     static int L_R3D_DrawSprite(lua_State* L);
+    static int L_R3D_DrawSprite1DOF(lua_State* L);
     static int L_ENTITY_RegisterChild(lua_State* L);
     static int L_ENTITY_GetChildByName(lua_State* L);
     static int L_ENTITY_KillAllChildrenByName(lua_State* L);

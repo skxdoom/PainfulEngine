@@ -55,6 +55,8 @@ public:
     // CProcess that calls it from Render every frame it lives, so there is no
     // slot to keep - and unlike a corona it carries a ROTATION, which is what
     // stops four shots in a row looking like the same picture.
+    void DrawBeamImmediate(const float a[3], const float b[3], float width,
+                           uint32_t abgr, bgfx::TextureHandle texture);
     void DrawImmediate(const float pos[3], float size, float rot, uint32_t abgr,
                        bgfx::TextureHandle texture);
     void RemoveScriptSprite(int slot);
@@ -113,6 +115,18 @@ private:
         bgfx::TextureHandle texture;
     };
     std::vector<Immediate> immediate_;
+
+    // R3D.DrawSprite1DOF: a quad stretched between two world points that spins
+    // about that axis to face the viewer - one degree of freedom, hence the
+    // name. The Painkiller draws its energy beam from the gun to its stuck
+    // head this way, one per frame while the head is attached.
+    struct Beam {
+        float a[3], b[3];
+        float width;
+        uint32_t abgr;
+        bgfx::TextureHandle texture;
+    };
+    std::vector<Beam> beams_;
 
     void FadeTick(Sprite& s, bool nowVisible, float dt) const;
 

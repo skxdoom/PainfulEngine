@@ -657,6 +657,37 @@ int ScriptEngine::L_PHYSICS_RemoveHavokBodyFromIS(lua_State* L) {
     return 0;
 }
 
+// PHYSICS.IsHavokBodyInWorld(body) -> is that body still in the world?
+//
+// 0x101297d0 takes one handle and pushes a bool. Small, and load-bearing:
+// PainHead:Tick nils its body handle when this answers false -
+//
+//     if not PHYSICS.IsHavokBodyInWorld(he) then he = nil end
+//
+// - because a body can be gone by the time the hit is resolved (the thing
+// gibbed, and Ragdoll.Remove took it). Unimplemented, the call returned nil,
+// `not nil` is true, and `he` was cleared on EVERY hit. Every
+// WORLD.HitPhysicObject below that line then got nothing, which is why the alt
+// fire moved debris - spawned fresh and hit through another path - but never
+// shoved an intact prop.
+//
+// Both kinds of handle a trace can report have to answer here: a script body
+// slot, and the encoded limb handle a hit on a monster's bone reports.
+int ScriptEngine::L_PHYSICS_IsHavokBodyInWorld(lua_State* L) {
+    ScriptEngine* self = From(L);
+    bool live = false;
+    if (lua_isnumber(L, 1)) {
+        const int handle = int(lua_tonumber(L, 1));
+        int entity = 0, joint = -1;
+        if (self->LimbFromHandle(handle, entity, joint))
+            live = self->Find(entity) != nullptr;
+        else if (handle >= 0 && self->physics_)
+            live = self->physics_->ScriptBodyExists(handle);
+    }
+    lua_pushboolean(L, live ? 1 : 0);
+    return 1;
+}
+
 // The limb boxes of one model, derived once and kept.
 //
 // Deriving them means loading the model again for its SKIN WEIGHTS, which the

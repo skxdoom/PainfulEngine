@@ -495,5 +495,38 @@ int ScriptEngine::L_R3D_DrawSprite(lua_State* L) {
     return 0;
 }
 
+// R3D.DrawSprite1DOF(x1,y1,z1, x2,y2,z2, width, argb, texture, [flags])
+//
+// A sprite with ONE degree of freedom: the quad's long edge is the segment
+// between the two points, and it turns about that edge to face the eye.
+// 0x1013f170 reads the two points, a width, an int colour and a texture name,
+// builds a Sprite1DOF and hands it to ParticleSystem::RenderSprites with the
+// camera - so it is a particle-style quad, drawn for this frame only.
+//
+// PainKiller:Render draws one of these every frame from the gun to its stuck
+// head, which is the energy beam the alt fire is named for.
+int ScriptEngine::L_R3D_DrawSprite1DOF(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (!self->billboards_ || !self->hudTextures_) return 0;
+    const float a[3] = {float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
+                        float(luaL_optnumber(L, 3, 0))};
+    const float b[3] = {float(luaL_optnumber(L, 4, 0)), float(luaL_optnumber(L, 5, 0)),
+                        float(luaL_optnumber(L, 6, 0))};
+    const float width = float(luaL_optnumber(L, 7, 0.0));
+    const uint32_t argb = uint32_t(int64_t(luaL_optnumber(L, 8, -1)));
+    const char* texture = luaL_optstring(L, 9, "");
+    if (!texture || !*texture || width <= 0.f) return 0;
+
+    const uint32_t al = (argb >> 24) & 0xFF, r = (argb >> 16) & 0xFF;
+    const uint32_t g = (argb >> 8) & 0xFF, bl = argb & 0xFF;
+    // R3D.RGB leaves the alpha byte at zero and the beam is additive, so an
+    // absent alpha means opaque rather than invisible.
+    const uint32_t abgr = ((al ? al : 255u) << 24) | (bl << 16) | (g << 8) | r;
+
+    self->billboards_->DrawBeamImmediate(a, b, width, abgr,
+                                         self->hudTextures_->Get(texture, ""));
+    return 0;
+}
+
 
 }  // namespace painful

@@ -161,6 +161,13 @@ void ScriptEngine::CreateRendererInstance(Entity& e) {
         e.rendererInstance =
             renderer_->CreateScriptPack(pack, e.mesh, e.scale, *textures_, root);
     }
+    // A rebuilt instance starts with every mesh shown, so the hidden set has to
+    // be replayed - otherwise swapping a weapon's model brings back the blades
+    // its alt fire had hidden.
+    if (e.rendererInstance >= 0 && renderer_) {
+        for (const auto& kv : e.hiddenMeshes)
+            renderer_->SetScriptMeshVisibility(e.rendererInstance, kv.first, kv.second);
+    }
     if (e.rendererInstance >= 0) SyncPose(e);
 }
 

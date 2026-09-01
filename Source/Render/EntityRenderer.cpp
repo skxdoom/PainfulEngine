@@ -6,6 +6,7 @@
 #include "MeshVertex.h"
 
 #include <algorithm>
+#include <cctype>
 #include <bx/math.h>
 #include <cmath>
 #include <cstring>
@@ -15,6 +16,15 @@ namespace painful {
 
 namespace {
 
+// Mesh names come from the model file; the scripts spell them by hand.
+bool EqualsNoCase(const std::string& a, const std::string& b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i)
+        if (std::tolower(static_cast<unsigned char>(a[i])) !=
+            std::tolower(static_cast<unsigned char>(b[i])))
+            return false;
+    return true;
+}
 bgfx::ShaderHandle LoadShader(const std::string& path) {
     std::vector<uint8_t> data;
     if (!ReadFile(path, data) || data.empty()) return BGFX_INVALID_HANDLE;
@@ -208,6 +218,7 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
             // unskinned model would be paying for a copy nothing ever reads.
             // Only the owning slot keeps it - the posed buffer is shared.
             if (mesh.hasSkin() && s == 0) part.cpu = mesh;
+            part.name = mesh.name;
             part.vbo = vbo;
             part.ownsVbo = gpu.parts.size() == ownerIndex;
             part.vboOwner = ownerIndex;
@@ -515,6 +526,26 @@ void EntityRenderer::SetScriptVisible(int slot, bool visible) {
     instances_[slot].visible = visible;
 }
 
+// One named mesh of one instance. A model mesh split across material slots is
+// several parts under the SAME name, so every match is set - hiding "blades"
+// must take all of it, not just its first material run.
+void EntityRenderer::SetScriptMeshVisibility(int slot, const std::string& meshName,
+                                             bool visible) {
+    if (slot < 0 || size_t(slot) >= instances_.size() || meshName.empty()) return;
+    Instance& inst = instances_[slot];
+    if (inst.model >= models_.size()) return;
+    const GpuModel& model = models_[inst.model];
+    if (inst.hiddenParts.size() != model.parts.size())
+        inst.hiddenParts.assign(model.parts.size(), 0);
+    for (size_t i = 0; i < model.parts.size(); ++i) {
+        // Mesh names come from the model file and the script's spelling of
+        // them is authored by hand, so match the way every other name lookup
+        // in the engine does.
+        if (EqualsNoCase(model.parts[i].name, meshName))
+            inst.hiddenParts[i] = visible ? 0 : 1;
+    }
+}
+
 void EntityRenderer::ReleaseScript(int slot) {
     if (slot < 0 || size_t(slot) >= instances_.size()) return;
     Instance& inst = instances_[slot];
@@ -690,7 +721,12 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
         // Identity UV transform: entity meshes carry no per-slot xform.
         const float identityUv[4] = {1.f, 1.f, 0.f, 0.f};
 
-        for (const Part& part : model.parts) {
+        for (size_t partIndex = 0; partIndex < model.parts.size(); ++partIndex) {
+            const Part& part = model.parts[partIndex];
+            // MDL.SetMeshVisibility hid this one on this instance.
+            if (partIndex < instance.hiddenParts.size() &&
+                instance.hiddenParts[partIndex])
+                continue;
             // Material is per part: one model can mix an ordinary skinned mesh
             // with a scrolling water surface.
             const MaterialState& mat = part.material;
