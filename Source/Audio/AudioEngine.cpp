@@ -324,12 +324,18 @@ AudioEngine::Voice AudioEngine::Play3D(const std::string& name, const float pos[
 
 // The setters all take the lock because the mixing callback reads what they
 // write. They are short enough that the audio thread never waits long.
+// A Voice is a PACKED handle - index in the low 16 bits, generation in the
+// high 16 - which is what Open returns and what Resolve decodes. Treating it as
+// a bare 1-based index made every setter here a silent no-op: the second voice
+// of the second generation is 0x20002 = 131074, which fails the bounds check
+// against 512 voices and returns. Nothing a script Created could be started,
+// stopped, looped or moved - SOUND2D/SOUND3D.Create hands the script one of
+// these handles and every call it then makes with it went nowhere.
 #define PAINFUL_VOICE(v)                                                     \
-    if ((v) <= 0) return;                                                    \
     std::lock_guard<std::mutex> guard(lock_);                                \
-    if (size_t(v) > voices_.size()) return;                                  \
-    Playing& p = voices_[size_t(v) - 1];                                     \
-    if (!p.used) return;
+    Playing* resolved = Resolve(v);                                          \
+    if (!resolved) return;                                                   \
+    Playing& p = *resolved;
 
 void AudioEngine::Start(Voice v) {
     PAINFUL_VOICE(v)

@@ -89,6 +89,14 @@ public:
         // it was drawn for and hangs in the air.
         bool dieWithParent = true;
         std::string soundName;
+        // A Sound entity's own voice, set up by SND.Setup3D and started by
+        // SND.Play. The name alone is what the child-by-name lookup needs; the
+        // rest is what makes it audible and keeps it on the thing it follows.
+        float soundDist1 = 10.f;         // Setup3D arg 3, default 10
+        float soundDist2 = 20.f;         // Setup3D arg 4, default 20
+        float soundInterval = -1.f;      // arg 5: >= 0 loops, -1 plays once
+        float soundStartIn = -1.f;       // SND.Play's delay, counted down
+        int soundVoice = 0;              // the AudioEngine voice, 0 when silent
         // What this entity is bound to, and where on it.
         //
         // ENTITY.RegisterChild names the parent; PARTICLE.SetParentOffset gives
@@ -418,6 +426,9 @@ public:
     // Counts down ENTITY.SetTimeToDie and reaps whatever has run out. Call
     // once per frame; transient debris and spent projectiles depend on it.
     void TickLifetimes(float dt);
+    // Bound 3D sounds: start the delayed ones, follow what they hang off.
+    void StartBoundSound(Entity& e);
+    void TickSounds(float dt);
 
     // Spends what PO_Move stored: walks every monster body by its wish vector
     // through the same swept sphere the player uses, and reports the floor.
@@ -803,6 +814,10 @@ private:
     static int L_ENTITY_KillAllChildren(lua_State* L);
     static int L_ENTITY_UnregisterAllChildren(lua_State* L);
     static int L_SND_Setup3D(lua_State* L);
+    static int L_SND_EntityPlay(lua_State* L);
+    static int L_SND_EntityStop(lua_State* L);
+    static int L_SND_EntityIsPlaying(lua_State* L);
+    static int L_SND_GetSound3DPtr(lua_State* L);
     static int L_PO_EnableGravity(lua_State* L);
     static int L_PMENU_AddStaticText(lua_State* L);
     static int L_PMENU_AddTextButton(lua_State* L);

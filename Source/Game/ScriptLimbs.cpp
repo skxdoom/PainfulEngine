@@ -313,13 +313,20 @@ int ScriptEngine::L_ENTITY_KillAllChildrenByName(lua_State* L) {
     Entity* parent = self->Find(HandleArg(L, 1));
     const char* name = luaL_optstring(L, 2, "");
     if (!parent || !name || !*name) return 0;
-    for (size_t i = parent->children.size(); i-- > 0;) {
-        const Entity* c = self->Find(parent->children[i]);
-        if (!c || (c->soundName != name && c->name != name)) continue;
-        self->ReleaseEntity(parent->children[i]);
-        parent->children.erase(parent->children.begin() + long(i));
+    // Collected first, then released. ReleaseEntity unlinks the child from
+    // THIS list itself - that is what its back-link cleanup does - so erasing
+    // here as well walked off the end of a vector that had already shrunk.
+    std::vector<int> doomed;
+    for (int handle : parent->children) {
+        const Entity* c = self->Find(handle);
+        if (c && (c->soundName == name || c->name == name)) doomed.push_back(handle);
     }
-    return 0;
+    for (int handle : doomed) self->ReleaseEntity(handle);
+    // Stake:Tick asks whether anything went - `if KillAllChildrenByName(se,
+    // "stakeflame") then` is how it decides the stake was burning and owes a
+    // puff of smoke. Returning nothing made that test read false every time.
+    lua_pushboolean(L, doomed.empty() ? 0 : 1);
+    return 1;
 }
 
 int ScriptEngine::L_ENTITY_KillAllChildren(lua_State* L) {
@@ -339,22 +346,35 @@ int ScriptEngine::L_ENTITY_KillAllChildren(lua_State* L) {
     return 0;
 }
 
+// ENTITY.UnregisterAllChildren(parent, [type])
+//
 // Forgets the children without destroying them, which is what the scripts want
 // when an owner dies but its effects should finish on their own.
+//
+// The second argument is an ETypes FILTER, and dropping it took every child
+// rather than the named kind. Stake:Tick unregisters its TRAIL on impact and
+// then, on the very next line, kills its flight loop by name:
+//
+//     ENTITY.UnregisterAllChildren(se, ETypes.Trail)
+//     ENTITY.KillAllChildrenByName(se, "weapons/stake/stake_onfly-loop")
+//
+// With the filter ignored the first call emptied the list, so the second found
+// nothing to kill and the stake screamed from the wall for the rest of the
+// level. Harmless while SND.Play was a stub; audible the moment it was not.
 int ScriptEngine::L_ENTITY_UnregisterAllChildren(lua_State* L) {
     ScriptEngine* self = From(L);
-    if (Entity* parent = self->Find(HandleArg(L, 1))) parent->children.clear();
+    Entity* parent = self->Find(HandleArg(L, 1));
+    if (!parent) return 0;
+    const int type = lua_isnumber(L, 2) ? int(lua_tonumber(L, 2)) : -1;
+    for (size_t i = parent->children.size(); i-- > 0;) {
+        Entity* c = self->Find(parent->children[i]);
+        if (type >= 0 && (!c || c->type != type)) continue;
+        if (c) c->parent = 0;               // forgotten, not killed
+        parent->children.erase(parent->children.begin() + long(i));
+    }
     return 0;
 }
 
-// SND.Setup3D(entity, soundName, ...) - names a Sound entity. The audio itself
-// is stage 2 of the sound work; the NAME is what the child lookup above needs,
-// and storing it is what lets a powerup's loop be found and removed by name.
-int ScriptEngine::L_SND_Setup3D(lua_State* L) {
-    ScriptEngine* self = From(L);
-    if (Entity* e = self->Find(HandleArg(L, 1))) e->soundName = luaL_optstring(L, 2, "");
-    return 0;
-}
 
 
 // ENTITY.PO_EnableGravity(entity, on)

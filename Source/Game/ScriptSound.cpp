@@ -113,11 +113,22 @@ int ScriptEngine::L_SND_SetVolume(lua_State* L) {
     return 0;
 }
 
+// SOUND2D/SOUND3D.SetLoopCount(voice, count) - count is MILES' count, not ours.
+//
+// The native passes the script's value straight to Miles with a default of 0
+// (Engine.dll 0x10125ce0 -> MilesEngine::Sound3D_SetLoopCount), and Miles reads
+// 0 as "loop forever", 1 as "play once", n as "play n times". The scripts agree:
+// of the 24 call sites passing 0, every one is a sustained loop - _sndRotor,
+// _loopSnd, _rain, _sndElectro - and the 12 passing 1 are all "let the current
+// pass finish, then stop" on a sound already looping.
+//
+// AudioEngine counts down instead, so forever is -1 there and 0 would silence
+// exactly the sounds the scripts loop most. Translate at the boundary.
 int ScriptEngine::L_SND_SetLoopCount(lua_State* L) {
     ScriptEngine* self = From(L);
-    if (self->audio_)
-        self->audio_->SetLoopCount(int(luaL_optnumber(L, 1, 0)),
-                                   int(luaL_optnumber(L, 2, 0)));
+    if (!self->audio_) return 0;
+    const int miles = int(luaL_optnumber(L, 2, 0));
+    self->audio_->SetLoopCount(int(luaL_optnumber(L, 1, 0)), miles == 0 ? -1 : miles);
     return 0;
 }
 
@@ -530,5 +541,114 @@ int ScriptEngine::L_PO_SetAngularDamping(lua_State* L) {
     return 0;
 }
 
+// ---------------------------------------------------------- bound 3D sounds
+//
+// A sound that belongs to a THING rather than to a point: the loop a flying
+// PainHead carries, a monster's move loop, a turret spinning. The scripts make
+// a Sound entity, hang it off its owner with ENTITY.RegisterChild, describe it
+// with SND.Setup3D and start it with SND.Play - BindSoundToEntity (Utils.lua)
+// is that sequence, and 23 call sites use it.
+//
+// SND is entity-addressed where SOUND2D/SOUND3D are voice-addressed, and
+// SND.GetSound3DPtr is the bridge: it hands back the voice so a script can then
+// drive it with the voice API. Only Setup3D, GetSound3DPtr and
+// SetVelocityScaleFactor were recovered from the registration table
+// (0x102C28C8); Play, Stop and IsPlaying are called by the scripts on the same
+// entity handles, so they are implemented to that contract rather than to a
+// recovered address.
+
+// SND.Setup3D(entity, name, dist1=10, dist2=20, interval=-1, ?, dontAutoDelete)
+//
+// Argument order and every default is from 0x10139620, which reads them
+// backwards - GetBool(7), GetFloat(6,10), GetFloat(5,-1), GetFloat(4,20),
+// GetFloat(3,10), GetString(2) - and calls Sound::Setup3D.
+//
+// interval is the gap between repeats: BindSoundToEntity passes 0 for a looping
+// sound and -1 for a one-shot, the same polarity Miles uses for loop counts.
+int ScriptEngine::L_SND_Setup3D(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e) return 0;
+    e->soundName = luaL_optstring(L, 2, "");
+    e->soundDist1 = float(luaL_optnumber(L, 3, 10.0));
+    e->soundDist2 = float(luaL_optnumber(L, 4, 20.0));
+    e->soundInterval = float(luaL_optnumber(L, 5, -1.0));
+    // The sound's own position is its offset ON its parent - BindSoundToEntity
+    // calls ENTITY.SetPosition before RegisterChild - and binding it here is
+    // what makes it FOLLOW. RegisterChild alone only records who owns it.
+    if (e->parent != 0 && !e->parentBound) {
+        for (int c = 0; c < 3; ++c) e->parentOffset[c] = e->pos[c];
+        e->parentBound = true;
+    }
+    return 0;
+}
+
+// SND.Play(entity, delay) - delay in seconds, counted down by TickSounds.
+int ScriptEngine::L_SND_EntityPlay(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e || !self->audio_ || e->soundName.empty()) return 0;
+    const float delay = float(luaL_optnumber(L, 2, 0.0));
+    if (delay > 0.f) { e->soundStartIn = delay; return 0; }
+    self->StartBoundSound(*e);
+    return 0;
+}
+
+int ScriptEngine::L_SND_EntityStop(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e) return 0;
+    e->soundStartIn = -1.f;
+    if (self->audio_ && e->soundVoice) self->audio_->Stop(e->soundVoice);
+    return 0;
+}
+
+int ScriptEngine::L_SND_EntityIsPlaying(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const Entity* e = self->Find(HandleArg(L, 1));
+    const bool on = e && self->audio_ && e->soundVoice &&
+                    self->audio_->IsPlaying(e->soundVoice);
+    lua_pushboolean(L, on ? 1 : 0);
+    return 1;
+}
+
+// The voice behind a Sound entity, so a script can hand it to the SOUND3D
+// natives - Beast, Ghost and Witch all keep the pointer and set the volume or
+// the speed on it directly.
+int ScriptEngine::L_SND_GetSound3DPtr(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const Entity* e = self->Find(HandleArg(L, 1));
+    lua_pushnumber(L, e ? e->soundVoice : 0);
+    return 1;
+}
+
+void ScriptEngine::StartBoundSound(Entity& e) {
+    if (!audio_ || e.soundName.empty()) return;
+    if (e.soundVoice) audio_->Release(e.soundVoice, false);
+    e.soundVoice = audio_->Create(e.soundName, true);
+    if (!e.soundVoice) return;
+    audio_->SetHearingDistance(e.soundVoice, e.soundDist1, e.soundDist2);
+    // interval >= 0 repeats; AudioEngine counts down, so forever is -1 there.
+    audio_->SetLoopCount(e.soundVoice, e.soundInterval >= 0.f ? -1 : 1);
+    audio_->SetPosition(e.soundVoice, e.pos);
+    audio_->Start(e.soundVoice);
+}
+
+// Started late, and kept on the thing it hangs off. UpdateAttached has already
+// placed the bound entities for this frame, so pos is current.
+void ScriptEngine::TickSounds(float dt) {
+    if (!audio_) return;
+    for (auto& kv : entities_) {
+        Entity& e = kv.second;
+        if (e.soundStartIn >= 0.f) {
+            e.soundStartIn -= dt;
+            if (e.soundStartIn <= 0.f) {
+                e.soundStartIn = -1.f;
+                StartBoundSound(e);
+            }
+        }
+        if (e.soundVoice) audio_->SetPosition(e.soundVoice, e.pos);
+    }
+}
 
 }  // namespace painful

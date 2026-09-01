@@ -51,7 +51,9 @@ public:
     void SetVolume(Voice v, float volume);
     void SetPosition(Voice v, const float pos[3]);
     void SetHearingDistance(Voice v, float dist1, float dist2);
-    // 0 or 1 plays once; anything else loops. The scripts pass -1 for "forever".
+    // Counts down: 0 or 1 plays once, n plays n times, negative loops forever.
+    // NOT the scripts' convention - Miles reads 0 as forever - so the native
+    // translates. See L_SND_SetLoopCount.
     void SetLoopCount(Voice v, int count);
     void SetSpeed(Voice v, float speed);
 
