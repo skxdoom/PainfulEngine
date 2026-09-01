@@ -304,6 +304,29 @@ A looping animation crossing its own end holds at the last key rather than
 wrapping, so the step across the seam contributes nothing instead of reporting
 the whole loop's travel as one backwards lurch.
 
+
+## OPEN: two entity teleports that are NOT the pose
+
+Both found by logging per-frame entity steps with the AI running
+(`PAINFUL_PLAYER_AT="-291.9,-2.4,-14.0"` on Cathedral, 900 frames). Baselines
+from the same run: `walk` averages 0.0193 units a frame, `idle` and `atak1` are
+effectively zero.
+
+**A dying monk snaps to exactly (0,0,0).** `EvilMonkV2_ThrowAndDie_001` moves
+275.98 units to the world origin the frame it dies, on `atakthrow_deth`, with
+`_died = true` and `MDL.IsRagdoll` false. Bracketing the frame shows the write
+lands in the ENGINE phase, not the script phase. Ruled out by measurement:
+`ENTITY.SetPosition` and `ENTITY.PO_Move` (hooked from Lua, never called with a
+large delta), `PlaceAttached` (the monk is a child's PARENT, not a child), and
+guarding `TickRagdolls`' root adoption on `PhysicsWorld::RagdollActive` - which
+did not change the result. Whatever writes it is one of the remaining engine
+ticks, and finding it wants a C++ probe over `e.pos` rather than more Lua hooks.
+
+**`atakthrow` moves the actor when nothing should be moving it.** Sustained
+0.111-0.142 units a frame for seven frames - about 8 units a second, ~0.9 units
+of travel - with `_moveWithAnimation` false, so `MoveWithAnimation` is not the
+source. Mean step over the animation is 0.0366 against 0.0014 for `atak1`.
+
 ## Order
 
 1. ~~**The clock.**~~ **Done.** `SetAnim` returning a real per-entity index, `GetAnimTime`,
@@ -344,6 +367,75 @@ first:
   then a monk's attack event should land damage on the player, which is the
   whole reason this stage matters.
 
+
+## The mover drives, the animation plays in place
+
+Asked because a walk cycle that loops on the spot looks like a bug, and because
+getting this backwards would be invisible until every monster in the game
+walked at the wrong speed.
+
+**It is not root motion.** PainEngine makes the same division a modern engine
+does: `UpdateWalking` moves the actor at the template's `WalkSpeed`/`RunSpeed`
+through `ENTITY.PO_Move`, and the animation plays in place with its baked
+travel removed from the pose. Root motion is an explicit per-animation opt-in
+for special moves, not how locomotion works.
+
+The animations DO carry travel - `evilmonkv2.walk` slides `ROOOT` 26.96 model
+units down +Z, `run` slides 50.68 - so the question is only ever whether that
+travel is what moves the monster. Three measurements say no:
+
+| | WalkSpeed | RunSpeed | anim walk | anim run |
+|---|---:|---:|---:|---:|
+| `Bagbaby` | 1.0 | 1.0 | 1.0 | **2.5** |
+| `Corn` | 1.0 | 1.0 | 1.0 | **2.0** |
+| `Boy` | 1.0 | 1.0 | 0.7 | **1.5** |
+| `Deto` | 1.6 | **2.6** | 1.0 | **0.9** |
+
+1. Most monsters declare **`WalkSpeed == RunSpeed`** while their walk and run
+   animations play at very different rates. Under root motion Bagbaby would run
+   2.5x faster than it walks; the template says both are 1.0.
+2. **`Deto` inverts it.** It runs 1.6x faster than it walks (1.6 -> 2.6) while
+   its run animation plays SLOWER than its walk animation (1.0 -> 0.9). No
+   root-motion scheme can produce that.
+3. `evilmonkv2`'s run bakes 1.88x walk's travel *and* plays 2.13x faster
+   (0.9 -> 1.92), which under root motion is about 4x the ground speed. Both
+   are declared 1.2.
+
+So the per-animation speed multiplier is hand-tuned FOOT SYNC - make the stride
+look right at the speed the mover is already going - and it is not even
+consistent with the declared speed, which is the tell.
+
+### The two flags are different questions
+
+`s_SubClass.Animations[name]` is `{speed, movingcurve, events, blend, moveWith}`:
+
+| element | meaning |
+|---|---|
+| `[2]` `movingcurve` | this animation HAS baked travel: report it through `GetAnimMovement`, and take it out of the pose |
+| `[5]` | SPEND that travel on the actor - real root motion, for lunges and boss moves |
+
+`CActor:SetAnim` resets `_moveWithAnimation` to false (`CActor.lua:732`) before
+re-deciding it from `[5]`, so it is scoped to one animation and does not leak
+into the next.
+
+**The pose must therefore strip the travel whenever the curve declares it**,
+whether or not anything spends it. Leaving it in makes the mesh stride away
+from the monster and snap back every time the loop wraps - measured at 3.215
+world units of drift on `walk` and a 3.186-unit snap at the wrap. Gating the
+subtraction on "did someone take it" was tried and is wrong for exactly that
+reason.
+
+### Harness notes, both of which produced false readings first
+
+- **`animTime` is per ENTITY, not per slot.** `MDL.GetAnimTime(e, idx)` reports
+  the clock of whatever is actually playing, so a probe that sets one animation
+  and reads another's index silently measures the wrong thing.
+- **`CActor` re-sets the animation every tick and takes the clock back.** Set
+  `_enabledRD = true` and `CActor:SetAnim` bails at its first guard, which lets
+  a test own the animation. Without it, `MDL.SetAnim` from a probe is undone
+  before the next pose - and since `SetAnim` also resets `animTime` to 0, the
+  clock appears frozen.
+
 ## Root motion has to come OUT of the pose
 
 Reported from play: monsters walked forward, snapped back to where they
@@ -372,6 +464,35 @@ Worth knowing for testing: **a headless run never exercises this.** Monsters
 idle when they cannot see the player, `idle` declares no movement curve, and
 `PosedBones` is only reached when a renderer is attached - so the correction
 has to be forced to be seen outside a real game.
+
+
+### Both sides of a cross-fade, or the mesh jumps when it stops
+
+A blended pose contains the OUTGOING animation's bones as well as the incoming
+one's, and the outgoing bones still carry their root travel. Subtracting only
+the incoming animation's curve leaves the previous one's accumulated stride in
+the blend.
+
+Fading from `walk` to `idle` is the common case - every monster that reaches its
+destination does it - and idle declares no curve at all, so nothing was removed.
+Measured on Cathedral, posed `ROOOT` distance from the entity across the switch:
+
+| frame | before | after |
+|---|---:|---:|
+| f-1 (walking) | 0.000 | 0.000 |
+| f (switch) | **2.922** | 0.000 |
+| f+1 | 2.679 | 0.000 |
+| ... | -0.244 a frame | 0.000 |
+| f+12 (fade done) | 0.000 | 0.000 |
+
+So the mesh snapped nearly three units the instant the monk stopped and slid
+back over the 0.2s fade. The offset is now computed for each side from ITS OWN
+slot's mask and bone, at its own time, and blended with the same weight the
+pose is - which is zero for a curve-less animation and makes the arithmetic
+work without a special case.
+
+Checked in all four directions (`walk`->`idle`, `idle`->`walk`, `walk`->`atak`,
+`atak`->`walk`): biggest one-frame step 0.000 in each.
 
 ## Blending: the fifth argument, finally used
 

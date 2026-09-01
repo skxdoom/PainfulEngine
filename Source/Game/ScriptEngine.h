@@ -531,6 +531,11 @@ private:
     // all ordinary answers, and every caller has to handle them because the
     // scripts ask boneless props for joints all the time.
     const std::vector<Mat4>* PosedBones(Entity& e);
+    // The travel one animation's curve bone has accumulated at a given time,
+    // on the axes it declares. Both sides of a cross-fade need it.
+    void CurveOffset(Entity& e, const SkeletonCache::Entry* skel, int slotIndex,
+                     const std::vector<const AnimTrack*>& tracks, float time,
+                     float out[3]);
 
     // Root motion for one animation slot over `delta` seconds, masked to the
     // axes its movement curve declares. Writes nothing when the slot has no

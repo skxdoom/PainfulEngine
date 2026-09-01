@@ -279,6 +279,38 @@ void ScriptEngine::AnimMovement(Entity& e, int index, float delta, float out[3])
         if (slot.curveMask & kAxisBit[c]) out[c] = (b[c] - a[c]) * e.scale;
 }
 
+namespace {
+
+// Which slot holds this animation, or -1. A cross-fade knows the outgoing
+// Animation* but not the slot that carries its movement curve.
+int SlotOfAnim(const ScriptEngine::Entity& e, const Animation* anim) {
+    if (!anim) return -1;
+    for (size_t i = 0; i < e.animSlots.size(); ++i)
+        if (e.animSlots[i].anim == anim) return int(i);
+    return -1;
+}
+
+}  // namespace
+
+// How far one animation's curve bone has travelled at `time`, on the axes that
+// animation declares. Zero for a slot with no curve, which is what makes the
+// blend arithmetic below work without a special case.
+void ScriptEngine::CurveOffset(Entity& e, const SkeletonCache::Entry* skel, int slotIndex,
+                               const std::vector<const AnimTrack*>& tracks, float time,
+                               float out[3]) {
+    out[0] = out[1] = out[2] = 0.f;
+    if (!skel || slotIndex < 0 || size_t(slotIndex) >= e.animSlots.size()) return;
+    Entity::AnimSlot& slot = e.animSlots[size_t(slotIndex)];
+    if (slot.curveMask == 0 || ResolveCurveBone(slot, *skel) < 0) return;
+    if (tracks.size() != skel->bones.size()) return;
+
+    float at[3];
+    if (!ComputeBonePositionAtTime(skel->bones, tracks, slot.curveBoneIndex, time, at)) return;
+    static const uint32_t kAxisBit[3] = {1, 2, 4};
+    for (int c = 0; c < 3; ++c)
+        if (slot.curveMask & kAxisBit[c]) out[c] = at[c];
+}
+
 const std::vector<Mat4>* ScriptEngine::PosedBones(Entity& e) {
     if (e.type != kModel || e.source.empty()) return nullptr;
     const SkeletonCache::Entry* skel = skeletons_.Get(e.source);
@@ -325,32 +357,41 @@ const std::vector<Mat4>* ScriptEngine::PosedBones(Entity& e) {
         e.pose.time = e.animTime;
         e.pose.rotVersion = e.jointRotVersion;
         e.pose.blendU = blendU;
-
         // Take the root motion back out of the POSE.
         //
         // An animation with a movement curve carries its own travel: the walk
         // cycle slides ROOOT 25.9 model units down +Z, and every bone hangs off
-        // it. That travel is extracted by GetAnimMovement and spent on the
-        // ENTITY, so leaving it in the pose as well moves the actor twice -
-        // the mesh strides ahead of where the monster actually is and snaps
-        // back to it every time the loop wraps.
+        // it. The mover is what actually carries the actor (see "The mover
+        // drives, the animation plays in place" in Docs/Reference/Animation.md),
+        // so that travel has to come out or the mesh strides away from the
+        // monster and snaps back every time the loop wraps.
         //
         // Only the axes the curve declares are removed. ETransZ takes the
         // forward travel out and deliberately leaves the vertical, so the
         // actor still bobs as it walks.
-        if (anim && e.animIndex >= 0) {
-            Entity::AnimSlot& slot = e.animSlots[size_t(e.animIndex)];
-            if (slot.curveMask != 0 && ResolveCurveBone(slot, *skel) >= 0) {
-                float at[3];
-                if (ComputeBonePositionAtTime(skel->bones, e.pose.tracks,
-                                              slot.curveBoneIndex, e.animTime, at)) {
-                    static const uint32_t kAxisBit[3] = {1, 2, 4};
-                    for (int c = 0; c < 3; ++c)
-                        if (!(slot.curveMask & kAxisBit[c])) at[c] = 0.f;
-                    for (Mat4& m : e.pose.boneWorld)
-                        for (int c = 0; c < 3; ++c) m.m[12 + c] -= at[c];
-                }
+        //
+        // BOTH SIDES OF A CROSS-FADE, weighted the same way the pose is.
+        //
+        // A blended pose contains the OUTGOING animation's bones too, and its
+        // root travel is still in them. Subtracting only the incoming
+        // animation's curve left the walk's accumulated stride in the blend:
+        // switching to idle snapped the mesh 2.922 units in one frame and slid
+        // it back over the 0.2s fade. Fading to an animation with no curve at
+        // all is the common case - every walk that ends in idle - which is why
+        // it read as the monster jumping whenever it stopped.
+        {
+            float at[3] = {0.f, 0.f, 0.f};
+            CurveOffset(e, skel, e.animIndex, e.pose.tracks, e.animTime, at);
+            if (e.blendFrom && blendU < 1.f) {
+                float from[3] = {0.f, 0.f, 0.f};
+                CurveOffset(e, skel, SlotOfAnim(e, e.blendFrom), e.blendFromTracks,
+                            e.blendFromTime, from);
+                for (int c = 0; c < 3; ++c)
+                    at[c] = from[c] * (1.f - blendU) + at[c] * blendU;
             }
+            if (at[0] != 0.f || at[1] != 0.f || at[2] != 0.f)
+                for (Mat4& m : e.pose.boneWorld)
+                    for (int c = 0; c < 3; ++c) m.m[12 + c] -= at[c];
         }
     }
     return &e.pose.boneWorld;
