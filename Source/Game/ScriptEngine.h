@@ -744,7 +744,7 @@ private:
     static int L_MESH_SetDefaultDetailMaps(lua_State* L);
 
     // The 2D layer. Argument order, defaults and colour packing all follow
-    // the shipped Engine.dll; see Docs/Hud.md for where each came from.
+    // the shipped Engine.dll; see Docs/Reference/Hud.md for where each came from.
     static int L_MATERIAL_Create(lua_State* L);
     static int L_MATERIAL_Release(lua_State* L);
     static int L_MATERIAL_Size(lua_State* L);

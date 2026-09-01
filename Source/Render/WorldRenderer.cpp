@@ -110,7 +110,7 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
     // The level-wide detail map, applied to world geometry the way
     // MESH.SetDefaultDetailMaps does (addsigned grain, heavy tiling).
     // WorldMesh::SetupMaterials hardcodes both of these rather than taking them
-    // from the map - see Docs/Water.md.
+    // from the map - see Docs/Reference/Water.md.
     waterChunks_ = 0;
     waterNormal_ = textures.Get("special/ripples_00", levelHint);
     waterCube_   = textures.GetCube("special/cube_wenecja", levelHint);

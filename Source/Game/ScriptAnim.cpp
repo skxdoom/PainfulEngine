@@ -38,7 +38,7 @@ void Normalize3x3Rows(float m[9]) {
 //
 // blend, mcurve and hasMovingCurveRot are accepted and ignored: blending and
 // root motion are their own problems, and guessing at them is how conventions
-// get broken here. See Docs/Animation.md.
+// get broken here. See Docs/Reference/Animation.md.
 int ScriptEngine::L_MDL_SetAnim(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
@@ -511,7 +511,7 @@ int ScriptEngine::L_MDL_ApplyJointRotation(lua_State* L) {
 // MDL.GetVelocitiesFromJoint(e, joint) -> vx,vy,vz,vl, ax,ay,az,al: a ragdoll
 // joint's linear and angular velocity, each with its magnitude.
 //
-// Ragdoll is its own system and has not been built (Docs/Animation.md stage
+// Ragdoll is its own system and has not been built (Docs/Reference/Animation.md stage
 // 4), so a joint that no ragdoll is driving has no velocity - and zero is the
 // true answer for that, not a placeholder standing in for one. The scripts
 // read it to decide whether a hanging chain should creak; nothing is swinging,

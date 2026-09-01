@@ -71,7 +71,7 @@ private:
         Mat4 transform;
         MaterialState material;          // from the game's .shader scripts
         // Water surfaces take a separate program: a reflection sampled from a
-        // cube map through a scrolling normal map. See Docs/Water.md.
+        // cube map through a scrolling normal map. See Docs/Reference/Water.md.
         bool isWater = false;
         float aabbLo[3], aabbHi[3];      // world-space bounds, for culling
         std::vector<uint16_t> zones;     // every zone the chunk overlaps; empty = always drawn

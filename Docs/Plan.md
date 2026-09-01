@@ -1,8 +1,53 @@
-# Gameplay roadmap
+# Plan — what is left, and why in this order
 
-Where the port stands on *playing the game*, what the scripts are still asking
-for, and the order to close the gap. Measured, not guessed: every number below
-comes from the host's own call report.
+The forward-looking half of the project. What already works is in
+[`Status.md`](Status.md); the recovered rules are in [`Reference/`](Reference).
+
+## The strategic finding
+
+**Painkiller's gameplay logic is not compiled.** It lives in 431 Lua 5.0 files plus
+thousands of serialised property tables (`.CActor`, `.CItem`, `.CWeapon`, ...).
+Weapons, monsters, AI, HUD, menus and level scripting are all script-side.
+
+That changes what a source port *is*. You are not reimplementing Painkiller's game
+design — you are implementing the **native API those scripts call**, and letting the
+original scripts drive it. The porting specification is therefore concrete and
+finite rather than open-ended:
+
+| Measure | Count |
+|---|---|
+| Native Lua functions recovered from `Engine.dll` | 941 |
+| ...excluding Lua's own standard library | ~846 |
+| ...actually called by the shipped scripts | **790** |
+| ...covering **80%** of all 14,387 call sites | **113** |
+
+A prioritised, call-frequency-ranked list is in
+[`native_priority.tsv`](Data/native_priority.tsv) (name, call count, module). Start at
+the top of that file; it is the work queue.
+
+The top of the queue is dominated by a few modules — ragdoll/joints
+(`GetJointIndex`, `SetAnim`, `GetJointPos`, `TransformPointByJoint`), world
+mesh/collision (`PO_Create`, `SetVelocity`, `GetPosition`, `EnableCollisions`),
+console/logging (`Print`, `AddMessage`), and sound. Implement those and a large
+fraction of the scripts start doing something.
+
+
+## Known unknowns
+
+These are the honest gaps that will need work during the port:
+- Material blocks are now solved for both formats, so exports can be textured.
+  Remaining: 7 of 2,532 model meshes still fail the exact-landing material parse,
+  and a few per-object bytes after the last `.mpk` material are unmapped. Neither
+  blocks rendering.
+- **Native signatures.** We have names and addresses but not argument lists. M2's
+  instrumented stubs are the cheapest way to recover them — log the actual Lua
+  arguments at runtime rather than reading disassembly.
+- **`.pfx` particles** and the remaining small unidentified native tables.
+- **Gameplay feel.** `PhysicsObject::FixHavokPositionBug` shows behaviour was tuned
+  around Havok's quirks; ragdoll feel under Jolt will differ and need retuning.
+- The `.pkmdl` geometry header preceding the index array varies between models, so
+  PainKit uses a strict-then-loose heuristic. Fully mapping it would remove that.
+
 
 ## The measurement
 
@@ -63,7 +108,7 @@ PLAYER.ExecAction(self._Entity, 0, fv.X,fv.Y,fv.Z, rv.X,rv.Y,rv.Z)
 ```
 
 `PLAYER.ExecAction` *is* the entry to `PhysicsObject::PlayerAction`
-(0x10192260) already recovered in [`PlayerMovement.md`](PlayerMovement.md).
+(0x10192260) already recovered in [`PlayerMovement.md`](Reference/PlayerMovement.md).
 `PlayerPawn` used to bypass this and derive its own wish-direction from the
 C++ camera, which works for walking around and can never produce firing,
 weapon switching, rocket jumps or the bunny-hop windows, because all of those
@@ -115,7 +160,7 @@ calls** from 153 / 82,843, the movement measures against `Tweak.PlayerMove`
 (7.9999 m/s against `PlayerSpeed` 8.0), and the scripts now steer the view
 through `Game:Tick2`. Air control, pawn height, the step ladder and what the
 player collides with were all corrected against the binary along the way —
-[`PlayerMovement.md`](PlayerMovement.md) and [`LuaHost.md`](LuaHost.md) carry
+[`PlayerMovement.md`](Reference/PlayerMovement.md) and [`LuaHost.md`](Reference/LuaHost.md) carry
 the recovered rules.
 
 1. **Input state** - an `Input` service fed from SDL, exposing virtual-key
@@ -132,7 +177,7 @@ the recovered rules.
    `PO_IsActionState` / `PO_JumpedInLastAction` against a per-entity mask.
 5. **`PLAYER.ExecAction(e, 0, fwd, right)`** drives `PlayerPawn` from the
    action bits and the passed basis instead of the camera, per
-   [`PlayerMovement.md`](PlayerMovement.md). `PLAYER.FloorCheck` reports the
+   [`PlayerMovement.md`](Reference/PlayerMovement.md). `PLAYER.FloorCheck` reports the
    ground test.
 6. **Camera handover** - `CAM.SetPos` / `SetAng` / `SetPositionDisplacement` /
    `EnableInterpolation`, `MOUSE.GetDelta` fed with real motion and
@@ -228,171 +273,17 @@ Menus (`PMENU`), dynamic lights (`LIGHT.Setup`), material extras
 (`MESH.SetNormalMap` / `SetDetailMap` / `SetCubeMap`) and save/load sit
 outside this line and can be picked up whenever they block something.
 
-## Pre-existing faults found by sweeping every level
 
-Testing four levels hid these. Running all 56 headless for 200 frames each is
-cheap and should be the standard check before calling a stage done.
+## Open questions
 
-**Fixed here.** Thirteen levels threw 188 errors each and Alastor 198 - one
-per tick, every tick, aborting `Game_Tick` and with it the whole object update:
-
-- `CItem.lua:965`, `attempt to compare number with nil` - `GetVelocitiesFromJoint`
-  returned nothing, and an object with a `RagdollCreakSound` compares its
-  fourth return against a threshold every pass. The guard above it only prints
-  when the joint is missing; it does not stop the timer. Now returns eight
-  zeros, which is the true velocity of a joint no ragdoll is driving.
-- `CActor.lua:1086`, `arithmetic on local 'mvx' (a nil value)` - `VectorRotate`,
-  as above.
-
-**Still open.**
-
-- **Three levels crash outright** at the same point every time, immediately
-  after `R3D.KeepDecals(false)` during level start, before the tick loop:
-  `C3L3_Military_Base`, `C6L1_Orphanage`, `C6L4_City`. Process exit 127, no
-  Lua error, so this is native. In a working level the next calls are
-  `WORLD.EnablePortal(...)`. Not investigated - its own task.
-- **`C3L5_Ruins` and `C6L10_Shadowland`** each throw one error at load, in
-  `Thor.lua:78`, `attempt to concatenate local 'count'`. Once per level rather
-  than per tick, so it costs one monster rather than the update.
-
-## Monsters are moved, not simulated
-
-Reported from play: monks stood walking inside a wall, and the player could
-bowl them across the level like barrels. One cause behind both - an actor was
-an ordinary **dynamic rigid body**.
-
-Engine.dll says it should not be. `PO_SetMonsterType` (0x101313C0) sets one
-flag bit at `PhysicsObject+0x74` and nothing else, and `PO_Move` (0x10130D50)
-**moves nothing at all**: it writes three floats to `PhysicsObject+0x34..0x3c`
-and returns. It is a setter, like `PO_SetAction`, and the physics step spends
-what it stored. A monster is a body the engine *carries*, not one it
-simulates.
-
-So the body becomes kinematic the moment the monster flag arrives (it cannot
-be done at `PO_Create`, which is called before the flag), and `TickMonsters`
-walks it with the same swept sphere the player moves with. Nothing can push
-it, it cannot tumble, and it is stopped by the geometry that stops the player.
-`PO_Move`'s vector is a VELOCITY - `CActor` passes `mv * (1/delta)`.
-
-Recovered layout, worth keeping:
-
-| offset | field |
-|---|---|
-| +0x34..0x3c | `PO_Move`'s wish vector |
-| +0x68, +0x71 | floor normal / on-floor, what `PO_IsOnFloor` returns |
-| +0x6c, +0x70 | `PO_SetMonsterMovementConst`'s two arguments (0.5, false) |
-| +0x74 | flags; bit 2 = monster |
-| +0x78 | the action mask |
-
-`PO_Create` also writes 22.0, pi/2, 6.0, pi/2 to +0x24..+0x30 immediately
-after creating the object - the SIGHT parameters, seeded before any script
-sets them; see below.
-
-### The shape was the actual bug
-
-`CreateScriptBody` sizes a sphere by the **largest** half-extent, which is
-right for a barrel and wrong for a character: `evilmonkv2` is 14.4 model units
-across the ARMS against a body 2.9 deep, so a monk was a sphere wider than it
-was tall and could not approach a wall. Monsters now take the smaller
-horizontal half-extent - 0.35 world units for a monk.
-
-And a `.pkmdl`'s origin is the **middle of the model, not the ground under
-it**: `evilmonkv2` measures `y[-12.80..10.11]`, so its feet are 12.8 units
-below the position the scripts set. Assuming a foot origin and lifting the
-sphere by a radius made monks climb out of the world at exactly one radius per
-tick, which is how the mistake was caught - the offset now comes from the
-model's own bounds. Measured after: a monk holds y = -2.92 for 900 frames,
-on the floor, not drifting.
-
-The engine's own rule for `BodyTypes.Fatter` lives inside
-`Entity::CreatePhysicsObject` and has NOT been recovered; the horizontal
-half-extent is a shape argument, not the original's constant.
-
-### Sight, and the mover proved
-
-`SeesEntity` (0x101335E0) hands off to `CalculatePawnToEntityVisibility` when
-the looker has a physics object and otherwise line-traces between the two
-entity POSITIONS. Worth copying: it turns the looker's own ragdoll off for the
-duration of the trace and back on after - a monster's own body sits on the
-line and would blind it.
-
-`PO_SetSightParams` (0x10131210) writes the four floats at +0x24..+0x30, which
-is the same block `PO_Create` seeds - so those are SIGHT parameters, not the
-movement limits guessed at above. The templates name them, and the names give
-the model away: `viewDistance360` is how far the actor sees in EVERY
-direction, `viewDistance` how far inside its cone. Shipped values run
-`viewAngle = 170, viewDistance360 = 6`: aware of anything within six units,
-and beyond that only what is in front. The angles arrive as a full spread in
-degrees and are stored as a half-angle in radians, which is what makes the
-engine's 180 default come out as the pi/2 PO_Create writes.
-
-**The mover is verified.** Driven at 4 units/s, a monk walks 5.97 units per 90
-ticks - 4 x 1.5 s = 6.00, the commanded speed exactly - holds y = -2.92 the
-whole way, and is stopped dead by a wall in the other direction.
-
-One trap on the way: a monster sweeps its own shape through a world its own
-body is standing in, so it was wedged inside itself and could not move at all.
-`SlideSphere` and `Depenetrate` now take a body slot to pass through.
-
-Monsters still will not come at you in a HEADLESS run, and that is correct
-rather than broken: nothing walks toward a player it cannot see, and at the
-spawn the nearest monk is 68 units away against a sight range of 10.
-
-### The orientation sign
-
-Reported from play: monsters following the player faced the wrong way, but
-close. That is what a NEGATED yaw looks like - right at 0 and 180 degrees,
-backwards at 90.
-
-`SetOrientation` built the quaternion for +A when the scripts mean -A, and the
-shipped code says so in two independent places. `BindPoint` (Utils.lua) rotates
-an offset by `-ENTITY.GetOrientation(e)`, and `CActor:MoveWithAnimation`
-rotates the animation's own motion by `cos(-angle)/sin(-angle)`. Both reduce to
-the same transform:
-
-    world = ( cos A * mx + sin A * mz,  my,  -sin A * mx + cos A * mz )
-
-which sends the model's forward - +Z, the axis the walk animations travel
-along - to (sin A, 0, cos A). Measured after the fix: model +Z lands exactly on
-the AI's intended facing at 0, 45, 90, 180 and -90 degrees, and Set/Get round
-trips to float precision across [0, 2pi), which is the range CActor keeps its
-angle in.
-
-This was wrong for every script-driven orientation, not just monsters - a
-weapon or effect bound through `BindPoint` was mirrored the same way.
-
-### The same sign, found again in the viewmodel
-
-Reported from play: the weapon models had holes - parts of the stakegun were
-see-through, the dark receiver body missing against the floor.
-
-It was the negated turn again, in the one path that had not been fixed.
-`ENTITY.SetPosAndRotRelativeToCamera` - the viewmodel transform, and the only
-caller is `CWeapon:Apply` - passed its Euler angles to `EngineEulerToQuat`
-raw, where `SetOrientation` negates the turn. `StakeGunGL` asks for a yaw of
-**-1.57**, so with the wrong sign the gun sat in exactly the right place while
-presenting its far side. The gaps between its parts then read as holes punched
-through a solid model.
-
-Nothing was missing. Worth listing what had to be eliminated first, because
-every one of these looked plausible and each was disproved by a measurement
-rather than by eye:
-
-| suspected | ruled out by |
-|---|---|
-| unused material slots | raw bytes: `u32 8, "Models/\0"` is a real empty placeholder in the file, and `materials[0]` is the valid diffuse |
-| missing geometry | a build-time probe: `KGR: 16 parts, 3137 tris`, every mesh submitted |
-| backface culling | `PAINFUL_ECULL=2`, pixel-identical |
-| near-plane clipping | `PAINFUL_NEAR=0.01`, pixel-identical |
-| the alpha test (`palskinned` tests at ref 128) | `PAINFUL_NOATEST`, **3 of 24300 pixels** differed |
-| skinning collapse | `pose`: bind 57.99 against posed 58.09, all 77 bones driven |
-
-The alpha test is the one worth dwelling on. Eyeballing two screenshots of it
-said "identical" and so did the numbers - but only the numbers were worth
-anything, because two of the earlier comparisons had *also* looked identical
-by eye when the thing being tested was simply not the cause. A 3-pixel
-difference is an answer; "looks the same to me" is not.
-
-The lesson for the rest of the port: this convention has now cost three
-separate bugs - monster facing, `BindPoint` offsets, and the viewmodel. Any
-new path that turns engine Euler angles into a quaternion negates the turn.
+- The ~11 small unidentified `luaL_reg` tables (1–8 functions each) in
+  `Engine_LuaAPI.md` — worth naming to complete the module map.
+- 158 of the 941 recovered names are never called by the shipped scripts. Dead
+  API, debug-only, or used by content not in this install? Some may be interesting.
+- Exact `k0` seed generator (per-entry). Brute force sidesteps it for extraction,
+  but repacking to a byte-identical archive needs the real formula. Leads: `k0`
+  correlates loosely with entry index; `r = (k0 - 2*(nl+1)) & 0xFF` tracks the index
+  with noise — likely a running counter or an FIdx-derived value.
+- Loose-dir vs pak precedence (see section 4 caveat).
+- `.pkm` internal format (same as `.pak`? a zip? — `GZipPack::GetFile` exists,
+  suggesting the engine also supports real ZIP archives).

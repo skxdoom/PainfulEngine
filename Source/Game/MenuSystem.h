@@ -20,7 +20,7 @@ class TextureCache;
 // Items are keyed by NAME, not by handle. AddTextButton at Engine.dll
 // 0x10075a40 opens with MenuScreen::FindItem and only creates the item when
 // the name is absent, which is why all ~40 SetItem* natives take a name string
-// first. See Docs/Menu.md.
+// first. See Docs/Reference/Menu.md.
 class MenuSystem {
 public:
     static constexpr int kAlignNone = 1, kAlignLeft = 2, kAlignRight = 3, kAlignCenter = 4;

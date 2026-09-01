@@ -104,7 +104,7 @@ MaterialState MaterialState::FromPass(const ShaderPass& pass, std::string* warni
     readPair("pan[0]", out.pan0, 0.f, 0.f);
     readPair("pan[1]", out.pan1, 0.f, 0.f);
     // tile[N] is the stage scale, applied AFTER the pan - see
-    // Docs/TextureTransforms.md. Absent means 1, i.e. no change at all, which
+    // Docs/Reference/TextureTransforms.md. Absent means 1, i.e. no change at all, which
     // is what keeps every material that never mentions it identical.
     readPair("tile[0]", out.tile0, 1.f, 1.f);
     readPair("tile[1]", out.tile1, 1.f, 1.f);
@@ -113,7 +113,7 @@ MaterialState MaterialState::FromPass(const ShaderPass& pass, std::string* warni
 
 uint64_t BlendModeState(int mode) {
     // Translated one for one from the D3D render states D3Dev.dll's state
-    // setter issues for each value; the table is in Docs/Particles.md.
+    // setter issues for each value; the table is in Docs/Reference/Particles.md.
     switch (mode) {
         case kBlendNone: return 0;
         case kBlendAlpha:

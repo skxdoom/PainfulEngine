@@ -527,4 +527,4 @@ apply them in the other order. Nothing measured has needed it yet.
    handlers need to reach an actor's health.
 3. Animation and the actor clock - which is also what gates melee damage and
    the actors' whole event loop. See
-   [`Gameplay_Roadmap.md`](Gameplay_Roadmap.md) for the full order.
+   [`Plan.md`](../Plan.md) for the full order.

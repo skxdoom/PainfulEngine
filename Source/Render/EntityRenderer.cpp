@@ -625,7 +625,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
         // a buffer of its own. Only instances that survived the frustum test
         // get here, so an actor across the level costs nothing.
         //
-        // GPU skinning is the end state (see Docs/Animation.md); this exists
+        // GPU skinning is the end state (see Docs/Reference/Animation.md); this exists
         // first because SkinMesh was already checked against a known-good
         // reference, which makes it the oracle to diff a shader against.
         const bool posing = model.skinned && !instance.skin.empty();

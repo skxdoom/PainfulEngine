@@ -18,7 +18,7 @@ namespace painful {
 // and the SMALLER of the two is the one that is not arms. The engine's own
 // rule for BodyTypes.Fatter lives inside Entity::CreatePhysicsObject and has
 // not been recovered, so this is a shape argument rather than the original's
-// constant - flagged in Docs/Gameplay_Roadmap.md.
+// constant - flagged in Docs/Reference/MonsterMovement.md.
 // Also reports how far the sphere's CENTRE sits above the entity's position,
 // which is not zero and is not the radius: a .pkmdl's origin is the middle of
 // the model, not the ground under it. evilmonkv2's bounds run y[-12.80..10.11],

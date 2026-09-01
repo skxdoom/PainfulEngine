@@ -9,7 +9,7 @@ namespace painful {
 // Everything the shipped game draws over the world - health, ammo, the tarot
 // board, the loading screens, the menus - is drawn from Lua through these.
 // Argument order, defaults and colour packing below are read out of
-// Engine.dll rather than guessed; Docs/Hud.md records where each came from.
+// Engine.dll rather than guessed; Docs/Reference/Hud.md records where each came from.
 
 namespace {
 

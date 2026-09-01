@@ -1,187 +1,14 @@
-# Painkiller source port — architecture and roadmap
+# Formats — what the shipped game is made of
 
-Grounded in the reverse engineering recorded in the findings in Part II below. Every
-number here was measured against the shipped data in this repository, not estimated.
+Everything here was recovered from the files this repository requires you to
+supply: the shipped binaries, the shipped data, and `Engine.dll` decompiled in
+Ghidra. No external source was used, and nothing here is a heuristic that looked
+right — where a rule was guessed and later proved wrong, the correction says so.
 
-## The strategic finding
+**Sources:** `Bin/Engine.dll` (retail 1.64), the shipped `Data/*.pak`,
+`LScripts/`. Implemented by `Source/Core/PakArchive.cpp`, `Source/Assets/*`.
 
-**Painkiller's gameplay logic is not compiled.** It lives in 431 Lua 5.0 files plus
-thousands of serialised property tables (`.CActor`, `.CItem`, `.CWeapon`, ...).
-Weapons, monsters, AI, HUD, menus and level scripting are all script-side.
-
-That changes what a source port *is*. You are not reimplementing Painkiller's game
-design — you are implementing the **native API those scripts call**, and letting the
-original scripts drive it. The porting specification is therefore concrete and
-finite rather than open-ended:
-
-| Measure | Count |
-|---|---|
-| Native Lua functions recovered from `Engine.dll` | 941 |
-| ...excluding Lua's own standard library | ~846 |
-| ...actually called by the shipped scripts | **790** |
-| ...covering **80%** of all 14,387 call sites | **113** |
-
-A prioritised, call-frequency-ranked list is in
-[`native_priority.tsv`](native_priority.tsv) (name, call count, module). Start at
-the top of that file; it is the work queue.
-
-The top of the queue is dominated by a few modules — ragdoll/joints
-(`GetJointIndex`, `SetAnim`, `GetJointPos`, `TransformPointByJoint`), world
-mesh/collision (`PO_Create`, `SetVelocity`, `GetPosition`, `EnableCollisions`),
-console/logging (`Print`, `AddMessage`), and sound. Implement those and a large
-fraction of the scripts start doing something.
-
-## Layer map
-
-## Implementation language
-
-**C++17 is the engine language**, with the asset layer in
-[`PainEngineKit/`](PainEngineKit/) — a CMake static library plus a `pekit` CLI,
-built with MSVC 2022 (`/W4 /permissive-`, clean). This is the code the port builds
-on.
-
-`PainKit/` (C#) is retained as a **reference implementation and cross-check**. The
-two are independently written from the same format notes, and they agree exactly on
-every measured quantity — object, vertex, triangle, material, texture, bone, skin
-and keyframe counts — which is far stronger evidence than either alone. The C#
-side also holds the glTF exporter, which is useful for getting assets into Blender
-but is not needed at engine runtime.
-
-```
-cmake -S RE/PainEngineKit -B RE/PainEngineKit/build -G "Visual Studio 17 2022" -A x64
-cmake --build RE/PainEngineKit/build --config Release
-pekit map   Data_Extracted/Maps/1x01_Chaos.mpk
-pekit pose  Data_Extracted/Models/clown.pkmdl Data_Extracted/Models/clown.walk.ani 10
-```
-
-`pekit pose` runs the full chain — parse model, rebuild hierarchy, invert bind
-matrices, sample the animation, skin the mesh — and prints the deformed bounds, so
-the whole pipeline stays verifiable from the command line.
-
-`.pak` reading is implemented natively in the engine
-(`Source/Core/PakArchive.*` + `Source/Core/FileSystem.*`): the shipped `Data/`
-folder mounts directly, with `Data_Extracted/` remaining a loose reference
-tree rather than a requirement. Inflate comes from the miniz already compiled
-inside bimg (see the CMake notes on link order).
-
-| Layer | Status | Notes |
-|---|---|---|
-| Asset decoding | **Done** — `PainEngineKit/` (C++), `PainKit/` (C#) | mpk + materials, pkmdl, ani, skeleton, skin; pak native in the engine |
-| Lua host | **Boots** — vendored Lua 5.0.2, Loader.lua + Game:Init + frame ticks clean | see `LuaHost.md` |
-| Native API | Instrumented stubs + first real impls | 790 functions; 113 give 80% coverage |
-| Physics | Decided: **Jolt** (MIT) | see FINDINGS §3c; `.rde` gives ragdoll tuning |
-| Renderer | Not started | full reimplementation required (see below) |
-| Audio | Not started | Miles → OpenAL-Soft / miniaudio |
-| Netcode | Deliberately last | GameSpy is dead; would need new transport |
-
-### Why the renderer is a full rewrite
-`D3Dev.dll` exposes exactly **two** exported functions, `CreateDevice` and
-`DestroyDevice`. Everything else is internal, so there is no usable seam to
-reimplement against — the renderer must be written from scratch. The good news is
-that what it must *draw* is fully understood: `.mpk` geometry with two UV sets
-(diffuse + lightmap), and skinned `.pkmdl` meshes.
-
-### Why physics is tractable
-PCF already wrapped Havok behind `PhysicsWorld` / `PhysicsObject` / `Ragdoll`
-using opaque handles and engine-native math types, and collision is **built at load
-time from `WorldMesh`/`Model` geometry** rather than deserialised from Havok. The
-17,643 `.mopp` files are a Havok-specific *cache* derived from that geometry — a
-Jolt backend regenerates its own acceleration structure and ignores them entirely.
-
-## Roadmap
-
-Each milestone is chosen to end in something runnable, so progress stays verifiable.
-
-### M0 — Asset pipeline ✅ done
-`PainKit` reads every major format and exports verified glTF.
-
-### M1 — Asset viewer
-Load a `.mpk` level and `.pkmdl` characters, render statically, fly a camera around.
-No Lua, no physics. Proves the asset pipeline inside a real renderer.
-*Done when:* you can fly through `DM_Trainstation` and see a character standing in it.
-
-### M2 — Lua host with instrumented stubs ← **highest leverage**
-Embed Lua 5.0.2, point it at `Data/LScripts/`, and run `Loader.lua`. Stub **every**
-native to log its name and arguments, then return a neutral value.
-
-This is the highest-value step in the whole project, because it converts guesswork
-into data: the log tells you exactly which natives the game calls, in what order,
-with what argument types. Combine it with `native_priority.tsv` and the
-implementation order stops being a judgement call.
-*Done when:* `Loader.lua` completes and the class hierarchy registers without errors.
-
-### M3 — Static world + collision
-Renderer draws the level; Jolt loads the same geometry as a static mesh. Honour the
-**name-substring semantics** (`noclip`, `portal`, `antyp`, `zone`, `death`,
-`ladderzone`, `barrier`, `glass`, `phys`, `statdest`) — these are the level's entity
-system, not decoration. `MapObject.IsCollidable` in PainKit already models the basic
-filter.
-*Done when:* a debug capsule can walk and collide through a real level.
-
-### M4 — Player and weapons
-Implement the player/camera/input natives and enough of the weapon API for the
-scripts to fire. Weapon behaviour comes from the shipped `.CWeapon` tables.
-*Done when:* you can move, shoot, and hit something.
-
-### M5 — Monsters, animation and ragdolls
-Skinned rendering, animation playback (`.ani` is fully decoded), the AI natives,
-and Jolt ragdolls driven by `.rde` parameters.
-*Done when:* a monster spawns from its `.CActor`, walks, takes damage, and ragdolls.
-
-### M6 — HUD and menus
-The Menu/GUI module is the single largest native group (146 functions), but it is
-self-contained and can be deferred safely.
-
-### M7 — Audio, particles, polish
-Sound system (31 natives) + sound instances (14), particle effects (`.pfx`).
-
-## Legal boundaries
-
-Reverse engineering for interoperability and modding a game you own is the classic
-legitimate case, but keep it clean:
-- Ship **no original assets or binaries**. The port must require the user's own copy.
-- Write your own code. Do not copy disassembly output into the implementation.
-- Distribute mods as loose files or `.pkm` packages, never repackaged originals.
-
-## Known unknowns
-
-These are the honest gaps that will need work during the port:
-- Material blocks are now solved for both formats, so exports can be textured.
-  Remaining: 7 of 2,532 model meshes still fail the exact-landing material parse,
-  and a few per-object bytes after the last `.mpk` material are unmapped. Neither
-  blocks rendering.
-- **Native signatures.** We have names and addresses but not argument lists. M2's
-  instrumented stubs are the cheapest way to recover them — log the actual Lua
-  arguments at runtime rather than reading disassembly.
-- **`.pfx` particles** and the remaining small unidentified native tables.
-- **Gameplay feel.** `PhysicsObject::FixHavokPositionBug` shows behaviour was tuned
-  around Havok's quirks; ragdoll feel under Jolt will differ and need retuning.
-- The `.pkmdl` geometry header preceding the index array varies between models, so
-  PainKit uses a strict-then-loose heuristic. Fully mapping it would remove that.
-
-## Using PainKit today
-
-```bash
-dotnet run --project RE/PainKit -- model info Data_Extracted/Models/clown.pkmdl
-dotnet run --project RE/PainKit -- map   info Data_Extracted/Maps/DM_Trainstation.mpk
-dotnet run --project RE/PainKit -- gltf  Data_Extracted/Models/clown.pkmdl out/clown.gltf Data_Extracted/Models/clown.walk.ani
-dotnet run --project RE/PainKit -- verify Data_Extracted/Models/clown.pkmdl out/clown.gltf Data_Extracted/Models/clown.walk.ani
-```
-
-`verify` re-reads the written glTF using glTF's own conventions (column-major,
-column-vector, `globalJointTransform * inverseBindMatrix`) and compares the skinned
-result against the native pipeline. On the shipped characters the two agree to
-~5e-6 on models tens of units across — floating-point noise. That is what makes the
-exporter trustworthy rather than merely plausible.
-
----
-
-  edit at line 1898: old_string NOT FOUND # Painkiller (2004) / PainEngine — Reverse Engineering Notes
-
-Working notes for learning and modding. Everything here was derived from the
-shipped binaries and data in this folder; no external source was used.
-
-## 1. Architecture at a glance
+## Architecture at a glance
 
 | Component | File | Role |
 |---|---|---|
@@ -208,7 +35,7 @@ prints real source file + line (`DynArray.h(383)::DynamicArray<char>::ResizeBuff
 3. **Third-party code is identifiable** (Lua 5.0.2 public source; Havok asserts),
    so it can be marked off and skipped during static analysis.
 
-## 2. The Lua <-> C++ bridge — SOLVED
+## The Lua <-> C++ bridge
 
 **941 native Lua functions recovered from `Engine.dll`, with addresses**, without
 a disassembler. See `Engine_LuaAPI.md` (game) and `EngineEditor_LuaAPI.md` (editor),
@@ -273,7 +100,7 @@ These four exported structs share a magic `0xD4F70933` and hold a function point
 but **no name field** — they are a patch/hotfix hook table (the `0506` looks like a
 patch date), not part of the Lua registry. Useful as ground truth, as above.
 
-## 3. PAK archive format — SOLVED
+## The .pak archive format
 
 Custom archive, little-endian. **Fully reverse-engineered and validated** — see
 `tools/PakTool.ps1` (list + extract). Round-trip verified against the reference
@@ -334,7 +161,7 @@ For each category the engine mounts, in priority order:
 The numbered variants are how the official patches (e.g. 1.64) override base assets
 without rewriting the originals — `Textures2.pak` shadows `Textures.pak`, etc.
 
-## 3b. Geometry & asset formats
+## Geometry & asset formats
 
 ### `.mpk` — world mesh — SOLVED
 Produced from 3ds Max ASE by `Exporters/3DS MAX ase2mpk Exporter/ase2mpk.exe`
@@ -547,7 +374,7 @@ produces a recognisable walking humanoid — see `exports/clown_walk_skeleton.pn
 | `.wps` | 29 | AI waypoint set: `u32 count` then per-waypoint position + link data. Matches the `WaypointSet` class (78 methods). |
 | `.mopp` | 17,643 | **Havok** MOPP collision acceleration data, in `Data/Maps/MOPPCode/<map>.mpk/`. Derived from mesh geometry — a replacement physics backend regenerates its own and ignores these entirely. |
 
-## 3c. Physics: replacing Havok (assessment)
+## Physics: replacing Havok
 
 Havok 2.x (string `havok2`) is **statically linked into `Engine.dll`** — there is
 no separate Havok DLL, so there is no seam to intercept. **The shipped binary
@@ -575,7 +402,7 @@ Caveat: `PhysicsObject::FixHavokPositionBug` shows gameplay behaviour was tuned
 around Havok's specific quirks, so expect ragdoll *feel* to differ and need
 retuning — this is not a mechanical swap.
 
-## 4. Modding / override mechanism (track C)
+## Modding / override mechanism
 
 From the exe string/mount table (`Painkiller.exe`):
 - Every data category mounts BOTH a `.pak` and a loose `../data/<cat>/` directory
@@ -602,46 +429,8 @@ Weapons/`. Config lives in `Bin/config.ini` (`Cfg.*`).
 > Content redistribution: ship mods as loose files / `.pkm` diffs, never repackaged
 > original assets.
 
-## 5. Files in this RE/ folder
 
-- `Engine_exports.txt` — all 2867 demangled Engine.dll exports (sorted)
-- `EngineEditor_exports.txt` — editor build's exports (diff vs above = editor hooks)
-- `D3Dev_exports.txt` — renderer boundary (2 functions)
-- `Engine_API.md` — exports grouped by class (112 classes) — the C++ API reference
-- `Engine_LuaAPI.md` — **941 Lua natives + addresses, grouped by module**
-- `EngineEditor_LuaAPI.md` — same for the editor build (950; +9 Havok debug)
-- `tools/PakTool.ps1` — **list + extract any .pak** (validated)
-- `tools/MpkTool.ps1` — **parse .mpk world meshes**, list objects, export OBJ
-  (validated on all 85 maps)
-- `tools/MpkPreview.ps1` — render a level to PNG straight from parsed geometry
-- `tools/PkmdlTool.ps1` — **parse .pkmdl models**, list bones/meshes, export OBJ
-  (353/382 models validated)
-- `tools/PkmdlPreview.ps1` — render a model to PNG from parsed geometry
-- `tools/AniTool.ps1` — **parse .ani animations**, list tracks, export keys to CSV
-  (all 1,228 animations validated)
-- `tools/AniPreview.ps1` — rebuild the skeleton hierarchy and render posed frames
-- `exports/` — sample output: `DM_Trainstation.obj` (22 MB, opens in Blender),
-  `skylow.obj`, `DM_Trainstation_plan.png`, `Alastor.obj`, `Alastor_front.png`
-- `tools/LuaBridge.ps1` — **recovers the Lua API from a binary** (no disassembler)
-- `tools/ghidra_PainEngineLuaAPI.py` — same recovery as a Ghidra script; renames
-  every native to `Lua_<name>` and plate-comments how it was found
-- `tools/DumpExports.ps1` — PE export dumper + MSVC demangler (dbghelp)
-- `tools/GroupExports.ps1` — builds `Engine_API.md`
-- `tools/PakDir.ps1`, `PakKey.ps1`, `PakKey2.ps1` — format-analysis scratch
-
-### Using the Ghidra script
-1. Install Ghidra (free, from NSA/ghidra-sre.org) and create a project.
-2. Import `Bin/Engine.dll` and run auto-analysis (the export table alone names
-   ~2867 functions).
-3. Window -> Script Manager -> Manage Script Directories -> add `RE/tools`.
-4. Run `ghidra_PainEngineLuaAPI.py`. It renames ~941 functions to `Lua_<name>`.
-5. Optionally run Ghidra's `RecoverClassesFromRTTIScript` for the non-exported
-   class layout.
-
-Combined, steps 2 and 4 give named C++ methods *and* named Lua entry points, which
-is most of what makes this binary readable.
-
-## 5a. Textures
+## Textures
 
 The shipped texture tree is **7,649 `.dds`**, 478 `.tga`, 135 `.bmp`. Crucially,
 **texture references do not match the files on disk**: a model asks for
@@ -657,64 +446,20 @@ PainKit includes a small **DDS reader** (DXT1/BC1, DXT3/BC2, DXT5/BC3 and
 uncompressed 24/32-bit) and a dependency-free **PNG writer**, so textures can be
 decoded for export or preview without external libraries.
 
-## 5b. PainKit — portable asset library
 
-`PainKit/` is a .NET 9 library + CLI that consolidates every decoded format into
-reusable code (the PowerShell tools remain as the exploration record). It reads
-`.pak`, `.mpk`, `.pkmdl`, `.ani`, rebuilds skeleton hierarchies, and exports
-**skinned, animated glTF 2.0**.
+## Recovering more from Engine.dll
 
-The exporter is verified rather than assumed: `painkit verify` re-reads the written
-glTF using glTF's *own* conventions (column-major, column-vector,
-`globalJointTransform * inverseBindMatrix`) and compares the skinned vertex
-positions against the native pipeline. Across the shipped characters the two
-independent maths paths agree to ~5e-6 on models tens of units across.
+The scripts and the exported name lists live in `PainfulEngineHelpers/`
+(`ghidra/`, `exports/`), outside this repository.
 
-Note on convention: PainEngine stores matrices row-major/row-vector; glTF is
-column-major/column-vector. Since one is the transpose of the other, **the 16 floats
-transfer verbatim with no transposition** — a useful and non-obvious result.
+1. Install Ghidra (free, from NSA/ghidra-sre.org) and create a project.
+2. Import `Bin/Engine.dll` and run auto-analysis (the export table alone names
+   ~2867 functions).
+3. Window -> Script Manager -> Manage Script Directories -> add `RE/tools`.
+4. Run `ghidra_PainEngineLuaAPI.py`. It renames ~941 functions to `Lua_<name>`.
+5. Optionally run Ghidra's `RecoverClassesFromRTTIScript` for the non-exported
+   class layout.
 
-glTF caps skin influences at 4 per vertex while PainEngine allows up to 8; the
-exporter keeps the 4 heaviest and renormalises.
+Combined, steps 2 and 4 give named C++ methods *and* named Lua entry points, which
+is most of what makes this binary readable.
 
-See [SOURCE_PORT.md](SOURCE_PORT.md) for the port architecture and roadmap, and
-[native_priority.tsv](native_priority.tsv) for the call-frequency-ranked native API
-work queue (**113 natives cover 80% of all 14,387 script call sites**).
-
-## 6. Recommended next steps
-
-- **Static analysis:** install Ghidra and run the two scripts above (see
-  "Using the Ghidra script"). `RegisterFunction` is at `0x10146760` in the retail
-  `Engine.dll` if you want to inspect the registrar itself.
-- **Signature the Lua natives:** with names applied, the next win is recovering
-  each native's *arguments* — every one is `int f(lua_State*)`, so the real
-  signature is in its `lua_toXXX`/`luaL_checkXXX` calls. That turns the name list
-  into a documented scripting API.
-- **Dynamic:** x32dbg (breakpoints are trivial with named exports), Cheat Engine
-  for live object layouts. Diff retail vs editor `Engine.dll` for editor-only hooks.
-- **A glTF/FBX exporter is now unblocked.** Geometry, skeletons, hierarchy, skin
-  weights and animation are all decoded and cross-validated, so every input a
-  skinned-animated exporter needs is available. `tools/PosePreview.ps1` already
-  performs the full skinning maths end to end.
-- **Formats to crack next:** the `.mpk`/`.pkmdl` **material blocks** (texture
-  assignment on export - geometry currently exports untextured) and `.pfx`
-  particles.
-- The `.pkmdl` geometry header preceding the index array is not laid out
-  identically in every model, so `FindIndices` uses a strict match first and
-  falls back to a looser one. Fully mapping that header would remove the
-  heuristic entirely.
-- **Tooling:** add repack to `PakTool.ps1` once the `k0` generator is pinned, for
-  building `<name>2.pak` overrides the way the official patches do.
-
-## Open questions
-- The ~11 small unidentified `luaL_reg` tables (1–8 functions each) in
-  `Engine_LuaAPI.md` — worth naming to complete the module map.
-- 158 of the 941 recovered names are never called by the shipped scripts. Dead
-  API, debug-only, or used by content not in this install? Some may be interesting.
-- Exact `k0` seed generator (per-entry). Brute force sidesteps it for extraction,
-  but repacking to a byte-identical archive needs the real formula. Leads: `k0`
-  correlates loosely with entry index; `r = (k0 - 2*(nl+1)) & 0xFF` tracks the index
-  with noise — likely a running counter or an FIdx-derived value.
-- Loose-dir vs pak precedence (see section 4 caveat).
-- `.pkm` internal format (same as `.pak`? a zip? — `GZipPack::GetFile` exists,
-  suggesting the engine also supports real ZIP archives).

@@ -158,35 +158,47 @@ only reveals itself deep into a playthrough.
 1. The menu, stages 3–4: lists and scrollers, then `MenuItemBorder` — the
    carved stone frame `HUD.DrawBorder` still approximates with an outline —
    then the campaign map and the loading screen. The staging and what the
-   binary said are in [`Docs/Menu.md`](Docs/Menu.md).
+   binary said are in [`Docs/Menu.md`](Docs/Reference/Menu.md).
 2. Save/load, which is the last of the engine skeleton.
 3. Water (`FXWater`), which needs a render-target pass — shared with:
 4. Bloom and the rest of the `.fxo` post chain.
 5. The remaining natives, from
-   [`Docs/native_priority.tsv`](Docs/native_priority.tsv) in call-count order.
-   The host itself is up: see [`Docs/LuaHost.md`](Docs/LuaHost.md).
+   [`Docs/native_priority.tsv`](Docs/Data/native_priority.tsv) in call-count order.
+   The host itself is up: see [`Docs/LuaHost.md`](Docs/Reference/LuaHost.md).
 6. The rest of physics — ragdolls, per-bone hitboxes, explosions and glass —
    driven through that same native API. The Jolt world underneath it is up
-   already: see [`Docs/Physics.md`](Docs/Physics.md).
+   already: see [`Docs/Physics.md`](Docs/Reference/Physics.md).
 
 ## Documentation
 
+`Docs/` is three kinds of file, kept apart because they age differently.
+
+**[`Docs/Status.md`](Docs/Status.md)** — the source layout, what works, what is
+missing. **[`Docs/Plan.md`](Docs/Plan.md)** — what is left and in what order.
+**[`Docs/Data/native_priority.tsv`](Docs/Data/native_priority.tsv)** — the native
+API ranked by call count: the work queue, generated rather than written.
+
+`Docs/Reference/` holds the recovered rules, which change only when a new fact is
+recovered:
+
 | | |
 |---|---|
-| [`Docs/Source_Port.md`](Docs/Source_Port.md) | architecture, the porting plan, and the format findings |
-| [`Docs/Status.md`](Docs/Status.md) | source layout, what works, what is missing |
-| [`Docs/Particles.md`](Docs/Particles.md) | emitter formats and simulation |
-| [`Docs/Billboards.md`](Docs/Billboards.md) | billboards, coronas and the occlusion trace |
-| [`Docs/TextureTransforms.md`](Docs/TextureTransforms.md) | pan, tile and the detail-map transform |
-| [`Docs/Water.md`](Docs/Water.md) | water surfaces, the material tiers and what each needs |
-| [`Docs/Physics.md`](Docs/Physics.md) | the Jolt world, the tweak constants and the player body |
-| [`Docs/LuaHost.md`](Docs/LuaHost.md) | the Lua 5.0.2 host, the native API shape, the boot and frame contract |
-| [`Docs/PlayerMovement.md`](Docs/PlayerMovement.md) | the player mover, recovered from PhysicsObject::PlayerAction |
-| [`Docs/Hud.md`](Docs/Hud.md) | the 2D layer: MATERIAL, HUD.PrintXY, fonts and the colour palette |
-| [`Docs/Menu.md`](Docs/Menu.md) | the retained widget model behind PMENU, and the staging |
-| [`Docs/Levels.md`](Docs/Levels.md) | what a level is made of, and writing one from code |
-| [`Docs/Sound.md`](Docs/Sound.md) | the mixer, the voice pool and the SOUND natives |
-| [`Docs/native_priority.tsv`](Docs/native_priority.tsv) | that API ranked by call count — the work queue |
+| [`Formats.md`](Docs/Reference/Formats.md) | the shipped binaries, `.pak`, and every asset format decoded |
+| [`LuaHost.md`](Docs/Reference/LuaHost.md) | the Lua 5.0.2 host, the native API shape, the boot and frame contract |
+| [`Physics.md`](Docs/Reference/Physics.md) | the Jolt world, the tweak constants and the player body |
+| [`PlayerMovement.md`](Docs/Reference/PlayerMovement.md) | the player mover, recovered from `PhysicsObject::PlayerAction` |
+| [`MonsterMovement.md`](Docs/Reference/MonsterMovement.md) | monsters are moved, not simulated — and how that was found |
+| [`Animation.md`](Docs/Reference/Animation.md) | the animation clock, blending and the posed skeleton |
+| [`Hitboxes.md`](Docs/Reference/Hitboxes.md) | per-limb hit volumes against the posed skeleton |
+| [`Levels.md`](Docs/Reference/Levels.md) | what a level is made of, and writing one from code |
+| [`Particles.md`](Docs/Reference/Particles.md) | emitter formats and simulation |
+| [`Billboards.md`](Docs/Reference/Billboards.md) | billboards, coronas and the occlusion trace |
+| [`TextureTransforms.md`](Docs/Reference/TextureTransforms.md) | pan, tile and the detail-map transform |
+| [`Water.md`](Docs/Reference/Water.md) | water surfaces, the material tiers and what each needs |
+| [`Hud.md`](Docs/Reference/Hud.md) | the 2D layer: `MATERIAL`, `HUD.PrintXY`, fonts and the colour palette |
+| [`Menu.md`](Docs/Reference/Menu.md) | the retained widget model behind `PMENU`, and the staging |
+| [`Sound.md`](Docs/Reference/Sound.md) | the mixer, the voice pool and the `SOUND` natives |
+
 
 ## Licence
 

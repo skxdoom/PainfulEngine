@@ -9,7 +9,7 @@ namespace painful {
 // The scripts declare a screen and the engine owns it from there: layout,
 // hit-testing, keyboard navigation and drawing are all on this side. Items are
 // addressed by NAME, which is what Engine.dll's MenuScreen::FindItem does and
-// why every setter below takes a name string first. See Docs/Menu.md.
+// why every setter below takes a name string first. See Docs/Reference/Menu.md.
 //
 // Stage 1: static text, text buttons, and the screen lifecycle. Everything
 // else is still an instrumented stub, so the call report keeps counting what

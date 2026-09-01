@@ -5,51 +5,74 @@ the detail, with the authority for each rule named where one exists.
 
 ## Source layout
 
-Layering is one-directional and enforced by the CMake targets:
+One directory, one CMakeLists, one target, one project in the IDE, so the
+solution reads like the tree does. The layering is one-directional and the CMake
+targets enforce it: each layer names what it may see, and nothing else.
 
 ```
-Core   <- Assets <- World <- Render
+Core <- Assets <- World <- Render
 ```
 
 ```
 Source/
-  Core/     Common.h/.cpp     Mat4, Reader, ReadFile
-            Log.h
-            PakArchive        one .pak: directory parse, name de-obfuscation, inflate
-            FileSystem        the mounted view: archives shadow loose files
-  Script/   LuaHost           Lua 5.0.2 state, boot, the engine->Lua frame contract
-            Natives           the native API: module tables, stubs, real impls
-            NativeList.inc    generated from the recovered native list + script usage
-  Game/     ScriptEngine      the seam: entity registry + world state behind
-                              the ENTITY.*/WORLD.* natives, renderer optional
-  Assets/   Mpk               world meshes, materials, per-slot UV transforms
-            Dat               item mesh packs (the o.Pack containers)
-            Pkmdl             models: geometry, skeleton, skin weights
-            Ani               skeletal animation
-            Skeleton          hierarchy, bind matrices, skinning
-            Properties        the Lua-ish property files, and o.Rot / o.Ang
-            ShaderScript      the .shader material scripts
-            Emitter           particle emitter .ini and effect .pfx
-            Tweaks            LScripts/Main/Tweak.lua, the physics constants
-  World/    Level             level settings, entity placement, world mesh
-            Templates         the BaseObj template chain, with level overlays
-            Zones             portal/zone visibility graph
-            CollisionMesh     BVH over solid geometry, for line-of-sight queries
-            PhysicsWorld      Jolt: the static world, the placed props, queries
-  Render/   Window            SDL3
-            Renderer          bgfx device
-            Frustum           view-frustum planes and AABB tests
-            MaterialState     .shader pass -> bgfx render state, blend modes
-            TextureCache      extension-agnostic texture resolution
+  Core/     Common          Mat4, Reader, ReadFile
+            Log
+            PakArchive      one .pak: directory parse, name de-obfuscation, inflate
+            FileSystem      the mounted view: archives shadow loose files
+            AppPaths        finding the game data and the executable's resources
+  Assets/   Mpk             world meshes, materials, per-slot UV transforms
+            Dat             item mesh packs (the o.Pack containers)
+            Pkmdl           models: geometry, skeleton, skin weights
+            Ani             skeletal animation
+            Skeleton        hierarchy, bind matrices, skinning
+            Hke / Rde       ragdoll definitions, render descriptors
+            AnimationCache / SkeletonCache
+            Properties      the Lua-ish property files, and o.Rot / o.Ang
+            ShaderScript    the .shader material scripts
+            Emitter         particle emitter .ini and effect .pfx
+            Waypoints       the .wps navigation graph
+            Tweaks          LScripts/Main/Tweak.lua, the physics constants
+  Script/   LuaHost         Lua 5.0.2 state, boot, the engine->Lua frame contract
+            Natives         the native API: module tables, stubs, real impls
+            NativeList.inc  generated from the recovered list + script usage
+  World/    Level           level settings, entity placement, world mesh
+            Templates       the BaseObj template chain, with level overlays
+            Zones           portal/zone visibility graph
+            Lighting        the light set reaching a point
+            CollisionMesh   BVH over solid geometry, for line-of-sight queries
+            PhysicsWorld    Jolt: the static world, the placed props, queries
+  Render/   Window          SDL3
+            Renderer        bgfx device
+            Camera          the camera, and the free camera's collision radius
+            Frustum         view-frustum planes and AABB tests
+            MaterialState   .shader pass -> bgfx render state, blend modes
+            TextureCache    extension-agnostic texture resolution
             WorldRenderer / EntityRenderer / SkyRenderer
             ParticleRenderer / BillboardRenderer
-            DebugLines        world-space line overlay, for collision shapes
-  main.cpp
+            FontCache / HudRenderer
+            DebugLines      world-space line overlay, for collision shapes
+  Audio/    AudioEngine     one mixed device stream behind SOUND / SOUND2D / SOUND3D
+  Game/     ScriptEngine    the seam: the entity registry and world state behind
+                            the natives. One class, one file per family -
+                            ScriptEntity, ScriptMonster, ScriptSound,
+                            ScriptPlayer, ScriptInput, ScriptTrace, ScriptAnim,
+                            ScriptWorld, ScriptHud, ScriptMenu, ScriptDeath,
+                            ScriptLimbs - with ScriptBind mapping every one to
+                            the module and name the shipped Lua calls it by.
+            MenuSystem      the retained widget model behind PMENU
+            PlayerPawn      the engine-side mover
+            Input           bindings, actions, mouse
+  App/      Main            the entry point
+            GameApp         the script-driven run - PainfulEngine.exe
+  Tools/    ToolsMain       the command table - PainfulTools.exe
+            ViewerApp       the `run` free-camera viewer
+            Report*         one file per family of headless reports
 Shaders/    bgfx shader sources, compiled by the build into Shaders/ beside
             the executable
-Docs/       reverse-engineering notes and the porting plan
+Docs/       Reference/ the recovered rules, Status and Plan, Data/ the work queue
 ```
 
+Headers sit beside their sources rather than in a parallel `include/` tree.
 Headers sit beside their sources rather than in a parallel `include/` tree.
 
 ## What works
@@ -70,7 +93,7 @@ All parse and are cross-checked against a second implementation.
   which 43 levels rely on.
 - `.shader` material scripts: 221 definitions, hardware variants, `copy`
   inheritance, `setflag`, `pass copy previous`.
-- Particle emitter `.ini` and effect `.pfx` — see [`Particles.md`](Particles.md).
+- Particle emitter `.ini` and effect `.pfx` — see [`Particles.md`](Reference/Particles.md).
 - `.pak` archives read natively: the shipped `Data/` folder mounts directly
   (`Core/PakArchive` + `Core/FileSystem`), so `Data_Extracted/` is a reference,
   not a requirement. Name recovery decodes 65,628/65,628 file names across all
@@ -102,7 +125,7 @@ All parse and are cross-checked against a second implementation.
   `FarClipDist`, and the void cleared to the fog colour.
 - UV panning (`pan[N]`) in units per second and the detail map sized by the
   level's `DetailMap.TileU/TileV` - both confirmed against the engine rather
-  than inferred, in [`TextureTransforms.md`](TextureTransforms.md).
+  than inferred, in [`TextureTransforms.md`](Reference/TextureTransforms.md).
 - Per-stage texture transforms in the engine's own order:
   `uv' = ((uv * slotXform) + pan * t) * tile`. `pan[N]` is units per second and
   `tile[N]` scales the already-panned coordinate, so a stage with both scrolls
@@ -112,7 +135,7 @@ All parse and are cross-checked against a second implementation.
   a cube-map reflection through a scrolling, tiled normal map, times the
   lightmap. Its numbers come from the level's own `o.Water` block, and the
   pixel and vertex programs (`water_embm.pso`, `water_ref.vso`) are decoded.
-  Eight maps carry world-geometry water. See [`Water.md`](Water.md).
+  Eight maps carry world-geometry water. See [`Water.md`](Reference/Water.md).
 - Cube maps load through `TextureCache::GetCube`.
 
 ### Visibility
@@ -157,7 +180,7 @@ acceleration, the three-point alpha curve, colour ramp, spin, position wrapping,
 immortal particles, and both draw types (camera-facing sprite and
 velocity-aligned spark). All 56 levels resolve with nothing unresolved; 1183
 effects placed. Details, field map and the parts not yet done are in
-[`Particles.md`](Particles.md).
+[`Particles.md`](Reference/Particles.md).
 
 ### Billboards and light coronas
 
@@ -165,7 +188,7 @@ effects placed. Details, field map and the parts not yet done are in
 size ramp, timer-based fade in and out, and occlusion by a line trace against
 solid geometry, throttled to ten traces a second per corona as the original
 does. 2790 placed across the shipped levels, 1465 of them coronas, no
-unresolved textures. Details in [`Billboards.md`](Billboards.md).
+unresolved textures. Details in [`Billboards.md`](Reference/Billboards.md).
 
 `World/CollisionMesh` backs the trace: a BVH over the collidable map triangles
 (the same object set the original hands to Havok), answering "does this segment
@@ -184,7 +207,7 @@ moves is drawn where it moved to. The constants come from
 the engine reads too. `P` draws the collision shapes.
 
 Details, the numbers, and the sizeable list of what is still missing are in
-[`Physics.md`](Physics.md).
+[`Physics.md`](Reference/Physics.md).
 
 ## What is missing
 
@@ -192,18 +215,18 @@ Details, the numbers, and the sizeable list of what is still missing are in
 
 - Water above the fixed-function tier: the EMBM cube pass, reflection and
   refraction render targets, and the `FXWater` programs inside `Water.fxo`.
-  See [`Water.md`](Water.md).
+  See [`Water.md`](Reference/Water.md).
 - Texture rotation in the stage transform is not implemented either. Nothing in
   the shipped data sets one - it can only arrive through a named xform, whose
   contexts leave it at zero - so it is currently unreachable.
 - The Factory conveyor strip (`tasmashape`) renders as grey mush where the
   original shows crisp ridges, and too bright. Several causes ruled out; the
   remaining suspect is its lightmap atlas region. Details in
-  [`TextureTransforms.md`](TextureTransforms.md).
+  [`TextureTransforms.md`](Reference/TextureTransforms.md).
 - The water combine above the reflection: which `o.Water` property feeds the
   diffuse and specular terms of `mad r0, t3, v0, v1` is not recoverable from
   the shipped files. Also the vertex wave, and the swamp surface's
-  `$envcubemap`. See [`Water.md`](Water.md).
+  `$envcubemap`. See [`Water.md`](Reference/Water.md).
 - Post-processing: no bloom (`Bloom.fxo`), no shadow maps, no motion blur.
 - Dynamic lights and specular are not implemented — lighting is baked
   lightmaps plus level ambient only.
@@ -247,7 +270,7 @@ Details, the numbers, and the sizeable list of what is still missing are in
   engine-side pawn moves from the `Tweak.PlayerMove` constants (as the
   original divides the work — the mover recovered from
   `PhysicsObject::PlayerAction`, see
-  [`PlayerMovement.md`](PlayerMovement.md)), the camera rides the pawn's
+  [`PlayerMovement.md`](Reference/PlayerMovement.md)), the camera rides the pawn's
   head, and `Game.Active` turns the whole gameplay loop on - actors tick,
   weapons tick, and every item polls `PLAYER.GetDistanceFromPoint` for
   pickup. `N` switches walk/fly.
@@ -257,7 +280,7 @@ Details, the numbers, and the sizeable list of what is still missing are in
   `PLAYER_HIT_GROUND`. Walking into an ambush box spawns its monsters
   through the full `CActor` chain — in bind pose, until animation lands.
   Not yet: input actions (fire/use), entity-collision events, sound. See
-  [`LuaHost.md`](LuaHost.md).
+  [`LuaHost.md`](Reference/LuaHost.md).
 - **The player acts through the game's own seam.** Keys and bindings live in
   `Source/Game/Input`, the bindings read out of the scripts' `Cfg` table the
   way `INP.LoadBindings` does, and `CPlayer:Tick` turns them into an
@@ -268,7 +291,7 @@ Details, the numbers, and the sizeable list of what is still missing are in
   8.0, and a jump rises 0.753 m, which is what the recovered
   `JumpStrength × PlayerSpeed × 0.7` gives under the same semi-implicit
   step. Air control, the step ladder and what the player collides with all
-  come from the binary too — see [`PlayerMovement.md`](PlayerMovement.md).
+  come from the binary too — see [`PlayerMovement.md`](Reference/PlayerMovement.md).
 - **The scripts own the camera.** `Game:Tick2` reads `MOUSE.GetDelta`,
   accumulates onto `CAM.GetRawRotation` and writes back through
   `CAM.SetPos`/`SetAng`; the C++ loop feeds the mouse in and adopts the
@@ -292,8 +315,25 @@ Details, the numbers, and the sizeable list of what is still missing are in
   calls in a 400-frame run), as are `SeesEntity`, `PO_IsOnFloor` and
   `WPT.Load`.
 - No ragdolls, glass, explosions, buoyancy, ladders or ice. See
-  [`Physics.md`](Physics.md).
+  [`Physics.md`](Reference/Physics.md).
 - No sound, no HUD, no menus, no save/load, no netcode.
 
 The measured gap and the order for closing it are in
-[`Gameplay_Roadmap.md`](Gameplay_Roadmap.md).
+[`Gameplay_Roadmap.md`](Plan.md).
+
+## Why it is built this way
+
+### Why the renderer is a full rewrite
+`D3Dev.dll` exposes exactly **two** exported functions, `CreateDevice` and
+`DestroyDevice`. Everything else is internal, so there is no usable seam to
+reimplement against — the renderer must be written from scratch. The good news is
+that what it must *draw* is fully understood: `.mpk` geometry with two UV sets
+(diffuse + lightmap), and skinned `.pkmdl` meshes.
+
+### Why physics is tractable
+PCF already wrapped Havok behind `PhysicsWorld` / `PhysicsObject` / `Ragdoll`
+using opaque handles and engine-native math types, and collision is **built at load
+time from `WorldMesh`/`Model` geometry** rather than deserialised from Havok. The
+17,643 `.mopp` files are a Havok-specific *cache* derived from that geometry — a
+Jolt backend regenerates its own acceleration structure and ignores them entirely.
+
