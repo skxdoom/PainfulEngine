@@ -59,4 +59,18 @@ struct Camera {
     }
 };
 
+// The free camera collides as a sphere this wide.
+//
+// The player body's own widest sphere is 0.4 - EngineGame::CreatePlayer asks
+// for BodyTypes.Player at bodyScale 1.0, and the shape factory builds that as a
+// stack of four spheres in units of 0.2, the widest of them 2.0 units of that.
+// The camera is deliberately fatter: it is not a player, it has no body to see
+// clipping into a wall, and at player width it slides so close to surfaces that
+// the near plane cuts through them.
+constexpr float kCameraRadius = 1.2f;
+
+// How far around the camera the static world's wireframe is collected. The
+// whole level is 300k triangles, so the debug view is local by necessity.
+constexpr float kPhysicsDebugRadius = 20.f;
+
 } // namespace painful
