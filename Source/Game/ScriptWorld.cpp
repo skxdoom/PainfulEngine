@@ -68,6 +68,9 @@ int ScriptEngine::L_WORLD_LoadMap(lua_State* L) {
             self->mapLoaded_ = true;
             self->physics_->LoadWorldMesh(self->map_, self->world_.scale,
                                           self->dataRoot_);
+            // Water is not in that mesh - every shipped water object is also
+            // named `noclip` - so it is registered separately here.
+            self->BuildWaterSurfaces();
         } else {
             LogWarn("WORLD.LoadMap: %s failed: %s", path.c_str(),
                     self->map_.error.c_str());

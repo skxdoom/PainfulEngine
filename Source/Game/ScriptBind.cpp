@@ -150,6 +150,7 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"PHYSICS", "IsHavokBodyInWorld", L_PHYSICS_IsHavokBodyInWorld},
         {"PHYSICS", "GetHavokBodyVelocity", L_PHYSICS_GetHavokBodyVelocity},
         {"ENTITY", "EnableCollisions", L_ENTITY_EnableCollisions},
+        {"ENTITY", "IsWater", L_ENTITY_IsWater},
         {"INP", "GetTimeMultiplier", L_INP_GetTimeMultiplier},
         {"INP", "SetTimeMultiplier", L_INP_SetTimeMultiplier},
         {"ENTITY", "GetType", L_GetType},

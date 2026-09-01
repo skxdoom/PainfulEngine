@@ -10,6 +10,7 @@ Two maps make good references, and they turn out to be different problems:
 | the water draw path | `WorldMesh::RenderWater` | `0x101d8bb0` |
 | planar reflection plane | `WorldMesh::GetReflectionPlane` | `0x101d85c0` |
 | the swamp surface's wave animation | `Model::SetWaterImpact` | `0x101de8e0` |
+| the script test for "did I hit water" | `ENTITY.IsWater` (Lua binding) | `0x10136050` |
 
 ## A surface is water because of its name
 
@@ -196,6 +197,50 @@ Everything else is still open:
   `$fbtex1`, a framebuffer copy. `WorldMesh::GetReflectionPlane` exists, which
   supports the planar-reflection reading of the Swamp reference shot rather than
   a purely cube-mapped one — worth settling before building either.
+
+## Water the scripts can hit: `ENTITY.IsWater`
+
+`ENTITY.IsWater(e)` (`0x10136050`) checks two things about an entity: that its
+type is **1**, `ETypes.Mesh`, and that **bit 27** of its flags is set. Bit 27 is
+`0x8000000` — the flag `SetupFlags` sets from the name, above. So the native
+answers "is this a world-mesh object whose name says water", and nothing about
+it is file data.
+
+Fourteen call sites depend on it, almost all weapons deciding whether a shot
+splashed rather than exploded: `Rocket`, `Grenade`, `HeaterBomb`, `MiniGunRL`,
+`BoltStick`, `ElectroDisk`, `RifleFlameThrower`, `PainHead`, `Shotgun`, and
+`CAiBrain` for whether a bot may walk there.
+
+**Water is not in the collidable world, and cannot be.** Every shipped water
+object is *also* named `noclip` — `water_noclip_ashape` in City on Water — and
+`noclip` is one of the tokens `MapObject::isCollidable` rejects. That is
+correct, because you swim through it. But it means a trace can never come back
+holding water, and until the surfaces were registered separately every
+`if ENTITY.IsWater(e)` in the game was unreachable no matter what the native
+answered. The original has the same problem and solves it the same way:
+`SetupFlags` stores the water mesh at `World+0x778` rather than leaving it to
+the general geometry path.
+
+So each water object becomes a world-object entity at map load — a name and a
+handle, no body, no renderer instance, the same kind `WORLD.FindEntityByName`
+hands out — and `TraceCommon` tests the segment against the surface directly,
+reporting it when it is nearer than the solid hit. Only a **crossing** counts:
+a segment wholly above the plane has not hit the water, which is what stops a
+shot fired across a lake from reporting one.
+
+The surfaces are flat, so the test is a plane crossing inside the object's XZ
+bounds. Measured on City on Water, whose single surface is `water_noclip_ashape`
+at raw `y = -8.682` and level scale 0.3:
+
+```
+water surface "water_noclip_ashape" at y=-2.60, x[-1002..1217] z[-1173..924]
+
+centre-down  hit=true y=-2.6045837 e=1 water=true     crossing downward
+centre-up    hit=true y=-2.6045856 e=1 water=true     and from below
+above-only   hit=false                                wholly above the plane
+outside-xz   hit=false                                outside the bounds
+player-down  hit=true y=1.5218496  e=0 water=false    the pier wins, being nearer
+```
 
 ## Swamp is not world geometry
 

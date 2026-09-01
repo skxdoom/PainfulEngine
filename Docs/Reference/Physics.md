@@ -244,11 +244,51 @@ reading would have found:
 
 ## Checking it without a window
 
+Two ways, and they answer different questions.
+
+**`PainfulTools lua <DataRoot> [frames] [level] [chunk]`** is the whole game
+minus the renderer: a real `PhysicsWorld`, the same `Settle(90)`, and the same
+per-frame tail the game loop runs — animations, monsters, projectiles, the
+script layer, the physics step, ragdolls, the pawn probe, triggers, lifetimes,
+attachments and contacts. The optional last argument is a Lua chunk, which is
+how a probe gets in.
+
+**It is deterministic, and the windowed path is not.** Fixed 1/60 steps and no
+frame-rate coupling mean impact speeds, health and positions come back
+bit-identical between runs. Two identical windowed captures of the same level
+differ by 20–32% of sampled pixels because the props settle differently every
+time, so comparing screenshots proves nothing about physics. Compare numbers
+here instead:
+
+```
+$ PainfulTools lua <DataRoot> 200 TestFloor "<probe>"
+HEADLESS F5   vase present hp=2
+HEADLESS impact vl=31.056878731571 hp=2
+HEADLESS F150 vase absent
+```
+
+That is a vase dropped 24 units, breaking on landing — the same `vl` the
+windowed run reports, to the last digit, and the same on every run.
+
+Whatever the game loop ticks, this must tick too. It drifted once:
+`UpdateAttached`, `TickSounds` and `TickCollisions` were added to the game and
+not here, so bound entities never followed their parents and **contacts were
+never reported** — a destructible could not break headlessly even though the
+physics under it was real. If a gameplay system works in the game and not here,
+suspect the two loops disagreeing before suspecting the system.
+
+What it cannot answer: anything about drawing. No renderer is attached, so the
+beam, mesh visibility and billboard fades still need the game. No audio device
+either, so `TickSounds` is a no-op.
+
+**The physics report** is the other half: a static look at one level, with no
+scripts running.
+
 ```
 PainfulTools physics <levelDir> <DataRoot>
 ```
 
-prints the tweak values it read, what went into the world, whether a sphere
+It prints the tweak values it read, what went into the world, whether a sphere
 pushed 50 units along each axis from the spawn is blocked, how much wireframe
 each half of the world produces, what the props do over five seconds, and
 whether driving the camera's body through one moves it.

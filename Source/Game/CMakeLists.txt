@@ -25,6 +25,7 @@ add_library(Game STATIC
   ScriptLimbs.cpp
   ScriptBind.cpp
   ScriptCollision.cpp
+  ScriptWater.cpp
 )
 target_link_libraries(Game PUBLIC Script Render Audio)
 painful_layer(Game)

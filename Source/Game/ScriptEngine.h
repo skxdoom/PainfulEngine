@@ -441,6 +441,10 @@ public:
     // Contacts the physics step recorded, reported to the scripts as
     // COLLISION_WITH_OTHER_ENTITY.
     void TickCollisions(float dt);
+    // Registers a world-object entity for every water surface in the loaded map.
+    void BuildWaterSurfaces();
+    // Where the segment first crosses a water surface, if it does.
+    bool TraceWater(const float from[3], const float to[3], float& t, int& entity) const;
     // Bound 3D sounds: start the delayed ones, follow what they hang off.
     void StartBoundSound(Entity& e);
     void TickSounds(float dt);
@@ -708,6 +712,7 @@ private:
     static int L_PHYSICS_IsHavokBodyInWorld(lua_State* L);
     static int L_PHYSICS_GetHavokBodyVelocity(lua_State* L);
     static int L_ENTITY_EnableCollisions(lua_State* L);
+    static int L_ENTITY_IsWater(lua_State* L);
     static int L_INP_GetTimeMultiplier(lua_State* L);
     static int L_INP_SetTimeMultiplier(lua_State* L);
     static int L_SetPosAndRotRelativeToCamera(lua_State* L);
@@ -1002,6 +1007,16 @@ private:
     std::vector<const AnimTrack*> curveTracks_;   // scratch for AnimMovement
     std::vector<ScriptBodyPose> poseScratch_;
     std::vector<ScriptContact> contactScratch_;
+    // The level's water surfaces, one entity each, registered when the map
+    // loads. WorldMesh::SetupFlags marks an object as water purely from its
+    // NAME, so that is what identifies them here too - see Water.md.
+    struct WaterSurface {
+        int entity = 0;
+        float y = 0.f;                 // world-space surface height (they are flat)
+        float lo[2] = {0, 0};          // world-space XZ bounds
+        float hi[2] = {0, 0};
+    };
+    std::vector<WaterSurface> water_;
     // INP.Get/SetTimeMultiplier - the game-speed scale, 1 at normal speed.
     // StdOnCollision multiplies the impact speed by it before comparing, so an
     // absent one would throw rather than merely read wrong.

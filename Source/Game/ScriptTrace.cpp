@@ -33,6 +33,40 @@ int ScriptEngine::TraceCommon(lua_State* L, bool staticOnly) {
     LimbHit limb;
     const bool gotLimb =
         !staticOnly && self->TraceLimbs(from, to, gotWorld ? hit.distance : -1.f, limb);
+
+    // WATER IS NOT IN THE COLLIDABLE WORLD and cannot be: every shipped water
+    // object is named `noclip`, which is what lets you swim through it. It is
+    // still something a shot HITS, though - a rocket splashes rather than
+    // exploding - so the surface is tested here, and wins when it is nearer
+    // than the solid hit. Without this every `if ENTITY.IsWater(e)` in the
+    // weapon scripts is unreachable, whatever that native answers.
+    float waterT = 0.f;
+    int waterEntity = 0;
+    bool gotWater = self->TraceWater(from, to, waterT, waterEntity);
+    float waterDistance = 0.f;
+    if (gotWater) {
+        const float span[3] = {to[0] - from[0], to[1] - from[1], to[2] - from[2]};
+        waterDistance =
+            waterT * std::sqrt(span[0]*span[0] + span[1]*span[1] + span[2]*span[2]);
+        const float nearest = gotWorld ? hit.distance : 1e30f;
+        const float nearestLimb = gotLimb ? limb.distance : 1e30f;
+        if (waterDistance > nearest || waterDistance > nearestLimb) gotWater = false;
+    }
+    if (gotWater) {
+        // The surface itself: a hit with no body, an upward normal, and the
+        // water object's own entity so IsWater can recognise it.
+        lua_pushboolean(L, 1);
+        lua_pushnumber(L, waterDistance);
+        for (int c = 0; c < 3; ++c)
+            lua_pushnumber(L, from[c] + (to[c] - from[c]) * waterT);
+        lua_pushnumber(L, 0.0);
+        lua_pushnumber(L, 1.0);
+        lua_pushnumber(L, 0.0);
+        lua_pushnumber(L, -1);
+        lua_pushnumber(L, waterEntity);
+        return 10;
+    }
+
     const bool got = gotWorld || gotLimb;
 
     // A MISS RETURNS ONE VALUE. The engine pushes the boolean and stops

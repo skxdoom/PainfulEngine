@@ -69,6 +69,13 @@ int LuaCmd(const char* dataRoot, int frames, const char* level,
             }
             engine.TickTriggers();
             engine.TickLifetimes(1.f / 60.f);
+            // The same tail the game loop runs. Without these the headless path
+            // is not the game minus a window: bound entities never follow what
+            // they hang off, and CONTACTS ARE NEVER REPORTED - so a destructible
+            // could not break here even though the physics under it is real.
+            engine.UpdateAttached();
+            engine.TickSounds(1.f / 60.f);
+            engine.TickCollisions(1.f / 60.f);
         }
     }
     LogInfo("entities: %zu created, %zu released, %zu live; map \"%s\" scale %.2f",
