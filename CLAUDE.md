@@ -35,11 +35,25 @@ belongs in Reference, the README and Status link to it rather than summarising.
 
 ## Comments
 
-A code comment says what the code does and which constraint it obeys, in about
-three lines. The *evidence* — measured numbers, the hypothesis that was tried and
-failed, per-asset tables — goes in the matching `Docs/Reference/` page, and the
-comment carries a one-line pointer to it. That record is worth keeping; it is
-just not worth keeping in the middle of a function.
+Short and technical. A comment says what the code does and which constraint it
+obeys, in about three lines. The *evidence* — measured numbers, the hypothesis
+that was tried and failed, per-asset tables — goes in the matching
+`Docs/Reference/` page, and the comment carries a one-line pointer to it. That
+record is worth keeping; it is just not worth keeping in the middle of a
+function.
+
+Keep the address or the constant, drop the narrative:
+
+```cpp
+// Monster width = the SMALLER horizontal half-extent; the larger one is arms,
+// not body. The sphere centre sits above the origin, because a .pkmdl origin is
+// the model centre, not the soles. Rig measurements: Docs/Reference/MonsterMovement.md
+```
+
+**This governs code you write or change.** Existing long comments are not a
+backlog to work through — rewrite one when you are already editing that function,
+not as a sweep of its own. The older files still carry their full derivations
+inline; that is a known state, not a defect to fix in bulk.
 
 ## Layout
 

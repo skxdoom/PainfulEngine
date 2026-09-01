@@ -7,14 +7,9 @@ distributed with this project.**
 
 Painkiller's gameplay logic is not compiled — it lives in Lua scripts and
 serialised property tables. A source port therefore means implementing the
-*native API those scripts call* rather than rewriting the game's design. Of the
-941 native functions recovered from `Engine.dll`, 790 are actually called by the
-shipped scripts, and just **113 cover 80% of all call sites**.
-
-Every rule the engine follows is recovered from something the game shipped —
-the data itself, the shipped Lua, or `Engine.dll` decompiled in Ghidra —
-never from a heuristic that looks right. Heuristics have repeatedly turned out
-wrong here in ways that only surfaced levels later.
+*native API those scripts call* rather than rewriting the game's design. Every
+rule the engine follows is recovered from something the game shipped: the data,
+the shipped Lua, or `Engine.dll` decompiled in Ghidra.
 
 ## Building
 
@@ -27,159 +22,60 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
 ```
 
-The build also compiles the shaders (via bgfx's `shaderc`) whenever their
-sources change. bgfx selects a backend automatically; on Windows that is
-Direct3D 11.
-
-To have each build copy the executable and shaders into a game folder, set the
-deploy path once (a local cache variable, never committed):
+The build also compiles the shaders, via bgfx's `shaderc`. To have each build
+copy the executable and shaders into a game folder, set the deploy path once (a
+local cache variable, never committed):
 
 ```
 cmake -S . -B build -DPAINFUL_DEPLOY_DIR="X:/Painkiller/Bin"
 ```
 
-## Usage
+## Playing
 
 Copy `PainfulEngine.exe` and the `Shaders/` folder into the game's `Bin/`
-directory, beside the original `Painkiller.exe`. With no arguments it finds the
-sibling data directory and opens the first campaign level. A vanilla install
-works untouched: the `.pak` archives in `Data/` are read directly, with
-numbered patch archives (`Textures2.pak` > `Textures1.pak` > `Textures.pak`)
-and loose files layered the way the original engine mounts them. An unpacked
-`Data_Extracted/` tree still works as a data root too.
-
-It is a windowed application, so double-clicking opens no console — but run
-from a terminal it still prints.
+directory, beside the original `Painkiller.exe`, and run it. With no arguments
+it finds the sibling data directory and opens the first campaign level. A
+vanilla install works untouched — the `.pak` archives are read directly, with
+numbered patch archives layered the way the original engine mounts them.
 
 WASD to move, shift for fast, space/ctrl for up and down, `N` for noclip, `P`
 for the collision wireframe, `[` `]` to cycle levels. **Escape opens the menu**,
-which pauses the game and hands the mouse over; closing it gives the mouse
-straight back, with no click needed to start steering again. The debug overlay
-prints position, orientation, draw counts and visible zones. The camera flies,
-but it collides with the world and shoves loose props out of its way — `N`
-turns that off when a level needs surveying from outside.
-
-(The `run` diagnostic viewer is separate and keeps the older behaviour: click
-to capture the mouse, Escape to release it and again to quit.)
-
-### Running a level
+which pauses the game and hands the mouse over.
 
 ```
-PainfulEngine                                             find the game data and run
-PainfulEngine run <DataRoot/Levels/NAME> <DataRoot>       open a specific level
-PainfulEngine levels <DataRoot>                           list levels
+PainfulEngine                            find the game data and play
+PainfulEngine game <DataRoot> [level]    play a named level
 ```
 
-| `run` flag | Effect |
-|---|---|
-| `--pos x y z` | start position |
-| `--look yaw pitch` | start orientation, radians (the HUD prints `rot` in this form) |
-| `--shot <file>` | capture one frame to a `.tga` and exit |
-| `--skyview` | draw only the sky |
-| `--novis` | disable frustum and zone culling, and lift the far clip |
-| `--cull ccw\|cw\|none`, `--ecull …` | override world / entity winding |
-| `--escale <f>` | debug multiplier on entity scale |
-| `--noclip` | start with camera collision off (`N` toggles it) |
-| `--physdebug` | start with the collision wireframe on (`P` toggles it) |
+## Tools
 
-`PAINFUL_SHOT_FRAME=<n>` delays the `--shot` capture (for verifying animation);
-`PAINFUL_SKYLAYER=<n>` draws only one sky layer. `Tools/shot.ps1` converts a
-captured `.tga` to a downscaled `.png` (`-Crop "x,y,w,h"`, `-Full` for native
-resolution).
+`PainfulTools.exe` is the diagnostics: every subsystem has a command that
+resolves its data and prints what it found, so a change can be checked without
+opening a window. `PainfulTools help` lists all 33 — generated from the same
+table it dispatches on, so it cannot fall out of date.
 
-### Headless reports
-
-Every subsystem has a command that resolves its data and prints what it found,
-so a change can be checked without opening a window.
-
-| Command | Prints |
-|---|---|
-| `level <levelDir> <DataRoot>` | level settings, entity counts, world mesh totals |
-| `entities <levelDir> <DataRoot>` | placed entities and how each one resolves |
-| `particles <levelDir> <DataRoot>` | effect → emitter chain, per-emitter parameters |
-| `billboards <levelDir> <DataRoot>` | coronas and sprites, plus collision BVH timing |
-| `physics <levelDir> <DataRoot>` | the physics world, and probes of it |
-| `zones <levelDir> <DataRoot> [x y z]` | portal/zone graph, optionally from a point |
-| `ground <levelDir> <DataRoot> <x y z> <radius>` | floor probe |
-| `scale <levelDir> <DataRoot>` | world scale sanity check |
-| `fit <levelDir> <DataRoot>` | entity/world fit report |
-| `map <file.mpk>` | objects, materials, bounds |
-| `mats <file.mpk>` | material/lightmap sanity report |
-| `model <file.pkmdl>` | meshes, skeleton, bounds |
-| `bones <file.pkmdl>` | skeleton hierarchy |
-| `dat <file.dat \| dir>` | item packs (a directory validates all) |
-| `skydump <file.mpk>` | dome shells, UV ranges, material slots |
-| `skytex <levelDir> <DataRoot>` | sky layer textures and whether they resolve |
-| `shaders <DataRoot> [name]` | material scripts; one name prints it resolved |
-| `lua <DataRoot> [frames] [level]` | boot the script layer (optionally load a level), tick, report native calls |
-| `game <DataRoot> [level] [--shot f] [--exec lua]` | script-driven windowed run: the game's Lua loads the level |
-| `mklevel <DataRoot> [name] [extent] [height] [tex]` | write a complete level - a big walkable floor - from code |
-| `textures <file.mpk> <DataRoot> <hint>` | which map textures resolve |
-| `resolve <DataRoot> <name>` | where a texture reference resolves |
-| `texdump <DataRoot> <name> [out.tga]` | decode a texture, print corner pixels |
+```
+PainfulTools level <DataRoot>/Levels/<name> <DataRoot>     what is in a level
+PainfulTools physics <DataRoot>/Levels/<name> <DataRoot>   the Jolt world, and probes of it
+PainfulTools lua <DataRoot> 60 <name>                      boot the scripts, tick, report native calls
+PainfulTools run <DataRoot>/Levels/<name> <DataRoot>       the free-camera viewer
+```
 
 ## Status
 
-Asset formats, `.pak` reading (a vanilla install runs untouched), static world
-rendering, portal/zone visibility, entity placement, layered skies, particle
-effects, light coronas and world collision all work. The Lua 5.0.2 host boots
-the real game scripts and **script-driven level loading works**:
-`PainfulEngine game <DataRoot> <level>` has `Game:LoadLevel` read the level
-and create its entities through the native API — `ENTITY.PO_Create` puts
-real Jolt bodies under them so items settle onto the floor, and the layered
-sky, particle effects and light coronas all arrive through their natives
-too. **You walk**: `Game:OnPlay` creates the player, the engine-side pawn
-moves from the game's own `Tweak.PlayerMove` constants, actors and weapons
-tick, and items poll for pickup.
+The engine plays: the shipped Lua loads a level, creates the player, and moves
+him with the game's own constants. Skeletal animation, monsters, ragdolls,
+sound, particles, physics and the HUD all run from the original scripts. Not
+yet: water and post-processing, save/load, and multiplayer.
 
-Skeletal animation plays, monsters see the player and walk to him over the
-level's own waypoint graph, sound mixes through one SDL3 stream, and the
-**HUD draws itself from the shipped Lua** — health, ammo, the compass and the
-tarot board, with text rasterised from the game's own TrueType. Levels are
-authorable from code: `mklevel` writes a complete one, world mesh included.
-The **menu is up to Stage 2** — the real main menu and Options screens draw
-from the shipped scripts, navigable by mouse and keyboard with the game's own
-cursor, running the real `action` strings; Escape opens it and pauses the
-world, and the sliders and checkboxes round-trip through `Cfg` to
-`config.ini`. Localization works in all eight shipped languages.
-
-Not yet: menu lists and the carved frames, water and post-processing,
-save/load, and multiplayer.
-
-The full inventory, with the authority cited for each rule, is in
-[`Docs/Status.md`](Docs/Status.md).
-
-## Roadmap
-
-Rendering comes first: it has a ground truth — the original renders the same
-level, so screenshots can be compared directly — while gameplay correctness
-only reveals itself deep into a playthrough.
-
-1. The menu, stages 3–4: lists and scrollers, then `MenuItemBorder` — the
-   carved stone frame `HUD.DrawBorder` still approximates with an outline —
-   then the campaign map and the loading screen. The staging and what the
-   binary said are in [`Docs/Menu.md`](Docs/Reference/Menu.md).
-2. Save/load, which is the last of the engine skeleton.
-3. Water (`FXWater`), which needs a render-target pass — shared with:
-4. Bloom and the rest of the `.fxo` post chain.
-5. The remaining natives, from
-   [`Docs/native_priority.tsv`](Docs/Data/native_priority.tsv) in call-count order.
-   The host itself is up: see [`Docs/LuaHost.md`](Docs/Reference/LuaHost.md).
-6. The rest of physics — ragdolls, per-bone hitboxes, explosions and glass —
-   driven through that same native API. The Jolt world underneath it is up
-   already: see [`Docs/Physics.md`](Docs/Reference/Physics.md).
+The inventory, with the authority cited for each rule, is in
+[`Docs/Status.md`](Docs/Status.md). What is left, and in what order, is in
+[`Docs/Plan.md`](Docs/Plan.md).
 
 ## Documentation
 
-`Docs/` is three kinds of file, kept apart because they age differently.
-
-**[`Docs/Status.md`](Docs/Status.md)** — the source layout, what works, what is
-missing. **[`Docs/Plan.md`](Docs/Plan.md)** — what is left and in what order.
-**[`Docs/Data/native_priority.tsv`](Docs/Data/native_priority.tsv)** — the native
-API ranked by call count: the work queue, generated rather than written.
-
-`Docs/Reference/` holds the recovered rules, which change only when a new fact is
-recovered:
+`Docs/Reference/` holds the recovered rules — durable, and changed only when a
+new fact is recovered.
 
 | | |
 |---|---|
@@ -199,6 +95,8 @@ recovered:
 | [`Menu.md`](Docs/Reference/Menu.md) | the retained widget model behind `PMENU`, and the staging |
 | [`Sound.md`](Docs/Reference/Sound.md) | the mixer, the voice pool and the `SOUND` natives |
 
+[`Docs/Data/native_priority.tsv`](Docs/Data/native_priority.tsv) ranks the native
+API by call count — the work queue. [`CLAUDE.md`](CLAUDE.md) has the conventions.
 
 ## Licence
 
@@ -228,10 +126,9 @@ which wrote a substantial share of the engine, the Ghidra analysis behind it
 and these docs. Per-commit authorship is recorded in `Co-Authored-By`
 trailers throughout the history.
 
-Nearly every rule in `Docs/` was recovered rather than guessed — from the
-shipped data, the shipped Lua, or `Engine.dll` in Ghidra. Where a guess was
-made and later proved wrong, the docs say so and say how it was caught; that
-record is deliberate, and worth keeping as the project grows.
+Nearly every rule in `Docs/` was recovered rather than guessed. Where a guess
+was made and later proved wrong, the docs say so and say how it was caught;
+that record is deliberate, and worth keeping as the project grows.
 
 ## Third-party
 
