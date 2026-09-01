@@ -226,3 +226,38 @@ ones that had never been reachable:
 
 **Expect a stub's first real implementation to fail, and to fail in the code
 around it rather than in itself.**
+
+## The mixing cap steals, it does not drop
+
+Two limits, and they answer different questions. `kMaxVoices` (512) is the
+handle table: the scripts CREATE sounds long before they play them - a
+flamethrower loop, an elevator, a torch - and Cathedral alone holds ninety-odd
+at once, none of them audible. `kMaxPlaying` (64) is what is actually being
+mixed this instant.
+
+**64 is the right number**: the original's own startup log reports Miles at
+`DIG_MIXER_CHANNELS: 64`. What was wrong was the policy at the cap - a new
+one-shot was dropped rather than taking a slot from something already playing.
+
+Reported from play: the jump sound went missing on a busy level and was
+reliable on an empty one. That asymmetry is the whole diagnosis - the event was
+firing, the mixer was full of ambience and monsters, and the player's own jump
+lost the race. Measured by saturating the mixer with eighty looping sounds and
+then asking for ten one-shots:
+
+| policy | played | dropped |
+|---|---:|---:|
+| drop the newcomer | 0 | 10 |
+| steal the quietest | 10 | 0 |
+
+The quietest voice goes first, by mixed gain, so a distant 3D sound loses to a
+close one. **Held handles are never taken** - a script that owns a loop expects
+it to still be there, and stealing it would leave the handle pointing at
+whatever replaced it. When everything audible is held, the call drops as before.
+
+### Testing it headlessly
+
+`PAINFUL_AUDIO=1` makes the `lua` report open a real device. Without it
+`audio_` is null, every SOUND native is a silent no-op, and the mixer cannot be
+measured at all - which is why this went unnoticed: the report never exercised
+the sound path.

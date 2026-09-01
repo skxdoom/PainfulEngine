@@ -150,8 +150,7 @@ private:
     float speed_ = 0.f;              // current target speed; 0 = uninitialised
     float velocity_[3] = {0, 0, 0};  // last frame's actual travel, per second
     float groundedTime_ = 0.f;       // seconds since touchdown
-    float jumpQueuedFor_ = 0.f;      // before-landing buffer countdown
-    bool jumpHeld_ = false;          // edge detection for hop presses
+    bool jumpLatched_ = false;       // PlayerAction's +0x1e: cleared on release
     bool jumpedThisMove_ = false;    // an actual jump, not just airborne
     uint32_t takeoffMask_ = 0;       // movement bits frozen at takeoff
     float airDir_[2] = {0, 0};       // last frame's travel direction (x, z)

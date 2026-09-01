@@ -36,6 +36,12 @@ int LuaCmd(const char* dataRoot, int frames, const char* level,
     TextureCache hudTextures;
     hudTextures.Init(std::string(dataRoot) + "/Textures", false);
     engine.AttachHudTextures(&hudTextures);
+    // PAINFUL_AUDIO=1 opens a real device so the SOUND natives can be exercised
+    // headlessly. Without it audio_ is null, every SOUND call is a silent no-op,
+    // and the mixer - including its voice cap - cannot be measured at all.
+    AudioEngine audio;
+    if (std::getenv("PAINFUL_AUDIO") && audio.Init(std::string(dataRoot) + "/Sounds"))
+        engine.AttachAudio(&audio);
     const bool ok = host.Boot();
     if (ok) {
         host.CallGameInit();
@@ -310,14 +316,112 @@ int SoundCmd(const char* root, const char* name, const char* seconds) {
 }
 
 
+// One axis-aligned box of STATIC world geometry.
+//
+// Six faces, four vertices each so every face carries its own normal. The
+// winding is the exporter's, not the intuitive one: the geometric normal of
+// each triangle must OPPOSE its vertex normal (see MapMesh::Write). Corners
+// are handed in counter-clockwise order as seen from OUTSIDE the box, which
+// would give a geometric normal along +n, so the indices are emitted reversed.
+// Wound the other way a step is invisible from the front and the player walks
+// through it.
+static void AddBoxFace(MapObject& o, const float c0[3], const float c1[3],
+                       const float c2[3], const float c3[3], const float n[3],
+                       float uvPerUnit) {
+    const uint16_t base = uint16_t(o.vertexCount());
+    const float* corner[4] = {c0, c1, c2, c3};
+    // Planar UVs off the two axes the face does NOT point along, so the
+    // texture keeps its world scale on every face.
+    const int axis = (std::fabs(n[0]) > 0.5f) ? 0 : (std::fabs(n[1]) > 0.5f ? 1 : 2);
+    const int u = (axis == 0) ? 2 : 0;
+    const int v = (axis == 1) ? 2 : 1;
+    // uvChannels 2: the normal moves to its own array and the second UV set
+    // takes the freed floats. Lightmap UVs run 0..1 across each face, which is
+    // all a flat lightmap needs.
+    static const float lmUV[4][2] = {{0.f,0.f},{1.f,0.f},{1.f,1.f},{0.f,1.f}};
+    for (int i = 0; i < 4; ++i) {
+        o.verts.push_back(corner[i][0]);
+        o.verts.push_back(corner[i][1]);
+        o.verts.push_back(corner[i][2]);
+        o.verts.push_back(0.f);                             // pad
+        o.verts.push_back(corner[i][u] * uvPerUnit);        // uv0
+        o.verts.push_back(corner[i][v] * uvPerUnit);
+        o.verts.push_back(lmUV[i][0]);                      // uv1
+        o.verts.push_back(lmUV[i][1]);
+        o.normals.push_back(n[0]);
+        o.normals.push_back(n[1]);
+        o.normals.push_back(n[2]);
+    }
+    // Reversed: (0,2,1) and (0,3,2) rather than (0,1,2) and (0,2,3).
+    o.indices.push_back(base);     o.indices.push_back(uint16_t(base + 2));
+    o.indices.push_back(uint16_t(base + 1));
+    o.indices.push_back(base);     o.indices.push_back(uint16_t(base + 3));
+    o.indices.push_back(uint16_t(base + 2));
+}
+
+// A step: a solid box standing on the floor, `h` tall.
+static MapObject MakeStepBox(const std::string& name, float cx, float cz, float floorY,
+                             float h, float halfX, float halfZ, float uvPerUnit,
+                             const std::string& texture, const std::string& lightmap) {
+    MapObject box;
+    // A plain name is plain solid geometry - no portal, zone, barrier or
+    // physics substring - which is what MapObject::isCollidable answers true
+    // for. These are STATIC world mesh, not props: nothing can shove them and
+    // they need no body of their own.
+    box.name = name;
+    box.uvChannels = 2;
+
+    const float x0 = cx - halfX, x1 = cx + halfX;
+    const float z0 = cz - halfZ, z1 = cz + halfZ;
+    const float y0 = floorY, y1 = floorY + h;
+
+    // Each face's corners counter-clockwise seen from outside.
+    const float top[4][3]    = {{x0,y1,z0},{x0,y1,z1},{x1,y1,z1},{x1,y1,z0}};
+    const float bottom[4][3] = {{x0,y0,z0},{x1,y0,z0},{x1,y0,z1},{x0,y0,z1}};
+    const float xneg[4][3]   = {{x0,y0,z0},{x0,y0,z1},{x0,y1,z1},{x0,y1,z0}};
+    const float xpos[4][3]   = {{x1,y0,z0},{x1,y1,z0},{x1,y1,z1},{x1,y0,z1}};
+    const float zneg[4][3]   = {{x0,y0,z0},{x0,y1,z0},{x1,y1,z0},{x1,y0,z0}};
+    const float zpos[4][3]   = {{x0,y0,z1},{x1,y0,z1},{x1,y1,z1},{x0,y1,z1}};
+    const float nUp[3]   = {0,1,0},  nDown[3] = {0,-1,0};
+    const float nXneg[3] = {-1,0,0}, nXpos[3] = {1,0,0};
+    const float nZneg[3] = {0,0,-1}, nZpos[3] = {0,0,1};
+
+    AddBoxFace(box, top[0],    top[1],    top[2],    top[3],    nUp,   uvPerUnit);
+    AddBoxFace(box, bottom[0], bottom[1], bottom[2], bottom[3], nDown, uvPerUnit);
+    AddBoxFace(box, xneg[0],   xneg[1],   xneg[2],   xneg[3],   nXneg, uvPerUnit);
+    AddBoxFace(box, xpos[0],   xpos[1],   xpos[2],   xpos[3],   nXpos, uvPerUnit);
+    AddBoxFace(box, zneg[0],   zneg[1],   zneg[2],   zneg[3],   nZneg, uvPerUnit);
+    AddBoxFace(box, zpos[0],   zpos[1],   zpos[2],   zpos[3],   nZpos, uvPerUnit);
+
+    box.bboxMin[0] = x0; box.bboxMin[1] = y0; box.bboxMin[2] = z0;
+    box.bboxMax[0] = x1; box.bboxMax[1] = y1; box.bboxMax[2] = z1;
+
+    Material mat;
+    mat.firstIndex = 0;
+    mat.triangleCount = uint16_t(box.indices.size() / 3);
+    mat.slots[0].name = texture;
+    mat.slots[1].name = lightmap;   // slot 1 is the lightmap on shipped geometry
+    box.materials.push_back(mat);
+    return box;
+}
+
 int MkLevelCmd(const char* dataRoot, const char* levelName, float extent,
-                      float height, const char* texture) {
+                      float height, const char* texture, const char* steps,
+                      const char* lightmapArg) {
     const std::string root = dataRoot;
     const std::string name = levelName;
-
-    // 64x64 cells keeps the index array inside the u16 the format stores, with
-    // room to spare: 4225 vertices and 24576 indices against a 65535 ceiling.
-    constexpr int kCells = 64;
+    // Slot 1 on every object. A flat white bitmap is a neutral lightmap: the
+    // surface renders unlit-looking but the RECORD matches shipped geometry.
+    const std::string lightmap = (lightmapArg && *lightmapArg) ? lightmapArg : "LM";
+    // ONE QUAD, NOT A GRID.
+    //
+    // A flat floor needs two triangles; the texture tiles through UVs greater
+    // than 1, not through geometry. It used to be a 64x64 grid, which put 8192
+    // COPLANAR triangles in a single object - something no shipped map does,
+    // and the classic pathological input for a spatial-partition builder. The
+    // original engine hangs rather than crashes on this level, which is what
+    // that looks like from outside.
+    constexpr int kCells = 1;
     const float step = (extent * 2.f) / float(kCells);
     // One texture repeat every 8 world units, so a 400-unit floor tiles 50
     // times rather than stretching one image across the whole thing.
@@ -329,7 +433,14 @@ int MkLevelCmd(const char* dataRoot, const char* levelName, float extent,
     // which is what MapObject::isCollidable answers for anything without one
     // of those tokens.
     floor.name = "floor_generated";
-    floor.uvChannels = 1;   // position, normal, uv inline - no lightmap
+    // LIGHTMAPPED, like every shipped world object that carries one.
+    //
+    // uvChannels 2 changes the vertex record: the normal leaves the inline
+    // slot for its own array and the freed floats become the second UV set.
+    // Both layouts are 32 bytes (Docs/Reference/Formats.md). Emitting 1 here
+    // gave geometry no shipped map looks like, and slot 1 had nothing to
+    // sample.
+    floor.uvChannels = 2;
 
     floor.verts.reserve(size_t(kCells + 1) * (kCells + 1) * 8);
     for (int iz = 0; iz <= kCells; ++iz) {
@@ -339,11 +450,14 @@ int MkLevelCmd(const char* dataRoot, const char* levelName, float extent,
             floor.verts.push_back(x);
             floor.verts.push_back(height);
             floor.verts.push_back(z);
-            floor.verts.push_back(0.f);          // normal
-            floor.verts.push_back(1.f);          //   points up
-            floor.verts.push_back(0.f);
-            floor.verts.push_back(x * uvPerUnit);
+            floor.verts.push_back(0.f);                        // pad
+            floor.verts.push_back(x * uvPerUnit);              // uv0: tiles
             floor.verts.push_back(z * uvPerUnit);
+            floor.verts.push_back(float(ix) / float(kCells));  // uv1: 0..1
+            floor.verts.push_back(float(iz) / float(kCells));  //   across the object
+            floor.normals.push_back(0.f);
+            floor.normals.push_back(1.f);
+            floor.normals.push_back(0.f);
         }
     }
 
@@ -375,11 +489,38 @@ int MkLevelCmd(const char* dataRoot, const char* levelName, float extent,
     Material mat;
     mat.firstIndex = 0;
     mat.triangleCount = uint16_t(floor.indices.size() / 3);
-    mat.slots[0].name = texture;    // slots 1-3 stay empty: no lightmap, no detail
+    mat.slots[0].name = texture;
+    mat.slots[1].name = lightmap;
     floor.materials.push_back(mat);
 
     MapMesh mesh;
     mesh.objects.push_back(std::move(floor));
+
+    // A row of steps, when asked for: comma-separated heights in world units.
+    // Static geometry, not props - the point is to compare the step ladder
+    // (Docs/Reference/PlayerMovement.md) against the original at heights that
+    // straddle its rungs, and a pushable box would measure something else.
+    int stepCount = 0;
+    if (steps && *steps) {
+        const float spacing = 5.f;
+        float cx = spacing;
+        for (const char* p = steps; *p;) {
+            char* end = nullptr;
+            const float h = std::strtof(p, &end);
+            if (end == p) break;
+            if (h > 0.f) {
+                char nm[64];
+                std::snprintf(nm, sizeof nm, "step_%02d_%03d", stepCount + 1,
+                              int(h * 100.f + 0.5f));
+                mesh.objects.push_back(MakeStepBox(nm, cx, 0.f, height, h,
+                                                   1.5f, 2.f, uvPerUnit, texture, lightmap));
+                ++stepCount;
+                cx += spacing;
+            }
+            p = (*end == ',') ? end + 1 : end;
+            while (*p == ' ') ++p;
+        }
+    }
 
     const std::string mapFile = name + ".mpk";
     const std::string mapPath = root + "/Maps/" + mapFile;
@@ -406,7 +547,9 @@ int MkLevelCmd(const char* dataRoot, const char* levelName, float extent,
              mapFile.c_str(), height + 2.f, extent * 3.f);
 
     const std::string levelDir = root + "/Levels/" + name;
-    const std::string script = "-- Generated by `mklevel`. A floor and nothing else.\n";
+    const std::string script = stepCount > 0
+        ? "-- Generated by `mklevel`. A floor and a row of static step boxes.\n"
+        : "-- Generated by `mklevel`. A floor and nothing else.\n";
     const std::string sTxt = settings;
     if (!WriteFile(levelDir + "/" + name + ".CLevel",
                    std::vector<uint8_t>(sTxt.begin(), sTxt.end())) ||
@@ -416,10 +559,36 @@ int MkLevelCmd(const char* dataRoot, const char* levelName, float extent,
         return 1;
     }
 
+    // A monster spawn point. NOT the player start - that is the level's own
+    // o.Pos, which CLevel:Synchronize pushes out through CAM.SetPos and
+    // Game:CreatePlayerSP then seats the player at. This is CSpawnPoint, which
+    // every shipped level carries and which spawns ACTORS; it is written here
+    // because a level with no entity directories at all is unlike anything the
+    // original tools have seen.
+    //
+    // Placed behind the spawn so it stays clear of the step row on +X.
+    char spawn[512];
+    std::snprintf(spawn, sizeof spawn,
+                  "o.BaseObj = \"MonstersSpawnPoint.CSpawnPoint\"\n"
+                  "o.Pos = Vector:New(-10,%.3f,0)\n"
+                  "o.GroupCount = 1\n"
+                  "o.GroupDelay = 1\n"
+                  "o.EachDelay = 0.5\n"
+                  "o.SpawnTemplate = \"EvilMonkV2_WalkOnlyNoThrow.CActor\"\n",
+                  height);
+    const std::string sp = spawn;
+    if (!WriteFile(levelDir + "/CSpawnPoint/MonstersSpawnPoint_001.CSpawnPoint",
+                   std::vector<uint8_t>(sp.begin(), sp.end()))) {
+        LogWarn("cannot write the spawn point under %s", levelDir.c_str());
+        return 1;
+    }
+
     LogInfo("wrote %s: %zu verts, %zu tris, %.0f x %.0f units at y=%.1f, texture \"%s\"",
             mapPath.c_str(), mesh.objects[0].vertexCount(),
             mesh.objects[0].triangleCount(), extent * 2, extent * 2, height, texture);
     LogInfo("wrote %s/%s.CLevel and %s.lua", levelDir.c_str(), name.c_str(), name.c_str());
+    if (stepCount > 0)
+        LogInfo("wrote %d static step boxes along +X at z=0, 5 units apart", stepCount);
     LogInfo("load it with:  PainfulEngine game %s %s", dataRoot, name.c_str());
     return 0;
 }

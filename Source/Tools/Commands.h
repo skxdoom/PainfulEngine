@@ -117,5 +117,6 @@ int BlendCmd(const char* path, const char* animA, const char* animB,
 int WpsCmd(const char* path);
 int SoundCmd(const char* root, const char* name, const char* seconds);
 int MkLevelCmd(const char* dataRoot, const char* levelName, float extent,
-               float height, const char* texture);
+               float height, const char* texture, const char* steps,
+               const char* lightmap);
 int PoseCmd(const char* modelPath, const char* animName, const char* timeArg);

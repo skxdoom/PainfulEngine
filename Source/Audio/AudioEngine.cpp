@@ -289,7 +289,7 @@ AudioEngine::Voice AudioEngine::Create(const std::string& name, bool positional)
 // callers are asking IsPlaying about.
 AudioEngine::Voice AudioEngine::Play2D(const std::string& name, float volume, bool loop,
                                        bool noPitch) {
-    if (PlayingCount() >= kMaxPlaying) return 0;
+    if (PlayingCount() >= kMaxPlaying && !StealQuietest()) return 0;
     const Voice v = Open(name, false, false);
     if (!v) return 0;
     std::lock_guard<std::mutex> guard(lock_);
@@ -307,7 +307,7 @@ AudioEngine::Voice AudioEngine::Play2D(const std::string& name, float volume, bo
 
 AudioEngine::Voice AudioEngine::Play3D(const std::string& name, const float pos[3],
                                        float dist1, float dist2, bool noPitch) {
-    if (PlayingCount() >= kMaxPlaying) return 0;
+    if (PlayingCount() >= kMaxPlaying && !StealQuietest()) return 0;
     const Voice v = Open(name, true, false);
     if (!v) return 0;
     std::lock_guard<std::mutex> guard(lock_);
@@ -427,6 +427,36 @@ void AudioEngine::Update() {
         }
         if (p.playing && p.positional) ComputeGains(p);
     }
+}
+
+// Make room at the mixing cap by STEALING the least audible voice.
+//
+// Sixty-four is the right number - the original's own log reports Miles at
+// DIG_MIXER_CHANNELS: 64 - but dropping the newcomer is the wrong policy for
+// it. A level running sixty-four ambient loops and monster sounds left no slot
+// for the player's own jump, so the sound went missing exactly where there was
+// most going on; on an empty TestFloor it always played. That asymmetry is the
+// tell.
+//
+// Quietest first, by mixed gain, so a distant 3D sound loses to a close one.
+// Held handles are never taken: a script that owns a flamethrower loop expects
+// it to still be there, and stealing it would leave the handle pointing at
+// whatever replaced it. Returns false when everything audible is spoken for,
+// in which case the caller drops as before.
+bool AudioEngine::StealQuietest() {
+    std::lock_guard<std::mutex> guard(lock_);
+    Playing* worst = nullptr;
+    float worstGain = 0.f;
+    for (Playing& p : voices_) {
+        if (!p.used || !p.playing || p.paused || p.held) continue;
+        const float g = p.gain[0] > p.gain[1] ? p.gain[0] : p.gain[1];
+        if (worst == nullptr || g < worstGain) { worst = &p; worstGain = g; }
+    }
+    if (worst == nullptr) return false;
+    worst->playing = false;
+    worst->used = false;
+    ++worst->generation;
+    return true;
 }
 
 size_t AudioEngine::PlayingCount() const {

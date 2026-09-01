@@ -15,7 +15,7 @@ void PlayerPawn::SetHeadPos(const float p[3]) {
     velY_ = 0.f;
     onGround_ = false;
     groundedTime_ = 0.f;
-    jumpQueuedFor_ = 0.f;
+    jumpLatched_ = false;
 }
 
 void PlayerPawn::Move(const PhysicsWorld& physics, const Tweaks& tweaks,
@@ -57,12 +57,21 @@ void PlayerPawn::Move(const PhysicsWorld& physics, const Tweaks& tweaks,
     }
     const bool jump = (action & Act::Jump) != 0;
 
-    // The before-landing buffer: a jump pressed in the air counts if the
-    // ground arrives within the window (PlayerAction's pfVar2[7] timer).
-    const bool jumpPressed = jump && !jumpHeld_;
-    jumpHeld_ = jump;
-    if (jumpPressed && !onGround_) jumpQueuedFor_ = hopBefore;
-    else if (jumpQueuedFor_ > 0.f) jumpQueuedFor_ = std::max(0.f, jumpQueuedFor_ - dt);
+    // THE LATCH, not an input edge. PlayerAction (0x10192260) tests the jump
+    // bit at its LEVEL and gates it on a one-byte latch:
+    //
+    //     bStack_fb = (action >> 5) & 1;            // the Jump bit, level
+    //     if (!bStack_fb) latch = 0;                // released -> cleared
+    //     ...
+    //     jump = bStack_fb && grounded && latch == 0;
+    //     if (verticalVel > tweak[+8]) latch = 1;   // rising -> set
+    //
+    // So holding jump does not bounce you, but a press made in the AIR and
+    // still held fires the moment you land, however long that takes. An input
+    // edge plus a fixed before-landing buffer drops exactly that case: press
+    // early, keep holding, land after the window, and nothing happens. That is
+    // the "space does not always jump" from play.
+    if (!jump) jumpLatched_ = false;
 
     float vx = 0.f, vz = 0.f;
     if (onGround_) {
@@ -82,9 +91,9 @@ void PlayerPawn::Move(const PhysicsWorld& physics, const Tweaks& tweaks,
         airDir_[0] = hasInput ? wish[0] : 0.f;
         airDir_[1] = hasInput ? wish[1] : 0.f;
         takeoffMask_ = action & (Act::Forward | Act::Backward | Act::Left | Act::Right);
-        const bool wantsHop =
-            (jumpPressed || jumpQueuedFor_ > 0.f) && groundedTime_ <= hopAfter;
-        const bool wantsJump = jumpPressed || jumpQueuedFor_ > 0.f;
+        const bool wantsJump = jump && !jumpLatched_;
+        // The hop window still decides the SPEED bonus, as it does in the engine.
+        const bool wantsHop = wantsJump && groundedTime_ <= hopAfter;
 
         if (wantsJump) {
             // The engine's jump: JumpStrength * PlayerSpeed * 0.7.
@@ -92,6 +101,8 @@ void PlayerPawn::Move(const PhysicsWorld& physics, const Tweaks& tweaks,
             // The scripts' jump sound hangs off this, so it must mean an actual
             // jump and not merely leaving the ground - a step-up does that too.
             jumpedThisMove_ = true;
+            // Rising now, so the latch closes until the key is released.
+            jumpLatched_ = true;
             if (wantsHop) {
                 // A timely hop grows the speed toward the cap; a plain jump
                 // from standing keeps whatever speed stood.
@@ -101,7 +112,6 @@ void PlayerPawn::Move(const PhysicsWorld& physics, const Tweaks& tweaks,
             }
             onGround_ = false;
             groundedTime_ = 0.f;
-            jumpQueuedFor_ = 0.f;
             vx = airDir_[0] * speed_;
             vz = airDir_[1] * speed_;
         } else {

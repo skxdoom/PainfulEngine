@@ -217,13 +217,15 @@ const Command kCommands[] = {
  "two animations blended",
  [](int argc, char** argv) { return BlendCmd(argv[2], argv[3], argv[4], argc >= 6 ? argv[5] : nullptr); }},
 
-{"mklevel", 3, Root::kArgv2, "script", "<DataRoot> [name] [extent] [height] [tex]",
+{"mklevel", 3, Root::kArgv2, "script", "<DataRoot> [name] [extent] [height] [tex] [stepHeights] [lightmap]",
  "write a complete level from code",
  [](int argc, char** argv) {
      return MkLevelCmd(argv[2], argc >= 4 ? argv[3] : "TestFloor",
                        argc >= 5 ? float(std::atof(argv[4])) : 200.f,
                        argc >= 6 ? float(std::atof(argv[5])) : 0.f,
-                       argc >= 7 ? argv[6] : "beton_tile_all");
+                       argc >= 7 ? argv[6] : "beton_tile_all",
+                       argc >= 8 ? argv[7] : nullptr,
+                       argc >= 9 ? argv[8] : nullptr);
  }},
 };
 

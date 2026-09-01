@@ -118,6 +118,9 @@ private:
 
     Voice Open(const std::string& name, bool positional, bool held);
     size_t PlayingCount() const;
+    // Frees the least audible slot when the mixing cap is reached; false when
+    // nothing may be taken. See the comment on the definition.
+    bool StealQuietest();
     const Sample* Load(const std::string& name);
     void Mix(float* out, int frames);
     void ComputeGains(Playing& p) const;

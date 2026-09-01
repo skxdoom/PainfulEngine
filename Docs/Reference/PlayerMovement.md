@@ -157,6 +157,37 @@ are untouched at 7.98–8.00, and a descending one pays the penalty, 7.99 →
 7.22.
 
 
+
+### Jump is a LATCH, not an input edge
+
+`PlayerAction` tests the Jump bit at its level and gates it on a one-byte latch
+at `PhysicsObject+0x1e`:
+
+```
+uVar17     = *(uint *)(this + 0x78) >> 5;   // the action mask, bit 5 = Jump
+bStack_fb  = uVar17 & 1;                    // LEVEL, not an edge
+if ((uVar17 & 1) == 0) pfVar2[0x1e] = 0;    // released -> latch cleared
+...
+bVar8 = (bStack_fb && grounded && pfVar2[0x1e] == 0) || bunnyHop;
+if (tweak[+8] < pfVar2[7]) pfVar2[0x1e] = 1; // rising -> latch set
+```
+
+`tweak[+8]` is `SecondsWhenYouCanBunnyHopBeforeLanding`, fixed by its
+neighbours: the jump velocity is built from `tweak[+0x14] * tweak[+0x0c] * 0.7`
+= `JumpStrength * PlayerSpeed * 0.7`.
+
+So **holding jump does not bounce you** - the latch closes as soon as you are
+rising and only a release opens it - but **a press made in the air and still
+held fires the moment you land**, however long that takes. The port had an
+input edge plus a fixed before-landing buffer, which drops exactly that case:
+press early, keep holding, land after the window, nothing happens. Measured
+over 460 frames: held jump gives one jump either way; press-in-air-then-hold
+gave no landing jump before and jumps on landing now.
+
+`ENTITY.PO_JumpedInLastAction` reports whether the mover actually applied the
+jump velocity - not "left the ground", which a step-up also satisfies and which
+made every stair play `hero_jump`.
+
 ### The step must not fire against a wall, and must land somewhere it can stand
 
 Reported from play: the player jumps when pushing a prop or walking into a
