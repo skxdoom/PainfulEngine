@@ -130,6 +130,9 @@ public:
         // read back: PainHead skips a hit whose group is Noncolliding or
         // Particles, and sticks into one that is Fixed.
         int collisionGroup = 0;
+        // ENTITY.PO_SetMovedByExplosions. A grenade turns this off for itself so
+        // its own blast does not launch it; Slab barriers and lifts likewise.
+        bool movedByExplosions = true;
         bool isProjectile = false;
         // ENTITY.PO_EnableGravity. A projectile is not in the solver, so the
         // body's gravity factor is a value nothing reads - TickProjectiles has
@@ -718,6 +721,14 @@ private:
     static int L_PHYSICS_IsHavokBodyInWorld(lua_State* L);
     static int L_PHYSICS_GetHavokBodyVelocity(lua_State* L);
     static int L_ENTITY_EnableCollisions(lua_State* L);
+    static int L_WORLD_Explosion2(lua_State* L);
+    static int L_PO_SetMovedByExplosions(lua_State* L);
+    static int L_PO_SetPinned(lua_State* L);
+    static int L_PO_IsPinned(lua_State* L);
+    // The blast itself: collects what it reached, pushes it, and posts one
+    // EXPLOSION per entity. Docs/Reference/Physics.md carries the falloff.
+    void Explosion(const float centre[3], float strength, float range,
+                   double killer, double attackType, float damage);
     static int L_ENTITY_IsWater(lua_State* L);
     static int L_INP_GetTimeMultiplier(lua_State* L);
     static int L_INP_SetTimeMultiplier(lua_State* L);
@@ -876,6 +887,9 @@ private:
     static int L_SOUND_SetMasterVolume(lua_State* L);
 
     LuaHost* host_ = nullptr;
+    // One id per blast, so Game_GetMsg's _Exploded dedupe sees two entities in
+    // the same explosion as one event and two explosions as two.
+    uint32_t explosionCounter_ = 0;
     std::unordered_map<int, Entity> entities_;
     int nextHandle_ = 1;
     size_t created_ = 0, released_ = 0;

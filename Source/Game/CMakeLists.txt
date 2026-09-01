@@ -25,6 +25,7 @@ add_library(Game STATIC
   ScriptLimbs.cpp
   ScriptBind.cpp
   ScriptCollision.cpp
+  ScriptExplosion.cpp
   ScriptWater.cpp
 )
 target_link_libraries(Game PUBLIC Script Render Audio)

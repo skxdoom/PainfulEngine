@@ -131,6 +131,14 @@ public:
     // saying a thing is driven rather than simulated - the rocket asks for it
     // explicitly, having been created in the Particles group.
     void MakeScriptBodyNonColliding(int slot);
+
+    // ENTITY.PO_SetPinned. STATIC while pinned: the level places a blockade or
+    // a lift where it belongs and expects it to stay there until an action
+    // releases it, and CObject:PO_Create marks the call "bug havoka" - the
+    // original is working around Havok drifting a heavy resting body. Dynamic
+    // again on release, so it then falls and takes blasts normally.
+    void SetScriptBodyPinned(int slot, bool pinned);
+    bool IsScriptBodyPinned(int slot) const;
     // Teleports the body where the scripts put the entity.
     void SetScriptBodyPose(int slot, const float pos[3], const float rotWXYZ[4]);
     // PO_Enable on a prop: wakes or sleeps the body.

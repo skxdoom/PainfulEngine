@@ -1114,6 +1114,31 @@ void PhysicsWorld::MakeScriptBodyNonColliding(int slot) {
         bodies.SetMotionType(id, JPH::EMotionType::Kinematic, JPH::EActivation::Activate);
 }
 
+void PhysicsWorld::SetScriptBodyPinned(int slot, bool pinned) {
+    if (!ScriptBodyExists(slot)) return;
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    const JPH::BodyID id = impl_->scriptBodies[slot].body;
+    // A monster's body is kinematic and carried by its own mover; pinning must
+    // not take that away from it.
+    if (bodies.GetMotionType(id) == JPH::EMotionType::Kinematic) return;
+    const JPH::EMotionType want =
+        pinned ? JPH::EMotionType::Static : JPH::EMotionType::Dynamic;
+    if (bodies.GetMotionType(id) == want) return;
+    bodies.SetMotionType(id, want, JPH::EActivation::Activate);
+    // Released with whatever velocity it had when it was frozen would launch
+    // it; a pinned body has been standing still by definition.
+    if (!pinned) {
+        bodies.SetLinearVelocity(id, JPH::Vec3::sZero());
+        bodies.SetAngularVelocity(id, JPH::Vec3::sZero());
+    }
+}
+
+bool PhysicsWorld::IsScriptBodyPinned(int slot) const {
+    if (!ScriptBodyExists(slot)) return false;
+    return impl_->system.GetBodyInterface().GetMotionType(impl_->scriptBodies[slot].body) ==
+           JPH::EMotionType::Static;
+}
+
 void PhysicsWorld::SetScriptBodyGravityFactor(int slot, float factor) {
     if (!ScriptBodyExists(slot)) return;
     JPH::BodyLockWrite lock(impl_->system.GetBodyLockInterface(),

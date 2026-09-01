@@ -62,6 +62,13 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"ENTITY", "ExplodeItem", L_ENTITY_ExplodeItem},
         {"ENTITY", "PO_Hit", L_PO_Hit},
         {"WORLD", "HitPhysicObject", L_WORLD_HitPhysicObject},
+        {"WORLD", "Explosion2", L_WORLD_Explosion2},
+        // Multiplayer takes two more arguments we have no use for yet; the
+        // blast itself is the same one.
+        {"WORLD", "MultiplayerExplosion", L_WORLD_Explosion2},
+        {"ENTITY", "PO_SetMovedByExplosions", L_PO_SetMovedByExplosions},
+        {"ENTITY", "PO_SetPinned", L_PO_SetPinned},
+        {"ENTITY", "PO_IsPinned", L_PO_IsPinned},
         {"WORLD", "GetLastExplodedEntities", L_WORLD_GetLastExplodedEntities},
         {"ENTITY", "PO_Create", L_PO_Create},
         {"ENTITY", "PO_Move", L_PO_Move},

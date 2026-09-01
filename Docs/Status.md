@@ -268,6 +268,17 @@ that buys:
   body handles and the velocity each had *at the contact*, so
   `StdOnCollision` can compare impact speed against
   `Destroy.MinSpeedOnCollision` and destructibles break when hit hard enough.
+- **Explosions damage and shove.** `WORLD.Explosion2` — the single funnel for
+  every explosion in the game — collects what the blast reached, pushes each
+  body and posts one `EXPLOSION` message per entity for the scripts to damage.
+  The falloff is the engine's own sine curve, verified to three decimals
+  ([`Physics.md`](Reference/Physics.md)).
+- **Wreckage carries the blast.** `ENTITY.ExplodeItem` gives each part the
+  item's own velocity on top of its outward spread, so debris from a barrel a
+  rocket just hit leaves with the barrel's motion rather than dropping in
+  place. `ENTITY.PO_SetPinned` holds a prop static until a level action
+  releases it — which is what makes the Catacombs blockade breakable
+  ([`Physics.md`](Reference/Physics.md)).
 - **Animation plays.** `MDL.LoadAnim` / `SetAnim` return real indices, the
   clock natives (`GetAnimTime` / `GetAnimLength` / `GetAnimTimeScale` /
   `SetAnimTimeScale` / `ResetFrame`) answer truthfully, and `EntityRenderer`
@@ -290,10 +301,6 @@ The ordered work queue, with the evidence behind each item, is
 
 ### Gameplay
 
-- **Explosions.** `WORLD.Explosion2` is a stub, and `Explosion()` in
-  `Main/Utils.lua` funnels every explosion in the game through it — 91 call
-  sites. Nothing takes radius damage or blast impulse: grenades, rockets,
-  barrels, the exploding cars. This is the largest single gap left.
 - **Monster ground contact.** They walk, a stationary one is depenetrated
   rather than left embedded, and characters now part sideways instead of
   ejecting each other — a monk spawning onto another no longer drives it
@@ -302,11 +309,15 @@ The ordered work queue, with the evidence behind each item, is
   step-up, so any lip stops them dead; the floor normal handed to `CAiBrain`
   is a hardcoded `(0,1,0)`; and the shape that sweeps is a ball at shin height
   rather than the body everything else collides with.
-- **Pinning.** The stakegun cannot pin a corpse to a wall — its handler raises
-  on a nil from `PHYSICS.GetHavokBodyPosition` before it ever reaches the wall
-  test. `PinHavokBody`, `ENTITY.PO_SetPinned`, `MDL.SetPinned` /
-  `SetPinnedJoint` are all stubs, though `World/PhysicsWorld.cpp` already
-  branches `pinned ? Static : Dynamic` on the ragdoll path.
+- **Corpse pinning.** The stakegun cannot pin a body to a wall — its handler
+  raises on a nil from `PHYSICS.GetHavokBodyPosition` before it reaches the
+  wall test. `PinHavokBody` and the `MDL.SetPinned*` family are stubs.
+  `ENTITY.PO_SetPinned` works on props; corpses are the gap.
+- **Active meshes.** Some world-mesh objects are rigid bodies, marked in the
+  object name (`phys_`, `pinned_`, `_actgrpNN`) — 452 of them on Catacombs,
+  32 on Prison. We build the collidable world as one static body, so they
+  never move: the heavy stones at the Catacombs entrance ignore a blast going
+  off beside them. Detail in [`Physics.md`](Reference/Physics.md).
 - **Humanoid monsters draw half buried.** The renderer puts a model's own
   origin at the entity position, and most rigs put that origin at mid-body
   rather than the feet. Not level-specific; measured and left open in

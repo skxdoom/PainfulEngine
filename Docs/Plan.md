@@ -20,16 +20,16 @@ finite rather than open-ended:
 | ...excluding Lua's own standard library | ~846 |
 | ...in the generated surface (`NativeList.inc`) | 839 |
 | ...referenced by the shipped scripts | 638 |
-| **of those 638: implemented** | **227** |
-| **of those 638: still instrumented stubs** | **411** |
+| **of those 638: implemented** | **232** |
+| **of those 638: still instrumented stubs** | **406** |
 
 A call-frequency-ranked list is in [`native_priority.tsv`](Data/native_priority.tsv)
 (name, call count, module). 33 further natives are implemented outside the generated
 list — aliases and helpers such as `WORLD.LineTraceHitPlayerBalls` — so the whole
-implemented set is 307.
+implemented set is 312.
 
 Excluding the families that are not gameplay — `NET`, `MPSTATS`, `GAMESPY`, `PMENU`,
-`CONSOLE`, `EDITOR`, `FS`, `MBOARD` — **268 stubs remain that shipped scripts call.**
+`CONSOLE`, `EDITOR`, `FS`, `MBOARD` — **246 stubs remain that shipped scripts call.**
 That number is the remaining work, and the stages below are it, ordered.
 
 
@@ -45,8 +45,8 @@ reading:
 
 ```
 boot: 964 files loaded, 0 missing, 0 script errors
-entities: 797 created, 189 released, 656 live
-unimplemented natives hit: 102 distinct, 11618 calls
+entities: 795 created, 189 released, 654 live
+unimplemented natives hit: 100 distinct, 11540 calls
 ```
 
 against 153 distinct / 82,843 calls at the start of Stage 7. Re-run after every
@@ -113,25 +113,32 @@ whether the scripts already are it.** Damage needed no native work at all — a 
 traces, looks the hit entity up in `EntityToObject` and calls `obj:OnDamage`. Only
 the *reaction* was missing.
 
-### Stage 13 — explosions
+### Stage 13 — explosions — DONE
 
-**The single highest-leverage item left.** `Explosion()` in `Main/Utils.lua` funnels
-every explosion in the game into `WORLD.Explosion2` — 91 call sites — and it is a
-stub. Nothing takes radius damage and nothing takes blast impulse: grenades, rockets,
-barrels, the exploding cars, `Alastor`'s fly-by attacks, the player's own death
-explosion.
+`WORLD.Explosion2` is real: the falloff, the constants, the message contract
+and what is still missing are in [`Physics.md`](Reference/Physics.md). Damage
+is script-side as it was for the weapon traces — the engine posts one
+`EXPLOSION` per entity reached and `Game_GetMsg` calls `obj:OnDamage`.
+`MultiplayerExplosion` routes to the same blast, and
+nTwo things reported from play landed with it: wreckage now inherits the item's
+velocity (it was dropping in place), and `ENTITY.PO_SetPinned` is real, which
+is what the Catacombs blockade needs — it is scenery until an ambush box runs
+`Pin:...,false` and `SetImmortal:...,false`. Both in
+[`Physics.md`](Reference/Physics.md).
+`ENTITY.PO_SetMovedByExplosions` gates the impulse without gating the damage.
 
-- `WORLD.Explosion2(x, y, z, strength, range, clientID, attackType, damage)`
-- `WORLD.ExplosionUp`, `WORLD.ExplosionParabolic`, `WORLD.MultiplayerExplosion`
+Two things carried forward rather than settled:
 
-`WORLD.GetLastExplodedEntities` is already implemented and reads a list nothing ever
-fills, so the collection side has a place to land. `ENTITY.ExplodeItem` is the
-*debris* spawner and is separate — it works.
+- **Strength is taken as an impulse.** The engine calls it a force and spends
+  it once per step, which would be `force * dt` — and that moves a barrel
+  0.000. Raw gives 4.012, which is a plausible rocket throw. Assumed, and the
+  first number to retune if blasts feel wrong.
+- **`WorldMesh::GetClosestPoint` is not ported**, so a large fixed mesh is
+  measured from its body rather than its nearest surface, and the second pass
+  over world meshes at `0.6 * range` does not run.
 
-Ask the binary for the falloff curve, and for whether `strength` (impulse) and
-`damage` fall off on the same law: the script numbers straddle a wide range
-(`3000`/`2`, `5000`/`8`, `15000`/`5`) and guessing the curve is exactly the kind of
-plausible-but-wrong this project has paid for before.
+`ExplosionUp` and `ExplosionParabolic` remain stubs — boss moves for Thor and
+the Panzer Demon, two of three call sites commented out in the shipped data.
 
 ### Stage 14 — monster ground contact
 
@@ -157,7 +164,28 @@ Also open from Stage 10: `MonsterBodyScale`'s `k = height / 10.3` is a shape
 argument, not a recovered constant. The engine's reference point (`Entity+0x58`) is
 still unidentified — see [`MonsterMovement.md`](Reference/MonsterMovement.md).
 
+### Stage 14b — active meshes
+
+**Reported from play: the heavy stones at the Catacombs entrance ignore a crate
+going off beside them.** They are not items — they are WORLD MESH objects the
+`.mpk` marks as rigid bodies in the object name, 31 of them named
+`pinned_phys_wejsciowy_kamienshape*`, and we build the collidable world as one
+static body so nothing named that way can move on any level.
+
+452 objects on Catacombs, 32 on Prison, 7 on Factory. The naming convention, the
+group assignment (`Level_GetActiveMeshesData`, which the ENGINE calls), the
+level's `ActiveMeshesData` table and the group range the scripts configure are
+all in [`Physics.md`](Reference/Physics.md).
+
+The order that matters: splitting them into bodies is straightforward, drawing
+them where they moved to is not — world geometry is baked into static vertex
+buffers and an active mesh needs a per-object transform. Do the draw path first
+or the work is unverifiable.
+
 ### Stage 15 — pinning, and the stakegun
+
+`ENTITY.PO_SetPinned` / `PO_IsPinned` landed with Stage 13 (props go static and
+back). What is left is the CORPSE side.
 
 The stake's pin handler dies on a nil **nine lines before** it reaches the wall test.
 `Templates/Weapons/Stake.lua`:

@@ -301,6 +301,21 @@ int ScriptEngine::L_ENTITY_ExplodeItem(lua_State* L) {
     // Taken before the registry grows: the parts inherit the item's pose.
     const std::string source = packArg;
     const float scale = src->scale;
+    // THE PARTS INHERIT THE ITEM'S VELOCITY - this is what makes wreckage carry
+    // the blast that broke it, or the momentum of the fall. CItem:DestroyItemFX
+    // reads it, scales it by Destroy.VelocityFactor and writes it back just
+    // before calling this, and the only two templates that set that factor use
+    // (0,0,0) - so the factor is an opt-OUT and inheriting is the default.
+    // The body is read first: it carries the impulse WORLD.Explosion2 just
+    // applied, which the entity store has not seen.
+    float inherited[3] = {src->velocity[0], src->velocity[1], src->velocity[2]};
+    // Only while the body is still in the world - once DestroyItemFX has
+    // disabled it, PO_Enable's snapshot in src->velocity is the truthful one.
+    if (src->poEnabled && self->physics_ && src->physicsBody >= 0) {
+        float v[3];
+        if (self->physics_->GetScriptBodyVelocity(src->physicsBody, v))
+            for (int c = 0; c < 3; ++c) inherited[c] = v[c];
+    }
     float pos[3], rot[4];
     for (int c = 0; c < 3; ++c) pos[c] = src->pos[c];
     for (int c = 0; c < 4; ++c) rot[c] = src->rotWXYZ[c];
@@ -344,7 +359,7 @@ int ScriptEngine::L_ENTITY_ExplodeItem(lua_State* L) {
         // yet, so this is an approximation with a lift on it - enough that the
         // pieces leave the ground rather than sliding apart along the floor.
         const float speed = 0.5f + strength * 0.05f;
-        for (int c = 0; c < 3; ++c) part.velocity[c] = dir[c] * speed;
+        for (int c = 0; c < 3; ++c) part.velocity[c] = inherited[c] + dir[c] * speed;
         part.velocity[1] += speed * 0.5f;
 
         const int handle = self->nextHandle_++;

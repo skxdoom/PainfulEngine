@@ -109,7 +109,17 @@ int ScriptEngine::L_PO_Enable(lua_State* L) {
         return 0;
     }
     if (Entity* e = self->Find(handle)) {
+        const bool wasEnabled = e->poEnabled;
         e->poEnabled = enable;
+        // Snapshot the velocity before the body leaves the world. This is the
+        // last moment it exists: CItem:DestroyItemFX disables the body and THEN
+        // calls ExplodeItem, whose parts are meant to inherit it, so without
+        // this the wreckage of a barrel a rocket just hit falls straight down.
+        // ON THE TRANSITION ONLY. DestroyItemFX disables the body twice, and the
+        // second call reads the already-disabled body as zero - which clobbered
+        // the snapshot and left the wreckage with no inherited velocity at all.
+        if (wasEnabled && !enable && self->physics_ && e->physicsBody >= 0)
+            self->physics_->GetScriptBodyVelocity(e->physicsBody, e->velocity);
         if (self->physics_ && e->physicsBody >= 0) {
             self->physics_->SetScriptBodyEnabled(e->physicsBody, enable);
             // A stake that has struck home is scenery. Deactivating the body
