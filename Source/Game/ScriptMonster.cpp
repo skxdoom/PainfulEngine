@@ -121,6 +121,31 @@ void ScriptEngine::TickMonsters(float dt) {
     const char* traceAt = std::getenv("PAINFUL_MONSTER_TRACE");
     const bool dumpGround = traceAt && traceTick == std::atoi(traceAt);
 
+    // PAINFUL_ACTIVE_TRACE=<frame>: every active mesh that has left the spot
+    // it was built at by more than 0.05, once, at that frame.
+    {
+        const char* activeAt = std::getenv("PAINFUL_ACTIVE_TRACE");
+        if (activeAt && traceTick == std::atoi(activeAt)) {
+            size_t moved = 0, total = 0;
+            for (const auto& kv : entities_) {
+                const Entity& e = kv.second;
+                if (e.activeMesh < 0) continue;
+                ++total;
+                float d = 0.f;
+                for (int c = 0; c < 3; ++c)
+                    d += (e.pos[c] - e.activeOrigin[c]) * (e.pos[c] - e.activeOrigin[c]);
+                if (d > 0.05f * 0.05f) {
+                    ++moved;
+                    if (moved <= 40)
+                        LogInfo("ACTIVE %-40s moved %.3f (dy %+.3f) from %.2f %.2f %.2f",
+                                e.name.c_str(), std::sqrt(d), e.pos[1] - e.activeOrigin[1],
+                                e.activeOrigin[0], e.activeOrigin[1], e.activeOrigin[2]);
+                }
+            }
+            LogInfo("ACTIVE %zu of %zu moved by frame %d", moved, total, traceTick);
+        }
+    }
+
     // Rebuilt every frame: which movement bodies the limb boxes have taken
     // over from, for TraceRay. Rebuilt rather than tracked at creation because
     // it depends on the entity's MODEL - a script can give an actor a

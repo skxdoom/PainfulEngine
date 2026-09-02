@@ -6,6 +6,7 @@
 // ScriptDeath, ScriptLimbs - and ScriptBind maps every one of them to the
 // module and name the shipped Lua calls it by.
 #include "ScriptEngineInternal.h"
+#include "../Core/AppPaths.h"
 
 namespace painful {
 
@@ -141,7 +142,13 @@ bool ScriptEngine::SplitPackSource(const std::string& source, std::string& packN
 
 void ScriptEngine::CreateRendererInstance(Entity& e) {
     if (!renderer_ || !textures_ || e.rendererInstance >= 0) return;
-    if (e.type == kModel) {
+    if (e.worldObject && e.activeMesh >= 0 && size_t(e.activeMesh) < map_.objects.size()) {
+        // A world object physics owns: drawn by the entity path, at the body.
+        e.rendererInstance = renderer_->CreateWorldObject(
+            map_.objects[size_t(e.activeMesh)], world_.scale, e.pos, *textures_,
+            MapNameWithoutExtension(world_.mapPath));
+        if (e.rendererInstance >= 0) renderer_->SetScriptPose(e.rendererInstance, e.pos, e.rotWXYZ);
+    } else if (e.type == kModel) {
         e.rendererInstance = renderer_->CreateScriptModel(
             e.source, e.scale, *textures_, dataRoot_ + "/Models");
     } else if (e.type == kMesh && !e.worldObject) {

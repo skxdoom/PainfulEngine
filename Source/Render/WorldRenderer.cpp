@@ -99,7 +99,7 @@ void WorldRenderer::Shutdown() {
 
 void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
                            const std::string& levelHint, const LevelInfo& info,
-                           ShaderLibrary* shaders) {
+                           ShaderLibrary* shaders, bool skipActiveMeshes) {
     const float worldScale = info.scale;
     const bool overbright = info.overbright;
     chunks_.reserve(map.objects.size());
@@ -131,6 +131,8 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
             o.nameHas("vollight") || o.nameHas("volfog") || o.nameHas("barrier")) {
             continue;
         }
+        // A rigid body is drawn where physics put it, by EntityRenderer.
+        if (skipActiveMeshes && o.isActiveMesh()) continue;
 
         std::vector<MeshVertex> verts(vertexCount);
         for (size_t i = 0; i < vertexCount; ++i) {

@@ -356,7 +356,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
     if (map) {
         if (world.Init(shaderDir)) {
             world.Upload(*map, textures, MapNameWithoutExtension(info.mapFile), info,
-                         &shaderScripts);
+                         &shaderScripts, /*skipActiveMeshes=*/true);
             worldReady = true;
         }
     } else if (!ws.loadRequested) {

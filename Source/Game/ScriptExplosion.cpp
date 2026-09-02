@@ -81,6 +81,12 @@ void ScriptEngine::Explosion(const float centre[3], float strength, float range,
     };
     std::vector<Reached> reached;
 
+    // Pinned active meshes within range + their radius come loose first
+    // (FUN_101B79F0's second pass), so the impulse below lands on them too.
+    if (physics_) {
+        static std::vector<int> released;
+        physics_->UnpinActiveMeshesNear(centre, range, released);
+    }
     for (auto& kv : entities_) {
         Entity& e = kv.second;
         if (e.physicsBody < 0 || !e.poEnabled) continue;

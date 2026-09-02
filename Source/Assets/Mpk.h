@@ -65,6 +65,15 @@ struct MapObject {
 
     bool nameHas(const char* token) const;
     bool isCollidable() const;
+    // A rigid body rather than static world: WorldMesh::SetupFlags (0x101D7050)
+    // sets the flag PhysicsWorld::AddMesh (0x1019AA00) branches on when the
+    // name contains "phys". "noclip" objects never reach physics at all.
+    bool isActiveMesh() const;
+    // "pinned": static until an explosion, a group activation or a moving
+    // neighbour releases it. "concave": a mesh body rather than a hull.
+    // "actgrpNN": the active mesh group, -1 when the name gives none.
+    bool isPinned() const { return nameHas("pinned"); }
+    int activeGroup() const;
 };
 
 // PainEngine .mpk world mesh.

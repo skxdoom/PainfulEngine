@@ -11,6 +11,7 @@ namespace painful {
 class Level;
 class TemplateCache;
 struct MapMesh;
+struct MapObject;
 
 // One segment of the collision-shape wireframe, in world space.
 struct DebugLine {
@@ -135,6 +136,35 @@ public:
     // saying a thing is driven rather than simulated - the rocket asks for it
     // explicitly, having been created in the Particles group.
     void MakeScriptBodyNonColliding(int slot);
+
+    // --- active meshes: world objects that are rigid bodies ---
+    //
+    // PhysicsWorld::AddMesh (0x1019AA00) for an object whose name has "phys":
+    // a convex body (type 7; "concave" 8) in group 3 with the level's mesh
+    // friction and restitution, its mass scaled by the level's
+    // Level_GetActiveMeshesData(name) or, when that is 1, ActiveMeshesMassScale.
+    // "pinned" builds a static twin that stands in until something releases
+    // it: an explosion within range + the object's radius (FUN_101B79F0),
+    // PHYSICS.ActiveMeshGroupActivate, or a moving neighbour (FUN_101B87E0).
+    // Returns a script-body slot; outOrigin is the body's centre, where the
+    // object's vertices are re-based to. Docs/Reference/Physics.md.
+    int CreateActiveMeshBody(const MapObject& object, float worldScale, float massScale,
+                             bool pinned, bool concave, int group, float outOrigin[3]);
+    // WORLD.Init's ActiveMeshesMassScale, applied to every active mesh whose
+    // level factor was 1 (AddMesh reads it from the world at creation; ours
+    // arrive in that order too, but Init lands after LoadMap).
+    void ScaleUnscaledActiveMeshes(float massScale);
+    // PHYSICS.ActiveMeshGroupActivate: releases every pinned member.
+    void ActivateActiveMeshGroup(int group);
+    // PHYSICS.ActiveMeshGroupEnable: a disabled group's pinned members ignore
+    // explosions (record flag bit 0 in FUN_101B2580).
+    void EnableActiveMeshGroup(int group, bool enabled);
+    // Releases every enabled pinned active mesh within range + its radius of
+    // a blast; the slots released go to `out`.
+    void UnpinActiveMeshesNear(const float centre[3], float range, std::vector<int>& out);
+    // Pinned active meshes struck by a moving body during the last step,
+    // released. Called by Update after each step.
+    bool IsActiveMesh(int slot) const;
 
     // ENTITY.PO_SetPinned. STATIC while pinned: the level places a blockade or
     // a lift where it belongs and expects it to stay there until an action
@@ -388,7 +418,9 @@ private:
     void CreatePawnProbe();
     // The collidable map geometry as one static body; shared by Load and
     // LoadWorldMesh.
-    bool BuildStaticWorld(const MapMesh& map, float worldScale);
+    // promoteActiveMeshes leaves the "phys" objects out for CreateActiveMeshBody
+    // (the script path); the hand-driven viewer keeps them in the static world.
+    bool BuildStaticWorld(const MapMesh& map, float worldScale, bool promoteActiveMeshes);
     // Tweak.lua and gravity; level independent, read once.
     void LoadTweaks(const std::string& dataRoot);
 

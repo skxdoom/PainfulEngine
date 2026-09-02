@@ -60,6 +60,10 @@ public:
         bool worldObject = false;   // WORLD.FindEntityByName pseudo-entity
         int rendererInstance = -1;  // EntityRenderer slot, -1 when headless/unresolved
         int physicsBody = -1;       // PhysicsWorld script-body slot
+        // A world-mesh object promoted to a rigid body (name has "phys"):
+        // the index into map_.objects it was built from, -1 otherwise.
+        int activeMesh = -1;
+        float activeOrigin[3] = {0, 0, 0};   // where it was built; PAINFUL_ACTIVE_TRACE
         int spriteSlot = -1;        // BillboardRenderer slot (Billboard type)
         // ParticleRenderer slots, indexed by the per-entity emitter index the
         // scripts hold (-1 entries when running headless).
@@ -817,6 +821,13 @@ private:
     static int L_WORLD_AddEntity(lua_State* L);
     static int L_WORLD_FindEntityByName(lua_State* L);
     static int L_WORLD_LoadMap(lua_State* L);
+    static int L_PHYSICS_ActiveMeshGroupActivate(lua_State* L);
+    static int L_PHYSICS_ActiveMeshGroupEnable(lua_State* L);
+    static int L_PHYSICS_ActiveMeshGroupStaticMeshEnable(lua_State* L);
+    static int L_PHYSICS_ActiveMeshGroupSetActivationParams(lua_State* L);
+    // Promotes every "phys" object of the loaded map into a body and an
+    // entity; called from WORLD.LoadMap once the mesh is in.
+    void CreateActiveMeshes();
     static int L_WORLD_SetupFog(lua_State* L);
     static int L_WORLD_SetFarClipDist(lua_State* L);
     static int L_WORLD_AmbientColor(lua_State* L);

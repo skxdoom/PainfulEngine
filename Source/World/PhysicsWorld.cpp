@@ -485,6 +485,16 @@ struct PhysicsWorld::Impl {
         // a character must not lose it.
         float mass = 0.f;
         int character = -1;    // index into characters, -1 for a prop
+        // Active mesh record (AddMesh's pinned array, 0x34-byte entries):
+        // the group byte at WorldMesh+0x7e2, whether the static twin still
+        // stands, whether explosions may release it, and the bounds radius
+        // the release test adds to the blast range.
+        bool activeMesh = false;
+        int activeGroup = -1;
+        bool activePinned = false;
+        bool activeEnabled = true;
+        bool activeLevelScaled = false;   // Level_GetActiveMeshesData gave != 1
+        float activeRadius = 0.f;
     };
     std::vector<ScriptBody> scriptBodies;
     // A character body's tick state: PhysicsObject+0x34 (wish), +0x4c (the
@@ -514,6 +524,8 @@ struct PhysicsWorld::Impl {
     // horizontally: see the comment there. Keyed on the raw id, since
     // JPH::BodyID has no std::hash.
     std::unordered_set<uint32_t> characterBodies;
+    // Pinned active meshes: static twins a moving body may knock loose.
+    std::unordered_set<uint32_t> pinnedActiveBodies;
 
     // Ragdoll settings are per MODEL and shared between every instance of it;
     // the bone order is the part order, which only the builder knows.
@@ -711,7 +723,7 @@ void PhysicsWorld::Load(const Level& level, TemplateCache& templates,
     settings_.meshFriction = level.info().meshFriction;
 
     if (!level.mapLoaded()) return;
-    if (!BuildStaticWorld(level.map(), level.info().scale)) return;
+    if (!BuildStaticWorld(level.map(), level.info().scale, false)) return;
 
     LoadProps(level, templates, dataRoot);
     // Clear() destroyed the camera's body along with everything else.
@@ -735,7 +747,8 @@ void PhysicsWorld::Load(const Level& level, TemplateCache& templates,
             settings_.gravity, settings_.meshFriction);
 }
 
-bool PhysicsWorld::BuildStaticWorld(const MapMesh& map, float worldScale) {
+bool PhysicsWorld::BuildStaticWorld(const MapMesh& map, float worldScale,
+                                    bool promoteActiveMeshes) {
     // The static world, from the same object set the original hands Havok:
     // MapObject::isCollidable rejects portals, zones, volumetric-light helpers
     // and anything named "noclip", and the original gives those no body either.
@@ -747,6 +760,7 @@ bool PhysicsWorld::BuildStaticWorld(const MapMesh& map, float worldScale) {
 
     for (const MapObject& o : map.objects) {
         if (!o.isCollidable()) continue;
+        if (promoteActiveMeshes && o.isActiveMesh()) continue;   // CreateActiveMeshBody's
         const JPH::uint32 base = static_cast<JPH::uint32>(vertices.size());
         for (size_t v = 0; v < o.vertexCount(); ++v) {
             float p[3], w[3];
@@ -1095,7 +1109,7 @@ void PhysicsWorld::LoadWorldMesh(const MapMesh& map, float worldScale,
                                  const std::string& dataRoot) {
     Clear();
     LoadTweaks(dataRoot);
-    if (!BuildStaticWorld(map, worldScale)) return;
+    if (!BuildStaticWorld(map, worldScale, true)) return;
     CreateProbe();
     CreatePawnProbe();
     LogInfo("physics: %zu static triangles (script path), gravity %.2f",
@@ -1106,6 +1120,7 @@ void PhysicsWorld::SetWorldSurface(float massScale, float friction, float restit
     settings_.activeMeshesMassScale = massScale > 0.f ? massScale : 1.f;
     settings_.meshFriction = friction;
     settings_.meshRestitution = restitution;
+    ScaleUnscaledActiveMeshes(settings_.activeMeshesMassScale);
     if (impl_->worldBody.IsInvalid()) return;
     JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
     bodies.SetFriction(impl_->worldBody, friction);
@@ -1338,12 +1353,158 @@ void PhysicsWorld::SetScriptBodyPinned(int slot, bool pinned) {
         pinned ? JPH::EMotionType::Static : JPH::EMotionType::Dynamic;
     if (bodies.GetMotionType(id) == want) return;
     bodies.SetMotionType(id, want, JPH::EActivation::Activate);
+    Impl::ScriptBody& sb = impl_->scriptBodies[size_t(slot)];
+    if (sb.activeMesh) {
+        sb.activePinned = pinned;
+        if (pinned) impl_->pinnedActiveBodies.insert(id.GetIndexAndSequenceNumber());
+        else impl_->pinnedActiveBodies.erase(id.GetIndexAndSequenceNumber());
+        // A body released from static has just been given its mass
+        // properties; apply the level factor that was waiting for them.
+        if (!pinned && sb.mass > 0.f) {
+            JPH::BodyLockWrite lock(impl_->system.GetBodyLockInterface(), id);
+            if (lock.Succeeded() && lock.GetBody().IsDynamic())
+                lock.GetBody().GetMotionProperties()->ScaleToMass(
+                    sb.mass / lock.GetBody().GetMotionProperties()->GetInverseMass());
+            sb.mass = 0.f;
+        }
+    }
     // Released with whatever velocity it had when it was frozen would launch
     // it; a pinned body has been standing still by definition.
     if (!pinned) {
         bodies.SetLinearVelocity(id, JPH::Vec3::sZero());
         bodies.SetAngularVelocity(id, JPH::Vec3::sZero());
     }
+}
+
+int PhysicsWorld::CreateActiveMeshBody(const MapObject& object, float worldScale,
+                                       float massScale, bool pinned, bool concave, int group,
+                                       float outOrigin[3]) {
+    if (impl_->worldBody.IsInvalid() || object.vertexCount() == 0) return -1;
+    // World-space points, and the bounds centre the body is built about.
+    MeshPoints mesh;
+    for (size_t v = 0; v < object.vertexCount(); ++v) {
+        float p[3], w[3];
+        object.position(v, p);
+        object.transform.TransformPoint(p[0], p[1], p[2], w);
+        for (int c = 0; c < 3; ++c) w[c] *= worldScale;
+        mesh.Add(w);
+    }
+    float origin[3];
+    for (int c = 0; c < 3; ++c) origin[c] = (mesh.lo[c] + mesh.hi[c]) * 0.5f;
+    for (JPH::Vec3& p : mesh.points) p -= JPH::Vec3(origin[0], origin[1], origin[2]);
+    Thin(mesh);
+    // A convex hull in both cases. Jolt simulates no concave dynamic body;
+    // "concave" (type 8, a MOPP in Havok) is the hull too, flagged as a
+    // deviation in Docs/Reference/Physics.md.
+    (void)concave;
+    // No hull inflation. These objects are authored touching - coffins
+    // stacked, column drums on each other - and Jolt's default 0.05 convex
+    // radius made every pair overlap by 0.1, which the solver resolved by
+    // popping the stack apart at load: 475 of the Cemetery's 548 had moved
+    // by frame 60, a column drum by 7 units.
+    JPH::ConvexHullShapeSettings hull(mesh.points, 0.005f);
+    hull.SetEmbedded();
+    JPH::ShapeSettings::ShapeResult shape = hull.Create();
+    if (shape.HasError()) {
+        JPH::SphereShapeSettings sphere(std::max(0.05f, mesh.radius()));
+        sphere.SetEmbedded();
+        shape = sphere.Create();
+        if (shape.HasError()) return -1;
+    }
+    JPH::BodyCreationSettings body(shape.Get(), JPH::RVec3(origin[0], origin[1], origin[2]),
+                                   JPH::Quat::sIdentity(),
+                                   pinned ? JPH::EMotionType::Static : JPH::EMotionType::Dynamic,
+                                   Layers::kMoving);
+    body.mMotionQuality = JPH::EMotionQuality::LinearCast;
+    // A pinned body starts static and is released to dynamic later; Jolt
+    // only keeps motion properties on a static body when told so here.
+    body.mAllowDynamicOrKinematic = true;
+    // AddMesh: SetFriction(DefaultMeshFriction), SetRestitution(DefaultMeshRestitution).
+    body.mFriction = settings_.meshFriction;
+    body.mRestitution = settings_.meshRestitution;
+    body.mLinearDamping = 0.f;
+    body.mAngularDamping = 0.05f;
+    // Static bodies get no mass properties; a pinned one is given them on
+    // release (SetScriptBodyPinned goes Dynamic and Jolt derives them then).
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    // ASLEEP. AddMesh hands every one to the engine's hard deactivator (a
+    // body that moves under 0.3 in 5 s is frozen where it is), and in play
+    // they do not stir until something touches them. A sleeping Jolt body is
+    // the same thing: it stays put, supported or not, until an awake body,
+    // a blast or a release wakes it.
+    const JPH::BodyID id = bodies.CreateAndAddBody(body, JPH::EActivation::DontActivate);
+    if (id.IsInvalid()) return -1;
+    Impl::ScriptBody sb;
+    sb.body = id;
+    sb.radius = mesh.radius();
+    sb.activeMesh = true;
+    sb.activeGroup = group;
+    sb.activePinned = pinned;
+    sb.activeRadius = mesh.radius();
+    sb.activeLevelScaled = massScale != 1.f;
+    impl_->scriptBodies.push_back(sb);
+    const int slot = int(impl_->scriptBodies.size() - 1);
+    if (pinned) impl_->pinnedActiveBodies.insert(id.GetIndexAndSequenceNumber());
+    // ScaleMass(levelFactor): Havok's shape-derived mass times the level's
+    // factor. Jolt derives the same kind of mass from the hull's volume.
+    if (!pinned && massScale != 1.f) {
+        JPH::BodyLockWrite lock(impl_->system.GetBodyLockInterface(), id);
+        if (lock.Succeeded()) lock.GetBody().GetMotionProperties()->ScaleToMass(
+            massScale / lock.GetBody().GetMotionProperties()->GetInverseMass());
+    }
+    for (int c = 0; c < 3; ++c) outOrigin[c] = origin[c];
+    return slot;
+}
+
+void PhysicsWorld::ScaleUnscaledActiveMeshes(float massScale) {
+    if (massScale == 1.f) return;
+    for (Impl::ScriptBody& sb : impl_->scriptBodies) {
+        if (!sb.activeMesh || sb.activeLevelScaled || sb.body.IsInvalid()) continue;
+        sb.activeLevelScaled = true;
+        // A pinned body is static and has no mass yet; scale on release.
+        sb.mass = massScale;   // for a pinned body: the factor to apply at release
+        if (sb.activePinned) continue;
+        JPH::BodyLockWrite lock(impl_->system.GetBodyLockInterface(), sb.body);
+        if (lock.Succeeded() && lock.GetBody().IsDynamic())
+            lock.GetBody().GetMotionProperties()->ScaleToMass(
+                massScale / lock.GetBody().GetMotionProperties()->GetInverseMass());
+        sb.mass = 0.f;
+    }
+}
+
+bool PhysicsWorld::IsActiveMesh(int slot) const {
+    return ScriptBodyExists(slot) && impl_->scriptBodies[size_t(slot)].activeMesh;
+}
+
+void PhysicsWorld::ActivateActiveMeshGroup(int group) {
+    for (size_t i = 0; i < impl_->scriptBodies.size(); ++i) {
+        Impl::ScriptBody& sb = impl_->scriptBodies[i];
+        if (!sb.activeMesh || sb.activeGroup != group) continue;
+        sb.activeEnabled = true;
+        if (sb.activePinned) SetScriptBodyPinned(int(i), false);
+    }
+}
+
+void PhysicsWorld::EnableActiveMeshGroup(int group, bool enabled) {
+    for (Impl::ScriptBody& sb : impl_->scriptBodies)
+        if (sb.activeMesh && sb.activeGroup == group) sb.activeEnabled = enabled;
+}
+
+void PhysicsWorld::UnpinActiveMeshesNear(const float centre[3], float range,
+                                         std::vector<int>& out) {
+    out.clear();
+    const JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    for (size_t i = 0; i < impl_->scriptBodies.size(); ++i) {
+        const Impl::ScriptBody& sb = impl_->scriptBodies[i];
+        if (!sb.activeMesh || !sb.activePinned || !sb.activeEnabled || sb.body.IsInvalid())
+            continue;
+        const JPH::RVec3 p = bodies.GetPosition(sb.body);
+        const float d = std::sqrt(float((p.GetX() - centre[0]) * (p.GetX() - centre[0]) +
+                                        (p.GetY() - centre[1]) * (p.GetY() - centre[1]) +
+                                        (p.GetZ() - centre[2]) * (p.GetZ() - centre[2])));
+        if (d < range + sb.activeRadius) out.push_back(int(i));
+    }
+    for (int slot : out) SetScriptBodyPinned(slot, false);
 }
 
 bool PhysicsWorld::IsScriptBodyPinned(int slot) const {

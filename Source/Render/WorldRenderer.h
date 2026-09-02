@@ -27,8 +27,11 @@ public:
 
     // levelHint is the map name, used to find per-level textures.
     // shaders may be null; material state then falls back to built-in defaults.
+    // skipActiveMeshes leaves out the "phys" objects, which the game host draws
+    // through EntityRenderer where physics put them; the viewer keeps them.
     void Upload(const MapMesh& map, TextureCache& textures, const std::string& levelHint,
-                const LevelInfo& info, ShaderLibrary* shaders = nullptr);
+                const LevelInfo& info, ShaderLibrary* shaders = nullptr,
+                bool skipActiveMeshes = false);
 
     // ambient/fogColor are 0-255 as stored in the level file.
     void Draw(bgfx::ViewId view, const Camera& camera, int width, int height,

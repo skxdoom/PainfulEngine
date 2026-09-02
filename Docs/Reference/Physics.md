@@ -612,25 +612,44 @@ on. Measured: 4.309 with it on, 0.000 with it off.
 
 ## Active meshes: world geometry that is a rigid body
 
-**Not implemented.** This is why the heavy stones at the mouth of the Catacombs
-do not move when a crate goes off beside them.
+Implemented 2026-09-02. Sources: `WorldMesh::SetupFlags` 0x101D7050,
+`World::LoadMeshPakFile` 0x1005DD40, `PhysicsWorld::AddMesh` 0x1019AA00,
+`CreatePhysicsObjectFromMesh` 0x10199450, the explosion 0x101B79F0, the
+release 0x101B5010, the group calls 0x101B2580 / 0x101B25D0 / 0x101B9AE0.
 
 Some world-mesh objects are not scenery. The `.mpk` encodes the intent in the
 OBJECT NAME, and the engine promotes those objects out of the static world into
 rigid bodies at load:
 
-| in the name | meaning |
-|---|---|
-| `phys_` | this object is a body, not static world |
-| `pinned_` | it starts pinned (static until an action releases it) |
-| `_actgrpNN` | it belongs to active mesh group NN |
+| in the name | meaning | where |
+|---|---|---|
+| `phys` | this object is a body, not static world | `SetupFlags` sets bit 24 of `WorldMesh+0x18`, which `AddMesh` branches on |
+| `noclip` | never reaches physics at all | `SetupFlags` |
+| `pinned` | starts static; released by a blast, a group activation or a moving neighbour | `AddMesh` |
+| `concave` | a mesh body (type 8) rather than a convex one (type 7) | `AddMesh` |
+| `physdest` | the destructible-piece variant: angular damping 1.8, removed from the entity list | `AddMesh` |
+| `autodelete` | a deletion timer once released | `AddMesh` |
+| `actgrpNN` | active mesh group NN, `sscanf("actgrp%d")` | `LoadMeshPakFile`, into `WorldMesh+0x7e2` |
+
+Every such object is also an ENTITY in the world (`LoadMeshPakFile` calls
+`AddEntity` on the mesh), which is why they are lit like entities and not
+like the lightmapped world: they carry one UV set and no lightmap.
+
+`AddMesh` builds the body in collision group 3 with the level's
+`DefaultMeshFriction` / `DefaultMeshRestitution`, a hard deactivator, and a
+mass scaled by `Level_GetActiveMeshesData(name)` when that returns anything
+but 1, else by `ActiveMeshesMassScale` from `WORLD.Init`. So the level's
+`ActiveMeshesData` values are MASS FACTORS, not groups - an earlier version
+of this page read them as groups. Catacombs: `wejsciowy_kamien` x10,
+`kolumna` x2, and `ActiveMeshesMassScale = 2` for the rest. Cemetery:
+`vheavy` x9, `wieczko` x5.
 
 Catacombs' entrance stones are `pinned_phys_wejsciowy_kamienshape` through
-`...shape32` - **31 objects**, pinned, and grouped by name rather than by
-suffix. Its columns are `phys_kolumna_wielka_actgrp24_1` and friends.
+`...shape32` - **31 objects**, pinned. Its columns are
+`phys_kolumna_wielka_actgrp24_1` and friends.
 
-An object with no `_actgrpNN` gets its group from the level, through a global
-the ENGINE calls (nothing in the shipped Lua calls it):
+The global the ENGINE calls for the factor (nothing in the shipped Lua calls
+it):
 
 ```lua
 function Level_GetActiveMeshesData(mesh)          -- CLevel.lua:970
@@ -672,23 +691,79 @@ How much of each level this covers:
 | `3x02_Factory` | 7 | 22, 27 |
 | `1x01_Chaos`, `1x02_Atrium`, `5x01_CityOnWater` | 0 | — |
 
-`WORLD.Init` already takes `ActiveMeshesMassScale` and the deactivator settings,
-and `SetScriptBodyMass` already applies that scale - the constants arrived
-before the system did.
+### What releases a pinned one
 
-**What porting it needs**, in order of difficulty:
+`AddMesh` gives a pinned object a static twin and files a record (an
+0x34-byte entry: position, radius, the body, the twin, the mesh, flags). Two
+things clear it, and only two:
 
-1. Split the named objects out of the one static collidable body and give each a
-   dynamic convex-hull body, the way `CreateScriptBody` does for a `.dat` part.
-2. Draw them where they moved to. This is the hard part: world geometry is baked
-   into static vertex buffers, and an active mesh needs a per-object transform.
-3. The group natives - `PHYSICS.ActiveMeshGroupEnable` / `Activate` /
-   `SetActivationParams` / `StaticMeshEnable`, `GetHavokBodyActiveGroup`,
-   `SetMaxRecursiveActivationDistance`, `WORLD.SetCollisionGroupMeshGroup` /
-   `EnableDrawMeshGroup` / `SetTimeToDeleteMeshGroup` - plus the recursive
-   activation the name suggests: disturbing one member wakes its neighbours
-   within a distance, which is what makes a stack of stones collapse rather than
-   one stone popping out of it.
+- **An explosion** (0x101B79F0, after its impulse pass): every record whose
+  centre lies within `range + record radius` of the blast and whose flag bit 0
+  is clear is released through 0x101B5010 - twin removed, body enabled and
+  activated, collision callbacks and an autodelete timer drawn from the group's
+  activation settings.
+- **`PHYSICS.ActiveMeshGroupActivate(g)`** (0x101B9AE0): every record of
+  group g, unconditionally.
+
+`ActiveMeshGroupEnable(g, on)` (0x101B2580) is what sets or clears that flag
+bit, so a disabled group's stones ignore blasts until enabled.
+`ActiveMeshGroupStaticMeshEnable` (0x101B25D0) adds or removes the twins.
+There is NO contact-driven release: a crate resting on a pinned stone leaves
+it pinned, and a stone that a blast released does not wake its neighbours by
+touching them. (0x101B87E0, the release routine's other caller, is the
+multiplayer explosion.) A first cut here released on contact, and the first
+entrance stone came loose at load under the crate standing on it.
+
+### The port
+
+`MapObject::isActiveMesh` is the name test. `PhysicsWorld::BuildStaticWorld`
+and `WorldRenderer::Upload` skip those objects; `ScriptEngine::CreateActiveMeshes`
+(from `WORLD.LoadMap`) gives each one a script body
+(`PhysicsWorld::CreateActiveMeshBody`: convex hull about the bounds centre,
+group 3, the level's mesh friction and restitution, static while pinned) and
+an entity drawn by `EntityRenderer::CreateWorldObject`, which takes the
+object's vertices to world space, re-bases them on the body's centre and lights
+them as an entity. The mass factor is fetched by calling the Lua global from
+C++ at load; `WORLD.Init`'s `ActiveMeshesMassScale` is applied afterwards to
+the bodies the level gave no factor. `WORLD.Explosion2` releases pinned
+bodies within `range + radius` before applying its impulse, and
+`ActiveMeshGroupActivate` / `Enable` are real; `StaticMeshEnable` and
+`SetActivationParams` accept and do nothing (the body itself is the static
+twin here, and the autodelete timers are not ported).
+
+### Why they sit still at load
+
+Reported from play: the Cemetery's coffins dropped the moment the level
+opened, where the original leaves them until touched. Measured with
+`PAINFUL_ACTIVE_TRACE=<frame>` (every active mesh more than 0.05 from where it
+was built): **475 of the Cemetery's 548 had moved by frame 60**, coffins by
+0.8-1.2, a column drum by 7.4. Two causes, both ours:
+
+- Jolt's default convex radius inflates a hull by 0.05, so two authored
+  touching objects - stacked coffins, a column's drums - start 0.1 inside each
+  other and the solver pops the stack apart. The hulls are built with 0.005.
+- `CreatePhysicsObjectFromMesh` puts every one under the engine's own
+  deactivator (`SetHardDeactivator` 0x1018ABF0 -> 0x101A8B40 files the body
+  with its position; `WORLD.Init`'s `Deactivator.Delay` 5.0 and `MaxPosDiff`
+  0.3 are its thresholds), and a frozen Havok body stays where it is,
+  supported or not. Ours are created asleep, which is the same state: a
+  sleeping Jolt body does not fall, and an awake body touching it, a blast
+  or a release wakes it.
+
+After both: 8 of 548 move by frame 300, planks and one gravestone near the
+spawn that something awake touches. Catacombs' blast test is unchanged (28
+of 31 stones down).
+
+Deviations: a "concave" object is a hull too (Jolt simulates no concave
+dynamic body); `physdest` gets no special damping; the collision-callback
+lottery on release is not ported; the deactivator's exact 5 s / 0.3 rule is
+Jolt's own sleep test instead.
+
+Measured on Catacombs, headless: 452 bodies, 31 pinned, all 31 still pinned
+at frame 30; a range-8 blast beside the first entrance stone releases the
+heap and moves 29 of the 31 (max 3.67). Cemetery: 548 bodies, 8 pinned.
+Cathedral's squad numbers are unchanged. Not measured: how they look - the
+entity lighting on a Cemetery coffin is a play check.
 
 ## Projectiles: grenades, rockets, and what "missile" means
 

@@ -488,6 +488,96 @@ int EntityRenderer::CreateScriptModel(const std::string& modelName, float scale,
     return int(instances_.size() - 1);
 }
 
+int EntityRenderer::CreateWorldObject(const MapObject& o, float worldScale,
+                                      const float origin[3], TextureCache& textures,
+                                      const std::string& levelHint) {
+    const size_t vertexCount = o.vertexCount();
+    if (vertexCount == 0 || o.indices.empty()) return -1;
+
+    GpuModel gpu;
+    // The same shader families the world uses for these names; winding is
+    // the world exporter's, so no clockwise fallback (as for .dat packs).
+    std::string shaderName = "defaultNTU";
+    const bool isTrans = o.nameHas("trans") || o.nameHas("decal");
+    if (isTrans) shaderName += "trans";
+    else if (o.nameHas("atest")) shaderName += "atest";
+    if (o.nameHas("2sided")) shaderName += "2sided";
+    gpu.material = LookupMaterial(shaders_, shaderName, false, o.name);
+
+    // World space (the object's own transform, then the level scale), then
+    // re-based on the body's origin so the instance pose is the body pose.
+    // Normals take the transform's rotation; the exporter's matrices carry no
+    // scale worth normalising away, and the shader normalises anyway.
+    std::vector<MeshVertex> verts(vertexCount);
+    float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+    const Mat4& t = o.transform;
+    for (size_t i = 0; i < vertexCount; ++i) {
+        float p[3], n[3], uv[2], w[3];
+        o.position(i, p);
+        o.normal(i, n);
+        o.uv(i, uv);
+        t.TransformPoint(p[0], p[1], p[2], w);
+        MeshVertex& v = verts[i];
+        v.x = w[0] * worldScale - origin[0];
+        v.y = w[1] * worldScale - origin[1];
+        v.z = w[2] * worldScale - origin[2];
+        v.nx = n[0] * t[0] + n[1] * t[4] + n[2] * t[8];
+        v.ny = n[0] * t[1] + n[1] * t[5] + n[2] * t[9];
+        v.nz = n[0] * t[2] + n[1] * t[6] + n[2] * t[10];
+        v.u0 = v.u1 = uv[0];
+        v.v0 = v.v1 = uv[1];
+        for (int a = 0; a < 3; ++a) {
+            lo[a] = std::min(lo[a], (&v.x)[a]);
+            hi[a] = std::max(hi[a], (&v.x)[a]);
+        }
+    }
+    const bgfx::VertexBufferHandle vbo = bgfx::createVertexBuffer(
+        bgfx::copy(verts.data(), uint32_t(verts.size() * sizeof(MeshVertex))), layout_);
+    for (const Material& m : o.materials) {
+        const uint32_t first = m.firstIndex;
+        const uint32_t count = uint32_t(m.triangleCount) * 3;
+        if (count == 0 || first + count > o.indices.size()) continue;
+        Part part;
+        part.vbo = vbo;
+        part.ownsVbo = gpu.parts.empty();
+        part.vboOwner = 0;
+        part.ibo = bgfx::createIndexBuffer(
+            bgfx::copy(o.indices.data() + first, count * sizeof(uint16_t)));
+        part.indexCount = count;
+        part.diffuse = m.diffuse().empty() ? textures.White()
+                                           : textures.Get(m.diffuse(), levelHint);
+        part.material = gpu.material;
+        gpu.parts.push_back(part);
+    }
+    if (gpu.parts.empty()) {
+        Part part;
+        part.vbo = vbo;
+        part.ibo = bgfx::createIndexBuffer(
+            bgfx::copy(o.indices.data(), uint32_t(o.indices.size() * sizeof(uint16_t))));
+        part.indexCount = uint32_t(o.indices.size());
+        part.diffuse = textures.White();
+        part.material = gpu.material;
+        gpu.parts.push_back(part);
+    }
+    for (int a = 0; a < 3; ++a) {
+        gpu.bboxLo[a] = lo[a];
+        gpu.bboxHi[a] = hi[a];
+    }
+    gpu.name = "world/" + o.name;
+    const size_t model = models_.size();
+    models_.push_back(std::move(gpu));
+
+    Instance instance;
+    instance.model = model;
+    instance.scale = 1.f;
+    instance.entity = SIZE_MAX;
+    for (int c = 0; c < 3; ++c) instance.pos[c] = origin[c];
+    instance.transform = MakeTransform(instance.pos, instance.rot, 1.f);
+    UpdateBounds(instance, models_[model]);
+    instances_.push_back(instance);
+    return int(instances_.size() - 1);
+}
+
 int EntityRenderer::CreateScriptPack(const std::string& packName,
                                      const std::string& meshName, float scale,
                                      TextureCache& textures,

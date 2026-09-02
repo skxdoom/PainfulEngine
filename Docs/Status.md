@@ -319,11 +319,12 @@ The ordered work queue, with the evidence behind each item, is
   raises on a nil from `PHYSICS.GetHavokBodyPosition` before it reaches the
   wall test. `PinHavokBody` and the `MDL.SetPinned*` family are stubs.
   `ENTITY.PO_SetPinned` works on props; corpses are the gap.
-- **Active meshes.** Some world-mesh objects are rigid bodies, marked in the
-  object name (`phys_`, `pinned_`, `_actgrpNN`) — 452 of them on Catacombs,
-  32 on Prison. We build the collidable world as one static body, so they
-  never move: the heavy stones at the Catacombs entrance ignore a blast going
-  off beside them. Detail in [`Physics.md`](Reference/Physics.md).
+- **Active meshes, the leftovers.** World objects named `phys` are rigid
+  bodies now, drawn by the entity path where physics puts them, released from
+  `pinned` by blasts and group activation. Not ported: the autodelete timers
+  and collision-callback lottery of `ActiveMeshGroupSetActivationParams`,
+  `physdest`'s damping, concave bodies (hulls instead). Detail in
+  [`Physics.md`](Reference/Physics.md).
 - **Waypoint routing across storeys.** `PATH.GetShortest` routes over the
   whole graph with the waypoint `floor` index unused. The original's
   `Pathfinder2` snaps start and end by 3D distance too (0x10166870, no floor

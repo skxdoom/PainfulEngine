@@ -59,6 +59,13 @@ public:
     // resolved.
     int CreateScriptModel(const std::string& modelName, float scale,
                           TextureCache& textures, const std::string& modelsRoot);
+    // One instance of a world-mesh object that physics owns (an active mesh).
+    // Its vertices are taken to world space and re-based on `origin`, the
+    // body's centre, so SetScriptPose places it exactly as the body moves.
+    // Lit as an entity: these objects carry no lightmap, and the original
+    // makes each one an Entity in the world (World::LoadMeshPakFile).
+    int CreateWorldObject(const MapObject& object, float worldScale, const float origin[3],
+                          TextureCache& textures, const std::string& levelHint);
     int CreateScriptPack(const std::string& packName, const std::string& meshName,
                          float scale, TextureCache& textures,
                          const std::string& itemsRoot);

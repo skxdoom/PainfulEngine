@@ -175,23 +175,15 @@ What is argued rather than recovered, and where to look if the feel is off:
 Still open from Stage 10: `MonsterBodyScale`'s `k = height / 10.3` is a shape
 argument, and `Entity+0x58` is unidentified.
 
-### Stage 14b — active meshes
+### Stage 14b — active meshes — DONE
 
-**Reported from play: the heavy stones at the Catacombs entrance ignore a crate
-going off beside them.** They are not items — they are WORLD MESH objects the
-`.mpk` marks as rigid bodies in the object name, 31 of them named
-`pinned_phys_wejsciowy_kamienshape*`, and we build the collidable world as one
-static body so nothing named that way can move on any level.
-
-452 objects on Catacombs, 32 on Prison, 7 on Factory. The naming convention, the
-group assignment (`Level_GetActiveMeshesData`, which the ENGINE calls), the
-level's `ActiveMeshesData` table and the group range the scripts configure are
-all in [`Physics.md`](Reference/Physics.md).
-
-The order that matters: splitting them into bodies is straightforward, drawing
-them where they moved to is not — world geometry is baked into static vertex
-buffers and an active mesh needs a per-object transform. Do the draw path first
-or the work is unverifiable.
+World objects named `phys` are rigid bodies drawn by the entity path, pinned
+ones released by blasts and `ActiveMeshGroupActivate`; the recovered rules and
+the deviations are in [`Physics.md`](Reference/Physics.md). Left: the
+autodelete timers and the collision-callback lottery behind
+`ActiveMeshGroupSetActivationParams`, `physdest` damping, concave bodies.
+Worth a play check: the entrance stones at Catacombs under a crate blast, and
+the Cemetery coffins' lighting against the level's lights.
 
 ### Stage 15 — pinning, and the stakegun
 

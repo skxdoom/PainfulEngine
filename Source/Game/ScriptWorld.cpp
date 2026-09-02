@@ -44,6 +44,78 @@ int ScriptEngine::L_WORLD_FindEntityByName(lua_State* L) {
 // WORLD.LoadMap(mapPath, levelName, scale, overbright, rtCubeMap,
 // shadowMapSize, shadowMapCount) - recorded; the game loop owns the actual
 // renderer upload.
+// Every "phys" object of the map becomes a rigid body and an entity, as
+// World::LoadMeshPakFile + PhysicsWorld::AddMesh make them. The level's mass
+// factor comes from the Lua global the ENGINE calls, Level_GetActiveMeshesData
+// (CLevel.lua:970), substring-matched on the lowercased name; 1 means "use
+// ActiveMeshesMassScale", which WORLD.Init brings a moment later.
+void ScriptEngine::CreateActiveMeshes() {
+    if (!physics_ || !mapLoaded_) return;
+    lua_State* L = host_ ? host_->state() : nullptr;
+    size_t made = 0, pinned = 0;
+    for (size_t i = 0; i < map_.objects.size(); ++i) {
+        const MapObject& o = map_.objects[i];
+        if (!o.isActiveMesh() || o.vertexCount() == 0) continue;
+        float massScale = 1.f;
+        if (L) {
+            const int top = lua_gettop(L);
+            lua_pushstring(L, "Level_GetActiveMeshesData");
+            lua_gettable(L, LUA_GLOBALSINDEX);
+            if (lua_isfunction(L, -1)) {
+                lua_pushstring(L, o.name.c_str());
+                if (lua_pcall(L, 1, 1, 0) == 0 && lua_isnumber(L, -1))
+                    massScale = float(lua_tonumber(L, -1));
+            }
+            lua_settop(L, top);
+        }
+        float origin[3];
+        const int slot = physics_->CreateActiveMeshBody(
+            o, world_.scale, massScale, o.isPinned(), o.nameHas("concave"),
+            o.activeGroup(), origin);
+        if (slot < 0) continue;
+        Entity e;
+        e.type = kMesh;
+        e.name = o.name;
+        e.worldObject = true;
+        e.inWorld = true;
+        e.activeMesh = int(i);
+        e.physicsBody = slot;
+        e.collisionGroup = 3;   // AddMesh creates every one in group 3
+        for (int c = 0; c < 3; ++c) e.pos[c] = e.activeOrigin[c] = origin[c];
+        const int handle = nextHandle_++;
+        entities_.emplace(handle, e);
+        bodyToEntity_[slot] = handle;
+        ++created_;
+        ++made;
+        if (o.isPinned()) ++pinned;
+        CreateRendererInstance(entities_[handle]);
+    }
+    if (made) LogInfo("active meshes: %zu bodies, %zu pinned", made, pinned);
+}
+
+int ScriptEngine::L_PHYSICS_ActiveMeshGroupActivate(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (self->physics_) self->physics_->ActivateActiveMeshGroup(int(luaL_optnumber(L, 1, -1)));
+    return 0;
+}
+
+int ScriptEngine::L_PHYSICS_ActiveMeshGroupEnable(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (self->physics_)
+        self->physics_->EnableActiveMeshGroup(int(luaL_optnumber(L, 1, -1)),
+                                              lua_toboolean(L, 2) != 0);
+    return 0;
+}
+
+// The static twins of a group, on or off (FUN_101B25D0). Ours keeps the body
+// itself static while pinned, so there is nothing separate to switch.
+int ScriptEngine::L_PHYSICS_ActiveMeshGroupStaticMeshEnable(lua_State*) { return 0; }
+
+// Collision reporting and time-to-live per group (FUN_101B9E60). The
+// collision callbacks arrive through ENTITY.EnableCollisionsToAll instead;
+// the autodelete timers are not ported.
+int ScriptEngine::L_PHYSICS_ActiveMeshGroupSetActivationParams(lua_State*) { return 0; }
+
 int ScriptEngine::L_WORLD_LoadMap(lua_State* L) {
     ScriptEngine* self = From(L);
     self->world_.mapPath = luaL_optstring(L, 1, "");
@@ -68,6 +140,7 @@ int ScriptEngine::L_WORLD_LoadMap(lua_State* L) {
             self->mapLoaded_ = true;
             self->physics_->LoadWorldMesh(self->map_, self->world_.scale,
                                           self->dataRoot_);
+            self->CreateActiveMeshes();
             // Water is not in that mesh - every shipped water object is also
             // named `noclip` - so it is registered separately here.
             self->BuildWaterSurfaces();

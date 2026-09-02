@@ -15,6 +15,19 @@ static bool ContainsNoCase(const std::string& hay, const char* needle) {
 
 bool MapObject::nameHas(const char* token) const { return ContainsNoCase(name, token); }
 
+bool MapObject::isActiveMesh() const {
+    return nameHas("phys") && !nameHas("noclip");
+}
+
+int MapObject::activeGroup() const {
+    // World::LoadMeshPakFile: sscanf(strstr(name, "actgrp"), "actgrp%d", &g).
+    const size_t at = name.find("actgrp");
+    if (at == std::string::npos) return -1;
+    int g = -1;
+    if (std::sscanf(name.c_str() + at, "actgrp%d", &g) != 1) return -1;
+    return g;
+}
+
 bool MapObject::isCollidable() const {
     // "noclip" is explicitly excluded from physics; portals/antiportals/zones and
     // volumetrics are non-solid helper volumes.
