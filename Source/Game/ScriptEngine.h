@@ -305,6 +305,13 @@ public:
         // creates it; while it exists the SOLVER owns the pose and the
         // animation does not, which is what PosedBones checks.
         int ragdollSlot = -1;
+        // MDL.SetRagdollMovedByExplosions: bit 0x10 of the Ragdoll's flag byte
+        // (Ragdoll::IsMovedByExplosions 0x1019CBB0). FUN_101B0DC0 tests it
+        // before doing ANYTHING to a ragdoll - push or damage - so a corpse
+        // with it off is invisible to blasts. CActor:CreateGib clears it on a
+        // fresh gib for two ticks, so the rocket that made the gib does not
+        // also launch it, then restores it and bursts the gib itself.
+        bool ragdollMovedByExplosions = true;
 
     // The death spin, and the shot that caused it.
     //
@@ -735,8 +742,19 @@ private:
     static int L_PO_ScaleInertiaTensor(lua_State* L);
     static int L_PO_AccumulateRotation(lua_State* L);
     // MDL.EnableRagdoll(e, on, group) - hand the actor to the solver, or take
-    // it back. This is what death is.
-    bool EnableRagdoll(Entity& e, bool enable);
+    // it back. This is what death is. `seedPose` is MODEL-space bone matrices
+    // to start from instead of the entity's own pose: MakeGib seeds the gib
+    // with the pose of the actor it replaces.
+    bool EnableRagdoll(Entity& e, bool enable, const std::vector<Mat4>* seedPose = nullptr);
+    // MDL.MakeGib(e, group, velocityJoint) -> the gib's handle, or 0 when the
+    // model has no `<name>_gib` ragdoll. World::GibModel, 0x10060D90.
+    int MakeGib(Entity& source, int group, const char* velocityJoint);
+    // The ragdoll part a joint drives, or -1 (the .hke names a dozen bones).
+    int RagdollPartOfJoint(Entity& e, int joint);
+    static int L_MDL_MakeGib(lua_State* L);
+    static int L_MDL_SetRagdollMovedByExplosions(lua_State* L);
+    static int L_MDL_RagdollSelfExplosion(lua_State* L);
+    static int L_MDL_ApplyVelocitiesToAllJoints(lua_State* L);
     static int L_MDL_EnableRagdoll(lua_State* L);
     static int L_MDL_IsRagdoll(lua_State* L);
     static int L_MDL_IsRagdollActive(lua_State* L);

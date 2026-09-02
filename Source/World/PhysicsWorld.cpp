@@ -2567,6 +2567,70 @@ void PhysicsWorld::AddRagdollImpulse(int slot, const float at[3], const float im
     bodies.AddImpulse(best, JPH::Vec3(impulse[0], impulse[1], impulse[2]), point);
 }
 
+void PhysicsWorld::SetRagdollVelocity(int slot, const float linear[3], const float angular[3]) {
+    if (!RagdollExists(slot)) return;
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    const JPH::Vec3 v(linear[0], linear[1], linear[2]);
+    const JPH::Vec3 w(angular[0], angular[1], angular[2]);
+    for (JPH::BodyID id : impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs()) {
+        if (bodies.GetMotionType(id) != JPH::EMotionType::Dynamic) continue;
+        if (!bodies.IsActive(id)) bodies.ActivateBody(id);
+        bodies.SetLinearAndAngularVelocity(id, v, w);
+    }
+}
+
+bool PhysicsWorld::GetRagdollPartVelocity(int slot, int part, float linear[3],
+                                          float angular[3]) const {
+    if (!RagdollExists(slot) || part < 0) return false;
+    // Jolt keeps one body per skeleton joint, in joint order - the same order
+    // as RagdollBones.
+    const auto& ids = impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs();
+    if (size_t(part) >= ids.size()) return false;
+    const JPH::BodyInterface& bodies = impl_->system.GetBodyInterfaceNoLock();
+    const JPH::Vec3 v = bodies.GetLinearVelocity(ids[size_t(part)]);
+    const JPH::Vec3 w = bodies.GetAngularVelocity(ids[size_t(part)]);
+    linear[0] = v.GetX(); linear[1] = v.GetY(); linear[2] = v.GetZ();
+    angular[0] = w.GetX(); angular[1] = w.GetY(); angular[2] = w.GetZ();
+    return true;
+}
+
+// FUN_101B0DC0's rule, per limb: skip anything at or beyond `range`, or so
+// close to the centre (<= 0.0001, the float at 0x102C8C58) that there is no
+// direction to push along; otherwise the impulse is (strength / limbCount) *
+// (1 - d / range) along (limb - centre). The original measures d to the
+// limb's nearest surface point when it is within 3 * range; the centre of
+// mass stands in for that here.
+void PhysicsWorld::RagdollSelfExplosion(int slot, const float centre[3], float strength,
+                                        float range) {
+    if (!RagdollExists(slot) || range <= 0.f) return;
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    const auto& ids = impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs();
+    if (ids.empty()) return;
+    const float perLimb = strength / float(ids.size());
+    const JPH::Vec3 c(centre[0], centre[1], centre[2]);
+    for (JPH::BodyID id : ids) {
+        if (bodies.GetMotionType(id) != JPH::EMotionType::Dynamic) continue;
+        const JPH::Vec3 away = JPH::Vec3(bodies.GetCenterOfMassPosition(id)) - c;
+        const float d = away.Length();
+        if (d >= range || d <= 0.0001f) continue;
+        const JPH::Vec3 impulse = away * (perLimb * (1.f - d / range) / d);
+        if (!bodies.IsActive(id)) bodies.ActivateBody(id);
+        bodies.AddImpulse(id, impulse);
+    }
+}
+
+void PhysicsWorld::RagdollPartPositions(int slot, std::vector<float>& outXYZ) const {
+    outXYZ.clear();
+    if (!RagdollExists(slot)) return;
+    const JPH::BodyInterface& bodies = impl_->system.GetBodyInterfaceNoLock();
+    for (JPH::BodyID id : impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs()) {
+        const JPH::RVec3 p = bodies.GetPosition(id);
+        outXYZ.push_back(float(p.GetX()));
+        outXYZ.push_back(float(p.GetY()));
+        outXYZ.push_back(float(p.GetZ()));
+    }
+}
+
 void PhysicsWorld::SetRagdollPose(int slot, const float* boneMatrices, bool kinematic) {
     if (!RagdollExists(slot) || boneMatrices == nullptr) return;
     Impl::RagdollInst& inst = impl_->ragdolls[size_t(slot)];

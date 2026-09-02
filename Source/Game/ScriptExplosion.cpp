@@ -87,8 +87,35 @@ void ScriptEngine::Explosion(const float centre[3], float strength, float range,
         static std::vector<int> released;
         physics_->UnpinActiveMeshesNear(centre, range, released);
     }
+    std::vector<float> parts;
     for (auto& kv : entities_) {
         Entity& e = kv.second;
+
+        // A CORPSE, OR A GIB. In Havok every limb is its own body in the same
+        // world, and FUN_101B79F0 hands a ragdoll to Ragdoll::SelfExplosion's
+        // law - the strength shared across the limbs with a linear falloff -
+        // and posts ONE message with the nearest limb's sine falloff. The
+        // ragdoll's own flag gates both (FUN_101B0DC0 returns before touching
+        // a ragdoll not moved by explosions), which is what lets a fresh gib
+        // sit out the blast that made it. Docs/Reference/Physics.md.
+        if (e.ragdollSlot >= 0 && physics_ && physics_->RagdollActive(e.ragdollSlot)) {
+            if (!e.ragdollMovedByExplosions) continue;
+            physics_->RagdollPartPositions(e.ragdollSlot, parts);
+            float nearest = range;
+            for (size_t p = 0; p + 2 < parts.size(); p += 3) {
+                float d2 = 0.f;
+                for (int c = 0; c < 3; ++c) {
+                    const float k = parts[p + c] - centre[c];
+                    d2 += k * k;
+                }
+                nearest = std::min(nearest, std::sqrt(d2));
+            }
+            if (nearest >= range) continue;
+            reached.push_back({kv.first, ExplosionFalloff(nearest, range)});
+            physics_->RagdollSelfExplosion(e.ragdollSlot, centre, strength, range);
+            continue;
+        }
+
         if (e.physicsBody < 0 || !e.poEnabled) continue;
 
         float at[3];

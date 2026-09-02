@@ -564,8 +564,23 @@ int ScriptEngine::L_MDL_ApplyJointRotation(lua_State* L) {
 // every pass, 388 times in a 400-frame run of the Prison, and in twelve other
 // levels besides. The guard above it only prints when the joint is missing; it
 // does not stop the timer.
+// MDL.GetVelocitiesFromJoint(e, joint) -> vx,vy,vz, |v|, wx,wy,wz, |w|
+// (0x1012D560). Zeros unless the ragdoll is ACTIVE: a live monster's limbs
+// are driven along the animation, not simulated, and the engine reads no
+// velocity off them.
 int ScriptEngine::L_MDL_GetVelocitiesFromJoint(lua_State* L) {
-    for (int i = 0; i < 8; ++i) lua_pushnumber(L, 0);
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    float lin[3] = {0, 0, 0}, ang[3] = {0, 0, 0};
+    if (e && e->ragdollSlot >= 0 && self->physics_ &&
+        self->physics_->RagdollActive(e->ragdollSlot)) {
+        const int part = self->RagdollPartOfJoint(*e, int(luaL_optnumber(L, 2, -1)));
+        if (part >= 0) self->physics_->GetRagdollPartVelocity(e->ragdollSlot, part, lin, ang);
+    }
+    for (int c = 0; c < 3; ++c) lua_pushnumber(L, lin[c]);
+    lua_pushnumber(L, std::sqrt(lin[0] * lin[0] + lin[1] * lin[1] + lin[2] * lin[2]));
+    for (int c = 0; c < 3; ++c) lua_pushnumber(L, ang[c]);
+    lua_pushnumber(L, std::sqrt(ang[0] * ang[0] + ang[1] * ang[1] + ang[2] * ang[2]));
     return 8;
 }
 

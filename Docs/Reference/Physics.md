@@ -606,8 +606,109 @@ on. Measured: 4.309 with it on, 0.000 with it off.
   **`ExplosionParabolic`** `(x,y,z, flightTime, radius, targetX, targetY,
   targetZ)`. Boss moves - Thor's hammer and fists, the Panzer Demon's shockwave
   - and two of the three call sites are commented out in the shipped scripts.
-- The ragdoll branch: at `distance <= 0.0001`, or for shape type 4, the original
-  takes `Ragdoll::SelfExplosion` (0x1019CC40) instead of the plain force.
+- The `distance <= 0.0001` branch for props. The ragdoll branch itself is
+  ported - see Gibs below.
+
+## Gibs
+
+Recovered 2026-09-02 from `World::GibModel` (0x10060D90), `Model::SetupGib`
+(0x101E1A40), `Ragdoll::SelfExplosion` (0x1019CC40 -> FUN_101B0DC0) and
+`Ragdoll::IsMovedByExplosions` (0x1019CBB0). Port: `ScriptEngine::MakeGib`
+(ScriptDeath.cpp), `PhysicsWorld::RagdollSelfExplosion`, and the corpse branch
+of `ScriptEngine::Explosion`.
+
+### When a monster gibs
+
+All of it is script logic in `CActor`, keyed on the template's
+`enableGibWhenHPBelow` (-45 for most humanoids, -60 for the skeleton soldier,
+-5 for Deto, 0/1 for things that always burst; `nil` never gibs):
+
+1. **At death** (`CActor:EnableRagdoll`): if `Health` is already below the
+   threshold - a rocket on a 40-HP skeleton - `CreateGib` runs instead of
+   `MDL.EnableRagdoll`. Also when the actor is frozen, or `Game.Cheat_AlwaysGib`.
+   On easy difficulty the threshold gains a quarter of the base health.
+2. **After death** (`CActor:OnDamage`, dead branch): damage of type
+   `Explosion`, `Rocket`, `Grenade` or `PainkillerRotor` accumulates in
+   `_HealthAfterDeath`, and the corpse gibs when that drops below the
+   threshold. This is the rocket into a pile of bodies, and the spinning
+   Painkiller blades held into a corpse (`PainKiller:OnUpdate`, `obrot` /
+   `rozkrecenie`, `PainKnifeDamage` per tick).
+3. **Item gibs** (`CItem:OnDamage`) for items with the field, and the player's
+   own corpse below -40 (`CPlayer`).
+
+`Tweak.GlobalData.DisableGibs` (the German build) turns the lot off.
+
+### What MakeGib does
+
+`MDL.MakeGib(e, group, velocityJoint)` returns a NEW entity or nothing:
+
+- the model is `<Model>_gib` (Cache.lua precaches exactly that name);
+- `SetupGib` poses both skeletons and copies the source's bone matrices into
+  the gib's **by bone name**, then `Ragdoll::Animate` puts the gib's limbs
+  there - the pieces start exactly where the body was;
+- `Ragdoll::Activate`, then `Ragdoll::SetVelocities` gives every limb the
+  source body's linear and angular velocity - or, when the source is already
+  an active ragdoll and a joint is named, that joint's (CItem passes
+  `gibGetVelFromJoint`);
+- the bounding box is forced to +/-42 so the flying pieces are never culled;
+- a gib model with no ragdoll is removed again and nothing is returned.
+
+The scripts then release the source entity, re-key `EntityToObject` to the
+gib, play the gib sound and effects, and burst it: `SetRagdollMovedByExplosions
+(gib, false)`, two ticks later `(true)` plus `RagdollSelfExplosion(gib, x,y,z,
+GibExplosionStrength * FRand(0.2, 0.25), GibExplosionRange)`. The two ticks
+matter: the rocket's own `Explosion2` is still being delivered, and a gib that
+was moved by it would be launched twice.
+
+### The self-explosion law
+
+`FUN_101B0DC0`, per limb: nothing at or beyond `range`, nothing at `d <=
+0.0001` (0x102C8C58), otherwise an impulse of
+
+```
+(strength / limbCount) * (1 - d / range)      along (limb - centre)
+```
+
+The strength is SHARED across the limbs and the falloff is linear - not the
+sine `Explosion2` uses on props. The original measures `d` to the limb's
+nearest surface point when within `3 * range`; the port uses the centre of
+mass. The whole function is gated on the ragdoll being active AND
+`IsMovedByExplosions` (bit 0x10 of its flag byte): a ragdoll with the flag off
+takes no push and, because the same loop computes it, **no damage message**.
+
+`WORLD.Explosion2` reaching a corpse goes through the same function with the
+blast's strength and range, and posts one `EXPLOSION` with `damage * sin`
+falloff of the nearest limb - that is how a rocket gibs a body that is already
+on the floor. The port's `Explosion` does exactly that for any entity with an
+active ragdoll.
+
+Measured (Cemetery, `Skeleton_SoldierV2`, headless): a 150-damage rocket on
+the live skeleton makes the gib at death and the joint spread grows from
+1.6 x 2.2 units to 4.6 x 3.9 over 40 ticks; a 50-damage kill then a
+3200/8 blast at the corpse takes `_HealthAfterDeath` to -99.5 and gibs it.
+Whether the burst FEELS right is a play test.
+
+### STAND-IN: gibs with a binary .hke
+
+69 of the 93 `_gib.hke` files are the binary 'B' form, which is not decoded
+(`Hke.h`). For those, `RagdollDef` builds the gib from the LIVE model's text
+ragdoll, cut where the GIB MESH is cut: a constraint survives exactly when
+some mesh of the `_gib.pkmdl` is skinned (at least 1% of its weight) to bones
+on both sides of it, and goes when no mesh spans it. The 24 text gib files
+are the ground truth - the same bodies as the live ragdoll with some
+constraints removed - and the rule reproduces `deto`, `hellbiker` and `nun`
+exactly: hips and shoulders and neck off, elbows and knees on, the nun's spine
+off and her cloth anchors on. The first attempt cut by constraint KIND
+(every ball-and-socket off) and split the monk's pelvis from its thighs; the
+skirt skinned across both then stretched between the flying pieces - what a
+gib "still connected" looks like. With the mesh rule the monk keeps 10 of 14
+(the lower body stays one chunk under the skirt). A model whose live `.hke`
+is binary too (templar, vamp_v2) still cannot gib. Decoding the binary form
+replaces this.
+
+Still stubs: `SetRagdollRestitution`, `SetRagdollCollisionGroup`,
+`EnableCollisionsToRagdoll` (the gib-splash collision sounds), and the
+`ApplyVelocitiesToJoint` / `ApplyRotationToJoint` joint-level family.
 
 
 ## Collision groups: what collides with what

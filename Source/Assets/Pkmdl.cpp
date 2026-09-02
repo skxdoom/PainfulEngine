@@ -315,6 +315,13 @@ bool Model::Load(const std::string& path, Model& out) {
         // [u32 influenceCount][influence: u16 boneIndex, f32 weight]*.
         // It only looks like a fixed 10-byte record on rigidly bound models
         // where influenceCount == 1.
+        //
+        // THE COUNT GOES ABOVE 8. zombie_soldier's right arm has five
+        // vertices with 9 influences, and a cap of 8 rejected the WHOLE
+        // mesh - it then drew unskinned, in the bind pose, as an arm
+        // floating out sideways from an animated body. 26 rigged models had
+        // a mesh like that (every zombie soldier, apoc_zombie, deto, templar,
+        // beast, boy). 32 is a sanity bound, not a format fact.
         size_t after = g.vertsAt + static_cast<size_t>(g.vc) * 32;
         if (after + 12 <= data.size() && r.peekU32(after) == 0 &&
             r.peekU32(after + 4) == 0 && r.peekU32(after + 8) == g.vc) {
@@ -325,7 +332,7 @@ bool Model::Load(const std::string& path, Model& out) {
             for (uint32_t i = 0; i < g.vc && good; ++i) {
                 if (q + 4 > data.size()) { good = false; break; }
                 uint32_t n = r.peekU32(q); q += 4;
-                if (n == 0 || n > 8 || q + static_cast<size_t>(n) * 6 > data.size()) { good = false; break; }
+                if (n == 0 || n > 32 || q + static_cast<size_t>(n) * 6 > data.size()) { good = false; break; }
                 std::vector<SkinInfluence> list(n);
                 for (uint32_t k = 0; k < n; ++k) {
                     list[k].bone = r.peekU16(q);

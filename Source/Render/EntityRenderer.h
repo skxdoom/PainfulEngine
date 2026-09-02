@@ -114,6 +114,12 @@ private:
         // frame needs the bind-pose vertices and the bone weights back.
         // Everything else drops its copy once the data is on the GPU.
         ModelMesh cpu;
+        // The highest bone index the weights reference. A skin matrix array
+        // shorter than this leaves those vertices in the bind pose - the
+        // one thing that can detach a hand from an otherwise animated arm -
+        // and SkinMeshVertices drops such influences silently, so it is
+        // checked and reported once at draw time instead.
+        uint16_t maxBone = 0;
         bgfx::VertexBufferHandle vbo = BGFX_INVALID_HANDLE;
         bgfx::IndexBufferHandle ibo = BGFX_INVALID_HANDLE;
         bgfx::TextureHandle diffuse = BGFX_INVALID_HANDLE;

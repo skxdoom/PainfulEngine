@@ -2,6 +2,9 @@
 
 #include "ScriptEngineInternal.h"
 
+#include <set>
+#include <utility>
+
 namespace painful {
 
 namespace {
@@ -126,7 +129,7 @@ const std::vector<Mat4>& ScriptEngine::RagdollOffsets(const std::string& model,
     return out;
 }
 
-bool ScriptEngine::EnableRagdoll(Entity& e, bool enable) {
+bool ScriptEngine::EnableRagdoll(Entity& e, bool enable, const std::vector<Mat4>* seedPose) {
     if (!physics_) return false;
 
     if (!enable) {
@@ -140,9 +143,11 @@ bool ScriptEngine::EnableRagdoll(Entity& e, bool enable) {
 
     const Hke* def = RagdollDef(e.source);
     if (def == nullptr) return false;
-    const std::vector<Mat4>* bones = PosedBones(e);
     const SkeletonCache::Entry* skel = skeletons_.Get(e.source);
-    if (bones == nullptr || skel == nullptr) return false;
+    if (skel == nullptr) return false;
+    const std::vector<Mat4>* bones =
+        (seedPose && seedPose->size() == skel->bones.size()) ? seedPose : PosedBones(e);
+    if (bones == nullptr) return false;
 
     const int slot = physics_->CreateRagdoll(e.source, *def, e.scale);
     if (slot < 0) return false;
@@ -258,7 +263,10 @@ bool ScriptEngine::EnableRagdoll(Entity& e, bool enable) {
     e.deathSpin = 0.f;
     e.hasDeathImpulse = false;
 
-    e.ragdollPose.assign(skel->bones.size(), Mat4());
+    // The pose it died in, until the solver's first read-back replaces it -
+    // so a joint query in the same tick as the death (CreateGib asks for
+    // "root" straight away) answers with the corpse, not with identity.
+    e.ragdollPose = *bones;
     LogInfo("ragdoll on: %s (%s, %zu parts)", e.name.c_str(), e.source.c_str(), parts.size());
     return true;
 }
@@ -567,7 +575,82 @@ const Hke* ScriptEngine::RagdollDef(const std::string& model) {
         // Say so once. A binary .hke is a KNOWN model with an undecoded
         // encoding, which is a different thing from a model with no ragdoll,
         // and the difference matters when a monster behaves oddly.
-        if (slot.binary) LogInfo("ragdoll: %s is a binary .hke, not decoded", model.c_str());
+        const bool binary = slot.binary;
+        if (binary) LogInfo("ragdoll: %s is a binary .hke, not decoded", model.c_str());
+
+        // A GIB WHOSE .hke IS BINARY - 69 of the 93 shipped. STAND-IN: the
+        // live model's ragdoll, cut where the GIB MESH is cut.
+        //
+        // The 24 text gib files say what a gib is: the SAME bodies as the
+        // live ragdoll, with some constraints removed. Which ones follows
+        // from the gib .pkmdl itself: a constraint survives exactly when some
+        // mesh of the gib model is skinned to bones on BOTH sides of it - the
+        // artist left that piece in one chunk - and goes when no mesh spans
+        // it. Checked against deto, hellbiker and nun: all three reproduced
+        // exactly (hips and shoulders off, elbows and knees on, the nun's
+        // spine off and her cloth anchors on). Cutting by constraint KIND
+        // instead split the monk's pelvis from its thighs, and the skirt
+        // skinned across both stretched between the flying pieces.
+        // Decoding the binary form would replace this.
+        // Docs/Reference/Physics.md, "Gibs".
+        const size_t n = model.size();
+        if (n > 4 && model.compare(n - 4, 4, "_gib") == 0) {
+            const Hke* base = RagdollDef(model.substr(0, n - 4));   // may rehash
+            Model gibMesh;
+            if (base != nullptr && !base->bodies.empty() &&
+                Model::Load(dataRoot_ + "/Models/" + model + ".pkmdl", gibMesh) &&
+                !gibMesh.bones.empty()) {
+                // Each bone's ragdoll part: itself, or its nearest ancestor
+                // that is a body. Bones are in preorder, so parents resolve
+                // first.
+                std::vector<int> partOf(gibMesh.bones.size(), -1);
+                for (size_t b = 0; b < gibMesh.bones.size(); ++b) {
+                    for (size_t p = 0; p < base->bodies.size(); ++p)
+                        if (base->bodies[p].bone == gibMesh.bones[b].name) { partOf[b] = int(p); break; }
+                    if (partOf[b] < 0 && gibMesh.bones[b].parent >= 0)
+                        partOf[b] = partOf[size_t(gibMesh.bones[b].parent)];
+                }
+                // Which pairs of parts share a mesh. A bone counts for a mesh
+                // when it carries at least 1% of the mesh's weight; the
+                // exporter leaves traces of 0.1% on neighbouring bones that
+                // are not a cut line.
+                std::set<std::pair<int, int>> joined;
+                std::vector<double> share;
+                for (const ModelMesh& mesh : gibMesh.meshes) {
+                    if (!mesh.hasSkin()) continue;
+                    share.assign(gibMesh.bones.size(), 0.0);
+                    for (const std::vector<SkinInfluence>& v : mesh.skin)
+                        for (const SkinInfluence& inf : v)
+                            if (inf.bone < share.size()) share[inf.bone] += inf.weight;
+                    std::vector<int> parts;
+                    for (size_t b = 0; b < share.size(); ++b)
+                        if (partOf[b] >= 0 && share[b] >= 0.01 * double(mesh.vertexCount()))
+                            parts.push_back(partOf[b]);
+                    for (int a : parts)
+                        for (int c : parts)
+                            if (a != c) joined.insert({a, c});
+                }
+                Hke stand = *base;
+                stand.constraints.erase(
+                    std::remove_if(stand.constraints.begin(), stand.constraints.end(),
+                                   [&](const HkeConstraint& c) {
+                                       int ia = -1, ib = -1;
+                                       for (size_t p = 0; p < base->bodies.size(); ++p) {
+                                           if (base->bodies[p].bone == c.bodyA) ia = int(p);
+                                           if (base->bodies[p].bone == c.bodyB) ib = int(p);
+                                       }
+                                       return ia < 0 || ib < 0 || joined.count({ia, ib}) == 0;
+                                   }),
+                    stand.constraints.end());
+                Hke& gibSlot = ragdolls_[model];
+                gibSlot = std::move(stand);
+                LogInfo("ragdoll: %s stands in for %s (%s) - %zu bodies, %zu of %zu constraints kept by the mesh cuts",
+                        model.substr(0, n - 4).c_str(), model.c_str(),
+                        binary ? "binary" : "missing", gibSlot.bodies.size(),
+                        gibSlot.constraints.size(), base->constraints.size());
+                return &gibSlot;
+            }
+        }
         return nullptr;
     }
     LogInfo("ragdoll: %s -> %zu bodies, %zu constraints", model.c_str(),
@@ -711,6 +794,148 @@ const std::vector<LimbBounds>* ScriptEngine::Hitboxes(const std::string& model) 
     slot = BuildLimbBounds(loaded, ragdoll);
     LogInfo("hitboxes: %s -> %zu limbs", model.c_str(), slot.size());
     return &slot;
+}
+
+// Which ragdoll part a skeleton joint drives, or -1 for a bone the .hke does
+// not name. The parts are the .hke's bodies in tree order, not the model's
+// bones, so this is a name match.
+int ScriptEngine::RagdollPartOfJoint(Entity& e, int joint) {
+    if (e.ragdollSlot < 0 || !physics_) return -1;
+    const std::string name = JointName(e, joint);
+    if (name.empty()) return -1;
+    const std::vector<std::string>& parts = physics_->RagdollBones(e.ragdollSlot);
+    for (size_t p = 0; p < parts.size(); ++p)
+        if (parts[p] == name) return int(p);
+    return -1;
+}
+
+// ---------------------------------------------------------------- gibs
+//
+// MDL.MakeGib(e, group, velocityJoint) is how a monster comes apart.
+// World::GibModel (0x10060D90) with Model::SetupGib (0x101E1A40):
+//
+//   1. the gib is a NEW entity of the model "<name>_gib", at the source's
+//      position, rotation and scale (CreateEntity type 4);
+//   2. SetupGib poses both skeletons and copies the source's bone matrices
+//      into the gib's BY BONE NAME, then Ragdoll::Animate puts the gib's
+//      limbs there - so the pieces start exactly where the body was;
+//   3. Ragdoll::Activate hands them to the solver, and SetVelocities gives
+//      every limb the source's linear and angular velocity - the body's, or
+//      when the source is already an active ragdoll and a joint is named,
+//      that joint's (CItem passes `gibGetVelFromJoint`);
+//   4. a gib model with no ragdoll is removed again and nothing is returned,
+//      which is the `if gib then` every caller wraps this in.
+//
+// The bursting apart is NOT here: CActor:CreateGib turns explosions off on
+// the gib, and two ticks later turns them back on and calls
+// RagdollSelfExplosion with the template's GibExplosionStrength * 0.2..0.25
+// and GibExplosionRange. The scripts then release the source entity and
+// re-key EntityToObject to the gib, so every later hit lands on the pieces.
+int ScriptEngine::MakeGib(Entity& src, int group, const char* velocityJoint) {
+    if (src.type != kModel || src.source.empty() || !physics_) return 0;
+    const std::string gibModel = src.source + "_gib";
+    const SkeletonCache::Entry* gibSkel = skeletons_.Get(gibModel);
+    if (gibSkel == nullptr || gibSkel->bones.empty() || RagdollDef(gibModel) == nullptr) {
+        LogInfo("gib: %s has no usable %s ragdoll", src.source.c_str(), gibModel.c_str());
+        return 0;
+    }
+
+    // What the source was doing, read BEFORE anything is created.
+    float lin[3] = {0, 0, 0}, ang[3] = {0, 0, 0};
+    if (src.physicsBody >= 0) {
+        physics_->GetScriptBodyVelocity(src.physicsBody, lin);
+    } else if (velocityJoint != nullptr && *velocityJoint != '\0' && src.ragdollSlot >= 0 &&
+               physics_->RagdollActive(src.ragdollSlot)) {
+        const int part = RagdollPartOfJoint(src, JointIndexByName(src, velocityJoint));
+        if (part >= 0) physics_->GetRagdollPartVelocity(src.ragdollSlot, part, lin, ang);
+    }
+
+    // The pose, matched by name. A gib bone the source rig lacks keeps its
+    // bind place - SetupGib leaves it at whatever the gib computed for itself.
+    std::vector<Mat4> seed = gibSkel->bindWorld;
+    if (const std::vector<Mat4>* srcBones = PosedBones(src)) {
+        if (const SkeletonCache::Entry* srcSkel = skeletons_.Get(src.source)) {
+            for (size_t g = 0; g < gibSkel->bones.size(); ++g)
+                for (size_t s = 0; s < srcSkel->bones.size() && s < srcBones->size(); ++s)
+                    if (srcSkel->bones[s].name == gibSkel->bones[g].name) {
+                        seed[g] = (*srcBones)[s];
+                        break;
+                    }
+        }
+    }
+
+    Entity gib;
+    gib.type = kModel;
+    gib.source = gibModel;
+    gib.name = src.name;
+    gib.scale = src.scale;
+    for (int c = 0; c < 3; ++c) gib.pos[c] = src.pos[c];
+    for (int c = 0; c < 4; ++c) gib.rotWXYZ[c] = src.rotWXYZ[c];
+    gib.visible = true;
+    gib.inWorld = true;                 // GibModel calls World::AddEntity itself
+    gib.collisionGroup = group;
+    const int handle = nextHandle_++;
+    Entity& live = entities_.emplace(handle, gib).first->second;
+    ++created_;
+    CreateRendererInstance(live);
+
+    if (!EnableRagdoll(live, true, &seed) || live.ragdollSlot < 0) {
+        ReleaseEntity(handle);
+        return 0;
+    }
+    physics_->SetRagdollVelocity(live.ragdollSlot, lin, ang);
+    LogInfo("gib: %s -> %s handle %d, v=(%.2f %.2f %.2f)", src.name.c_str(), gibModel.c_str(),
+            handle, lin[0], lin[1], lin[2]);
+    return handle;
+}
+
+int ScriptEngine::L_MDL_MakeGib(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e) return 0;
+    const int group = int(luaL_optnumber(L, 2, 0));
+    const char* joint = lua_isstring(L, 3) ? lua_tostring(L, 3) : "";
+    const int gib = self->MakeGib(*e, group, joint);
+    if (gib <= 0) return 0;             // nothing pushed: `if gib then` fails
+    lua_pushnumber(L, gib);
+    return 1;
+}
+
+// MDL.SetRagdollMovedByExplosions(e, on) - 0x1012B2D0, GetBool(2, false).
+int ScriptEngine::L_MDL_SetRagdollMovedByExplosions(lua_State* L) {
+    if (Entity* e = From(L)->Find(HandleArg(L, 1)))
+        e->ragdollMovedByExplosions = lua_toboolean(L, 2) != 0;
+    return 0;
+}
+
+// MDL.RagdollSelfExplosion(e, x,y,z, strength, range) - 0x1012EBF0. The
+// flag byte gates it in FUN_101B0DC0: an inactive ragdoll, or one not moved
+// by explosions, takes nothing.
+int ScriptEngine::L_MDL_RagdollSelfExplosion(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const Entity* e = self->Find(HandleArg(L, 1));
+    if (!e || e->ragdollSlot < 0 || !self->physics_ || !e->ragdollMovedByExplosions ||
+        !self->physics_->RagdollActive(e->ragdollSlot))
+        return 0;
+    const float centre[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+                             float(luaL_optnumber(L, 4, 0))};
+    self->physics_->RagdollSelfExplosion(e->ragdollSlot, centre, float(luaL_optnumber(L, 5, 0)),
+                                         float(luaL_optnumber(L, 6, 0)));
+    return 0;
+}
+
+// MDL.ApplyVelocitiesToAllJoints(e, vx,vy,vz, wx,wy,wz) - 0x1012D0D0 into
+// Ragdoll::SetVelocities. The demon-mode gib uses it in place of the burst.
+int ScriptEngine::L_MDL_ApplyVelocitiesToAllJoints(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const Entity* e = self->Find(HandleArg(L, 1));
+    if (!e || e->ragdollSlot < 0 || !self->physics_) return 0;
+    const float lin[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+                          float(luaL_optnumber(L, 4, 0))};
+    const float ang[3] = {float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
+                          float(luaL_optnumber(L, 7, 0))};
+    self->physics_->SetRagdollVelocity(e->ragdollSlot, lin, ang);
+    return 0;
 }
 
 

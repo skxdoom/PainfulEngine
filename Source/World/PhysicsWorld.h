@@ -280,6 +280,21 @@ public:
     // ENTITY.PO_Hit on a corpse, and RagdollSelfExplosion: an impulse at a
     // world point, applied to whichever limb is nearest it.
     void AddRagdollImpulse(int slot, const float at[3], const float impulse[3]);
+    // Ragdoll::SetVelocities (0x1019C8E0): the same linear and angular
+    // velocity on every limb. World::GibModel hands a fresh gib whatever the
+    // body it replaces was doing, so it keeps flying rather than dropping.
+    void SetRagdollVelocity(int slot, const float linear[3], const float angular[3]);
+    // Ragdoll::Joint_GetLinearVelocity / Joint_GetAngularVelocity, for one
+    // part by index in RagdollBones order.
+    bool GetRagdollPartVelocity(int slot, int part, float linear[3], float angular[3]) const;
+    // Ragdoll::SelfExplosion (0x1019CC40 -> FUN_101B0DC0): every limb inside
+    // `range` is pushed away from the centre by (strength / limbCount) *
+    // (1 - d / range). This is the law a blast applies to a whole ragdoll,
+    // and what CActor calls on a gib to burst it. Docs/Reference/Physics.md.
+    void RagdollSelfExplosion(int slot, const float centre[3], float strength, float range);
+    // The world-space position of every part, xyz triples in RagdollBones
+    // order. What a blast measures its distance to.
+    void RagdollPartPositions(int slot, std::vector<float>& outXYZ) const;
 
     // Steps the simulation. Jolt wants a fixed step, so this accumulates.
     void Update(float dt);

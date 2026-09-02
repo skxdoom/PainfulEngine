@@ -294,6 +294,12 @@ that buys:
   ([`MonsterMovement.md`](Reference/MonsterMovement.md)).
 - **Ragdolls.** `MDL.EnableRagdoll`, the joint damping and friction setters,
   `ApplyPointImpulseToRagdoll`, and `TickRagdolls` in the frame.
+- **Gibs.** `MDL.MakeGib` makes the `<Model>_gib` entity in the pose the body
+  died in and hands it the body's velocity; `RagdollSelfExplosion` bursts it
+  with the engine's own shared-strength law; blasts reach corpses, so a rocket
+  gibs a body on the floor and the spinning Painkiller blades gib what they
+  touch. The triggers are the scripts' own thresholds
+  ([`Physics.md`](Reference/Physics.md), "Gibs").
 - **HUD and sound.** The `HUD.DrawQuad` family with a real `MATERIAL.Create` /
   `Size`, and the `SOUND` / `SOUND2D` / `SOUND3D` families over one mixed
   device stream, with the original's virtual-voice policy deciding what is
@@ -339,8 +345,10 @@ The ordered work queue, with the evidence behind each item, is
 - **Collision-group plumbing.** `PO_SetCollisionGroup` (91 sites),
   `PO_SetMovedByExplosions`, `EnableCollisionsToRagdoll` / `ToAll`,
   `PO_Activate`. `CreateScriptBody` switches on groups 1 and 7 only.
-- **Gibbing and the ragdoll joint API.** `MDL.MakeGib`, `RagdollSelfExplosion`,
-  the `ApplyVelocitiesToJoint` / `ApplyRotationToJoint` family.
+- **The ragdoll joint API.** The `ApplyVelocitiesToJoint` /
+  `ApplyRotationToJoint` family, `SetRagdollRestitution`,
+  `EnableCollisionsToRagdoll`. Gibs whose `_gib.hke` is binary use a stand-in
+  built from the live ragdoll ([`Physics.md`](Reference/Physics.md), "Gibs").
 - **Lifetime and world state.** `WORLD.SetWorldSpeed` (slow motion),
   `WORLD.RemoveEntity` / `DeleteDyingEntities`, `PHYSICS.SetGravity`.
   `PARTICLE.Restart` and `SetImmortal` are still stubs.

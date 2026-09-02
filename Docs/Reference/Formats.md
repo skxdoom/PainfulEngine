@@ -281,8 +281,12 @@ mesh[]    each preceded by its material header:
 The skin record is **variable length, not fixed**. It only looks like a fixed
 10-byte record on rigidly bound models (`influenceCount == 1`), which is what
 made the first reading wrong. Verified across the set: **0 bad weight sums and 0
-out-of-range bone indices** in 337 fully skinned models; up to 8 influences on a
-single vertex.
+out-of-range bone indices** in 337 fully skinned models. A vertex carries up to
+**9** influences (zombie_soldier's right arm, five vertices) - a reader that
+caps at 8 rejects that mesh's whole skin block and the arm then draws in its
+bind pose, floating out sideways from an animated body. 26 rigged models had
+such a mesh (every zombie soldier, apoc_zombie, deto, templar, beast, boy);
+the parser's bound is now 32, a sanity limit rather than a format fact.
 
 Four traps that cost time here, all worth remembering:
 - **Mesh discovery must not depend on the skin block.** Skin records are variable

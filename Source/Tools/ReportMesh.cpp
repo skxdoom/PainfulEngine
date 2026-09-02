@@ -469,6 +469,25 @@ int ModelCmd(const char* path) {
                     }
                     return s.empty() ? std::string("(none)") : s;
                 }().c_str());
+        // Which bones drive this mesh, by vertex-weight share. The question a
+        // detached hand raises is "what is this piece bound to", and it
+        // cannot be answered from a picture.
+        if (mesh.hasSkin() && !model.bones.empty()) {
+            std::vector<double> share(model.bones.size(), 0.0);
+            for (const std::vector<SkinInfluence>& v : mesh.skin)
+                for (const SkinInfluence& inf : v)
+                    if (inf.bone < share.size()) share[inf.bone] += inf.weight;
+            std::string s;
+            for (size_t b = 0; b < share.size(); ++b) {
+                if (share[b] <= 0.0) continue;
+                if (!s.empty()) s += ", ";
+                char buf[96];
+                std::snprintf(buf, sizeof buf, "%s %.0f%%", model.bones[b].name.c_str(),
+                              100.0 * share[b] / double(mesh.vertexCount()));
+                s += buf;
+            }
+            LogInfo("      bones: %s", s.c_str());
+        }
     }
     return 0;
 }

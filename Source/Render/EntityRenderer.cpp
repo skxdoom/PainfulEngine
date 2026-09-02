@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <set>
 
 namespace painful {
 
@@ -217,7 +218,12 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
             // needs the bind-pose vertices and the weights back, and an
             // unskinned model would be paying for a copy nothing ever reads.
             // Only the owning slot keeps it - the posed buffer is shared.
-            if (mesh.hasSkin() && s == 0) part.cpu = mesh;
+            if (mesh.hasSkin() && s == 0) {
+                part.cpu = mesh;
+                for (const std::vector<SkinInfluence>& v : mesh.skin)
+                    for (const SkinInfluence& inf : v)
+                        part.maxBone = std::max(part.maxBone, inf.bone);
+            }
             part.name = mesh.name;
             part.vbo = vbo;
             part.ownsVbo = gpu.parts.size() == ownerIndex;
@@ -763,6 +769,16 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
                 // skinned today, and this keeps it that way rather than
                 // reading off the end if one ever is.
                 if (!part.ownsVbo) continue;
+                // Said once per model: a short matrix array is a bug upstream
+                // (SetScriptSkinning was handed fewer bones than the rig has),
+                // and it shows as limbs left in the bind pose.
+                if (size_t(part.maxBone) >= instance.skin.size()) {
+                    static std::set<std::string> said;
+                    if (said.insert(model.name + "/" + part.name).second)
+                        LogInfo("skinning: %s part %s references bone %u but was handed %zu matrices",
+                                model.name.c_str(), part.name.c_str(), unsigned(part.maxBone),
+                                instance.skin.size());
+                }
                 SkinMeshVertices(part.cpu, instance.skin, vertScratch_);
                 const uint32_t bytes =
                     uint32_t(part.cpu.vertexCount() * sizeof(MeshVertex));
