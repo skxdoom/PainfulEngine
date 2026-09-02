@@ -132,6 +132,17 @@ int ScriptEngine::L_SND_SetLoopCount(lua_State* L) {
     return 0;
 }
 
+// SOUND.SetSoundProperties(name, maxInstances, intervalMs) - 0x10140560
+// keys the file as "../Data/Sounds/<name>.wav" unless the name is "default";
+// Game:Init pushes Definitions.lua's SoundsProperties table through it.
+int ScriptEngine::L_SOUND_SetSoundProperties(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (self->audio_)
+        self->audio_->SetSoundProperties(SoundName(L, 1), int(luaL_optnumber(L, 2, 100)),
+                                         int(luaL_optnumber(L, 3, 0)));
+    return 0;
+}
+
 int ScriptEngine::L_SND_SetPosition(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!self->audio_) return 0;
@@ -505,21 +516,35 @@ int ScriptEngine::L_PO_SetMass(lua_State* L) {
     return 0;
 }
 
+// ENTITY.PO_SetFriction / PO_SetRestitution: engine-side values, not
+// material. PhysicsObject::SetFriction (0x10189c80) and SetRestitution
+// (0x10189ca0) write the body wrapper's own fields and nothing reads them
+// into Havok afterwards - only FixHavokPositionBug, the NaN-recovery path,
+// rebuilds a body from them. What does read friction is the grenade flight
+// fix (TickGrenades). Docs/Reference/Physics.md.
 int ScriptEngine::L_PO_SetFriction(lua_State* L) {
-    ScriptEngine* self = From(L);
-    if (const Entity* e = self->Find(HandleArg(L, 1)))
-        if (self->physics_ && e->physicsBody >= 0)
-            self->physics_->SetScriptBodyFriction(e->physicsBody,
-                                                  float(luaL_optnumber(L, 2, 0)));
+    if (Entity* e = From(L)->Find(HandleArg(L, 1)))
+        e->bodyFriction = float(luaL_optnumber(L, 2, 0));
     return 0;
 }
 
 int ScriptEngine::L_PO_SetRestitution(lua_State* L) {
+    if (Entity* e = From(L)->Find(HandleArg(L, 1)))
+        e->bodyRestitution = float(luaL_optnumber(L, 2, 0));
+    return 0;
+}
+
+// ENTITY.PO_SetFreedomOfRotation(e, mode, softness = 1). 0x10135660 reads
+// the mode as an int and the softness as a float defaulting to 1, and
+// CObject:PO_Create calls it with 4 (HardTurn) when the object declares
+// Softness and 3 (FullFree) otherwise.
+int ScriptEngine::L_PO_SetFreedomOfRotation(lua_State* L) {
     ScriptEngine* self = From(L);
     if (const Entity* e = self->Find(HandleArg(L, 1)))
         if (self->physics_ && e->physicsBody >= 0)
-            self->physics_->SetScriptBodyRestitution(e->physicsBody,
-                                                     float(luaL_optnumber(L, 2, 0)));
+            self->physics_->SetScriptBodyFreedomOfRotation(
+                e->physicsBody, int(luaL_optnumber(L, 2, 0)),
+                float(luaL_optnumber(L, 3, 1.0)));
     return 0;
 }
 

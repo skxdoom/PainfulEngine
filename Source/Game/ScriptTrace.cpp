@@ -188,28 +188,15 @@ int ScriptEngine::L_RemoveFromIntersectionSolver(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e) return 0;
-    // The engine's own meaning (0x101348e0): line-trace collision off, on the
-    // body and the ragdoll both.
+    // The engine's own meaning (0x101348e0), and nothing more: line-trace
+    // collision off, on the body and the ragdoll both. This native used to
+    // ALSO mark the entity a driven projectile and take its body out of the
+    // solver, which is what left the grenade flying a dead straight line
+    // through the level - Grenade:OnCreateEntity calls it too. A rocket is a
+    // dynamic body with gravity off in the original as well; it flies
+    // straight because nothing acts on it.
     self->SetSolverBody(*e, false);
     e->ragdollInSolver = false;
-
-    // AND the projectile reading, which this native has carried on its own
-    // until now. THESE WERE TWO SEPARATE FUNCTIONS REGISTERED UNDER ONE NAME,
-    // and lua_rawset means the later one won - so the trace half above has
-    // never actually run, and RemoveFromIntersectionSolver has only ever
-    // marked projectiles. Merging them is what restores the half the scripts
-    // are really asking for; nothing is taken away.
-    //
-    // The projectile half stays because it is load-bearing and cannot simply
-    // move to PO_Create: the rocket is made in the PARTICLES group, which
-    // CreateScriptBody deliberately does NOT treat as driven because shell
-    // casings live there too and are meant to tumble. Rocket:OnCreateEntity
-    // asks for it outright and never pairs the call with an Add, which is the
-    // signal - but it is a signal only over time, and this native cannot see
-    // it. Left as found; that is its own question.
-    e->isProjectile = true;
-    if (self->physics_ && e->physicsBody >= 0)
-        self->physics_->MakeScriptBodyNonColliding(e->physicsBody);
     return 0;
 }
 

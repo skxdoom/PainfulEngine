@@ -569,23 +569,27 @@ int ScriptEngine::L_MDL_GetVelocitiesFromJoint(lua_State* L) {
     return 8;
 }
 
+bool ScriptEngine::JointWorldRotation(Entity& e, int joint, float outWXYZ[4]) {
+    const std::vector<Mat4>* bones = PosedBones(e);
+    if (!bones || joint < 0 || size_t(joint) >= bones->size()) return false;
+    const Mat4& m = (*bones)[size_t(joint)];
+    float rot[9];
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 3; ++c) rot[r * 3 + c] = m.m[r * 4 + c];
+    Normalize3x3Rows(rot);
+    float boneQuat[4];
+    EngineRot9ToQuat(rot, boneQuat);
+    EngineQuatMul(e.rotWXYZ, boneQuat, outWXYZ);
+    return true;
+}
+
 int ScriptEngine::L_MDL_GetJointRotation(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     const int joint = int(lua_tonumber(L, 2));
 
     float quat[4] = {1, 0, 0, 0};
-    const std::vector<Mat4>* bones = e ? self->PosedBones(*e) : nullptr;
-    if (bones && joint >= 0 && size_t(joint) < bones->size()) {
-        const Mat4& m = (*bones)[size_t(joint)];
-        float rot[9];
-        for (int r = 0; r < 3; ++r)
-            for (int c = 0; c < 3; ++c) rot[r * 3 + c] = m.m[r * 4 + c];
-        Normalize3x3Rows(rot);
-        float boneQuat[4];
-        EngineRot9ToQuat(rot, boneQuat);
-        EngineQuatMul(e->rotWXYZ, boneQuat, quat);
-    }
+    if (e) self->JointWorldRotation(*e, joint, quat);
     for (int c = 0; c < 4; ++c) lua_pushnumber(L, quat[c]);
     return 4;
 }

@@ -111,15 +111,19 @@ public:
                          // ECollisionGroups from Definitions.lua. 7 is
                          // Noncolliding - a projectile, which must touch
                          // nothing - and 0 means the script named none.
-                         int collisionGroup = 0);
+                         int collisionGroup = 0,
+                         // > 0: a plain sphere of this radius instead of a
+                         // shape derived from the mesh (BodyTypes.Sphere with
+                         // an explicit PO_Create scale).
+                         float sphereRadius = 0.f);
     bool ScriptBodyExists(int slot) const;
     // The contacts recorded during the last step, then cleared. Only pairs where
     // BOTH sides are script bodies: a prop hitting the static world is not a
     // COLLISION_WITH_OTHER_ENTITY, which is an entity-to-entity message.
     void CollectScriptContacts(std::vector<ScriptContact>& out);
     void SetScriptBodyMass(int slot, float mass);
-    void SetScriptBodyFriction(int slot, float friction);
-    void SetScriptBodyRestitution(int slot, float restitution);
+    // ENTITY.PO_SetFreedomOfRotation(e, EFreedomsOfRotation, softness).
+    void SetScriptBodyFreedomOfRotation(int slot, int mode, float softness);
     void SetScriptBodyLinearDamping(int slot, float damping);
     void SetScriptBodyAngularDamping(int slot, float damping);
     // ENTITY.PO_EnableGravity. PhysicsObject::EnableGravity (0x1018c4e0) sets
@@ -172,6 +176,8 @@ public:
     float ScriptBodyRadius(int slot) const;
     // Where Jolt actually put the body, world space. Settles placement.
     bool ScriptBodyBounds(int slot, float lo[3], float hi[3]) const;
+    // The body's centre right now, before the frame's read-back.
+    bool GetScriptBodyPosition(int slot, float out[3]) const;
     void RemoveScriptBody(int slot);
     // Where the simulation has put the script bodies (slot in .slot).
     void CollectScriptPoses(std::vector<ScriptBodyPose>& out, bool activeOnly = true) const;

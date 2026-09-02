@@ -526,6 +526,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
         // physics step, no animation. Rendering and the render callbacks carry
         // on below, so the HUD still draws behind the menu and the world stays
         // on screen rather than going black.
+        if (!engine.gamePaused()) audio.Advance(dt);
         audio.Update();
         if (!engine.gamePaused()) {
             engine.TickAnimations(dt);
@@ -533,6 +534,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
             engine.TickProjectiles(dt);
             host.CallGlobal("Game_Tick", d, 1);
             physics.Update(dt);
+            engine.TickGrenades();
             engine.SyncFromPhysics();
             engine.TickRagdolls();
             host.CallGlobal("Game_Tick2", d, 1);

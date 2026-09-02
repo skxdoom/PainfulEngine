@@ -123,6 +123,12 @@ public:
         std::string parentJoint;         // empty = the parent's own transform
         int parentJointIndex = -2;       // -2 not resolved, -1 absent
         bool parentBound = false;        // SetParentOffset was called
+        // SetParentOffset's optional 9th..11th arguments: an Euler rotation the
+        // effect carries relative to its joint (ParticleEffect+0xc88/+0xc8c).
+        // Without it a jointed effect takes the PARENT's rotation, not the
+        // joint's. ParticleEffect::Tick, 0x101e59a0.
+        bool parentRotBound = false;
+        float parentRotWXYZ[4] = {1, 0, 0, 0};
         // A projectile: PO_Create was given ECollisionGroups.Noncolliding, so
         // this is moved along its velocity by TickProjectiles rather than
         // simulated. The scripts find their own hits with a line trace.
@@ -134,6 +140,18 @@ public:
         // its own blast does not launch it; Slab barriers and lifts likewise.
         bool movedByExplosions = true;
         bool isProjectile = false;
+        // ENTITY.PO_SetGrenade: flag 0x20 at PhysicsObject+0x74. A flagged body
+        // gets PhysicsObject::FixGrenadeFlight after every step - the trace
+        // from where the entity was to where the body is now, with the
+        // reflect-and-slow on a hit. See TickGrenades.
+        bool isGrenade = false;
+        // ENTITY.PO_SetFriction / PO_SetRestitution. The engine keeps these on
+        // its body wrapper (+0x38/+0x3c) and never hands them to Havok: the
+        // contact material is fixed at creation, and the wrapper values feed
+        // the engine's own flight code (FixGrenadeFlight reads friction).
+        // Defaults are CreatePhysicsObject's (0x101999f0).
+        float bodyFriction = 0.1f;
+        float bodyRestitution = 0.001f;
         // ENTITY.PO_EnableGravity. A projectile is not in the solver, so the
         // body's gravity factor is a value nothing reads - TickProjectiles has
         // to integrate this itself, or Stake:Tick's arc never happens.
@@ -450,6 +468,9 @@ public:
     // Contacts the physics step recorded, reported to the scripts as
     // COLLISION_WITH_OTHER_ENTITY.
     void TickCollisions(float dt);
+    // PhysicsObject::FixGrenadeFlight (0x1018d990) for every PO_SetGrenade
+    // body: run right after the physics step, before the bodies are read back.
+    void TickGrenades();
     // Registers a world-object entity for every water surface in the loaded map.
     void BuildWaterSurfaces();
     // Where the segment first crosses a water surface, if it does.
@@ -546,6 +567,9 @@ private:
     // Bone-local point to WORLD, through the entity's own transform. Used by
     // every joint query, so they cannot disagree about the entity's placement.
     bool JointToWorld(Entity& e, int joint, const float local[3], float out[3]);
+    // The bone's orientation composed with the entity's own: a world rotation,
+    // engine (w,x,y,z). False when the entity has no such bone.
+    bool JointWorldRotation(Entity& e, int joint, float outWXYZ[4]);
     int JointIndexByName(Entity& e, const std::string& name);
     // The limb boxes of a model, derived once from its .rde and skin weights.
     // An empty vector is cached too - a model with no ragdoll is an answer.
@@ -642,6 +666,7 @@ private:
     static int L_SeesEntity(lua_State* L);
     static int L_SOUND_Play2D(lua_State* L);
     static int L_SOUND_Play3D(lua_State* L);
+    static int L_SOUND_SetSoundProperties(lua_State* L);
     static int L_SND_Create2D(lua_State* L);
     static int L_SND_Create3D(lua_State* L);
     static int L_SND_Play(lua_State* L);
@@ -728,6 +753,8 @@ private:
     static int L_ENTITY_EnableCollisions(lua_State* L);
     static int L_WORLD_Explosion2(lua_State* L);
     static int L_PO_SetMovedByExplosions(lua_State* L);
+    static int L_PO_SetGrenade(lua_State* L);
+    static int L_PO_SetFreedomOfRotation(lua_State* L);
     static int L_PO_SetPinned(lua_State* L);
     static int L_PO_IsPinned(lua_State* L);
     // The blast itself: collects what it reached, pushes it, and posts one
@@ -740,6 +767,7 @@ private:
     static int L_SetPosAndRotRelativeToCamera(lua_State* L);
     static int L_GetType(lua_State* L);
     static int L_PARTICLE_SetEvolve(lua_State* L);
+    static int L_PARTICLE_Die(lua_State* L);
     static int L_MDL_SetAnim(lua_State* L);
     static int L_MDL_SetMeshVisibility(lua_State* L);
     static int L_MDL_GetAnimLength(lua_State* L);

@@ -292,7 +292,9 @@ that buys:
   `ApplyPointImpulseToRagdoll`, and `TickRagdolls` in the frame.
 - **HUD and sound.** The `HUD.DrawQuad` family with a real `MATERIAL.Create` /
   `Size`, and the `SOUND` / `SOUND2D` / `SOUND3D` families over one mixed
-  device stream.
+  device stream, with the original's virtual-voice policy deciding what is
+  audible: `SOUND.SetSoundProperties` caps instances per file and spaces
+  their starts ([`Sound.md`](Reference/Sound.md)).
 
 ## What is missing
 
@@ -331,18 +333,14 @@ The ordered work queue, with the evidence behind each item, is
 - **Flying and scripted movers.** `PO_SetFlying`, `PO_MaintainVelocity` /
   `MaintainLinearMovement` / `MaintainPosition`, `PO_EnableSpeedDamping`.
   Alastor and the ravens have no mover at all.
-- **Grenade body semantics.** `PO_SetGrenade`, `PO_SetMissile` and
-  `PO_SetFreedomOfRotation` (which `Grenade.CItem`'s `Softness = 1` routes to)
-  are stubs, so there is no tumble constraint and no grenade-specific
-  handling. Mass, friction, restitution and damping do land.
 - **Collision-group plumbing.** `PO_SetCollisionGroup` (91 sites),
   `PO_SetMovedByExplosions`, `EnableCollisionsToRagdoll` / `ToAll`,
   `PO_Activate`. `CreateScriptBody` switches on groups 1 and 7 only.
 - **Gibbing and the ragdoll joint API.** `MDL.MakeGib`, `RagdollSelfExplosion`,
   the `ApplyVelocitiesToJoint` / `ApplyRotationToJoint` family.
-- **Lifetime and world state.** `PARTICLE.Die` (68 sites — one-shot effects
-  never stop, so emitters leak), `WORLD.SetWorldSpeed` (slow motion),
+- **Lifetime and world state.** `WORLD.SetWorldSpeed` (slow motion),
   `WORLD.RemoveEntity` / `DeleteDyingEntities`, `PHYSICS.SetGravity`.
+  `PARTICLE.Restart` and `SetImmortal` are still stubs.
 - No glass, buoyancy, ladders or ice. See [`Physics.md`](Reference/Physics.md).
 - `PLAYER.GetCameraFix` answers a literal 0, so there is no view bob or crouch
   offset on the camera.

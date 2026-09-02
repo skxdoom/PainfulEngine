@@ -18,11 +18,12 @@ namespace {
 // thing. The scripts CREATE a sound long before they play it - a flamethrower
 // loop, an elevator, a torch - and hold that handle for the life of the
 // entity. Cathedral alone holds ninety-odd at once, none of them audible.
-// Those cost nothing to mix, so the slot table is generous...
+// Those cost nothing to mix, so the slot table starts generous and grows...
 constexpr size_t kMaxVoices = 512;
-// ...while what actually costs something, sounds being mixed this instant, is
-// capped separately. Past this a new one-shot is dropped rather than stealing
-// from something already audible.
+// ...while what actually costs something, the REAL voices being mixed this
+// instant, is capped at what the original's Miles mixer reports
+// (DIG_MIXER_CHANNELS: 64). Which logical sounds hold a real voice is
+// TryToPlayReal's decision - Docs/Reference/Sound.md, "Virtual voices".
 constexpr size_t kMaxPlaying = 64;
 constexpr int kChannels = 2;
 
@@ -104,11 +105,16 @@ void AudioEngine::Shutdown() {
     cache_.clear();
 }
 
-const AudioEngine::Sample* AudioEngine::Load(const std::string& name) {
+AudioEngine::Sample* AudioEngine::Load(const std::string& name) {
     auto it = cache_.find(name);
     if (it != cache_.end()) return it->second.ok ? &it->second : nullptr;
 
     Sample& s = cache_[name];
+    auto props = pendingProps_.find(name);
+    if (props != pendingProps_.end()) {
+        s.maxInstances = props->second.first;
+        s.minIntervalMs = props->second.second;
+    }
     const std::string path = root_ + "/" + name + ".wav";
 
     // Through the engine's VFS, NOT SDL_LoadWAV's own file opening. The
@@ -203,7 +209,7 @@ void AudioEngine::ComputeGains(Playing& p) const {
 
 void AudioEngine::Mix(float* out, int frames) {
     for (Playing& p : voices_) {
-        if (!p.used || !p.playing || p.paused || !p.sample) continue;
+        if (!p.used || !p.playing || !p.real || p.paused || !p.sample) continue;
 
         const Sample& s = *p.sample;
         const size_t total = s.pcm.size() / size_t(s.channels);
@@ -216,6 +222,7 @@ void AudioEngine::Mix(float* out, int frames) {
                     idx = 0;
                 } else {
                     p.playing = false;
+                    Demote(p);
                     break;
                 }
             }
@@ -255,26 +262,34 @@ const AudioEngine::Playing* AudioEngine::Resolve(Voice v) const {
 
 AudioEngine::Voice AudioEngine::Open(const std::string& name, bool positional, bool held) {
     if (!stream_) return 0;
-    const Sample* s = Load(name);
+    Sample* s = Load(name);
     if (!s) return 0;
 
     std::lock_guard<std::mutex> guard(lock_);
-    for (size_t i = 0; i < voices_.size(); ++i) {
-        Playing& p = voices_[i];
-        if (p.used) continue;
-        const uint16_t gen = uint16_t(p.generation + 1 ? p.generation + 1 : 1);
-        p = Playing{};
-        p.generation = gen;
-        p.sample = s;
-        p.positional = positional;
-        p.used = true;
-        p.held = held;
-        p.volume = 1.f;
-        p.gain[0] = p.gain[1] = 1.f;
-        ++started_;
-        return MakeHandle(i, gen);
+    size_t slot = voices_.size();
+    for (size_t i = 0; i < voices_.size(); ++i)
+        if (!voices_[i].used) { slot = i; break; }
+    // The table grows rather than refusing. A held handle that is stopped and
+    // never deleted - every burning-gas item does this - is a leaked record
+    // in the original too (Sound3D_Stop keeps the object; only Sound3D_Delete
+    // frees it), and a record that is not real costs nothing to mix. The
+    // handle carries a 16-bit index, which is the only bound.
+    if (slot == voices_.size()) {
+        if (voices_.size() >= 0xfffe) return 0;
+        voices_.emplace_back();
     }
-    return 0;                       // every voice busy: drop it, do not steal
+    Playing& p = voices_[slot];
+    const uint16_t gen = uint16_t(p.generation + 1 ? p.generation + 1 : 1);
+    p = Playing{};
+    p.generation = gen;
+    p.sample = s;
+    p.positional = positional;
+    p.used = true;
+    p.held = held;
+    p.volume = 1.f;
+    p.gain[0] = p.gain[1] = 1.f;
+    ++started_;
+    return MakeHandle(slot, gen);
 }
 
 AudioEngine::Voice AudioEngine::Create(const std::string& name, bool positional) {
@@ -289,7 +304,6 @@ AudioEngine::Voice AudioEngine::Create(const std::string& name, bool positional)
 // callers are asking IsPlaying about.
 AudioEngine::Voice AudioEngine::Play2D(const std::string& name, float volume, bool loop,
                                        bool noPitch) {
-    if (PlayingCount() >= kMaxPlaying && !StealQuietest()) return 0;
     const Voice v = Open(name, false, false);
     if (!v) return 0;
     std::lock_guard<std::mutex> guard(lock_);
@@ -302,12 +316,13 @@ AudioEngine::Voice AudioEngine::Play2D(const std::string& name, float volume, bo
     // machine; the soundsDef sets disablePitch where that would be wrong.
     p->speed = noPitch ? 1.0 : 0.95 + 0.1 * (double(SDL_rand(1000)) / 1000.0);
     p->playing = true;
+    p->startedMs = NowMs();
+    TryToPlayReal(*p, p->startedMs);
     return v;
 }
 
 AudioEngine::Voice AudioEngine::Play3D(const std::string& name, const float pos[3],
                                        float dist1, float dist2, bool noPitch) {
-    if (PlayingCount() >= kMaxPlaying && !StealQuietest()) return 0;
     const Voice v = Open(name, true, false);
     if (!v) return 0;
     std::lock_guard<std::mutex> guard(lock_);
@@ -319,7 +334,99 @@ AudioEngine::Voice AudioEngine::Play3D(const std::string& name, const float pos[
     p->speed = noPitch ? 1.0 : 0.95 + 0.1 * (double(SDL_rand(1000)) / 1000.0);
     ComputeGains(*p);
     p->playing = true;
+    p->startedMs = NowMs();
+    TryToPlayReal(*p, p->startedMs);
     return v;
+}
+
+// ------------------------------------------------------------ real voices
+//
+// The original keeps every sound the scripts asked for as a LOGICAL sound and
+// hands only some of them a Miles handle. What decides it, per file, is
+// SOUND.SetSoundProperties - how many instances may sound at once and how
+// close together two may start - and, per sound, how loud it would be:
+// dist1 / distance. Recovered from MilesEngine::TryToPlayRealSound
+// (0x101f43b0), Find3DSoundToStart/Stop (0x101f0c90 / 0x101f09a0) and Tick
+// (0x101f49c0); the reasoning is in Docs/Reference/Sound.md.
+
+float AudioEngine::Score(const Playing& p) const {
+    // 2D sounds - the interface, the player's own weapon loops - are never
+    // ranked against the world. The original scores them separately
+    // (TryToPlayRealSound2D); here they simply always win.
+    if (!p.positional) return 1e6f;
+    float to[3];
+    for (int c = 0; c < 3; ++c) to[c] = p.pos[c] - listener_[c];
+    const float dist = std::sqrt(to[0] * to[0] + to[1] * to[1] + to[2] * to[2]);
+    if (p.dist2 > 0.f && dist > p.dist2) return 0.f;     // out of range
+    return p.dist1 / std::max(dist, 1e-3f);
+}
+
+size_t AudioEngine::RealCount() const {
+    size_t n = 0;
+    for (const Playing& p : voices_)
+        if (p.used && p.real) ++n;
+    return n;
+}
+
+AudioEngine::Playing* AudioEngine::WeakestReal(const Sample* sameFile, float& score) {
+    Playing* worst = nullptr;
+    for (Playing& p : voices_) {
+        if (!p.used || !p.real || (sameFile && p.sample != sameFile)) continue;
+        const float s = Score(p);
+        if (!worst || s < score) { worst = &p; score = s; }
+    }
+    return worst;
+}
+
+void AudioEngine::Demote(Playing& p) {
+    if (!p.real) return;
+    p.real = false;
+    if (p.sample && p.sample->real > 0) --p.sample->real;
+}
+
+void AudioEngine::TryToPlayReal(Playing& p, uint32_t nowMs) {
+    if (!p.playing || p.real || !p.sample) return;
+    const float score = Score(p);
+    if (p.positional && score <= 0.f) return;              // out of range: waits
+    Sample& file = *p.sample;
+    const int maxInstances = file.maxInstances >= 0 ? file.maxInstances : defaultMaxInstances_;
+    const int interval = file.minIntervalMs >= 0 ? file.minIntervalMs : defaultIntervalMs_;
+    if (file.real > 0 && nowMs - file.lastStartMs < uint32_t(interval)) return;
+
+    // The file's own cap first, then the mixer's. In both cases a newcomer
+    // takes a voice only from something it clearly outscores.
+    if (file.real >= maxInstances) {
+        float weakest = 0.f;
+        Playing* victim = WeakestReal(&file, weakest);
+        if (!victim || !(weakest < score - 0.1f)) return;
+        Demote(*victim);
+    }
+    if (RealCount() >= kMaxPlaying) {
+        float weakest = 0.f;
+        Playing* victim = WeakestReal(nullptr, weakest);
+        if (!victim || !(weakest < score - 0.1f)) return;
+        Demote(*victim);
+    }
+    p.real = true;
+    ++file.real;
+    file.lastStartMs = nowMs;
+}
+
+void AudioEngine::SetSoundProperties(const std::string& name, int maxInstances,
+                                     int intervalMs) {
+    std::lock_guard<std::mutex> guard(lock_);
+    if (name == "default") {
+        defaultMaxInstances_ = maxInstances;
+        defaultIntervalMs_ = intervalMs;
+        return;
+    }
+    auto it = cache_.find(name);
+    if (it != cache_.end()) {
+        it->second.maxInstances = maxInstances;
+        it->second.minIntervalMs = intervalMs;
+    } else {
+        pendingProps_[name] = {maxInstances, intervalMs};
+    }
 }
 
 // The setters all take the lock because the mixing callback reads what they
@@ -342,11 +449,14 @@ void AudioEngine::Start(Voice v) {
     p.cursor = 0.0;
     p.playing = true;
     p.paused = false;
+    p.startedMs = NowMs();
+    TryToPlayReal(p, p.startedMs);
 }
 
 void AudioEngine::Stop(Voice v) {
     PAINFUL_VOICE(v)
     p.playing = false;
+    Demote(p);
 }
 
 void AudioEngine::Pause(Voice v, bool paused) {
@@ -387,6 +497,7 @@ void AudioEngine::Release(Voice v, bool letFinish) {
     PAINFUL_VOICE(v)
     p.held = false;
     if (!letFinish) {
+        Demote(p);
         p.playing = false;
         p.used = false;
     }
@@ -413,6 +524,7 @@ void AudioEngine::SetListener(const float pos[3], const float forward[3],
 void AudioEngine::Update() {
     if (!stream_) return;
     std::lock_guard<std::mutex> guard(lock_);
+    const uint32_t now = NowMs();
     for (Playing& p : voices_) {
         if (!p.used) continue;
         // A voice nobody holds any more, that has finished, is free. One the
@@ -426,6 +538,26 @@ void AudioEngine::Update() {
             continue;
         }
         if (p.playing && p.positional) ComputeGains(p);
+        if (!p.playing || p.paused || !p.sample) continue;
+        if (p.real) {
+            // MilesEngine::Tick stops whatever has left its hearing range
+            // before it hands out anything new.
+            if (p.positional && Score(p) <= 0.f) Demote(p);
+            continue;
+        }
+        // Waiting. A one-shot that has waited its own length out is over -
+        // it would have finished by now had it been heard.
+        if (p.loopsLeft >= 0) {
+            const size_t frames = p.sample->pcm.size() / size_t(p.sample->channels);
+            const uint32_t lengthMs =
+                uint32_t(double(frames) * 1000.0 / (double(rate_) * std::max(p.speed, 1e-3)) *
+                         double(p.loopsLeft > 1 ? p.loopsLeft : 1));
+            if (now - p.startedMs > lengthMs) {
+                p.playing = false;
+                continue;
+            }
+        }
+        TryToPlayReal(p, now);
     }
 }
 
@@ -443,36 +575,30 @@ void AudioEngine::Update() {
 // it to still be there, and stealing it would leave the handle pointing at
 // whatever replaced it. Returns false when everything audible is spoken for,
 // in which case the caller drops as before.
-bool AudioEngine::StealQuietest() {
-    std::lock_guard<std::mutex> guard(lock_);
-    Playing* worst = nullptr;
-    float worstGain = 0.f;
-    for (Playing& p : voices_) {
-        if (!p.used || !p.playing || p.paused || p.held) continue;
-        const float g = p.gain[0] > p.gain[1] ? p.gain[0] : p.gain[1];
-        if (worst == nullptr || g < worstGain) { worst = &p; worstGain = g; }
-    }
-    if (worst == nullptr) return false;
-    worst->playing = false;
-    worst->used = false;
-    ++worst->generation;
-    return true;
-}
-
 size_t AudioEngine::PlayingCount() const {
     std::lock_guard<std::mutex> guard(lock_);
-    size_t n = 0;
-    for (const Playing& p : voices_)
-        if (p.used && p.playing && !p.paused) ++n;
-    return n;
+    return RealCount();
+}
+
+void AudioEngine::LogRealVoices() const {
+    std::lock_guard<std::mutex> guard(lock_);
+    for (const auto& kv : cache_) {
+        const Sample& s = kv.second;
+        size_t waiting = 0;
+        for (const Playing& p : voices_)
+            if (p.used && p.playing && !p.real && p.sample == &s) ++waiting;
+        if (s.real > 0 || waiting > 0)
+            LogInfo("audio: %-48s real %d  waiting %zu  (max %d, gap %d ms)", kv.first.c_str(),
+                    s.real, waiting,
+                    s.maxInstances >= 0 ? s.maxInstances : defaultMaxInstances_,
+                    s.minIntervalMs >= 0 ? s.minIntervalMs : defaultIntervalMs_);
+    }
+    LogInfo("audio: %zu real voices of %zu slots", RealCount(), voices_.size());
 }
 
 size_t AudioEngine::voicesPlaying() const {
     std::lock_guard<std::mutex> guard(lock_);
-    size_t n = 0;
-    for (const Playing& p : voices_)
-        if (p.used && p.playing && !p.paused) ++n;
-    return n;
+    return RealCount();
 }
 
 } // namespace painful

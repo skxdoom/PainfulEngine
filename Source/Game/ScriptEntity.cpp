@@ -532,15 +532,34 @@ int ScriptEngine::L_SetOrientation(lua_State* L) {
     return 0;
 }
 
+// ENTITY.GetOrientation(e) -> yaw, radians.
+//
+// 0x10132420: with an enabled physics object the answer is
+// PhysicsObject::GetOrientation off the body's rotation; otherwise it rotates
+// (0,0,1) by the entity's rotation and returns atan2(x, z) of the result. Both
+// are the heading of the entity's local +Z. The PLAYER has no entity rotation
+// here - the pawn carries its facing - so it answers from the pawn's forward,
+// which is what MiniGunRL:Fire and RifleFlameThrower:ComboCheck turn into the
+// projectile's yaw (`-orientation + 1.57`). Answering 0 for the player put
+// every rocket's long axis 90 degrees off its flight.
 int ScriptEngine::L_GetOrientation(lua_State* L) {
     ScriptEngine* self = From(L);
-    const Entity* e = self->Find(HandleArg(L, 1));
-    // The yaw back out of the stored quaternion, negated to match the above -
-    // an actor reads its own angle back every tick through Synchronize, so a
-    // round trip that does not land on the same number makes it drift.
-    const float yaw =
-        e ? -2.f * std::atan2(e->rotWXYZ[2], e->rotWXYZ[0]) : 0.f;
-    lua_pushnumber(L, yaw);
+    const int handle = HandleArg(L, 1);
+    float fwd[3] = {0, 0, 1};
+    if (self->pawn_ && handle == self->playerHandle_ && self->playerHandle_) {
+        // The same basis CAM.GetForwardVector answers with.
+        const float cp = std::cos(self->camPitch_);
+        fwd[0] = std::cos(self->camYaw_) * cp;
+        fwd[1] = std::sin(self->camPitch_);
+        fwd[2] = std::sin(self->camYaw_) * cp;
+    } else if (const Entity* e = self->Find(handle)) {
+        const float z[3] = {0, 0, 1};
+        EngineQuatRotate(e->rotWXYZ, z, fwd);
+    } else {
+        lua_pushnumber(L, 0);
+        return 1;
+    }
+    lua_pushnumber(L, std::atan2(fwd[0], fwd[2]));
     return 1;
 }
 
@@ -818,9 +837,14 @@ int ScriptEngine::L_PO_Create(lua_State* L) {
     // Argument 4 is the ECollisionGroups value, and it decides whether this is
     // a rigid body at all: Noncolliding (7) is how every projectile is made.
     const int collisionGroup = int(luaL_optnumber(L, 4, 0));
+    // BodyTypes.Sphere / SphereSweep with an explicit scale is a sphere of
+    // radius scale * 1.1, whatever the mesh looks like (the sizer's case 1).
+    const float argScale = float(luaL_optnumber(L, 3, -1.0));
+    const float sphereRadius =
+        (bodyType == 1 || bodyType == 9) && argScale > 0.f ? argScale * 1.1f : 0.f;
     const int slot = self->physics_->CreateScriptBody(
         bodyType, model, pack, e->mesh, scale, e->pos, e->rotWXYZ, self->dataRoot_,
-        collisionGroup);
+        collisionGroup, sphereRadius);
     if (slot >= 0) {
         e->physicsBody = slot;
         // Noncolliding (7) only. That group means "touches nothing", which is
@@ -962,8 +986,42 @@ int ScriptEngine::L_PARTICLE_SetParentOffset(lua_State* L) {
     } else if (lua_isstring(L, 5)) {
         e->parentJoint = lua_tostring(L, 5);
     }
+    // Arguments 9..11: an Euler rotation (the engine's own qz*qy*qx order,
+    // FUN_1011bcd0) the effect carries on top of its joint. Given only when
+    // the 11th argument exists, exactly as 0x10139e30 tests it. The
+    // flamethrower binds RFT_flame with (0, 1.57, 0) to turn the emitter's +X
+    // velocity down the barrel. Arguments 6..8 are a per-axis pull toward the
+    // camera, which nothing in the shipped scripts passes non-zero.
+    e->parentRotBound = lua_gettop(L) >= 11;
+    if (e->parentRotBound) {
+        EngineEulerToQuat(float(luaL_optnumber(L, 9, 0)), float(luaL_optnumber(L, 10, 0)),
+                          float(luaL_optnumber(L, 11, 0)), e->parentRotWXYZ);
+    }
     e->parentBound = true;
     self->PlaceAttached(*e);
+    return 0;
+}
+
+// PARTICLE.Die(pfx) - a bound effect ends: 0x10139a30 unregisters it from its
+// parent and, for every emitter, zeroes the spawn budget and clears the
+// evolve flag. The entity then goes the way a spent one-shot does, once its
+// last particle has died (TickLifetimes). RifleFlameThrower:EnableFX calls
+// this on the flame the moment the trigger is released.
+int ScriptEngine::L_PARTICLE_Die(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e) return 0;
+    if (e->parent != 0) {
+        if (Entity* parent = self->Find(e->parent)) {
+            std::vector<int>& kids = parent->children;
+            kids.erase(std::remove(kids.begin(), kids.end(), HandleArg(L, 1)), kids.end());
+        }
+        e->parent = 0;
+        e->parentBound = false;
+    }
+    if (self->particles_)
+        for (int slot : e->emitterSlots)
+            if (slot >= 0) self->particles_->StopScriptEmitter(slot);
     return 0;
 }
 
@@ -989,13 +1047,38 @@ void ScriptEngine::PlaceAttached(Entity& e) {
     if (e.parentJointIndex == -2 && !e.parentJoint.empty())
         e.parentJointIndex = JointIndexByName(*parent, e.parentJoint);
 
+    // ParticleEffect::Tick (0x101e59a0): with a joint, the position is the
+    // offset through the joint's transform and the rotation is the joint's
+    // composed with the bound Euler - or the PARENT's rotation when no Euler
+    // was given. Without a joint, the offset is rotated by the parent and the
+    // rotation is the parent's composed with the Euler, if any.
     float world[3];
-    if (e.parentJointIndex < 0 || !JointToWorld(*parent, e.parentJointIndex,
+    float rot[4];
+    bool haveRot = false;
+    if (e.parentJointIndex >= 0 && JointToWorld(*parent, e.parentJointIndex,
                                                 e.parentOffset, world)) {
-        // No joint, or a skeleton that cannot answer: the parent's own frame.
-        for (int c = 0; c < 3; ++c) world[c] = parent->pos[c] + e.parentOffset[c];
+        if (e.parentRotBound) {
+            float joint[4];
+            if (JointWorldRotation(*parent, e.parentJointIndex, joint)) {
+                EngineQuatMul(joint, e.parentRotWXYZ, rot);
+                haveRot = true;
+            }
+        } else {
+            for (int c = 0; c < 4; ++c) rot[c] = parent->rotWXYZ[c];
+            haveRot = true;
+        }
+    } else {
+        float turned[3];
+        EngineQuatRotate(parent->rotWXYZ, e.parentOffset, turned);
+        for (int c = 0; c < 3; ++c) world[c] = parent->pos[c] + turned[c];
+        if (e.parentRotBound) {
+            EngineQuatMul(parent->rotWXYZ, e.parentRotWXYZ, rot);
+            haveRot = true;
+        }
     }
     for (int c = 0; c < 3; ++c) e.pos[c] = world[c];
+    if (haveRot)
+        for (int c = 0; c < 4; ++c) e.rotWXYZ[c] = rot[c];
     SyncPose(e);
 }
 

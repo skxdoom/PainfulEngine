@@ -196,9 +196,11 @@ is listed in [`../Status.md`](../Status.md).
 moment the scripts ask (entity bodies follow through `PO_Create` in the same
 level load and need something to rest on), `WORLD.Init` sets the surface, and
 `ENTITY.PO_Create(e, bodytype, scale, group)` creates each body bare - the
-scripts then dress it through `PO_SetMass`/`PO_SetFriction`/
-`PO_SetRestitution`/`PO_Set*Damping`, exactly the division of work
-`CObject:PO_Create` writes out. A scale of -1 means "the entity's own scale".
+scripts then dress it through `PO_SetMass`/`PO_SetFreedomOfRotation`/
+`PO_Set*Damping`, exactly the division of work `CObject:PO_Create` writes out
+(`PO_SetFriction` / `PO_SetRestitution` are engine-side values that never reach
+the solver — see [`Physics.md`](Physics.md)). A scale of -1 means "the
+entity's own scale".
 Body shapes reuse the hand-driven path's rule: FromMesh variants become the
 mesh's convex hull, the rest a sphere. Engine quaternions cross into Jolt as
 their CONJUGATE - the row-vector/column-vector transpose, expressed on the

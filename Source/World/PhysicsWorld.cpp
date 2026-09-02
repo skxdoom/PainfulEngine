@@ -52,9 +52,8 @@ namespace painful {
 
 namespace {
 
-// Two object layers, which is all a world of static geometry and loose props
-// needs: things that never move and things that do. Jolt uses the pairing to
-// skip static-against-static entirely.
+// Object layers. Static geometry, the things that move, and three special
+// cases the pair filter below tells apart.
 namespace Layers {
 constexpr JPH::ObjectLayer kNonMoving = 0;
 constexpr JPH::ObjectLayer kMoving = 1;
@@ -65,7 +64,16 @@ constexpr JPH::ObjectLayer kMoving = 1;
 // to touch nothing - a colliding one stops dead against the first thing it
 // meets, which is exactly what ours did.
 constexpr JPH::ObjectLayer kNoCollide = 2;
-constexpr JPH::ObjectLayer kCount = 3;
+// The camera's and the pawn's pusher bodies. They shove props and nothing
+// else: a grenade or rocket is spawned at the player's head and must not be
+// stopped by the sphere that is standing there, and no trace should ever land
+// on them.
+constexpr JPH::ObjectLayer kProbe = 3;
+// ECollisionGroups.Missile (5) and Particles (8): grenades, rockets, shell
+// casings. Simulated against the world, props, monsters and each other, but
+// never against the probes.
+constexpr JPH::ObjectLayer kMissile = 4;
+constexpr JPH::ObjectLayer kCount = 5;
 } // namespace Layers
 
 namespace BroadPhase {
@@ -79,8 +87,16 @@ public:
     bool ShouldCollide(JPH::ObjectLayer a, JPH::ObjectLayer b) const override {
         // A non-colliding body pairs with nothing at all.
         if (a == Layers::kNoCollide || b == Layers::kNoCollide) return false;
+        // A probe only ever shoves the ordinary moving bodies.
+        if (a == Layers::kProbe || b == Layers::kProbe)
+            return (a == Layers::kMoving) != (b == Layers::kMoving) &&
+                   (a == Layers::kProbe) != (b == Layers::kProbe);
+        // Missiles pass through each other. BoltGunHeater:AltFire launches
+        // ten bombs 0.05 apart with a 0.165 radius each; touching, every one
+        // of them counted its neighbours as hits and blew up in the barrel.
+        if (a == Layers::kMissile && b == Layers::kMissile) return false;
         // Static against static is never interesting.
-        return a == Layers::kMoving || b == Layers::kMoving;
+        return a != Layers::kNonMoving || b != Layers::kNonMoving;
     }
 };
 
@@ -105,7 +121,8 @@ public:
         // Rejected here as well as in the narrow phase, so a projectile costs
         // nothing in the broadphase either.
         if (layer == Layers::kNoCollide) return false;
-        return layer == Layers::kMoving || broad == BroadPhase::kMoving;
+        if (layer == Layers::kProbe) return broad == BroadPhase::kMoving;
+        return layer != Layers::kNonMoving || broad == BroadPhase::kMoving;
     }
 };
 
@@ -398,6 +415,9 @@ struct PhysicsWorld::Impl {
         // see SetScriptBodyEnabled. Jolt asserts on a double add or remove, so
         // the state has to be tracked rather than inferred.
         bool inWorld = true;
+        // EFreedomsOfRotation, as PhysicsObject+0x10 holds it. Decides what
+        // SetMass does to the inertia: see SetScriptBodyMass.
+        int freedomMode = 1;
     };
     std::vector<ScriptBody> scriptBodies;
     // Which script bodies are CHARACTERS (PO_SetMonsterType, so kinematic and
@@ -431,6 +451,15 @@ struct PhysicsWorld::Impl {
         system.SetContactListener(&contacts);
         system.Init(kMaxBodies, 0, kMaxBodyPairs, kMaxContactConstraints, broadPhaseLayers,
                     objectVsBroadPhase, objectPairs);
+        // Havok's material combine is the geometric mean for both friction and
+        // restitution; Jolt's default takes the MAX restitution, which makes a
+        // dead prop bounce off a lively floor. Havok is statically linked with
+        // no symbols, so this is hkpMaterial's documented default rather than
+        // a decompiled fact - see Docs/Reference/Physics.md.
+        system.SetCombineRestitution([](const JPH::Body& a, const JPH::SubShapeID&,
+                                        const JPH::Body& b, const JPH::SubShapeID&) {
+            return std::sqrt(a.GetRestitution() * b.GetRestitution());
+        });
     }
 };
 
@@ -490,7 +519,7 @@ void PhysicsWorld::CreateProbe() {
     JPH::BodyCreationSettings body(
         result.Get(),
         JPH::RVec3(impl_->probePos[0], impl_->probePos[1], impl_->probePos[2]),
-        JPH::Quat::sIdentity(), JPH::EMotionType::Kinematic, Layers::kMoving);
+        JPH::Quat::sIdentity(), JPH::EMotionType::Kinematic, Layers::kProbe);
     // Swept, not stepped. The camera crosses more than this body's own width
     // in a single step at anything above a walk - and with shift held it
     // covers 2 units against a radius of 1.2 - so a discrete body would pass
@@ -518,7 +547,7 @@ void PhysicsWorld::CreatePawnProbe() {
     JPH::BodyCreationSettings body(
         result.Get(),
         JPH::RVec3(impl_->pawnProbePos[0], impl_->pawnProbePos[1], impl_->pawnProbePos[2]),
-        JPH::Quat::sIdentity(), JPH::EMotionType::Kinematic, Layers::kMoving);
+        JPH::Quat::sIdentity(), JPH::EMotionType::Kinematic, Layers::kProbe);
     body.mMotionQuality = JPH::EMotionQuality::LinearCast;
     impl_->pawnProbe = bodies.CreateAndAddBody(body, JPH::EActivation::Activate);
 }
@@ -963,7 +992,8 @@ int PhysicsWorld::CreateScriptBody(int bodyType, const std::string& modelName,
                                    const std::string& packName,
                                    const std::string& packMesh, float scale,
                                    const float pos[3], const float rotWXYZ[4],
-                                   const std::string& dataRoot, int collisionGroup) {
+                                   const std::string& dataRoot, int collisionGroup,
+                                   float sphereRadius) {
     if (impl_->worldBody.IsInvalid()) return -1;   // no world, nothing to rest on
 
     MeshPoints mesh;
@@ -975,8 +1005,19 @@ int PhysicsWorld::CreateScriptBody(int bodyType, const std::string& modelName,
     }
     if (scale <= 0.f) return -1;
 
-    const float radius = mesh.radius() * scale;   // world-space
-    JPH::ShapeSettings::ShapeResult shape = BuildScaledPropShape(mesh, bodyType, scale);
+    float radius = mesh.radius() * scale;   // world-space
+    JPH::ShapeSettings::ShapeResult shape;
+    if (sphereRadius > 0.f) {
+        // BodyTypes.Sphere with an explicit scale: the sizer (0x101b3e20,
+        // case 1) makes a sphere of radius scale * 0.2 * 5.5 and never looks
+        // at the mesh. A grenade asks for 0.15 and gets 0.165.
+        radius = sphereRadius;
+        JPH::SphereShapeSettings sphere(sphereRadius);
+        sphere.SetEmbedded();
+        shape = sphere.Create();
+    } else {
+        shape = BuildScaledPropShape(mesh, bodyType, scale);
+    }
     if (shape.HasError()) return -1;
 
     // The same body configuration LoadProps uses; mass, friction and the
@@ -1010,18 +1051,30 @@ int PhysicsWorld::CreateScriptBody(int bodyType, const std::string& modelName,
     // but the script that owns it, and it passes through the static world it
     // is rising out of.
     const bool fixedRigid = collisionGroup == 1;
+    // Missile (5) and Particles (8) are simulated like anything else but
+    // never against the pusher bodies - see Layers::kMissile.
+    const bool missile = collisionGroup == 5 || collisionGroup == 8;
     JPH::BodyCreationSettings body(shape.Get(), JPH::RVec3(pos[0], pos[1], pos[2]),
                                    EngineQuatToJolt(rotWXYZ),
                                    (projectile || fixedRigid) ? JPH::EMotionType::Kinematic
                                                               : JPH::EMotionType::Dynamic,
-                                   projectile ? Layers::kNoCollide : Layers::kMoving);
+                                   projectile ? Layers::kNoCollide
+                                              : (missile ? Layers::kMissile : Layers::kMoving));
     body.mMotionQuality = JPH::EMotionQuality::LinearCast;
+    // The contact material every script body is born with, and keeps: the
+    // sizer fills its hkpRigidBodyCinfo with restitution 0.9, both dampings 0,
+    // and leaves friction at the Havok default of 0.5. PO_SetFriction and
+    // PO_SetRestitution never reach the body (Docs/Reference/Physics.md).
+    body.mFriction = 0.5f;
+    body.mRestitution = 0.9f;
+    body.mLinearDamping = 0.f;
+    body.mAngularDamping = 0.f;
 
     JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
     const JPH::BodyID id = bodies.CreateAndAddBody(body, JPH::EActivation::Activate);
     if (id.IsInvalid()) return -1;
 
-    impl_->scriptBodies.push_back({id, radius, true});
+    impl_->scriptBodies.push_back({id, radius, true, 1});
     return int(impl_->scriptBodies.size() - 1);
 }
 
@@ -1076,25 +1129,54 @@ void PhysicsWorld::CollectScriptContacts(std::vector<ScriptContact>& out) {
     }
 }
 
+// PhysicsObject::SetMass (0x10189510) branches on the freedom-of-rotation
+// mode: AllAxes and FullFree rescale the inertia with the mass, every other
+// mode sets the mass alone and leaves the inertia the mode chose.
 void PhysicsWorld::SetScriptBodyMass(int slot, float mass) {
     if (!ScriptBodyExists(slot) || mass <= 0.f) return;
     JPH::BodyLockWrite lock(impl_->system.GetBodyLockInterface(),
                             impl_->scriptBodies[slot].body);
     if (!lock.Succeeded() || !lock.GetBody().IsDynamic()) return;
-    lock.GetBody().GetMotionProperties()->ScaleToMass(
-        mass * settings_.activeMeshesMassScale);
+    const float m = mass * settings_.activeMeshesMassScale;
+    const int mode = impl_->scriptBodies[slot].freedomMode;
+    JPH::MotionProperties* mp = lock.GetBody().GetMotionProperties();
+    if (mode == 2 || mode == 3) mp->ScaleToMass(m);
+    else mp->SetInverseMass(1.f / m);
 }
 
-void PhysicsWorld::SetScriptBodyFriction(int slot, float friction) {
+// PhysicsObject::SetFreedomOfRotation (0x10189a30), as an inertia tensor.
+// A locked axis is 3.4e38 there and an inverse inertia of zero here; a free
+// single axis has inertia 10; HardTurn is isotropic softness * 10; AllAxes and
+// FullFree take the shape's own inertia at the current mass.
+void PhysicsWorld::SetScriptBodyFreedomOfRotation(int slot, int mode, float softness) {
     if (!ScriptBodyExists(slot)) return;
-    impl_->system.GetBodyInterface().SetFriction(impl_->scriptBodies[slot].body,
-                                                 friction);
-}
+    JPH::BodyLockWrite lock(impl_->system.GetBodyLockInterface(),
+                            impl_->scriptBodies[slot].body);
+    if (!lock.Succeeded() || !lock.GetBody().IsDynamic()) return;
+    impl_->scriptBodies[slot].freedomMode = mode;
+    JPH::Body& body = lock.GetBody();
+    JPH::MotionProperties* mp = body.GetMotionProperties();
 
-void PhysicsWorld::SetScriptBodyRestitution(int slot, float restitution) {
-    if (!ScriptBodyExists(slot)) return;
-    impl_->system.GetBodyInterface().SetRestitution(impl_->scriptBodies[slot].body,
-                                                    restitution);
+    if (mode == 2 || mode == 3) {
+        JPH::MassProperties props = body.GetShape()->GetMassProperties();
+        const float invMass = mp->GetInverseMass();
+        if (invMass > 0.f) props.ScaleToMass(1.f / invMass);
+        mp->SetMassProperties(JPH::EAllowedDOFs::All, props);
+        return;
+    }
+    float inv[3] = {0, 0, 0};                    // locked, locked, locked
+    switch (mode) {
+    case 1: inv[1] = 0.1f; break;                // YAxis
+    case 5: inv[0] = 0.1f; break;                // XAxis
+    case 6: inv[2] = 0.1f; break;                // ZAxis
+    case 4: {                                    // HardTurn
+        const float i = std::max(1e-4f, softness * 10.f);
+        inv[0] = inv[1] = inv[2] = 1.f / i;
+        break;
+    }
+    default: break;                              // Disabled: no rotation
+    }
+    mp->SetInverseInertia(JPH::Vec3(inv[0], inv[1], inv[2]), JPH::Quat::sIdentity());
 }
 
 void PhysicsWorld::SetScriptBodyLinearDamping(int slot, float damping) {
@@ -1299,6 +1381,14 @@ bool PhysicsWorld::ScriptBodyBounds(int slot, float lo[3], float hi[3]) const {
         lo[c] = box.mMin[c];
         hi[c] = box.mMax[c];
     }
+    return true;
+}
+
+bool PhysicsWorld::GetScriptBodyPosition(int slot, float out[3]) const {
+    if (!ScriptBodyExists(slot)) return false;
+    const JPH::RVec3 p =
+        impl_->system.GetBodyInterface().GetPosition(impl_->scriptBodies[slot].body);
+    for (int c = 0; c < 3; ++c) out[c] = float(p[c]);
     return true;
 }
 
@@ -1975,10 +2065,13 @@ void PhysicsWorld::CollectDebugLines(const float around[3], float radius,
 // Stake:Tick reads the collision group of whatever it hit, sees 7 and returns
 // early; with the self-hit always nearest it did that on EVERY frame, so every
 // real hit behind it was never reached and shots went through walls.
+// What a trace can land on: everything that is solid to the world. The pusher
+// bodies are not - a trace that stopped on the pawn's own sphere reported a
+// WORLD hit standing exactly where the player is.
 class SolidLayerFilter final : public JPH::ObjectLayerFilter {
 public:
     bool ShouldCollide(JPH::ObjectLayer layer) const override {
-        return layer != Layers::kNoCollide;
+        return layer != Layers::kNoCollide && layer != Layers::kProbe;
     }
 };
 

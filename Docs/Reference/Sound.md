@@ -227,33 +227,62 @@ ones that had never been reachable:
 **Expect a stub's first real implementation to fail, and to fail in the code
 around it rather than in itself.**
 
-## The mixing cap steals, it does not drop
+## Virtual voices: what the original actually mixes
 
-Two limits, and they answer different questions. `kMaxVoices` (512) is the
-handle table: the scripts CREATE sounds long before they play them - a
-flamethrower loop, an elevator, a torch - and Cathedral alone holds ninety-odd
-at once, none of them audible. `kMaxPlaying` (64) is what is actually being
-mixed this instant.
+Sources: `MilesEngine::Sound3D_Create/Play/Stop/Delete` (0x101f6260,
+0x101f3a20, 0x101f33a0, 0x101f31c0), `TryToPlayRealSound` 0x101f43b0,
+`Find3DSoundToStart` 0x101f0c90, `Find3DSoundToStop` 0x101f09a0,
+`Start3DSample` 0x101f3ed0, `Tick` 0x101f49c0, `SetSoundProperties`
+0x101f5f20 and its native 0x10140560, the ctor 0x101f7b40; `Definitions.lua`
+`SoundsProperties`, `Game.lua:197`.
 
-**64 is the right number**: the original's own startup log reports Miles at
-`DIG_MIXER_CHANNELS: 64`. What was wrong was the policy at the cap - a new
-one-shot was dropped rather than taking a slot from something already playing.
+Every sound the scripts create is a LOGICAL sound (`Miles3DSound`, a 0xa0
+record in a hash table). Only some hold a REAL Miles sample handle at any
+moment, and that set is recomputed every tick:
 
-Reported from play: the jump sound went missing on a busy level and was
-reliable on an empty one. That asymmetry is the whole diagnosis - the event was
-firing, the mixer was full of ambience and monsters, and the player's own jump
-lost the race. Measured by saturating the mixer with eighty looping sounds and
-then asking for ten one-shots:
+- **Per file, two properties**: how many instances may be real at once
+  (`MilesLoadedFile+0x48`) and the minimum gap between two starts
+  (`+0x40`, ms). `SOUND.SetSoundProperties(name, max, ms)` sets them, with
+  the name `"default"` setting the engine-wide fallback (`+0x2c0/+0x2c4`,
+  100 and 0 from the constructor). `Game:Init` pushes Definitions.lua's
+  `SoundsProperties` table through it: `{"default", 6, 0.1}` and 88 named
+  files - raven wings 4 / 0.4 s, grenade explosion 3 / 0.4 s, the sado's
+  shots 2 / 0.5 s. So no more than six instances of any one sample are ever
+  audible, and none starts within 100 ms of the last.
+- **A sound's score is `dist1 / distance`**, and a 3D sound further than
+  `dist2` scores nothing. Priority is a byte on the sound (0x100 when the
+  "privileged" flag is set) and ranks above score.
+- **`TryToPlayRealSound`** gives a sound a handle when it is in range, its
+  file's start interval has elapsed, and the file is under its cap - else it
+  looks for the weakest real instance of the same file and takes that
+  handle only when `weakest.score < score - 0.1`. Real handles come from
+  Miles's own pool; the first allocation failure fixes the pool size
+  (`+0x23c`, -1 until then).
+- **`Tick`** first releases every real sound that has left its range, hands
+  each freed handle to the best waiting sound, then keeps promoting the best
+  waiting sound while the pool has room.
+- A waiting sound is still "playing" to the scripts. A loop waits as long as
+  it takes; a one-shot that waits past its own length just ends
+  (0x101ee6e0). A demoted sound keeps its offset and resumes from there.
+- **`Sound3D_Stop` does not free the record**; only `Sound3D_Delete` does.
+  `FlameThrowerGas` creates one fire loop per burning patch, stops it on
+  release and never deletes it - a leak the original has too, ten records a
+  second while the flamethrower is held.
 
-| policy | played | dropped |
-|---|---:|---:|
-| drop the newcomer | 0 | 10 |
-| steal the quietest | 10 | 0 |
+The port's `AudioEngine` is this model: a `Playing` is logical, `real` marks
+the ones being mixed, `TryToPlayReal` / `Demote` / `Update` are the three
+routines above, per-file properties live on the `Sample`, and the handle
+table grows instead of refusing (a stopped held record costs nothing to mix).
+The mixer's global budget is 64 real voices - the original's startup log
+reports Miles at `DIG_MIXER_CHANNELS: 64`. Two approximations, both marked in
+the code: 2D sounds always win (the original ranks them separately in
+`TryToPlayRealSound2D`, not recovered), and the priority byte is not carried
+(no shipped script passes one).
 
-The quietest voice goes first, by mixed gain, so a distant 3D sound loses to a
-close one. **Held handles are never taken** - a script that owns a loop expects
-it to still be there, and stealing it would leave the handle pointing at
-whatever replaced it. When everything audible is held, the call drops as before.
+Why this matters in play: the flamethrower drops a burning patch every 0.1 s
+and each starts its own `barrel-wood-fire-loop`; forty of them at random
+phases is a wash, and the old mixer played every one. With the shipped
+properties six play and the rest wait their turn.
 
 ### Testing it headlessly
 

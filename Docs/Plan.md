@@ -45,9 +45,14 @@ reading:
 
 ```
 boot: 964 files loaded, 0 missing, 0 script errors
-entities: 795 created, 189 released, 654 live
-unimplemented natives hit: 100 distinct, 11540 calls
+entities: 838 created, 202 released, 684 live
+unimplemented natives hit: 99 distinct, 11428 calls
 ```
+
+(The live count climbs in a long headless run — 779 at 1200 frames — because
+the footstep effect `but` is a one-shot that only the windowed particle
+reaper collects; with no particle renderer nothing finishes. A harness
+artifact, not a leak in the game loop.)
 
 against 153 distinct / 82,843 calls at the start of Stage 7. Re-run after every
 stage; the report is the progress bar.
@@ -252,20 +257,19 @@ ravens) currently cannot move by any path:
 `CalculatePawnToEntityVisibility` (0x10198D30) takes both pawns' **head** positions.
 Worth correcting here, since it is the same subsystem.
 
-### Stage 18 — grenade body semantics
+### Stage 18 — grenade body semantics — DONE
 
-With Stage 13 done the blast works; this is the bounce and the tumble.
+`PO_SetGrenade` and `PO_SetFreedomOfRotation` are real, the grenade is a
+simulated sphere again, and the rocket flies nose first. What the binary said
+about all of it — including that `PO_SetMissile` is netcode-only and that
+`PO_SetFriction` / `PO_SetRestitution` never reached Havok in the first place —
+is in [`Physics.md`](Reference/Physics.md), under Projectiles. `Restitution =
+1.4` turned out to be a value the solver never saw.
 
-- `ENTITY.PO_SetGrenade` — `Grenade.lua` calls it on both the SP and client paths.
-- `ENTITY.PO_SetFreedomOfRotation` — `Grenade.CItem` declares `Softness = 1`, which
-  `CObject:PO_Create` routes here with mode 4. Never applied, so no tumble
-  constraint.
-- `ENTITY.PO_SetMissile`, and `MPProjectileTypes` behind it.
-
-One thing to *check rather than assume*: `Grenade.Restitution = 1.4` is handed raw to
-`JPH::BodyInterface::SetRestitution` in `World/PhysicsWorld.cpp`. Havok's >1
-restitution is not Jolt's, and a grenade that gains energy on every bounce is a
-plausible-looking wrong answer. Read `PhysicsObject::SetRestitution` before tuning.
+Left open there: the original's collision-group filter (what a missile may
+touch is an assumption), and the sizer's cinfo material read (friction 0.5,
+restitution 0.9) rests on a stack-offset mapping — worth a second look if
+props feel too lively.
 
 ### Stage 19 — collision-group and contact plumbing
 
@@ -294,9 +298,8 @@ nothing to react to until explosions exist.
 
 ### Stage 21 — world and lifetime
 
-- `PARTICLE.Die` — 68 sites, and it is how a one-shot effect *stops*. Emitters
-  currently leak for the life of the level. `PARTICLE.Restart` and `SetImmortal` sit
-  with it.
+- `PARTICLE.Die` is done ([`Particles.md`](Reference/Particles.md)).
+  `PARTICLE.Restart` and `SetImmortal` sit with it and are still stubs.
 - `WORLD.SetWorldSpeed` — slow motion; already flagged as an assumption in
   `Game/PlayerPawn.h`. `PHYSICS.SetBunnyHopAcceleration` and `PHYSICS.SetGravity`
   belong here too.
@@ -317,7 +320,7 @@ wrong:
 | Dynamic lights | `LIGHT.Setup` / `SetFalloff` (502 calls a run) and the six flag setters; `ENVIRONMENT.SetAmbient` / `SetFog` / `SetDirLight` / `RemoveLights` (250). |
 | Model materials | `MESH.SetDetailMap` / `SetNormalMap` / `SetCubeMap` / `SetSpecular` / `AddSpecularLight` (648); `MDL.SetMaterial`, `SetTexture`, `EnableNormalMaps`, `MATERIAL.Replace` (44). |
 | Camera | `R3D.SetCameraFOV` (401) — FOV is fixed, so no zoom and no FX. |
-| Acoustics | `WORLD.FindEnvironmentAtPoint` (200), `SOUND.SetRoomType`, `SOUND3D.SetObstructed` / `SetIntensity`, `SOUND.SetSoundProperties` (468 together). |
+| Acoustics | `WORLD.FindEnvironmentAtPoint` (200), `SOUND.SetRoomType`, `SOUND3D.SetObstructed` / `SetIntensity`. `SOUND.SetSoundProperties` is done ([`Sound.md`](Reference/Sound.md)). |
 | Visibility switching | `WORLD.UseSwitchZones` (398), `EnablePortal`, the antiportal family, `EnableDrawMeshGroup`. |
 | Streams | `SOUND.StreamLoad` / `StreamPlay` / `StreamPause` / `StreamSetVolume` — music. |
 | Menus and save/load | the `PMENU` surface (102 stubs), `WORLD.SaveGame` / `LoadGame`. |

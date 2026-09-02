@@ -173,6 +173,42 @@ emitter.scale       = entity.scale * entry.scale
 and the spark thickness/length. Lifetimes, colours, alpha, fade timings and spin
 are scale-invariant — a shrunken flame burns for just as long.
 
+### Bound effects: where `entity.orientation` comes from
+
+`ParticleEffect::Tick` (0x101e59a0) places an effect that `RegisterChild` +
+`PARTICLE.SetParentOffset` bound to a parent, every frame:
+
+| bound to | position | rotation |
+|---|---|---|
+| a joint | offset through the joint's world transform | joint rotation × bound Euler, **or the parent entity's rotation when no Euler was given** |
+| the entity | parent position + offset rotated by the parent | parent rotation × bound Euler, or left alone |
+
+The Euler is `SetParentOffset`'s 9th..11th arguments, taken only when the
+11th exists (`0x10139e30`), converted by the same qz·qy·qx routine as
+`EulerToQuat` and kept at `ParticleEffect+0xc8c` behind the flag at `+0xc88`.
+Arguments 6..8 are a per-axis pull of the position toward the camera; no
+shipped script passes them non-zero.
+
+This is the whole of "which way does the flame go". Emitter velocities are in
+the effect's frame — `FTHR1.ini` fires along +X at 57..144 — and
+`RifleFlameThrower:EnableFX` binds `RFT_flame` to `joint17` with
+`(0, 1.57, 0)`, which is the quarter turn that puts +X down the barrel.
+Without the Euler the flame took the weapon's own rotation and pointed
+sideways; without any rotation it pointed along world X. Measured after the
+port: the flame's local +X comes out as (1.00, 0.08, -0.06) against a forward
+of (1.00, 0.00, 0.02).
+
+### `PARTICLE.Die`
+
+0x10139a30: unregister the effect from its parent, then for every emitter zero
+the spawn budget (+0xd4), clear the evolve flag and set flag 0x40. The effect
+keeps ticking; `ParticleEffect::Tick` deletes the entity once `IsActive` —
+any emitter still flagged active (bit 0) — answers false. It is how a bound
+continuous effect ends: the flamethrower calls it on the flame the moment the
+trigger is released. The port stops the emitters spawning and lets the spent
+one-shot reaping in `TickLifetimes` collect the entity when the last particle
+has gone.
+
 ## Simulation
 
 Per emitter, per frame (`ParticleEmitter::Tick`):

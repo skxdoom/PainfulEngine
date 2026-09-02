@@ -126,6 +126,46 @@ Each such entity becomes a body:
   The level's `DefaultMeshRestitution` is the **world mesh's** surface, not
   every prop's; handing it to the props at 0.5 made them bounce when they
   landed. `Pinned` makes it a static body.
+
+  **Friction and restitution set by the scripts never reach the solver.**
+  `PhysicsObject::SetFriction` (0x10189c80) and `SetRestitution` (0x10189ca0)
+  write the engine's body wrapper (+0x38, +0x3c) and return; nothing copies
+  those into the Havok body afterwards. The only reader that hands them to
+  Havok is `FixHavokPositionBug` (0x1018d120), which rebuilds a body from a
+  saved record — and `PositionBugFixed` (0x101903a0) only calls it when the
+  body's position has gone NaN. Everything else that reads the wrapper values
+  is engine-side flight code: `FixGrenadeFlight` (friction, below) and the
+  multiplayer missile controller. So the contact material every script body
+  has is what the sizer (0x101b3e20) puts in its `hkpRigidBodyCinfo`:
+  **friction 0.5** (the Havok default the sizer leaves alone), **restitution
+  0.9** (`0x3f666666` into the cinfo's restitution slot), linear and angular
+  damping 0. The world mesh does take the level's `DefaultMeshFriction` /
+  `DefaultMeshRestitution`, passed into its own creation. The 67 templates
+  that declare `Restitution` and the 64 that declare `Friction` are tuning a
+  value the solver never sees — `Ball.CItem`'s `Restitution = 5` included.
+  The port keeps the two on the entity (`bodyFriction`, `bodyRestitution`)
+  for the flight code and gives every script body the cinfo material.
+
+  **Material combine is the geometric mean.** Havok's `hkpMaterial` combines
+  both friction and restitution as `sqrt(a*b)`; Jolt's default takes the
+  MAX restitution, which made every prop bounce off the 0.5 floor. The port
+  installs the geometric mean for restitution (friction already is). This is
+  Havok's documented default, not a decompiled fact — Havok is statically
+  linked without symbols.
+
+  **Mass and the freedom of rotation.** `PhysicsObject::SetFreedomOfRotation`
+  (0x10189a30) is an inertia tensor: a locked axis is `3.4e38`, a free single
+  axis (modes 1, 5, 6 — Y, X, Z) has inertia 10, `HardTurn` (4) is isotropic
+  `softness * 10`, and `AllAxes` / `FullFree` (2, 3) take the shape's own
+  inertia. Every body is created in mode 1 (Y only); `CObject:PO_Create` then
+  sets 4 when the object declares `Softness` and 3 otherwise.
+  `PhysicsObject::SetMass` (0x10189510) rescales the inertia with the mass
+  only in modes 2 and 3; in every other mode it sets the mass alone. A
+  grenade (`Softness = 1`, mass 40, radius 0.165) therefore carries inertia
+  10 against a sphere's natural 0.44, and that is what stops it on its first
+  floor contact: friction turns almost all of its 13 m/s into a slow roll at
+  `v * m r² / (m r² + I)` ≈ 1.2 m/s. Measured headlessly after the port:
+  12.6 → 1.06.
 - **placed awake** at the authored transform, and then given a second and a
   half of simulation *before the level is first drawn*. They are authored
   hanging in the air (below), so without that the level visibly rains its own
@@ -648,6 +688,81 @@ before the system did.
    activation the name suggests: disturbing one member wakes its neighbours
    within a distance, which is what makes a stack of stones collapse rather than
    one stone popping out of it.
+
+## Projectiles: grenades, rockets, and what "missile" means
+
+Sources: `PhysicsObject::UpdateEntity` 0x10191f90, `FixGrenadeFlight`
+0x1018d990, `SetGrenade` 0x1001e020, the `PO_SetGrenade` / `PO_SetMissile`
+natives 0x101369b0 / 0x10136a60, `SetMPMissileController` 0x101890a0 and its
+controller 0x101a4a50 / 0x101a3ec0, `PCFSystem::SwitchToState` 0x10052660,
+the sizer 0x101b3e20, `Grenade.lua`, `Rocket.lua`, `MiniGunRL.lua`.
+
+**A rocket is an ordinary dynamic body.** `Rocket:OnCreateEntity` makes a
+`BodyTypes.Sphere` of scale 0.001 in the Particles group, turns gravity off,
+and `Rocket:Tick` traces its own path each frame to find what it hit. Nothing
+drives it; it flies straight because nothing acts on it. The port used to
+turn `ENTITY.RemoveFromIntersectionSolver` into "this is a driven projectile"
+— the native only switches line-trace collision off (0x101348e0) — and
+since `Grenade:OnCreateEntity` calls it too, the grenade flew a dead straight
+line through the level with no body in the solver. That reading is gone;
+only `ECollisionGroups.Noncolliding` (7) is driven, as before.
+
+**`PO_SetMissile` is multiplayer only.** The native does nothing unless
+`GEngine+0xdc` is set, and that is the `NetworkDevice2` which
+`PCFSystem::SwitchToState` creates in states 3–5 (dedicated server, MP
+server, MP client) and nulls in state 2 (single game). When it exists,
+`SetMPMissileController` attaches a dead-reckoning controller — 16-bit
+quantised velocity, its own gravity of -29.43 for grenades, a reflect of
+`(restitution + 1.01)` and a friction of `0.2 * wrapper friction` on a hit —
+and `UpdateEntity` prefers it over everything below. Not ported; it is the
+netcode's projectile model, not the game's.
+
+**A grenade is a dynamic sphere plus `FixGrenadeFlight`.** `PO_SetGrenade`
+sets bit 0x20 at `PhysicsObject+0x74`; `UpdateEntity` then runs
+`FixGrenadeFlight` after every step instead of the player fix:
+
+1. Trace from where the ENTITY was (its position before the step) to where
+   the body is now, up to ten times.
+2. Each hit posts `COLLISION_WITH_OTHER_ENTITY` when the body has collision
+   callbacks (bit 0x8), with the hit entity and both body handles — the same
+   message the contact listener sends, so `Grenade:OnCollision` cannot tell
+   them apart. Then the velocity is mirrored across the hit normal, the
+   remaining path and its end point are mirrored too, the remainder is
+   clamped to 0.002 (`0x102c8530`), and the next trace starts 2 mm past the
+   hit.
+3. If anything was hit, the body is moved to the mirrored end point and the
+   velocity is scaled by `1.6 - friction` (`0x102c852c`; the wrapper's
+   friction, 0.8 for a grenade, so × 0.8). Ten hits without escaping zeroes
+   it.
+
+It is a tunnelling fix with an energy loss on it, running on top of the
+solver's own contact. The port runs it as `ScriptEngine::TickGrenades`
+between the physics step and the read-back, which is the same moment.
+
+**The sphere's radius is `scale * 1.1`.** The sizer's sphere case makes
+`hkpSphereShape(scale * 0.2 * 5.5)` and never looks at the mesh: a grenade
+asks for 0.15 and gets 0.165; a rocket asks for 0.001 and is a point. The
+mass it computes, `(0.2 * scale)³ * 10000`, is overwritten by `PO_SetMass`.
+
+**What a missile collides with.** The port puts Missile (5) and Particles
+(8) bodies in their own Jolt layer: they collide with the world, props and
+monsters, but not with each other and never with the camera's or the pawn's
+pusher sphere, and no trace lands on those spheres any more either. The
+missile-to-missile rule comes from the data: `BoltGunHeater:AltFire` fires
+ten heater bombs 0.05 apart, each a 0.165 sphere, and `HeaterBomb:OnCollision`
+explodes on its second contact with any entity — so they cannot be allowed
+to touch, or the whole salvo detonates in the barrel (which is exactly what
+it did). A rocket is
+spawned 0.2 in front of the head — inside the 0.4 pusher — and a dynamic body
+born inside a kinematic one is shoved rather than launched. The original's
+group filter has not been recovered; this is the assumption, and
+`Grenade:OnCollision` guards the owner case itself.
+
+Measured headlessly after the port (Cathedral, stakegun alt fire): the
+grenade leaves at (19.0, 6.1, 0.4), arcs, meets the floor at 59 frames with
+`e = 0`, bounces to +4.3 vertical, rolls at 1.06, bounces twice more and
+explodes on its 69-tick timeout. A rocket leaves at 40.0, keeps it to three
+decimals, and `Rocket:Tick`'s own trace finds the Slab at frame 106.
 
 ## What is missing
 

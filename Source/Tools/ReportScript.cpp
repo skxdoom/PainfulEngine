@@ -68,6 +68,7 @@ int LuaCmd(const char* dataRoot, int frames, const char* level,
             engine.TickProjectiles(1.f / 60.f);
             host.FrameTick(1.0 / 60.0);
             physics.Update(1.f / 60.f);
+            engine.TickGrenades();
             engine.SyncFromPhysics();
             engine.TickRagdolls();
             // The player's pusher follows its centre. SlideSphere is a query
@@ -89,11 +90,17 @@ int LuaCmd(const char* dataRoot, int frames, const char* level,
             engine.UpdateAttached();
             engine.TickSounds(1.f / 60.f);
             engine.TickCollisions(1.f / 60.f);
+            // The mixer's own tick, on the simulated clock: the voice policy
+            // promotes and expires by it, and a headless run outpaces the
+            // wall clock a hundredfold.
+            audio.Advance(1.f / 60.f);
+            audio.Update();
         }
     }
     LogInfo("entities: %zu created, %zu released, %zu live; map \"%s\" scale %.2f",
             engine.created(), engine.released(), engine.entities().size(),
             engine.world().mapPath.c_str(), engine.world().scale);
+    if (audio.ready()) audio.LogRealVoices();
     host.PrintCallReport(60);
     return ok && host.scriptErrors() == 0 ? 0 : 3;
 }
@@ -307,6 +314,7 @@ int SoundCmd(const char* root, const char* name, const char* seconds) {
     const double total = seconds ? std::atof(seconds) : 4.0;
     const Uint64 start = SDL_GetTicks();
     while ((SDL_GetTicks() - start) < Uint64(total * 1000.0)) {
+        audio.Advance(0.05f);
         audio.Update();
         SDL_Delay(50);
     }

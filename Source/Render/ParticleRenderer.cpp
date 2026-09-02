@@ -458,6 +458,13 @@ void ParticleRenderer::SetScriptEmitterEvolve(int slot, bool evolve) {
     if (slot >= 0 && size_t(slot) < emitters_.size()) emitters_[slot].evolve = evolve;
 }
 
+void ParticleRenderer::StopScriptEmitter(int slot) {
+    if (slot < 0 || size_t(slot) >= emitters_.size()) return;
+    Emitter& e = emitters_[slot];
+    e.evolve = false;
+    e.spawnedTotal = std::max(e.spawnedTotal, std::max(1, e.params->maxParticles));
+}
+
 void ParticleRenderer::SetupScriptEmitter(int slot, float refScale,
                                           const float refOffset[3],
                                           const float refRotDegrees[3]) {

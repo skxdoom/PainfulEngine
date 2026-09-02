@@ -51,6 +51,9 @@ public:
     // PARTICLE.SetEvolve: level-placed effects force continuous emission,
     // overriding a one-shot .ini. Applies to every emitter of the entity.
     void SetScriptEmitterEvolve(int slot, bool evolve);
+    // PARTICLE.Die: no more spawning, ever; what is alive plays out and then
+    // ScriptEmitterFinished answers true.
+    void StopScriptEmitter(int slot);
     // A one-shot emitter that has spent its budget and outlived its last
     // particle. An effect whose emitters have all finished is over, and the
     // entity holding them can go - AddPFX creates one per impact and never

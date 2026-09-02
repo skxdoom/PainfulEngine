@@ -150,4 +150,86 @@ void ScriptEngine::TickCollisions(float dt) {
     }
 }
 
+// ENTITY.PO_SetGrenade(e, on = true): flag 0x20 at PhysicsObject+0x74
+// (0x101369b0). Grenade:OnCreateEntity sets it; the flag means UpdateEntity
+// runs FixGrenadeFlight on this body every step. PO_SetMissile, which the
+// same script calls next, is multiplayer only - the native (0x10136a60) does
+// nothing without the NetworkDevice2 at GEngine+0xdc, which single player
+// never creates - so it stays a stub.
+int ScriptEngine::L_PO_SetGrenade(lua_State* L) {
+    if (Entity* e = From(L)->Find(HandleArg(L, 1)))
+        e->isGrenade = lua_isnoneornil(L, 2) ? true : (lua_toboolean(L, 2) != 0);
+    return 0;
+}
+
+// PhysicsObject::FixGrenadeFlight (0x1018d990), for every flagged body.
+//
+// After the step, the path from where the ENTITY was (last frame's synced
+// position) to where the BODY is now is traced, up to ten times. Each hit
+// posts COLLISION_WITH_OTHER_ENTITY when callbacks are on, mirrors the
+// velocity and the rest of the path across the surface, and carries on from
+// 2 mm past the hit. Once anything was hit the velocity is scaled by
+// (1.6 - friction) - the body wrapper's friction, which is what
+// PO_SetFriction sets - and the body is moved to the mirrored end point.
+// Ten hits without escaping stops it dead. Constants: 0x102c852c (1.6),
+// 0x102c8530 (0.002).
+void ScriptEngine::TickGrenades() {
+    if (!physics_) return;
+    for (auto& kv : entities_) {
+        Entity& e = kv.second;
+        if (!e.isGrenade || !e.poEnabled || e.physicsBody < 0) continue;
+        if (!physics_->ScriptBodyExists(e.physicsBody)) continue;
+
+        float end[3], vel[3];
+        if (!physics_->GetScriptBodyPosition(e.physicsBody, end)) continue;
+        if (!physics_->GetScriptBodyVelocity(e.physicsBody, vel)) continue;
+        float start[3] = {e.pos[0], e.pos[1], e.pos[2]};
+
+        const int exclude[1] = {e.physicsBody};
+        int hits = 0;
+        for (; hits < 10; ++hits) {
+            PhysicsWorld::RayHit hit;
+            if (!physics_->RayCast(start, end, hit, false, exclude, 1)) break;
+            const float* n = hit.normal;
+
+            if (e.collisionsOn) {
+                auto other = bodyToEntity_.find(hit.bodySlot);
+                const int otherEntity = other == bodyToEntity_.end() ? 0 : other->second;
+                const double args[10] = {double(kv.first),
+                                         hit.point[0], hit.point[1], hit.point[2],
+                                         n[0], n[1], n[2],
+                                         double(otherEntity),
+                                         double(e.physicsBody), double(hit.bodySlot)};
+                host_->PostMsg("COLLISION_WITH_OTHER_ENTITY", args, 10);
+                e.collisionCooldown = e.collisionMinTime;
+            }
+
+            const float vn = 2.f * (vel[0] * n[0] + vel[1] * n[1] + vel[2] * n[2]);
+            for (int c = 0; c < 3; ++c) vel[c] -= n[c] * vn;
+
+            float rest[3];
+            for (int c = 0; c < 3; ++c) rest[c] = end[c] - hit.point[c];
+            const float rn = 2.f * (rest[0] * n[0] + rest[1] * n[1] + rest[2] * n[2]);
+            for (int c = 0; c < 3; ++c) {
+                end[c] -= n[c] * rn;
+                rest[c] -= n[c] * rn;
+            }
+            const float len = std::sqrt(rest[0] * rest[0] + rest[1] * rest[1] +
+                                        rest[2] * rest[2]);
+            if (len > 0.002f)
+                for (int c = 0; c < 3; ++c) rest[c] *= 0.002f / len;
+            for (int c = 0; c < 3; ++c) start[c] = hit.point[c] + rest[c];
+        }
+        if (hits == 0) continue;
+        if (hits >= 10) {
+            for (int c = 0; c < 3; ++c) vel[c] = 0.f;
+        } else {
+            const float k = 1.6f - e.bodyFriction;
+            for (int c = 0; c < 3; ++c) vel[c] *= k;
+        }
+        physics_->SetScriptBodyPose(e.physicsBody, end, e.rotWXYZ);
+        physics_->SetScriptBodyVelocity(e.physicsBody, vel);
+    }
+}
+
 }  // namespace painful
