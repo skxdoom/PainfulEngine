@@ -398,7 +398,23 @@ that the level was recording us rather than seating us.
 
 The order, which `Game_DemoLoadLevel` spells out and the host now follows:
 load the level (unlocked, so it seats the camera) → adopt that pose → lock
-the mouse → `Game:OnPlay`.
+the mouse → `Game:OnPlay` → **`Game:SwitchPlayerToPhysics(true)`**.
+
+That last step is the one the single-player starts share (`SaveGame.lua`'s
+load path, the console): with the player's physics object still disabled it
+puts the pawn's head at the camera, seeds `Player.Pos` from the entity, and
+enables the object. So `CreatePlayer` makes the player DISABLED, or the
+`onlyEnable` call returns before doing any of it.
+
+Skipping it is not harmless. `Player.Pos` is `Clone`d from the class default
+and `Clone` copies a `Vector` by reference, so a fresh player's `Pos` is
+(0,0,0) until something writes it - and the first `Game:Tick` copies it into
+`PX,PY,PZ` BEFORE `CPlayer:ClientTick` synchronises it. Every
+`AmbushForPlayer` box tests `IsInside(PX,PY+1,PZ)` that same tick.
+C2L1_Bridge's box 008 spans the whole bridge through the origin, so its nine
+spawn points fired at load and the level opened with ninjas on the deck.
+Measured: `EXEC PX=-0.2 -11.1 -304.1 Player=0.0 0.0 0.0`, then seven spawn
+points launched; after the switch call the Bridge loads with zero actors.
 
 ## The camera is the scripts'
 

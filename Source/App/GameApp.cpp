@@ -288,6 +288,11 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
                 seatPos[2]);
     engine.SetMouseLocked(true);
     host.CallGameOnPlay();
+    // The level start's last step, as SaveGame.lua and the console run it:
+    // seats the pawn at the camera, seeds Player.Pos from the entity and
+    // enables the physics object. Without it the first tick reads a zero
+    // Player.Pos into PX/PY/PZ and ambush boxes over the origin fire at load.
+    host.RunString("Game:SwitchPlayerToPhysics(true)");
 
     // Model lighting. In this path there is no Level object at all - the script
     // layer creates the entities and hands the renderer state over through the

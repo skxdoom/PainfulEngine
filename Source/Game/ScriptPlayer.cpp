@@ -21,7 +21,13 @@ int ScriptEngine::L_CreatePlayer(lua_State* L) {
     self->entities_.emplace(handle, e);
     ++self->created_;
     self->playerHandle_ = handle;
-    self->pawnEnabled_ = true;
+    // Born with its physics object DISABLED. Game:SwitchPlayerToPhysics is
+    // the level start's last step (SaveGame.lua: LoadLevel, OnPlay, Switch,
+    // MOUSE.Lock), and it only seats the pawn at the camera and seeds
+    // Player.Pos when PO_IsEnabled is false. Created enabled, it returned
+    // early, Player.Pos stayed (0,0,0) for the first tick, and any ambush box
+    // spanning the origin fired at load (C2L1_Bridge's ninjas).
+    self->pawnEnabled_ = false;
     if (self->pawn_) {
         const float at[3] = {0, 0, 0};
         self->pawn_->Spawn(at);

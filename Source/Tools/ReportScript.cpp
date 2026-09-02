@@ -55,6 +55,8 @@ int LuaCmd(const char* dataRoot, int frames, const char* level,
             // still holding the level's own spawn.
             engine.SetMouseLocked(true);
             host.CallGameOnPlay();
+            // As the game host: the level start's last step seeds Player.Pos.
+            host.RunString("Game:SwitchPlayerToPhysics(true)");
         }
         // The diagnostic hook: run an arbitrary chunk between OnPlay and the
         // ticks - teleport the player into a trigger, poke a template, ...
