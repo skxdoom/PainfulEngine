@@ -18,7 +18,7 @@ void PlayerPawn::SetHeadPos(const float p[3]) {
     jumpLatched_ = false;
 }
 
-void PlayerPawn::Move(const PhysicsWorld& physics, const Tweaks& tweaks,
+void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
                       uint32_t action, const float right[3], float dt) {
     if (dt <= 0.f) return;
     jumpedThisMove_ = false;
@@ -197,6 +197,19 @@ void PlayerPawn::Move(const PhysicsWorld& physics, const Tweaks& tweaks,
     // whatever is there.
     const float wantX = vx * dt, wantZ = vz * dt;
     const float want2 = wantX * wantX + wantZ * wantZ;
+    // A monster in the way is pushed, a little. In the original both are
+    // Havok bodies and the contact splits the closing speed by mass; here the
+    // sweep stops the pawn and the character gets the player's share of the
+    // speed along the wish, which its own tick then decays. Player mass 80 =
+    // (0.2)^3 * 10000, the sizer's rule for BodyTypes.Player.
+    if (want2 > 1e-8f) {
+        const float gotX = feet[0] - startX, gotZ = feet[2] - startZ;
+        if (gotX * gotX + gotZ * gotZ < want2 * 0.81f) {
+            const float push[3] = {wantX, 0.f, wantZ};
+            const float from[3] = {startX, startY, startZ};
+            physics.ShoveCharacters(from, kRadius, push, speed_, kPlayerMass);
+        }
+    }
     if (wasGrounded && want2 > 1e-8f) {
         const float gotX = feet[0] - startX, gotZ = feet[2] - startZ;
         const float got2 = gotX * gotX + gotZ * gotZ;

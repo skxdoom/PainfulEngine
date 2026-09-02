@@ -14,6 +14,173 @@ the symptom read as "the sweep refuses to move them" rather than "nothing is
 sweeping". Bulk `sed` over C++ is how it got there; see
 [[pkre-budget-discipline]] rule 1.
 
+## The mover, recovered (2026-09-02)
+
+Everything under "Monsters are moved, not simulated" further down is
+superseded by this section. It was right that `PO_Move` is a setter and that
+`PO_SetMonsterType` sets one flag bit; it was wrong about what the step then
+does with them. A monster is **not** carried - it is an ordinary dynamic Havok
+body whose velocity the engine re-commands every physics tick.
+
+Sources: `PhysicsObject::Tick` 0x10190570, `MonsterFloorCheck` 0x1018FAA0,
+`PhysicsWorld::CreatePhysicsObject` 0x101999F0, `SetFreedomOfRotation`
+0x10189A30, `GetPawnFloorPos` 0x10189390, `GetPawnHeadPos` 0x10189340,
+`PhysicsObject::Hit` 0x1018C050, `SetFlying` 0x1001E310, `SetEntitySteered`
+0x1001E2E0. Constants read with `ReadFloats.java`.
+
+### PhysicsObject::Tick, the monster branch
+
+Runs once per physics tick for every object with flag bit 2 (monster) and
+without bit 0x400. `k` below is the sizer's unit, `0.2 * bodyScale`;
+`bodyScale` is `PhysicsObject+0x20`.
+
+```
+onFloor = false
+if (dontCheckFloors                                     // +0x70, PO_SetMonsterMovementConst arg 3
+    || MonsterFloorCheck(from = centre + 4.5k, to = centre - 5.5k - 1.5))
+    onFloor = true                                      // +0x71, what PO_IsOnFloor returns
+else if (vel.y < -0.01)                                 // double at 0x102c8618
+    wish = 0                                            // +0x34..3c cleared: no air control in a fall
+if (!flying) {                                          // +0x75 bit 3, PO_SetFlying
+    ext   = vel - lastWish                              // +0x4c..54: the LAST commanded vector
+    ext.x *= c;  ext.z *= c                             // c = +0x6c, arg 2 of PO_SetMonsterMovementConst
+    if (ext.y > 0 || gravity.y == 0) ext.y *= c
+    lastWish = wish
+    setLinearVelocity(wish + ext)
+}
+```
+
+`ext` is whatever the solver added since the last command - a shove from the
+player, a blast, a bounce off a wall, gravity. Horizontal and upward parts
+decay by `c` each tick; downward is kept whole while gravity is on, so a fall
+accumulates. The scripts' name for `c` says the same thing:
+`havokInfluenceInMonsterMovement = 0.5` in `Definitions.lua`, "1.0 - no
+damping of Havok".
+
+`MonsterFloorCheck` is a single ray, from head height to 1.5 units below the
+floor point, ignoring the object's own body. A hit sets the floor normal at
+`+0x60..0x68` (rotated by the hit body's transform) and returns true. So "on
+floor" means ground within 1.5 of the soles, which is generous by design.
+
+### The body
+
+`CreatePhysicsObject` for anything that is not a mesh, a ragdoll or the player:
+
+- the sizer builds the shape from `bodyScale`, which for a scale argument <= 0
+  is `(root.y - Entity+0x58) * 10/11` off the `ROOOT` joint (flag 0x10 marks
+  that case);
+- the Havok body is placed at `entity + root`, with `PhysicsObject+4..0xc` =
+  `-root` as the pivot offset, so `GetPosition` still reports the entity;
+- `SetFreedomOfRotation(1, 1.0)`: an inertia of FLT_MAX about X and Z and 10
+  about Y. The body cannot pitch or roll, and its yaw is written by
+  `SetOrientation` (0x10189F70, `setRotation` on the body);
+- floor point = `body.y - 1.1 * bodyScale` (= centre - 5.5k), head point =
+  `body.y + 0.9 * bodyScale` (= centre + 4.5k) - the same offsets as the
+  player's four-sphere stack.
+
+`SetFriction` / `SetRestitution` write wrapper fields nothing reads back, so
+the body keeps the sizer's Havok material. `CActor:PO_Create` says why the
+scripts leave friction alone: "nie ustawiam tarcia poniewaz nie beda
+wchodzili po schodach" - set it and they stop climbing stairs.
+
+`PhysicsObject::Hit` applies the impulse (`EffectForce`) and then clamps the
+body's speed to 30 (0x102b3b7c).
+
+### What the port does with it
+
+`PhysicsWorld::StepCharacters` is the tick above, run before every fixed
+1/60 step. `MakeScriptBodyCharacter` turns the prop body `PO_Create` made
+into the three-sphere stack with translation-only degrees of freedom, friction
+0.5, restitution 0, never sleeping. `PO_Move`, `PO_SetMonsterMovementConst`,
+`PO_SetFlying`, `PO_IsOnFloor`, `PO_GetPawnFloorPos` and `PO_GetPawnHeadPos`
+read and write that record. `SeesEntity` traces head to head, as
+`CalculatePawnToEntityVisibility` does.
+
+Two things stand in for Havok and are marked as such in the code:
+
+- **Mass.** The sizer's mass rule was recovered for the player's stack,
+  `(0.2 * bodyScale)^3 * 10000` = 80; the Fatter stack is ASSUMED to follow it
+  (`k^3 * 10000`, ~190 for a monk). `s_Physics.Mass` overrides it where a
+  template declares one, exactly as `PO_SetMass` does.
+- **The player's push.** The pawn is a swept sphere, not a body, so the
+  contact between two Havok bodies is replaced by `ShoveCharacters`: when the
+  sweep is blocked, every character in the way gets
+  `0.5 * speed * 80 / (80 + mass)` along the wish. The character tick decays
+  it from there. The full inelastic share (3.2 units/s for a monk) was judged
+  too strong against the original in play; the half (1.6) is a GUESS at
+  what Havok's friction and material take out of it.
+- **Walls: the slide.** The commanded velocity is clipped against last
+  step's contacts with the world and the kinematic pushers, so a body driven
+  at a wall slides along it. Found with `PAINFUL_CHAR_TRACE`: the AI runs a
+  monk at 8.3 units/s into a pew every step, Jolt let it sink in, and when
+  the command stopped the penetration recovery threw it back out at 4 - which
+  `UpdateWalking` read as being shoved, stopped on, and re-planned from,
+  often through a waypoint behind it. That is the "turn away and step back"
+  reported from play. Contacts with other dynamic bodies are deliberately
+  NOT clipped: clipping them left a queue of monks standing still (walking
+  stops 20 -> 26, reached 7 -> 6); limited to static contacts, stops 20 -> 16
+  and reached 7 -> 8.
+
+A live monster's ragdoll limbs are in their own Jolt layer (`kHitbox`): traces
+land on them, nothing simulates against them. Left in the moving layer they
+would have ejected the dynamic body standing inside them every step.
+
+### Jolt's one-sided mesh
+
+The one place the port has to do something the original never did. Actors
+are authored and spawned at their model origin, mid-body on most rigs, so a
+monk's stack starts a sole's height inside the floor. Havok's mesh is
+two-sided and shoves it out; Jolt's is one-sided, and a body that deep either
+hangs from the floor by the top of a sphere or falls out of the level -
+measured: four of sixteen at y = -100 with `vy = -60`, the rest sunk 2.35.
+`StandCharacterOnFloor` lifts a character whose stack is under the lowest
+upward-facing surface between a unit above its head and its soles, capped to
+the middle sphere's height so a ledge beside the body is not mistaken for a
+floor under it. A whole placement when the body is made or teleported, 0.1 per
+step after that.
+
+### Measured after the rework
+
+`Tools/monster_stats.lua` with the columns 1.5 apart instead of 2.0 (at 2.0
+the outer column spawns outside the nave, over nothing), plus a wrapper on
+each actor's `damage` that logs whether the range and angle test passed.
+Cathedral, 1400 frames, sixteen `EvilMonkV2`:
+
+| | before (swept kinematic) | after (dynamic, re-commanded) |
+|---|---|---|
+| saw the player | 11 | 15 |
+| walked / moved | 16 / 15 | 16 / 16 |
+| STUCK | 1 | 0 |
+| within 3 of the player | 7 | 7 |
+| nearest | 0.1 - 0.3 (standing in the player) | 1.0 (a body's width) |
+| `damage()` in range / out of range / no enemy | 10 / 0 / 1 | 10 / 0 / 0 |
+| monster ground point vs player's feet | -0.74 (sunk) | -0.19 (the floor point sits 0.7k under the soles by the engine's own rule) |
+
+"Within 3" stays at seven because a crowd is now a crowd: seven bodies is what
+fits around one player from one side, and the rest queue behind them, walking.
+Before, sixteen stood inside each other.
+
+The player's push, a stationary monk three units ahead with `Forward` held:
+the monk is walked ahead at **1.60 units/s** (half of 8 x 80/(80+190)) with a
+steady gap of 0.98, on the floor throughout. Before: nothing moved it. The
+player advances at the same 1.6 while pushing, since the sweep stops at the
+body.
+
+Tooling: `PAINFUL_CHAR_TRACE=1` logs, after every step, any character whose
+velocity differs from its command by more than 4 units/s, with the bodies it
+touched (new contacts only - a persisting contact is not re-reported). A
+"got" of zero against a command of 8 with world normals is a body wedged
+against geometry, which in the Cathedral's pew rows is where the squad
+spawns; a "got" larger than the command is a real spike.
+
+The one melee `NOENEMY` miss before was a monk adjacent to the player whose
+`SeesEntity` came back false, because it traced from its origin - under the
+floor - and lost its target between attack and damage event. Head-to-head
+sight and a body that stands up removed it.
+
+Six levels headless for 200 frames (Cemetery, Catacombs, Prison, Train
+Station, Hell, Town): no script errors, no crash.
+
 ## Two movement paths
 
 `CActor:PO_Create` runs only `if self.CreatePO`, a per-template flag, and every
@@ -271,10 +438,13 @@ the number this document predicted would move, and the reason it was the top
 item. All sixteen still arrive; nothing is stuck.
 
 
-## OPEN: every mid-body-origin rig draws half buried
+## RESOLVED: every mid-body-origin rig drew half buried
 
-Found with `PAINFUL_MONSTER_TRACE` while chasing the pile-up above, and not
-fixed. It is not level-specific - Cathedral and City On Water both show it.
+Resolved by the rework at the top of this file: the body's stack is built from
+the soles up and `StandCharacterOnFloor` puts the soles on the floor, and the
+entity position follows the body. Kept for the measurements. Found with
+`PAINFUL_MONSTER_TRACE` while chasing the pile-up above. It was not
+level-specific - Cathedral and City On Water both showed it.
 
 `EntityRenderer::SetScriptPose` draws a model with its OWN origin at the
 entity position, with no vertical offset. The bestiary does not agree on where

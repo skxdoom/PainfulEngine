@@ -552,7 +552,8 @@ own motion and none of them flies back into the blast.
 `ENTITY.PO_SetPinned` makes a script body STATIC, and releasing it makes it
 dynamic again with its velocity cleared - a pinned body has been standing still
 by definition, and letting it resume whatever it was frozen with launches it. A
-monster's body is kinematic and carried by its own mover, so pinning skips it.
+monster's body is dynamic like any other and pins the same way; its per-tick
+re-command (`StepCharacters`) skips a body that is not dynamic.
 
 `CObject:PO_Create` pins anything whose template says `Pinned`, and marks the
 call `-- bug havoka`: the original is working around Havok drifting a heavy
@@ -785,10 +786,10 @@ landed — see [`PlayerMovement.md`](PlayerMovement.md) and
   shoves; the closest-point pass, `ExplosionUp` / `ExplosionParabolic` and
   the ragdoll self-explosion branch are not ported. Listed under Explosions
   above.
-- **Monster ground contact is still wrong in three ways** — no step-up, a
-  hardcoded floor normal, and a sweep shape that is not the collision shape.
-  Listed with the evidence in [`../Plan.md`](../Plan.md); the rig
-  measurements are in [`MonsterMovement.md`](MonsterMovement.md).
+- **Monsters are Havok bodies stood in for by Jolt ones.** The tick rule is
+  recovered and ported; the body's mass and the player's push are argued
+  stand-ins, and Jolt's one-sided mesh needs a floor-standing correction the
+  original never did. All in [`MonsterMovement.md`](MonsterMovement.md).
 - **Corpses cannot be pinned.** `ENTITY.PO_SetPinned` works on props (see
   Pinned bodies above), but `PHYSICS.PinHavokBody` and the `MDL.SetPinned*`
   family are still stubs, so the stakegun cannot pin a body to a wall.

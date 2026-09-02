@@ -284,10 +284,14 @@ that buys:
   `SetAnimTimeScale` / `ResetFrame`) answer truthfully, and `EntityRenderer`
   poses skinned models on the CPU. That also opens `CActor`'s animation-event
   loop, which is how melee damage, footsteps and attack sounds fire.
-- **Monsters move.** `ENTITY.PO_Move`, `PO_IsOnFloor`, `SeesEntity` and
-  `WPT.Load` are real, root motion comes out of `GetAnimMovement`, and
-  `TickMonsters` sweeps each actor with the same swept sphere the player uses.
-  Their ground contact is still wrong in specific ways — see below.
+- **Monsters move as the original moves them.** A monster is a dynamic body
+  whose velocity `PhysicsWorld::StepCharacters` re-commands every tick from
+  the recovered `PhysicsObject::Tick`: the AI's `PO_Move` vector plus half of
+  whatever the solver added. So the player can shove one, a shot knocks one
+  back, two never stand inside each other, and a floor ray answers
+  `PO_IsOnFloor` with a real normal. `PO_GetPawnFloorPos` / `HeadPos` follow
+  the engine's offsets and `SeesEntity` traces head to head
+  ([`MonsterMovement.md`](Reference/MonsterMovement.md)).
 - **Ragdolls.** `MDL.EnableRagdoll`, the joint damping and friction setters,
   `ApplyPointImpulseToRagdoll`, and `TickRagdolls` in the frame.
 - **HUD and sound.** The `HUD.DrawQuad` family with a real `MATERIAL.Create` /
@@ -303,14 +307,14 @@ The ordered work queue, with the evidence behind each item, is
 
 ### Gameplay
 
-- **Monster ground contact.** They walk, a stationary one is depenetrated
-  rather than left embedded, and characters now part sideways instead of
-  ejecting each other — a monk spawning onto another no longer drives it
-  through the floor, and the player can shoulder one aside
-  ([`MonsterMovement.md`](Reference/MonsterMovement.md)). Still open: no
-  step-up, so any lip stops them dead; the floor normal handed to `CAiBrain`
-  is a hardcoded `(0,1,0)`; and the shape that sweeps is a ball at shin height
-  rather than the body everything else collides with.
+- **Monster body stand-ins.** The tick rule is the original's; two things
+  under it are argued rather than recovered — the stack's mass (`k^3 * 10000`,
+  the player's rule assumed for the Fatter stack) and the player's push
+  (`speed * 80 / (80 + mass)`, standing in for a Havok contact) — and Jolt's
+  one-sided mesh needs `StandCharacterOnFloor`, which Havok never did
+  ([`MonsterMovement.md`](Reference/MonsterMovement.md)). Not yet exercised:
+  stairs and slopes under the dynamic body, and flyers (`PO_SetFlying` is a
+  real flag now, but the `Maintain*` movers behind it are still stubs).
 - **Corpse pinning.** The stakegun cannot pin a body to a wall — its handler
   raises on a nil from `PHYSICS.GetHavokBodyPosition` before it reaches the
   wall test. `PinHavokBody` and the `MDL.SetPinned*` family are stubs.
@@ -320,19 +324,17 @@ The ordered work queue, with the evidence behind each item, is
   32 on Prison. We build the collidable world as one static body, so they
   never move: the heavy stones at the Catacombs entrance ignore a blast going
   off beside them. Detail in [`Physics.md`](Reference/Physics.md).
-- **Humanoid monsters draw half buried.** The renderer puts a model's own
-  origin at the entity position, and most rigs put that origin at mid-body
-  rather than the feet. Not level-specific; measured and left open in
-  [`MonsterMovement.md`](Reference/MonsterMovement.md).
-- **Waypoint self-placement.** Routing works (`PATH.GetShortest` and friends
-  over a real `.wps`), but `WPT.GetClosest` / `GetPosition` are stubs, so the
-  "put this monster back on the walkable set" correction in five monster
-  scripts is silently skipped by its own `if idx > -1` guard. `GetShortest`
-  also ignores the waypoint `floor` index, which can hand an actor a route on
-  the wrong storey.
-- **Flying and scripted movers.** `PO_SetFlying`, `PO_MaintainVelocity` /
-  `MaintainLinearMovement` / `MaintainPosition`, `PO_EnableSpeedDamping`.
-  Alastor and the ravens have no mover at all.
+- **Waypoint routing across storeys.** `PATH.GetShortest` routes over the
+  whole graph with the waypoint `floor` index unused. The original's
+  `Pathfinder2` snaps start and end by 3D distance too (0x10166870, no floor
+  test) but then routes storey to storey through portals; whether that ever
+  yields a different route than flat A* over the same links is not measured.
+  `WPT.GetClosest` / `GetPosition` now answer, so the five scripts that put a
+  monster back on the walkable set do so.
+- **Flying and scripted movers.** `PO_SetFlying` is a real flag the tick
+  honours, but `PO_MaintainVelocity` / `MaintainLinearMovement` /
+  `MaintainPosition` and `PO_EnableSpeedDamping` behind it are stubs, so
+  Alastor and the ravens still have no mover.
 - **Collision-group plumbing.** `PO_SetCollisionGroup` (91 sites),
   `PO_SetMovedByExplosions`, `EnableCollisionsToRagdoll` / `ToAll`,
   `PO_Activate`. `CreateScriptBody` switches on groups 1 and 7 only.

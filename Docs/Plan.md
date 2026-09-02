@@ -145,29 +145,35 @@ Two things carried forward rather than settled:
 `ExplosionUp` and `ExplosionParabolic` remain stubs — boss moves for Thor and
 the Panzer Demon, two of three call sites commented out in the shipped data.
 
-### Stage 14 — monster ground contact
+### Stage 14 — monster ground contact — DONE, with two stand-ins
 
-I2 is fixed, and so is the character pile-up that came out of testing it:
-two characters now part sideways at a limited rate instead of ejecting each
-other, and a monster can feel the player. Three structural problems remain,
-all in `Game/ScriptMonster.cpp`:
+The three structural problems are gone with the mover itself: a monster is a
+dynamic body re-commanded per tick from the recovered `PhysicsObject::Tick`
+(`PhysicsWorld::StepCharacters`), so there is one shape, the floor normal is
+the floor ray's, and steps are the solver's business. Rule, constants and the
+measurements in [`MonsterMovement.md`](Reference/MonsterMovement.md).
 
-1. **No step-up.** `PlayerPawn` runs the recovered `StepCheck` ladder and climbs to
-   0.86 (see [`PlayerMovement.md`](Reference/PlayerMovement.md)). `TickMonsters`
-   calls raw `SlideSphere`, so a monster stops dead at any lip the player strolls
-   over. The ladder should be shared, not reimplemented.
-2. **The floor normal is a literal.** `e.floorNormal` is hardcoded to `(0,1,0)` with
-   a comment saying it is not measured yet. `CAiBrain.lua` reads it back out of
-   `PO_IsOnFloor`, so the AI cannot tell a slope from flat ground. `SlideSphere`
-   already has the contact normal in hand.
-3. **Two different shapes.** Movement sweeps a sphere of the *smaller* horizontal
-   half-extent placed at soles+radius — a ball at shin height — while the body
-   everything else collides with is three stacked spheres spanning the model. The
-   torso is swept by nothing.
+What is argued rather than recovered, and where to look if the feel is off:
 
-Also open from Stage 10: `MonsterBodyScale`'s `k = height / 10.3` is a shape
-argument, not a recovered constant. The engine's reference point (`Entity+0x58`) is
-still unidentified — see [`MonsterMovement.md`](Reference/MonsterMovement.md).
+1. **Mass.** `k^3 * 10000` assumes the Fatter stack follows the player stack's
+   rule. It sets how hard the player pushes a monster (3.2 units/s for a monk)
+   and how far a shot knocks one. The sizer's Fatter branch (`0x101B3E20`
+   case 2) would settle it.
+2. **The push.** `ShoveCharacters` replaces a Havok contact between the player
+   body and the monster: `0.5 * speed * 80 / (80 + mass)` along the wish while
+   the sweep is blocked (1.6 units/s for a monk; the full share played too
+   strong). The other direction — a monster shoving the player — is not
+   done; the pawn is a query, not a body.
+4. **The wall slide** clips a character's command against static contacts,
+   standing in for a Havok contact that does not build penetration. It is
+   deliberately not applied between dynamic bodies. If a crowd behaves oddly
+   at walls, that is the seam.
+3. **Stairs and slopes** under the dynamic body are unmeasured. The original
+   relies on the sphere stack rolling over lips and on `Lev.AI_walkUp`; if
+   monsters balk at steps the player climbs, that is where to look.
+
+Still open from Stage 10: `MonsterBodyScale`'s `k = height / 10.3` is a shape
+argument, and `Entity+0x58` is unidentified.
 
 ### Stage 14b — active meshes
 
@@ -230,16 +236,15 @@ if idx > -1 then x,y,z = WPT.GetPosition(zn,idx) end
 ```
 
 — appears in `Zombie_2`, `Apoc_zombie_V2`, `StoneGolem`, `Lucifer` and
-`AlastorKing`, guarded exactly like that. The stub returns nil, the guard reads
-false, and the correction is **silently skipped**, so a monster that leaves the
-walkable set is never put back on it.
+`AlastorKing`, guarded exactly like that. **Done**: `WPT.GetClosest` is
+`Pathfinder2::GetClosestWaypoint` (0x10128DD0 → 0x10166870, nearest by 3D
+distance, no cap, zone 0) and `GetPosition` reads the waypoint.
 
-Worth doing first, from [`MonsterMovement.md`](Reference/MonsterMovement.md)'s
-own open lead: `GetShortest` snaps to the nearest waypoint by 3D distance with
-the **floor index ignored**, so an actor can bind to a waypoint on the storey
-above or below and be handed a route it cannot walk. The `floor` field is
-parsed and unused, and it exists precisely to disambiguate that. That is the
-likeliest cause of "some monsters walk in place".
+The floor-index lead is weaker than it looked: the original's own snap
+(`GetIndexOfWaypointClosestTo`) ignores the floor too. What it does with the
+floor is route storey to storey through portals (`Pathfinder2::GetShortestPath`
+0x1016C070), which flat A* over the same links should reproduce unless the
+portal set differs from the link set. Unmeasured; measure before building it.
 
 Then `WPT.GetPathsNumber`, `GetWaypointByPathNumber`, `GetLength`,
 `FastPickCurrentSet`, `EnableDisableSet` for the patrol paths.
@@ -249,13 +254,15 @@ Then `WPT.GetPathsNumber`, `GetWaypointByPathNumber`, `GetLength`,
 Whole families of monster motion have no mover at all. Flying enemies (Alastor, the
 ravens) currently cannot move by any path:
 
-`ENTITY.PO_SetFlying` (24 sites), `PO_SetPlayerFlying` (11), `PO_IsFlying`,
-`PO_MaintainVelocity` (29), `PO_MaintainLinearMovement` (21), `PO_MaintainPosition`
-(14), `PO_EnableSpeedDamping` (12).
+`ENTITY.PO_SetFlying` (24 sites) and `PO_IsFlying` are done — the flag at
+`+0x75` bit 3 that makes the character tick leave the velocity alone. Still
+stubs: `PO_SetPlayerFlying` (11), `PO_MaintainVelocity` (29),
+`PO_MaintainLinearMovement` (21), `PO_MaintainPosition` (14),
+`PO_EnableSpeedDamping` (12). The Maintain* family are Havok actions
+(`MaintainLinearMovement` 0x1018A720 creates one and hands it to the world),
+so they want a per-step velocity/position servo in `StepCharacters`.
 
-`Sees()` in `Game/ScriptSound.cpp` also measures between entity **origins**, where
-`CalculatePawnToEntityVisibility` (0x10198D30) takes both pawns' **head** positions.
-Worth correcting here, since it is the same subsystem.
+`Sees()` now traces head to head, as `CalculatePawnToEntityVisibility` does.
 
 ### Stage 18 — grenade body semantics — DONE
 

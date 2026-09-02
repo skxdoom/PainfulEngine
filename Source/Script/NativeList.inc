@@ -770,6 +770,8 @@ PK_NATIVE("WPT", "FlipZ")
 PK_NATIVE("WPT", "GetClosest")
 PK_NATIVE("WPT", "GetLength")
 PK_NATIVE("WPT", "GetPathsNumber")
+PK_NATIVE("WPT", "GetPosition")        // not in the binary's tables; five monster scripts call it
+
 PK_NATIVE("WPT", "GetWaypointByPathNumber")
 PK_NATIVE("WPT", "Load")
 PK_NATIVE("WPT", "MoveSelected")

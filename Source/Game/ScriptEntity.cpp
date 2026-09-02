@@ -173,7 +173,10 @@ int ScriptEngine::L_PO_Hit(lua_State* L) {
             e->deathImpulseAt[c] = at[c];
         }
         e->hasDeathImpulse = true;
-        return 0;
+        // And the LIVE body takes it too: PhysicsObject::Hit is EffectForce
+        // on the walking body, capped at 30, and the character tick then
+        // decays the knock by half a step. That is the shove a monster shows
+        // when a shot lands and does not kill.
     }
     ApplyHitImpulse(L, self->physics_, e->physicsBody);
     return 0;
@@ -528,6 +531,10 @@ int ScriptEngine::L_SetOrientation(lua_State* L) {
         e->rotWXYZ[2] = -std::sin(a);
         e->rotWXYZ[3] = 0;
         self->SyncPose(*e);
+        // PhysicsObject::SetOrientation (0x10189F70) writes the body's
+        // rotation; a character body's yaw is the scripts', not the solver's.
+        if (self->physics_ && e->physicsBody >= 0 && e->isMonster)
+            self->physics_->SetScriptBodyRotation(e->physicsBody, e->rotWXYZ);
     }
     return 0;
 }
@@ -863,13 +870,15 @@ int ScriptEngine::L_PO_Create(lua_State* L) {
 //
 // A pure setter, exactly as in the original: 0x10130D50 writes the three
 // floats to PhysicsObject+0x34 and returns. Nothing moves here; the physics
-// step spends it (TickMonsters). CActor calls this with `mv * (1/delta)`,
-// which is why the units are per second.
+// step spends it (PhysicsWorld::StepCharacters). CActor calls this with
+// `mv * (1/delta)`, which is why the units are per second.
 int ScriptEngine::L_PO_Move(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e) return 0;
     for (int c = 0; c < 3; ++c) e->moveWish[c] = float(luaL_optnumber(L, c + 2, 0));
+    if (self->physics_ && e->physicsBody >= 0)
+        self->physics_->SetCharacterWish(e->physicsBody, e->moveWish);
     return 0;
 }
 
@@ -898,7 +907,12 @@ int ScriptEngine::L_PO_SetMonsterType(lua_State* L) {
         // depends on the joint.
         float k = 0.f, rootOffsetY = 0.f;
         self->MonsterBodyScale(*e, k, rootOffsetY);
-        self->physics_->SetScriptBodyKinematic(e->physicsBody, k, rootOffsetY);
+        self->physics_->MakeScriptBodyCharacter(e->physicsBody, k, rootOffsetY);
+        // Whatever the scripts set before the flag arrived.
+        self->physics_->SetCharacterMovement(e->physicsBody, e->monsterMoveConst,
+                                             e->monsterMoveFlag);
+        self->physics_->SetCharacterFlying(e->physicsBody, e->monsterFlying);
+        self->physics_->SetCharacterWish(e->physicsBody, e->moveWish);
     }
     return 0;
 }

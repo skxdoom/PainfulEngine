@@ -47,7 +47,8 @@ public:
     // neither slows walking nor drives the player into the floor - the
     // forward vector it is also handed carries a Y component and is not used
     // for this. Of the mask it consumes only Act::MoveMask.
-    void Move(const PhysicsWorld& physics, const Tweaks& tweaks, uint32_t action,
+    // Not const: a blocked pawn shoves the character in its way.
+    void Move(PhysicsWorld& physics, const Tweaks& tweaks, uint32_t action,
               const float right[3], float dt);
 
     const float* headPos() const { return head_; }
@@ -115,6 +116,7 @@ private:
     // matches it far better than a scaled 0.92 would.
     static constexpr float kEyeAboveFloor = 2.0f;
     static constexpr float kRadius = 0.40f;
+    static constexpr float kPlayerMass = 80.f;     // (0.2)^3 * 10000
 
     // PhysicsObject::StepCheck (0x1018eb90) is a ladder of forward line
     // traces at fixed heights, and it returns which rung first came back

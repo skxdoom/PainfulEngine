@@ -255,29 +255,21 @@ public:
         bool jumpedLastAction = false;
 
         // --- monster locomotion -------------------------------------------
-        // ENTITY.PO_SetMonsterType marks an entity the engine MOVES rather
-        // than simulates (Engine.dll 0x101313C0 sets bit 2 of the flags at
-        // PhysicsObject+0x74). Until that flag arrives the body is an ordinary
-        // dynamic prop, which is what a monster is created as.
+        // ENTITY.PO_SetMonsterType (0x101313C0 sets bit 2 at
+        // PhysicsObject+0x74): the physics step re-commands this body's
+        // velocity every tick - PhysicsWorld::StepCharacters. Until the flag
+        // arrives the body is an ordinary dynamic prop.
         bool isMonster = false;
-        // ENTITY.PO_Move's vector, verbatim. In the original it is a pure
-        // setter - 0x10130D50 writes the three floats to PhysicsObject+0x34
-        // and returns, and the physics step is what consumes them - so it is
-        // stored here and spent in TickMonsters for the same reason.
-        //
-        // It is a VELOCITY, not a step: CActor passes `mv * (1/delta)`.
+        // ENTITY.PO_Move's vector (PhysicsObject+0x34), a VELOCITY: CActor
+        // passes `mv * (1/delta)`. Forwarded to the character body; kept here
+        // for an actor that has none yet.
         float moveWish[3] = {0, 0, 0};
-        float fallSpeed = 0.f;           // our own, for the gravity the AI does not pass
-        // Motion asked for but not yet worth sweeping; see TickMonsters.
-        float moveResidual[3] = {0, 0, 0};
-        bool onFloor = false;            // PO_IsOnFloor's first return
-        float floorNormal[3] = {0, 1, 0};   // and the three after it
-        // ENTITY.PO_SetMonsterMovementConst's two arguments, engine defaults
-        // (0x10130920: GetFloat(2, 0.5) to +0x6c, GetBool(3, false) to +0x70).
-        // Recorded so the values are not lost; what the engine does with them
-        // is not yet established.
+        // ENTITY.PO_SetMonsterMovementConst's two arguments (0x10130920:
+        // GetFloat(2, 0.5) to +0x6c, GetBool(3, false) to +0x70): the share of
+        // solver-added velocity kept per tick, and "do not check floors".
         float monsterMoveConst = 0.5f;
         bool monsterMoveFlag = false;
+        bool monsterFlying = false;      // ENTITY.PO_SetFlying, +0x75 bit 3
 
         // ENTITY.PO_SetSightParams, at PhysicsObject+0x24..+0x30. Engine
         // defaults; the angles are half-angles in radians, converted from the
@@ -479,13 +471,10 @@ public:
     void StartBoundSound(Entity& e);
     void TickSounds(float dt);
 
-    // Spends what PO_Move stored: walks every monster body by its wish vector
-    // through the same swept sphere the player uses, and reports the floor.
+    // Per-frame monster bookkeeping (limb shadowing, test hooks). The walking
+    // itself is PhysicsWorld::StepCharacters.
     void TickMonsters(float dt);
 
-    // A monster's collision radius in world units, from the model's
-    // horizontal extent rather than the prop-shaped body radius.
-    float MonsterRadius(Entity& e, float* centreAboveOrigin = nullptr);
     // The sizer's working scalar k and the root offset, from the ROOOT joint.
     bool MonsterBodyScale(Entity& e, float& k, float& rootOffsetY);
 
@@ -660,6 +649,8 @@ private:
     static int L_PO_Exist(lua_State* L);
     static int L_PO_Move(lua_State* L);
     static int L_PO_SetMonsterType(lua_State* L);
+    static int L_PO_SetFlying(lua_State* L);
+    static int L_PO_IsFlying(lua_State* L);
     static int L_PO_SetMonsterMovementConst(lua_State* L);
     static int L_PO_IsOnFloor(lua_State* L);
     static int L_PO_SetSightParams(lua_State* L);
@@ -684,6 +675,8 @@ private:
     static int L_SOUND_SetPlayerOrientation(lua_State* L);
     void PushListener();
     static int L_WPT_Load(lua_State* L);
+    static int L_WPT_GetClosest(lua_State* L);
+    static int L_WPT_GetPosition(lua_State* L);
     static int L_PATH_Create(lua_State* L);
     static int L_PATH_Release(lua_State* L);
     static int L_PATH_GetShortest(lua_State* L);
@@ -691,7 +684,9 @@ private:
     static int L_PATH_GetNextPoint(lua_State* L);
 
     // Can `a` see `b`: range, then the sight cone, then an unobstructed line.
-    bool Sees(Entity& a, Entity& b) const;
+    bool Sees(int ha, Entity& a, int hb, Entity& b) const;
+    // GetPawnHeadPos for anything: pawn eye, character head, or position.
+    void EyePoint(const Entity& e, int handle, float out[3]) const;
     static int L_PO_GetMaxSphereRay(lua_State* L);
     static int L_PO_SetMass(lua_State* L);
     static int L_PO_SetFriction(lua_State* L);

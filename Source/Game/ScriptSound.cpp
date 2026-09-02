@@ -262,6 +262,32 @@ int ScriptEngine::L_WPT_Load(lua_State* L) {
 // another, and returning nothing made every actor build a fresh path every
 // single tick. Slots are reused, and the handle is index+1 so that 0 is never
 // a valid one.
+// WPT.GetClosest(x, y, z) -> zone, index. 0x10128DD0 calls
+// Pathfinder2::GetClosestWaypoint, which is GetIndexOfWaypointClosestTo with
+// no distance cap - the nearest waypoint by 3D distance, floor ignored - and
+// pushes 0 for the zone. -1 when the level has no graph, which is the value
+// the five scripts that use it guard against.
+int ScriptEngine::L_WPT_GetClosest(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const float p[3] = {float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
+                        float(luaL_optnumber(L, 3, 0))};
+    const int idx = self->waypoints_.nodes.empty() ? -1 : self->waypoints_.Closest(p, 0.f);
+    lua_pushnumber(L, 0);
+    lua_pushnumber(L, idx);
+    return 2;
+}
+
+// WPT.GetPosition(zone, index) -> x, y, z of that waypoint.
+int ScriptEngine::L_WPT_GetPosition(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const int idx = int(luaL_optnumber(L, 2, -1));
+    float p[3] = {0, 0, 0};
+    if (idx >= 0 && size_t(idx) < self->waypoints_.nodes.size())
+        for (int c = 0; c < 3; ++c) p[c] = self->waypoints_.nodes[size_t(idx)].pos[c];
+    for (int c = 0; c < 3; ++c) lua_pushnumber(L, p[c]);
+    return 3;
+}
+
 int ScriptEngine::L_PATH_Create(lua_State* L) {
     ScriptEngine* self = From(L);
     for (size_t i = 0; i < self->paths_.size(); ++i) {
@@ -407,15 +433,35 @@ int ScriptEngine::L_SeesEntity(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* a = self->Find(HandleArg(L, 1));
     Entity* b = self->Find(HandleArg(L, 2));
-    lua_pushboolean(L, a && b && self->Sees(*a, *b));
+    lua_pushboolean(L, a && b && self->Sees(HandleArg(L, 1), *a, HandleArg(L, 2), *b));
     return 1;
 }
 
-bool ScriptEngine::Sees(Entity& a, Entity& b) const {
+// Where an entity LOOKS FROM and is LOOKED AT: CalculatePawnToEntityVisibility
+// (0x10198D30) takes both pawns' GetPawnHeadPos. A body's head is 4.5k above
+// the stack origin, the player's is the pawn's eye; anything else is its
+// position. Traced from the position, a monster whose origin sits at its hip
+// looks along the floor and a step is a wall.
+void ScriptEngine::EyePoint(const Entity& e, int handle, float out[3]) const {
+    if (pawn_ && handle == playerHandle_ && playerHandle_) {
+        const float* h = pawn_->headPos();
+        for (int c = 0; c < 3; ++c) out[c] = h[c];
+        return;
+    }
+    if (physics_ && e.physicsBody >= 0 && e.ragdollSlot < 0 &&
+        physics_->CharacterHeadPos(e.physicsBody, out))
+        return;
+    for (int c = 0; c < 3; ++c) out[c] = e.pos[c];
+}
+
+bool ScriptEngine::Sees(int ha, Entity& a, int hb, Entity& b) const {
     if (!physics_) return false;
+    float eyeA[3], eyeB[3];
+    EyePoint(a, ha, eyeA);
+    EyePoint(b, hb, eyeB);
 
     float to[3];
-    for (int c = 0; c < 3; ++c) to[c] = b.pos[c] - a.pos[c];
+    for (int c = 0; c < 3; ++c) to[c] = eyeB[c] - eyeA[c];
     const float dist = std::sqrt(to[0]*to[0] + to[1]*to[1] + to[2]*to[2]);
     if (dist > a.sightRange) return false;
     if (dist < 1e-4f) return true;
@@ -451,7 +497,7 @@ bool ScriptEngine::Sees(Entity& a, Entity& b) const {
     // 9 of 16 ever seeing him - only the front rank, because each rank blinds
     // the one behind it. Against the world alone all 16 see, walk and arrive.
     PhysicsWorld::RayHit hit;
-    if (!physics_->RayCast(a.pos, b.pos, hit, true))
+    if (!physics_->RayCast(eyeA, eyeB, hit, true))
         return true;                          // nothing in the way at all
     return hit.distance >= dist - 1e-3f;      // whatever it hit is past the target
 }
@@ -459,24 +505,53 @@ bool ScriptEngine::Sees(Entity& a, Entity& b) const {
 // ENTITY.PO_SetMonsterMovementConst(e, value, flag) - 0x10130920, defaults
 // 0.5 and false. Recorded; what the engine's mover does with them is not
 // established, so nothing here reads them yet.
+// ENTITY.PO_SetMonsterMovementConst(e, havokInfluence, dontCheckFloors):
+// PhysicsObject+0x6c and +0x70, which PhysicsObject::Tick reads every step -
+// see PhysicsWorld::StepCharacters.
 int ScriptEngine::L_PO_SetMonsterMovementConst(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e) return 0;
     e->monsterMoveConst = float(luaL_optnumber(L, 2, 0.5));
     e->monsterMoveFlag = lua_toboolean(L, 3) != 0;
+    if (self->physics_ && e->physicsBody >= 0)
+        self->physics_->SetCharacterMovement(e->physicsBody, e->monsterMoveConst,
+                                             e->monsterMoveFlag);
     return 0;
 }
 
 // ENTITY.PO_IsOnFloor(e) -> onFloor, nx, ny, nz. Four values (0x101341C0
-// returns 4), and CAiBrain unpacks all four into the floor normal.
+// returns 4), and CAiBrain unpacks all four into the floor normal. Both come
+// out of MonsterFloorCheck's ray, run in the last physics step.
 int ScriptEngine::L_PO_IsOnFloor(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
-    lua_pushboolean(L, e && e->onFloor);
-    for (int c = 0; c < 3; ++c)
-        lua_pushnumber(L, e ? e->floorNormal[c] : (c == 1 ? 1.0 : 0.0));
+    bool on = false;
+    float n[3] = {0.f, 1.f, 0.f};
+    if (e && self->physics_ && e->physicsBody >= 0)
+        on = self->physics_->CharacterOnFloor(e->physicsBody, n);
+    lua_pushboolean(L, on);
+    for (int c = 0; c < 3; ++c) lua_pushnumber(L, n[c]);
     return 4;
+}
+
+// ENTITY.PO_SetFlying(e, on): PhysicsObject::SetFlying (0x1001E310) sets bit 3
+// of +0x75, and the tick then leaves the velocity to the Maintain* movers.
+int ScriptEngine::L_PO_SetFlying(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e) return 0;
+    e->monsterFlying = lua_isnoneornil(L, 2) ? true : (lua_toboolean(L, 2) != 0);
+    if (self->physics_ && e->physicsBody >= 0)
+        self->physics_->SetCharacterFlying(e->physicsBody, e->monsterFlying);
+    return 0;
+}
+
+int ScriptEngine::L_PO_IsFlying(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const Entity* e = self->Find(HandleArg(L, 1));
+    lua_pushboolean(L, e && e->monsterFlying);
+    return 1;
 }
 
 int ScriptEngine::L_PO_Exist(lua_State* L) {

@@ -73,7 +73,12 @@ constexpr JPH::ObjectLayer kProbe = 3;
 // casings. Simulated against the world, props, monsters and each other, but
 // never against the probes.
 constexpr JPH::ObjectLayer kMissile = 4;
-constexpr JPH::ObjectLayer kCount = 5;
+// A LIVE monster's ragdoll limbs, posed along its animation (Ragdoll::Animate).
+// Traces land on them; nothing simulates against them. A monster's own body
+// is dynamic and sits inside them, and a limb that could push it would eject
+// its owner every step.
+constexpr JPH::ObjectLayer kHitbox = 5;
+constexpr JPH::ObjectLayer kCount = 6;
 } // namespace Layers
 
 namespace BroadPhase {
@@ -85,8 +90,10 @@ constexpr JPH::uint kCount = 2;
 class ObjectLayerPairFilterImpl final : public JPH::ObjectLayerPairFilter {
 public:
     bool ShouldCollide(JPH::ObjectLayer a, JPH::ObjectLayer b) const override {
-        // A non-colliding body pairs with nothing at all.
+        // A non-colliding body pairs with nothing at all, and so does a live
+        // limb - it is there to be traced, not simulated.
         if (a == Layers::kNoCollide || b == Layers::kNoCollide) return false;
+        if (a == Layers::kHitbox || b == Layers::kHitbox) return false;
         // A probe only ever shoves the ordinary moving bodies.
         if (a == Layers::kProbe || b == Layers::kProbe)
             return (a == Layers::kMoving) != (b == Layers::kMoving) &&
@@ -120,7 +127,7 @@ public:
     bool ShouldCollide(JPH::ObjectLayer layer, JPH::BroadPhaseLayer broad) const override {
         // Rejected here as well as in the narrow phase, so a projectile costs
         // nothing in the broadphase either.
-        if (layer == Layers::kNoCollide) return false;
+        if (layer == Layers::kNoCollide || layer == Layers::kHitbox) return false;
         if (layer == Layers::kProbe) return broad == BroadPhase::kMoving;
         return layer != Layers::kNonMoving || broad == BroadPhase::kMoving;
     }
@@ -181,6 +188,18 @@ private:
     JPH::BodyID also_;
     float maxPushMass_;
 };
+
+// What a body or a sweep can stand on and be stopped by: everything but the
+// probes and a live monster's limbs. Traces use SolidLayerFilter instead,
+// which does land on limbs.
+class SweepLayerFilter final : public JPH::ObjectLayerFilter {
+public:
+    bool ShouldCollide(JPH::ObjectLayer layer) const override {
+        return layer != Layers::kNoCollide && layer != Layers::kProbe &&
+               layer != Layers::kHitbox;
+    }
+};
+const SweepLayerFilter kSweepLayer;
 
 void TraceToLog(const char* format, ...) {
     char buffer[1024];
@@ -320,6 +339,7 @@ public:
     void OnContactAdded(const JPH::Body& a, const JPH::Body& b,
                         const JPH::ContactManifold& manifold,
                         JPH::ContactSettings&) override {
+        NoteCharacter(a, b, manifold);
         Pending p;
         p.a = a.GetID();
         p.b = b.GetID();
@@ -372,6 +392,48 @@ public:
         out.swap(pending_);
         pending_.clear();
     }
+    void Peek(std::vector<Pending>& out) {
+        std::lock_guard<std::mutex> guard(lock_);
+        out = pending_;
+    }
+
+    // What each CHARACTER body was touching during the step, as the
+    // direction it cannot move in. New and persisting contacts both count -
+    // a body pressed against a wall reports the wall every step.
+    struct CharContact {
+        uint32_t body;
+        float blocked[3];
+    };
+    const std::unordered_set<uint32_t>* characters = nullptr;
+    void OnContactPersisted(const JPH::Body& a, const JPH::Body& b,
+                            const JPH::ContactManifold& manifold,
+                            JPH::ContactSettings&) override {
+        NoteCharacter(a, b, manifold);
+    }
+    void NoteCharacter(const JPH::Body& a, const JPH::Body& b,
+                       const JPH::ContactManifold& manifold) {
+        if (!characters) return;
+        const bool ca = characters->count(a.GetID().GetIndexAndSequenceNumber()) != 0;
+        const bool cb = characters->count(b.GetID().GetIndexAndSequenceNumber()) != 0;
+        if (!ca && !cb) return;
+        // Only what cannot give way: the world and the kinematic pushers.
+        // Against another dynamic body the contact impulse stays - that is
+        // how a crowd shuffles, and clipping it left a queue standing still.
+        const JPH::Vec3 n = manifold.mWorldSpaceNormal;   // from a into b
+        std::lock_guard<std::mutex> guard(lock_);
+        if (ca && !b.IsDynamic())
+            charContacts_.push_back({a.GetID().GetIndexAndSequenceNumber(),
+                                     {n.GetX(), n.GetY(), n.GetZ()}});
+        if (cb && !a.IsDynamic())
+            charContacts_.push_back({b.GetID().GetIndexAndSequenceNumber(),
+                                     {-n.GetX(), -n.GetY(), -n.GetZ()}});
+    }
+    void TakeCharacterContacts(std::vector<CharContact>& out) {
+        std::lock_guard<std::mutex> guard(lock_);
+        out.swap(charContacts_);
+        charContacts_.clear();
+    }
+    std::vector<CharContact> charContacts_;
 
 private:
     // Big enough to hold a whole load-time settle: Settle() runs 90 steps with
@@ -418,8 +480,35 @@ struct PhysicsWorld::Impl {
         // EFreedomsOfRotation, as PhysicsObject+0x10 holds it. Decides what
         // SetMass does to the inertia: see SetScriptBodyMass.
         int freedomMode = 1;
+        // PO_SetMass's value, 0 until the script sets one. CActor:PO_Create
+        // sets the mass BEFORE PO_SetMonsterType, and rebuilding the body as
+        // a character must not lose it.
+        float mass = 0.f;
+        int character = -1;    // index into characters, -1 for a prop
     };
     std::vector<ScriptBody> scriptBodies;
+    // A character body's tick state: PhysicsObject+0x34 (wish), +0x4c (the
+    // last commanded vector), +0x6c/+0x70 (movement const, floor flag), +0x71
+    // (on floor), +0x60 (floor normal), +0x75 bit 3 (flying).
+    struct Character {
+        int slot = -1;
+        float k = 0.f;             // 0.2 * bodyScale: the sizer's unit
+        float rootOffsetY = 0.f;   // stack origin above the body position
+        float wish[3] = {0, 0, 0};
+        float lastWish[3] = {0, 0, 0};
+        float influence = 0.5f;
+        bool checkFloors = true;
+        bool flying = false;
+        bool onFloor = false;
+        float floorNormal[3] = {0, 1, 0};
+    };
+    std::vector<Character> characters;
+    Character* CharacterOf(int slot) {
+        if (slot < 0 || size_t(slot) >= scriptBodies.size()) return nullptr;
+        const int c = scriptBodies[size_t(slot)].character;
+        if (c < 0 || size_t(c) >= characters.size()) return nullptr;
+        return &characters[size_t(c)];
+    }
     // Which script bodies are CHARACTERS (PO_SetMonsterType, so kinematic and
     // carried by their own mover). Depenetrate separates two characters
     // horizontally: see the comment there. Keyed on the raw id, since
@@ -448,6 +537,7 @@ struct PhysicsWorld::Impl {
     bool probePush = false;
 
     Impl() {
+        contacts.characters = &characterBodies;
         system.SetContactListener(&contacts);
         system.Init(kMaxBodies, 0, kMaxBodyPairs, kMaxContactConstraints, broadPhaseLayers,
                     objectVsBroadPhase, objectPairs);
@@ -491,6 +581,8 @@ void PhysicsWorld::Clear() {
     impl_->accumulator = 0.f;
     impl_->props.clear();
     impl_->scriptBodies.clear();
+    impl_->characters.clear();
+    impl_->characterBodies.clear();
     impl_->unresolvedProps = 0;
     settings_ = PhysicsSettings();
 }
@@ -909,8 +1001,46 @@ void PhysicsWorld::Update(float dt) {
                                             impl_->pawnProbePos[2]),
                                  JPH::Quat::sIdentity(), kStep);
         }
+        // Monsters are re-commanded per STEP, as PhysicsObject::Tick is run
+        // per physics tick: the 0.5 carry-over is a per-tick decay.
+        StepCharacters();
         impl_->system.Update(kStep, 1, &impl_->temp, &impl_->jobs);
         impl_->accumulator -= kStep;
+        // PAINFUL_CHAR_TRACE: a character whose velocity the step changed by
+        // more than 4 units/s, and what it was touching.
+        static const bool traceChars = std::getenv("PAINFUL_CHAR_TRACE") != nullptr;
+        if (traceChars) {
+            for (const Impl::Character& ch : impl_->characters) {
+                if (ch.slot < 0) continue;
+                const Impl::ScriptBody& sb = impl_->scriptBodies[size_t(ch.slot)];
+                if (sb.body.IsInvalid() || !sb.inWorld) continue;
+                const JPH::Vec3 v = bodies.GetLinearVelocity(sb.body);
+                const JPH::Vec3 cmd(ch.lastWish[0], ch.lastWish[1], ch.lastWish[2]);
+                const JPH::Vec3 dv = v - cmd;
+                if (JPH::Vec3(dv.GetX(), 0.f, dv.GetZ()).Length() < 4.f) continue;
+                std::vector<ScriptContactListener::Pending> touching;
+                impl_->contacts.Peek(touching);
+                std::string partners;
+                for (const auto& p : touching) {
+                    const JPH::BodyID other = p.a == sb.body ? p.b : (p.b == sb.body ? p.a : JPH::BodyID());
+                    if (other.IsInvalid()) continue;
+                    char buf[96];
+                    int slot = -1;
+                    for (size_t i = 0; i < impl_->scriptBodies.size(); ++i)
+                        if (impl_->scriptBodies[i].body == other) slot = int(i);
+                    snprintf(buf, sizeof buf, " [%s%d n=%.2f,%.2f,%.2f]",
+                             other == impl_->worldBody ? "world" : (slot >= 0 ? "slot" : "body"),
+                             slot >= 0 ? slot : int(other.GetIndex()), p.normal[0], p.normal[1],
+                             p.normal[2]);
+                    partners += buf;
+                }
+                const JPH::RVec3 pos = bodies.GetPosition(sb.body);
+                LogInfo("CHAR slot %d cmd=(%.2f %.2f %.2f) got=(%.2f %.2f %.2f) at=(%.2f %.2f %.2f)%s",
+                        ch.slot, cmd.GetX(), cmd.GetY(), cmd.GetZ(), v.GetX(), v.GetY(), v.GetZ(),
+                        float(pos.GetX()), float(pos.GetY()), float(pos.GetZ()),
+                        partners.empty() ? " (no contacts recorded)" : partners.c_str());
+            }
+        }
     }
 }
 
@@ -1138,6 +1268,7 @@ void PhysicsWorld::SetScriptBodyMass(int slot, float mass) {
                             impl_->scriptBodies[slot].body);
     if (!lock.Succeeded() || !lock.GetBody().IsDynamic()) return;
     const float m = mass * settings_.activeMeshesMassScale;
+    impl_->scriptBodies[slot].mass = m;
     const int mode = impl_->scriptBodies[slot].freedomMode;
     JPH::MotionProperties* mp = lock.GetBody().GetMotionProperties();
     if (mode == 2 || mode == 3) mp->ScaleToMass(m);
@@ -1245,6 +1376,8 @@ void PhysicsWorld::SetScriptBodyPose(int slot, const float pos[3],
     impl_->system.GetBodyInterface().SetPositionAndRotation(
         impl_->scriptBodies[slot].body, JPH::RVec3(pos[0], pos[1], pos[2]),
         EngineQuatToJolt(rotWXYZ), JPH::EActivation::Activate);
+    // A teleported character lands at its model origin, like a spawn.
+    if (impl_->scriptBodies[size_t(slot)].character >= 0) StandCharacterOnFloor(slot, 100.f);
 }
 
 
@@ -1276,6 +1409,15 @@ void PhysicsWorld::AddScriptBodyImpulse(int slot, const float at[3],
     // At a point rather than at the centre, so a shot off to one side spins
     // the thing it hits instead of sliding it flat.
     bodies.AddImpulse(id, j, JPH::RVec3(at[0], at[1], at[2]));
+    // PhysicsObject::Hit (0x1018C050) caps the speed a hit leaves a body with
+    // at 30 (0x102b3b7c). A character has no spin to take it, so the whole
+    // impulse lands as velocity and the cap is what keeps a shotgun blast
+    // from launching a monster across the level.
+    if (impl_->characterBodies.count(id.GetIndexAndSequenceNumber()) != 0) {
+        const JPH::Vec3 v = bodies.GetLinearVelocity(id);
+        const float speed = v.Length();
+        if (speed > 30.f) bodies.SetLinearVelocity(id, v * (30.f / speed));
+    }
 }
 
 bool PhysicsWorld::GetScriptBodyVelocity(int slot, float out[3]) const {
@@ -1309,15 +1451,16 @@ void PhysicsWorld::SetScriptBodyEnabled(int slot, bool enabled) {
     sb.inWorld = enabled;
 }
 
-void PhysicsWorld::SetScriptBodyKinematic(int slot, float k, float rootOffsetY) {
+void PhysicsWorld::MakeScriptBodyCharacter(int slot, float k, float rootOffsetY) {
     if (!ScriptBodyExists(slot)) return;
     JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
-    const JPH::BodyID id = impl_->scriptBodies[slot].body;
+    Impl::ScriptBody& sb = impl_->scriptBodies[size_t(slot)];
+    const JPH::BodyID id = sb.body;
     // Only PO_SetMonsterType reaches here, so this is the character set that
     // Depenetrate separates horizontally instead of ejecting.
     impl_->characterBodies.insert(id.GetIndexAndSequenceNumber());
 
-    if (k > 0.f && k != impl_->scriptBodies[slot].radius) {
+    if (k > 0.f && k != sb.radius) {
         // THREE STACKED SPHERES - which is what BodyTypes.Fatter is.
         //
         // The sizer's Fatter branch (0x101B3E20 case 2) builds twelve floats
@@ -1351,16 +1494,311 @@ void PhysicsWorld::SetScriptBodyKinematic(int slot, float k, float rootOffsetY) 
         }
         if (!shape.HasError()) {
             bodies.SetShape(id, shape.Get(), true, JPH::EActivation::Activate);
-            impl_->scriptBodies[slot].radius = k;
+            sb.radius = k;
         }
     }
 
-    if (bodies.GetMotionType(id) == JPH::EMotionType::Kinematic) return;
-    bodies.SetMotionType(id, JPH::EMotionType::Kinematic, JPH::EActivation::Activate);
-    // Whatever the body picked up while it was still dynamic - a shove from
-    // the player, a fall - must not survive the change, or it carries on
-    // drifting after nothing is pushing it any more.
+    if (sb.character < 0) {
+        Impl::Character c;
+        c.slot = slot;
+        impl_->characters.push_back(c);
+        sb.character = int(impl_->characters.size() - 1);
+    }
+    Impl::Character& ch = impl_->characters[size_t(sb.character)];
+    ch.k = sb.radius;
+    ch.rootOffsetY = rootOffsetY;
+
+    // DYNAMIC, translation only. CreatePhysicsObject (0x101999F0) ends with
+    // SetFreedomOfRotation(1, 1.0): pitch and roll inertia FLT_MAX, yaw 10 -
+    // and the scripts set the yaw themselves through SetOrientation, so no
+    // rotation is left to the solver here.
+    if (bodies.GetMotionType(id) != JPH::EMotionType::Dynamic)
+        bodies.SetMotionType(id, JPH::EMotionType::Dynamic, JPH::EActivation::Activate);
+    {
+        JPH::BodyLockWrite lock(impl_->system.GetBodyLockInterface(), id);
+        if (lock.Succeeded()) {
+            JPH::Body& body = lock.GetBody();
+            JPH::MassProperties props = body.GetShape()->GetMassProperties();
+            // The sizer's mass rule for a sphere stack is (0.2 * scale)^3 *
+            // 10000 - recovered for the player's four spheres, ASSUMED to hold
+            // for the Fatter stack. PO_SetMass overrides it where a template
+            // declares s_Physics.Mass.
+            const float mass = sb.mass > 0.f ? sb.mass : ch.k * ch.k * ch.k * 10000.f;
+            if (props.mMass > 0.f) props.ScaleToMass(std::max(mass, 1.f));
+            body.GetMotionProperties()->SetMassProperties(
+                JPH::EAllowedDOFs::TranslationX | JPH::EAllowedDOFs::TranslationY |
+                    JPH::EAllowedDOFs::TranslationZ,
+                props);
+            // GUESS: Havok's default material. CActor:PO_Create says friction
+            // is deliberately left alone because a higher one stops them
+            // climbing stairs, and PO_SetFriction never reaches Havok.
+            body.SetFriction(0.5f);
+            body.SetRestitution(0.f);
+            body.GetMotionProperties()->SetLinearDamping(0.f);
+            body.GetMotionProperties()->SetAngularDamping(0.f);
+            // Re-commanded every step, so it never has a reason to sleep - and
+            // a sleeping body would hold a velocity without moving.
+            body.SetAllowSleeping(false);
+        }
+    }
     bodies.SetLinearAndAngularVelocity(id, JPH::Vec3::sZero(), JPH::Vec3::sZero());
+    for (int c = 0; c < 3; ++c) ch.wish[c] = ch.lastWish[c] = 0.f;
+    // An actor is authored and spawned at its model ORIGIN, mid-body on most
+    // rigs, so the stack starts a sole's height inside the floor.
+    StandCharacterOnFloor(slot, 100.f);
+}
+
+void PhysicsWorld::StandCharacterOnFloor(int slot, float maxLift) {
+    Impl::Character* ch = impl_->CharacterOf(slot);
+    if (!ch || !ScriptBodyExists(slot) || !impl_->scriptBodies[size_t(slot)].inWorld) return;
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    const JPH::BodyID id = impl_->scriptBodies[size_t(slot)].body;
+    const JPH::RVec3 p = bodies.GetPosition(id);
+    const float bottom = float(p.GetY()) + ch->rootOffsetY - 4.8f * ch->k;
+    const float top = float(p.GetY()) + ch->rootOffsetY + 5.5f * ch->k;
+    // From a unit above the head down to the stack's lowest point: a floor in
+    // that span has the body inside it. A downward-facing hit is a ceiling
+    // seen from below, not a floor.
+    const JPH::RVec3 from(p.GetX(), top + 1.f, p.GetZ());
+    const JPH::Vec3 span(0.f, bottom - (top + 1.f), 0.f);
+    JPH::IgnoreMultipleBodiesFilter ignore;
+    ignore.Reserve(3);
+    ignore.IgnoreBody(id);
+    if (!impl_->probe.IsInvalid()) ignore.IgnoreBody(impl_->probe);
+    if (!impl_->pawnProbe.IsInvalid()) ignore.IgnoreBody(impl_->pawnProbe);
+    JPH::RRayCast ray(from, span);
+    JPH::RayCastSettings settings;
+    settings.mBackFaceModeTriangles = JPH::EBackFaceMode::CollideWithBackFaces;
+    settings.mTreatConvexAsSolid = false;
+    // The LOWEST upward-facing hit in the span is the floor the body belongs
+    // on; the first hit from above may be a ceiling's underside or the top of
+    // a prop the head pokes through.
+    JPH::AllHitCollisionCollector<JPH::CastRayCollector> collector;
+    impl_->system.GetNarrowPhaseQuery().CastRay(ray, settings, collector, {}, kSweepLayer,
+                                                ignore);
+    // Only below the middle sphere's centre: a surface higher than that inside
+    // the stack cannot be entered by walking - the body would have been
+    // stopped by it - so a hit there is a ledge beside the body, not a floor
+    // it is inside.
+    const float middle = float(p.GetY()) + ch->rootOffsetY + 1.0f * ch->k;
+    float floorY = -1e30f;
+    bool found = false;
+    for (const JPH::RayCastResult& hit : collector.mHits) {
+        const JPH::RVec3 at = ray.GetPointOnRay(hit.mFraction);
+        if (float(at.GetY()) > middle) continue;
+        JPH::BodyLockRead lock(impl_->system.GetBodyLockInterface(), hit.mBodyID);
+        if (!lock.Succeeded()) continue;
+        const JPH::Vec3 n =
+            lock.GetBody().GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, at);
+        if (n.GetY() <= 0.5f) continue;
+        if (!found || float(at.GetY()) < floorY) floorY = float(at.GetY());
+        found = true;
+    }
+    if (!found) return;
+    const float lift = std::min(floorY + 0.02f - bottom, maxLift);
+    if (lift <= 0.001f) return;
+    bodies.SetPosition(id, JPH::RVec3(p.GetX(), p.GetY() + lift, p.GetZ()),
+                       JPH::EActivation::Activate);
+    const JPH::Vec3 v = bodies.GetLinearVelocity(id);
+    if (v.GetY() < 0.f) bodies.SetLinearVelocity(id, JPH::Vec3(v.GetX(), 0.f, v.GetZ()));
+}
+
+bool PhysicsWorld::IsScriptBodyCharacter(int slot) const {
+    return ScriptBodyExists(slot) && impl_->scriptBodies[size_t(slot)].character >= 0;
+}
+
+void PhysicsWorld::SetCharacterWish(int slot, const float v[3]) {
+    if (Impl::Character* ch = impl_->CharacterOf(slot))
+        for (int c = 0; c < 3; ++c) ch->wish[c] = v[c];
+}
+
+void PhysicsWorld::SetCharacterMovement(int slot, float influence, bool dontCheckFloors) {
+    if (Impl::Character* ch = impl_->CharacterOf(slot)) {
+        ch->influence = influence;
+        ch->checkFloors = !dontCheckFloors;
+    }
+}
+
+void PhysicsWorld::SetCharacterFlying(int slot, bool flying) {
+    if (Impl::Character* ch = impl_->CharacterOf(slot)) ch->flying = flying;
+}
+
+bool PhysicsWorld::IsCharacterFlying(int slot) const {
+    const Impl::Character* ch = impl_->CharacterOf(slot);
+    return ch != nullptr && ch->flying;
+}
+
+bool PhysicsWorld::CharacterOnFloor(int slot, float normal[3]) const {
+    const Impl::Character* ch = impl_->CharacterOf(slot);
+    if (!ch) return false;
+    if (normal) for (int c = 0; c < 3; ++c) normal[c] = ch->floorNormal[c];
+    return ch->onFloor;
+}
+
+// GetPawnFloorPos (0x10189390) is body.y - 1.1 * bodyScale and GetPawnHeadPos
+// (0x10189340) body.y + 0.9 * bodyScale; in the sizer's unit k = 0.2 *
+// bodyScale that is -5.5k and +4.5k off the stack's origin.
+bool PhysicsWorld::CharacterFloorPos(int slot, float out[3]) const {
+    const Impl::Character* ch = impl_->CharacterOf(slot);
+    if (!ch || !ScriptBodyExists(slot)) return false;
+    const JPH::RVec3 p =
+        impl_->system.GetBodyInterface().GetPosition(impl_->scriptBodies[size_t(slot)].body);
+    out[0] = float(p.GetX());
+    out[1] = float(p.GetY()) + ch->rootOffsetY - 5.5f * ch->k;
+    out[2] = float(p.GetZ());
+    return true;
+}
+
+bool PhysicsWorld::CharacterHeadPos(int slot, float out[3]) const {
+    const Impl::Character* ch = impl_->CharacterOf(slot);
+    if (!ch || !ScriptBodyExists(slot)) return false;
+    const JPH::RVec3 p =
+        impl_->system.GetBodyInterface().GetPosition(impl_->scriptBodies[size_t(slot)].body);
+    out[0] = float(p.GetX());
+    out[1] = float(p.GetY()) + ch->rootOffsetY + 4.5f * ch->k;
+    out[2] = float(p.GetZ());
+    return true;
+}
+
+void PhysicsWorld::SetScriptBodyRotation(int slot, const float rotWXYZ[4]) {
+    if (!ScriptBodyExists(slot) || !impl_->scriptBodies[size_t(slot)].inWorld) return;
+    impl_->system.GetBodyInterface().SetRotation(impl_->scriptBodies[size_t(slot)].body,
+                                                 EngineQuatToJolt(rotWXYZ),
+                                                 JPH::EActivation::DontActivate);
+}
+
+// PhysicsObject::Tick (0x10190570), the monster branch, per physics tick.
+// MonsterFloorCheck (0x1018FAA0) is a ray from head height, 4.5k above the
+// stack origin, to 1.5 below the floor point 5.5k under it - so "on floor"
+// means ground within 1.5 of the soles, and a falling actor (vy < -0.01)
+// with none has its wish cleared. Then, unless flying:
+//     ext = vel - lastWish;  ext.x,z *= c;  if (ext.y > 0 || no gravity) ext.y *= c
+//     lastWish = wish;  vel = wish + ext
+// with c = PO_SetMonsterMovementConst's first argument (0.5). Downward
+// velocity is kept whole so gravity accumulates; everything else the solver
+// added - a shove, a blast, a bounce - decays by c each tick.
+void PhysicsWorld::StepCharacters() {
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    // Last step's contacts. The commanded velocity is clipped against them
+    // below - what a Havok contact does to a body driven into a wall, minus
+    // the penetration it builds up while the command keeps coming. Driven
+    // into a pew at 8 units/s every step, a body sank into it and was thrown
+    // back out at 4 the moment the command stopped; the AI read that as a
+    // shove and re-planned. Measured: Docs/Reference/MonsterMovement.md.
+    static std::vector<ScriptContactListener::CharContact> touching;
+    impl_->contacts.TakeCharacterContacts(touching);
+    for (Impl::Character& ch : impl_->characters) {
+        if (ch.slot < 0 || size_t(ch.slot) >= impl_->scriptBodies.size()) continue;
+        const Impl::ScriptBody& sb = impl_->scriptBodies[size_t(ch.slot)];
+        if (sb.body.IsInvalid() || !sb.inWorld) continue;
+        if (bodies.GetMotionType(sb.body) != JPH::EMotionType::Dynamic) continue;
+        // The two-sided-mesh stand-in, a step's worth at a time.
+        StandCharacterOnFloor(ch.slot, 0.1f);
+
+        const JPH::RVec3 p = bodies.GetPosition(sb.body);
+        const float cx = float(p.GetX());
+        const float cy = float(p.GetY()) + ch.rootOffsetY;
+        const float cz = float(p.GetZ());
+        const JPH::Vec3 vel = bodies.GetLinearVelocity(sb.body);
+
+        ch.onFloor = false;
+        if (!ch.checkFloors) {
+            ch.onFloor = true;
+        } else {
+            const JPH::RVec3 from(cx, cy + 4.5f * ch.k, cz);
+            const JPH::Vec3 span(0.f, -(4.5f * ch.k + 5.5f * ch.k + 1.5f), 0.f);
+            JPH::IgnoreMultipleBodiesFilter ignore;
+            ignore.Reserve(3);
+            ignore.IgnoreBody(sb.body);
+            if (!impl_->probe.IsInvalid()) ignore.IgnoreBody(impl_->probe);
+            if (!impl_->pawnProbe.IsInvalid()) ignore.IgnoreBody(impl_->pawnProbe);
+            JPH::RRayCast ray(from, span);
+            JPH::RayCastSettings settings;
+            settings.mBackFaceModeTriangles = JPH::EBackFaceMode::CollideWithBackFaces;
+            settings.mTreatConvexAsSolid = false;
+            JPH::ClosestHitCollisionCollector<JPH::CastRayCollector> collector;
+            impl_->system.GetNarrowPhaseQuery().CastRay(
+                ray, settings, collector, {},
+                kSweepLayer, ignore);
+            if (collector.HadHit()) {
+                ch.onFloor = true;
+                JPH::BodyLockRead lock(impl_->system.GetBodyLockInterface(),
+                                       collector.mHit.mBodyID);
+                if (lock.Succeeded()) {
+                    const JPH::Vec3 n = lock.GetBody().GetWorldSpaceSurfaceNormal(
+                        collector.mHit.mSubShapeID2, ray.GetPointOnRay(collector.mHit.mFraction));
+                    if (n.LengthSq() > 1e-8f && n == n) {
+                        ch.floorNormal[0] = n.GetX();
+                        ch.floorNormal[1] = n.GetY();
+                        ch.floorNormal[2] = n.GetZ();
+                    }
+                }
+            }
+        }
+        if (!ch.onFloor && vel.GetY() < -0.01f)
+            for (int c = 0; c < 3; ++c) ch.wish[c] = 0.f;
+
+        if (ch.flying) continue;
+        const bool gravityOn = bodies.GetGravityFactor(sb.body) > 0.f;
+        JPH::Vec3 ext = vel - JPH::Vec3(ch.lastWish[0], ch.lastWish[1], ch.lastWish[2]);
+        ext.SetX(ext.GetX() * ch.influence);
+        ext.SetZ(ext.GetZ() * ch.influence);
+        if (ext.GetY() > 0.f || !gravityOn) ext.SetY(ext.GetY() * ch.influence);
+        for (int c = 0; c < 3; ++c) ch.lastWish[c] = ch.wish[c];
+        JPH::Vec3 next = JPH::Vec3(ch.wish[0], ch.wish[1], ch.wish[2]) + ext;
+        // Slide along whatever it is touching: no component into a contact.
+        // Two passes so a corner resolves.
+        const uint32_t me = sb.body.GetIndexAndSequenceNumber();
+        for (int pass = 0; pass < 2; ++pass)
+            for (const ScriptContactListener::CharContact& c : touching) {
+                if (c.body != me) continue;
+                const JPH::Vec3 n(c.blocked[0], c.blocked[1], c.blocked[2]);
+                const float into = next.Dot(n);
+                if (into > 0.f) next -= n * into;
+            }
+        bodies.SetLinearVelocity(sb.body, next);
+    }
+}
+
+void PhysicsWorld::ShoveCharacters(const float pos[3], float radius, const float dir[3],
+                                   float speed, float pusherMass) {
+    if (!loaded() || impl_->characters.empty() || speed <= 0.f) return;
+    const JPH::Vec3 d(dir[0], 0.f, dir[2]);
+    if (d.LengthSq() < 1e-8f) return;
+    const JPH::Vec3 along = d.Normalized();
+    const JPH::SphereShape sphere(radius + 0.08f);
+    sphere.SetEmbedded();
+    JPH::CollideShapeSettings settings;
+    settings.mBackFaceMode = JPH::EBackFaceMode::CollideWithBackFaces;
+    settings.mCollectFacesMode = JPH::ECollectFacesMode::NoFaces;
+    JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> collector;
+    impl_->system.GetNarrowPhaseQuery().CollideShape(
+        &sphere, JPH::Vec3::sOne(),
+        JPH::RMat44::sTranslation(JPH::RVec3(pos[0], pos[1], pos[2])), settings,
+        JPH::RVec3::sZero(), collector, {},
+        kSweepLayer, {});
+    if (collector.mHits.empty()) return;
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    for (const JPH::CollideShapeResult& hit : collector.mHits) {
+        if (impl_->characterBodies.count(hit.mBodyID2.GetIndexAndSequenceNumber()) == 0)
+            continue;
+        if (bodies.GetMotionType(hit.mBodyID2) != JPH::EMotionType::Dynamic) continue;
+        float mass = pusherMass;
+        {
+            JPH::BodyLockRead lock(impl_->system.GetBodyLockInterface(), hit.mBodyID2);
+            if (lock.Succeeded() && lock.GetBody().GetMotionProperties() &&
+                lock.GetBody().GetMotionProperties()->GetInverseMass() > 0.f)
+                mass = 1.f / lock.GetBody().GetMotionProperties()->GetInverseMass();
+        }
+        // GUESS: half the inelastic-collision share. The full share read as
+        // too strong against the original in play - a monster is a thing you
+        // can push, but slowly, and it slows you. What would settle it is the
+        // player body's material and friction in the shape sizer.
+        const float share = 0.5f * speed * pusherMass / (pusherMass + mass);
+        const JPH::Vec3 v = bodies.GetLinearVelocity(hit.mBodyID2);
+        const float have = v.Dot(along);
+        if (have < share) bodies.AddLinearVelocity(hit.mBodyID2, along * (share - have));
+    }
 }
 
 float PhysicsWorld::ScriptBodyRadius(int slot) const {
@@ -1400,6 +1838,8 @@ void PhysicsWorld::RemoveScriptBody(int slot) {
     // second remove.
     if (sb.inWorld) bodies.RemoveBody(sb.body);
     impl_->characterBodies.erase(sb.body.GetIndexAndSequenceNumber());
+    if (Impl::Character* ch = impl_->CharacterOf(slot)) ch->slot = -1;
+    sb.character = -1;
     bodies.DestroyBody(sb.body);
     sb.body = JPH::BodyID();
     sb.inWorld = false;
@@ -1942,9 +2382,14 @@ void PhysicsWorld::SetRagdollPose(int slot, const float* boneMatrices, bool kine
     JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
     const JPH::EMotionType want =
         kinematic ? JPH::EMotionType::Kinematic : JPH::EMotionType::Dynamic;
-    for (JPH::BodyID id : inst.ragdoll->GetBodyIDs())
+    // Alive, the limbs are hitboxes and nothing else; dead, they are a
+    // corpse that lies on the floor and bumps into things.
+    const JPH::ObjectLayer layer = kinematic ? Layers::kHitbox : Layers::kMoving;
+    for (JPH::BodyID id : inst.ragdoll->GetBodyIDs()) {
         if (bodies.GetMotionType(id) != want)
             bodies.SetMotionType(id, want, JPH::EActivation::Activate);
+        if (bodies.GetObjectLayer(id) != layer) bodies.SetObjectLayer(id, layer);
+    }
 
     inst.ragdoll->SetPose(JPH::RVec3::sZero(), mats.data());
     inst.simulated = !kinematic;
@@ -2193,7 +2638,7 @@ bool PhysicsWorld::SphereOverlaps(const float pos[3], float radius) const {
     impl_->system.GetNarrowPhaseQuery().CollideShape(
         &sphere, JPH::Vec3::sOne(),
         JPH::RMat44::sTranslation(JPH::RVec3(pos[0], pos[1], pos[2])), settings,
-        JPH::RVec3::sZero(), collector, {}, kSolidLayer, blockers);
+        JPH::RVec3::sZero(), collector, {}, kSweepLayer, blockers);
     return collector.HadHit();
 }
 
@@ -2241,7 +2686,7 @@ int PhysicsWorld::Depenetrate(float pos[3], float radius, int iterations,
         impl_->system.GetNarrowPhaseQuery().CollideShape(
             &sphere, JPH::Vec3::sOne(),
             JPH::RMat44::sTranslation(JPH::RVec3(pos[0], pos[1], pos[2])), settings,
-            JPH::RVec3::sZero(), collector, {}, kSolidLayer, blockers);
+            JPH::RVec3::sZero(), collector, {}, kSweepLayer, blockers);
         if (collector.mHits.empty()) break;
 
         // ONE overlap per pass - the deepest - and then look again.
@@ -2352,7 +2797,7 @@ void PhysicsWorld::SlideSphere(float pos[3], const float delta[3], float radius,
         // sphere of its own radius and stops dead at the first step - the
         // camera collides with itself and cannot move at all.
         impl_->system.GetNarrowPhaseQuery().CastShape(cast, settings, JPH::RVec3::sZero(),
-                                                      collector, {}, kSolidLayer, blockers);
+                                                      collector, {}, kSweepLayer, blockers);
         if (!collector.HadHit()) {
             at += remaining;
             break;

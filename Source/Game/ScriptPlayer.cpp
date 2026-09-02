@@ -44,12 +44,9 @@ int ScriptEngine::L_PO_SetPawnHeadPos(lua_State* L) {
 int ScriptEngine::L_PO_GetPawnHeadPos(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
-    const float* p = (self->pawn_ && HandleArg(L, 1) == self->playerHandle_)
-                         ? self->pawn_->headPos()
-                         : (e ? e->pos : nullptr);
-    lua_pushnumber(L, p ? p[0] : 0);
-    lua_pushnumber(L, p ? p[1] : 0);
-    lua_pushnumber(L, p ? p[2] : 0);
+    float head[3] = {0, 0, 0};
+    if (e) self->EyePoint(*e, HandleArg(L, 1), head);
+    for (int c = 0; c < 3; ++c) lua_pushnumber(L, head[c]);
     return 3;
 }
 
@@ -146,6 +143,16 @@ int ScriptEngine::L_PO_GetPawnFloorPos(lua_State* L) {
         lua_pushnumber(L, feet[0]);
         lua_pushnumber(L, feet[1]);
         lua_pushnumber(L, feet[2]);
+        return 3;
+    }
+    // A character body: body.y - 1.1 * bodyScale (0x10189390), which is the
+    // soles. CActor keeps this as _groundx/y/z and every range test in the AI
+    // - attackRange, weaponRange, CheckYLevel - measures from it.
+    const Entity* e = self->Find(HandleArg(L, 1));
+    float floor[3];
+    if (e && self->physics_ && e->physicsBody >= 0 &&
+        self->physics_->CharacterFloorPos(e->physicsBody, floor)) {
+        for (int c = 0; c < 3; ++c) lua_pushnumber(L, floor[c]);
         return 3;
     }
     return L_GetPosition(L);

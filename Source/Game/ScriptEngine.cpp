@@ -112,21 +112,19 @@ void ScriptEngine::SyncFromPhysics(bool activeOnly) {
         if (it == bodyToEntity_.end()) continue;
         Entity* e = Find(it->second);
         if (!e) continue;
-        // A monster is MOVED, not simulated: TickMonsters owns where it is,
-        // and its body is carried along behind. Reading the body back here
-        // would put the two in a tug of war - each frame the walk would be
-        // half undone by whatever the kinematic body had drifted to.
-        //
-        // A projectile is the same division and was missing from it. Its body
-        // is kinematic and carries the velocity SetVelocity gave it, so the
-        // physics step moves it too - and reading that back ADDED a second
-        // advance on top of the one TickProjectiles had already made. A stake
-        // configured for 70 m/s flew at 140, and every distance-dependent
-        // thing in the scripts came out at half the range: Stake:Tick's arc
-        // starts on a timer, so it began its dive 28m out instead of 14.
-        if (e->isMonster || e->isProjectile) continue;
-                for (int c = 0; c < 3; ++c) e->pos[c] = pose.pos[c];
-        for (int c = 0; c < 4; ++c) e->rotWXYZ[c] = pose.quatWXYZ[c];
+        // A projectile's body is kinematic and carries the velocity
+        // SetVelocity gave it, so the physics step moves it too - and reading
+        // that back ADDED a second advance on top of the one TickProjectiles
+        // had already made. A stake configured for 70 m/s flew at 140, and
+        // every distance-dependent thing in the scripts came out at half the
+        // range: Stake:Tick's arc starts on a timer, so it began its dive 28m
+        // out instead of 14.
+        if (e->isProjectile) continue;
+        for (int c = 0; c < 3; ++c) e->pos[c] = pose.pos[c];
+        // A monster's body cannot rotate (translation-only DOFs) and its yaw
+        // is what SetOrientation wrote; the entity keeps the scripts' value.
+        if (!e->isMonster)
+            for (int c = 0; c < 4; ++c) e->rotWXYZ[c] = pose.quatWXYZ[c];
         SyncPose(*e);
     }
 }

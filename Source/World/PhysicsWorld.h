@@ -148,23 +148,45 @@ public:
     // PO_Enable on a prop: wakes or sleeps the body.
     void SetScriptBodyEnabled(int slot, bool enabled);
 
-    // Takes a body out of the dynamic simulation: it still blocks everything
-    // that sweeps against it, but nothing can push it and it cannot tumble.
+    // --- characters: the monster body ---
     //
-    // This is what a MONSTER is. ENTITY.PO_SetMonsterType sets a flag on the
-    // physics object (Engine.dll 0x101313C0, bit 2 at PhysicsObject+0x74) and
-    // the engine then moves it from the vector PO_Move stores rather than by
-    // simulating it. A monster left dynamic is a barrel with legs - the player
-    // bowls it over and it ends up inside the level.
-    // The radius also gets corrected here, because the shape a prop wants is
-    // not the shape a character wants: CreateScriptBody sizes a sphere by the
-    // LARGEST half-extent, which for a T-posed humanoid is its arm span. Pass
-    // <= 0 to keep the body's existing radius.
-    // The monster body: three stacked spheres, which is what BodyTypes.Fatter
-    // builds. k is the sizer's own working scalar (scale * 0.2) and
-    // rootOffsetY the negated ROOOT height - both from the engine's own rule,
-    // see MonsterBodyScale.
-    void SetScriptBodyKinematic(int slot, float k, float rootOffsetY = 0.f);
+    // A monster is a DYNAMIC body that the physics step re-commands every
+    // tick. PhysicsObject::Tick (0x10190570) reads the velocity the solver
+    // left, keeps `influence` (0.5) of whatever exceeds the last commanded
+    // vector, adds the new PO_Move vector and sets that as the velocity. So a
+    // shove or a blast moves it and decays by half each step, gravity
+    // accumulates in full, and the AI's walk is a velocity it always gets.
+    // Rotation is locked (SetFreedomOfRotation mode 1 - the pitch and roll
+    // inertias are FLT_MAX), so it stands up on its own.
+    // Rule, constants and the evidence: Docs/Reference/MonsterMovement.md.
+    //
+    // The shape: three stacked spheres (BodyTypes.Fatter) with k the sizer's
+    // working scalar (0.2 * bodyScale) and rootOffsetY where the stack's origin
+    // sits above the entity position - see ScriptEngine::MonsterBodyScale.
+    void MakeScriptBodyCharacter(int slot, float k, float rootOffsetY);
+    bool IsScriptBodyCharacter(int slot) const;
+    // ENTITY.PO_Move: the velocity the AI asks for (PhysicsObject+0x34).
+    void SetCharacterWish(int slot, const float v[3]);
+    // ENTITY.PO_SetMonsterMovementConst: the carry-over factor (+0x6c) and the
+    // "do not check floors" flag (+0x70).
+    void SetCharacterMovement(int slot, float influence, bool dontCheckFloors);
+    // ENTITY.PO_SetFlying (+0x75 bit 3): the tick leaves the velocity alone.
+    void SetCharacterFlying(int slot, bool flying);
+    bool IsCharacterFlying(int slot) const;
+    // PO_IsOnFloor: MonsterFloorCheck's result from the last step.
+    bool CharacterOnFloor(int slot, float normal[3]) const;
+    // GetPawnFloorPos / GetPawnHeadPos: body centre - 5.5k and + 4.5k.
+    bool CharacterFloorPos(int slot, float out[3]) const;
+    bool CharacterHeadPos(int slot, float out[3]) const;
+    // Rotation only, for a body whose position the solver owns.
+    void SetScriptBodyRotation(int slot, const float rotWXYZ[4]);
+    // What a blocked player does to the character in its way: every character
+    // overlapping a sphere of `radius` + a margin at `pos` gets at least
+    // `speed * pusherMass / (pusherMass + its mass)` along `dir`. Stands in
+    // for the contact between two Havok bodies of those masses; the character
+    // tick then decays it.
+    void ShoveCharacters(const float pos[3], float radius, const float dir[3],
+                         float speed, float pusherMass);
     // ENTITY.SetVelocity / GetVelocity. Setting one wakes the body: a
     // projectile is created, given its velocity and expected to fly.
     void SetScriptBodyVelocity(int slot, const float v[3]);
@@ -356,6 +378,13 @@ private:
     void LoadProps(const Level& level, TemplateCache& templates, const std::string& dataRoot);
     // (Re)builds the camera's kinematic body at the current radius.
     void CreateProbe();
+    // PhysicsObject::Tick for every character, once per fixed step.
+    void StepCharacters();
+    // Lifts a character whose stack is under the floor beneath it so it stands
+    // on that floor. Havok's mesh is two-sided and pushes an embedded body out
+    // on its own; Jolt's is one-sided and drops it through. maxLift caps the
+    // correction (a whole placement, or one step's worth).
+    void StandCharacterOnFloor(int slot, float maxLift);
     void CreatePawnProbe();
     // The collidable map geometry as one static body; shared by Load and
     // LoadWorldMesh.
