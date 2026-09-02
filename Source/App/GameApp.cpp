@@ -13,6 +13,7 @@
 #include "Core/AppPaths.h"
 #include "Core/FileSystem.h"
 #include "Core/Log.h"
+#include "Game/Input.h"
 #include "Game/PlayerPawn.h"
 #include "Game/ScriptEngine.h"
 #include "Render/BillboardRenderer.h"
@@ -249,19 +250,74 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
         [&audio](const std::string& name) { audio.Play2D(name, 1.f, false, true); });
     // The words a widget draws for itself, out of the language table.
     engine.menu().SetTextReader([&host](const std::string& key) {
-        return host.GetTextField("TXT", key);
+        return host.GetTextPath("TXT." + key);
     });
 
     // Escape belongs to the menu here, not to the window: see the game loop.
     window.SetEscapeQuits(false);
 
     if (!host.Boot()) return 3;
-    host.CallGameInit();
-    host.CallGameLoadLevel(levelName);
-    // One chunk of Lua after the level is up, for turning on whatever a run is
-    // meant to look at - Cfg.ShowFPS, a spawn, a camera placement.
-    if (exec && exec[0]) host.RunString(exec);
+    // Painkiller.exe boots the scripts with Game:Init(true): no level, the
+    // main menu over an empty world. A named level - what the probes and the
+    // screenshots pass - takes the reports' Game:Init() and goes straight in.
+    const bool noLevel = levelName == nullptr || levelName[0] == '\0';
+    host.CallGameInit(noLevel);
 
+    // The video mode, from config.ini once Cfg is loaded, and again whenever
+    // the Video Options screen applies. PAINFUL_WINDOWED=1 keeps a diagnostic
+    // run out of fullscreen; PAINFUL_RES=WxH overrides the size.
+    engine.SetVideoModeHandler([&window](int w, int h, bool fullscreen) {
+        const char* windowed = getenv("PAINFUL_WINDOWED");
+        window.SetMode(w, h, fullscreen && !(windowed && *windowed && *windowed != '0'));
+    });
+    {
+        int w = 0, h = 0;
+        const std::string res = host.GetTextField("Cfg", "Resolution");
+        bool have = std::sscanf(res.c_str(), "%d%*[xX]%d", &w, &h) == 2 && w > 0 && h > 0;
+        if (const char* over = getenv("PAINFUL_RES"))
+            have = std::sscanf(over, "%d%*[xX]%d", &w, &h) == 2 && w > 0 && h > 0;
+        if (have) {
+            const bool fullscreen = host.GetBoolField("Cfg", "Fullscreen", false);
+            const char* windowed = getenv("PAINFUL_WINDOWED");
+            window.SetMode(w, h, fullscreen && !(windowed && *windowed && *windowed != '0'));
+        }
+    }
+
+    // --- the level session ------------------------------------------------
+    //
+    // Everything from here to the game loop belongs to ONE loaded level and is
+    // rebuilt when the scripts load another: the map's renderer and sky, the
+    // corona collision, the camera seat, the fog. The original does the same
+    // inside Game:LoadLevel - Game:Clear drops the old level, WORLD.LoadMap
+    // brings the new map in - and the menu's map screen asks for a level at
+    // any time, so this is a pair of functions rather than a one-off at boot.
+    LevelInfo info;
+    WorldRenderer world;
+    const bool worldInit = world.Init(shaderDir);
+    bool worldReady = false;
+    SkyRenderer sky;
+    const bool skyInit = sky.Init(shaderDir);
+    bool skyReady = false;
+    CollisionMesh collision;
+    MapMesh fallbackMap;
+    Camera camera;
+    if (const char* n = getenv("PAINFUL_NEAR")) camera.nearPlane = float(atof(n));
+    std::string currentLevel;
+    bool levelUp = false;
+
+    auto tearDown = [&]() {
+        if (!levelUp) return;
+        world.Clear();
+        sky.Unload();
+        collision = CollisionMesh();
+        fallbackMap = MapMesh();
+        worldReady = skyReady = false;
+        levelUp = false;
+        currentLevel.clear();
+        renderer.SetClearColor(0.f, 0.f, 0.f);
+    };
+
+    auto bringUp = [&](const std::string& levelName) {
     // Let the props settle before the first frame, the same fixed steps the
     // hand-driven path takes, and draw them where they came to rest - all of
     // them, because settled means asleep and asleep is what the per-frame
@@ -319,7 +375,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 
     // Turn the recorded WORLD.* state into renderer state.
     const ScriptEngine::WorldState& ws = engine.world();
-    LevelInfo info;
+    info = LevelInfo();
     info.scale = ws.scale;
     info.overbright = ws.overbright;
     info.fogMode = ws.fogMode;
@@ -344,43 +400,35 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 
     // The map mesh was loaded by the WORLD.LoadMap native (physics needed it
     // mid-level-load); the renderer reuses the same copy.
-    MapMesh fallbackMap;
     const MapMesh* map = engine.map();
-    WorldRenderer world;
-    bool worldReady = false;
     if (!map && ws.loadRequested) {
         const std::string mapPath = host.ResolvePath(ws.mapPath);
         if (MapMesh::Load(mapPath, fallbackMap)) map = &fallbackMap;
         else LogWarn("map failed: %s (%s)", mapPath.c_str(), fallbackMap.error.c_str());
     }
     if (map) {
-        if (world.Init(shaderDir)) {
+        if (worldInit) {
             world.Upload(*map, textures, MapNameWithoutExtension(info.mapFile), info,
                          &shaderScripts, /*skipActiveMeshes=*/true);
             worldReady = true;
         }
     } else if (!ws.loadRequested) {
-        LogWarn("the scripts never asked for a map - is '%s' a level?", levelName);
+        LogWarn("the scripts never asked for a map - is '%s' a level?", levelName.c_str());
     }
 
-    SkyRenderer sky;
-    bool skyReady = false;
-    if (sky.Init(shaderDir)) skyReady = sky.Load(root + "/Maps", info, textures);
+    if (skyInit) skyReady = sky.Load(root + "/Maps", info, textures);
     LogInfo("sky: %s (dome '%s', %d layers, lowq '%s')",
             skyReady ? (sky.layered() ? "layered" : "lowquality") : "none",
             ws.skyDomeMap.c_str(), ws.skyLayerCount, ws.skyMap.c_str());
 
     // Corona line-of-sight traces run against the same solid geometry the
     // world is drawn from.
-    CollisionMesh collision;
     if (map) collision.Build(*map, ws.scale);
 
     // The pose the level pushed out through CAM.SetPos/SetAng during load,
     // captured at the play transition above. Reading Lev.Pos here instead
     // would be too late: the mouse is locked by now, so CLevel:Synchronize
     // has started writing the camera INTO Lev.Pos rather than out of it.
-    Camera camera;
-    if (const char* n = getenv("PAINFUL_NEAR")) camera.nearPlane = float(atof(n));
     if (seated) {
         for (int i = 0; i < 3; ++i) camera.pos[i] = seatPos[i];
         camera.yaw = seatYaw;
@@ -390,9 +438,53 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
     if (info.fogMode != 0)
         renderer.SetClearColor(info.fogColor[0] / 255.f, info.fogColor[1] / 255.f,
                                info.fogColor[2] / 255.f);
+    else
+        renderer.SetClearColor(0.f, 0.f, 0.f);
 
     LogInfo("script world: map %s scale %.2f, %zu entities live",
             info.mapFile.c_str(), info.scale, engine.entities().size());
+        currentLevel = levelName;
+        levelUp = true;
+    };
+
+    // The one frame the loading screen gets. The load is synchronous, so the
+    // original's progress bar (LoadingProgress, Menu_RenderLoadingScreen)
+    // would need the renderer re-entered from inside a native; the art and
+    // the sketch stand still instead.
+    HudRenderer::Material loadingArt = 0, loadingSketch = 0;
+    auto presentLoading = [&](const std::string& name, const std::string& sketch) {
+        if (!hudReady) return;
+        if (loadingArt <= 0)
+            loadingArt = hud.CreateMaterial("HUD/loading/loading", textures, root + "/Textures");
+        if (loadingSketch > 0) hud.ReleaseMaterial(loadingSketch);
+        loadingSketch = sketch.empty() ? 0 : hud.CreateMaterial(sketch, textures, root + "/Textures");
+        const float w = float(window.width()), h = float(window.height());
+        const float sx = w / 1024.f, sy = h / 768.f;
+        renderer.BeginFrame();
+        hud.Begin(Renderer::kHudView, window.width(), window.height());
+        if (loadingArt > 0) hud.Quad(loadingArt, 0.f, 0.f, w, h, 0xffffffffu);
+        if (loadingSketch > 0)
+            hud.Quad(loadingSketch, (512.f - 128.f) * sx, 160.f * sy, 256.f * sx, 256.f * sy,
+                     0xffffffffu);
+        const int size = int(std::lround(34.0 * sy));
+        const float tw = hud.TextWidth("timesbd", size, name);
+        hud.Text("timesbd", size, (w - tw) * 0.5f, 440.f * sy, name, 0xff60c0e8u);
+        hud.End();
+        renderer.EndFrame();
+    };
+
+    // Boot: a named level goes straight to play; none is the original's own
+    // start, with the main menu up and the map loading whatever is chosen.
+    if (!noLevel) {
+        host.CallGameLoadLevel(levelName);
+        // One chunk of Lua after the level is up, for turning on whatever a
+        // run is meant to look at - Cfg.ShowFPS, a spawn, a camera placement.
+        if (exec && exec[0]) host.RunString(exec);
+        bringUp(levelName);
+    } else {
+        if (exec && exec[0]) host.RunString(exec);
+        engine.menu().Open();
+    }
 
     auto previous = std::chrono::steady_clock::now();
     const auto startTime = previous;
@@ -402,6 +494,25 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
         if (window.TakeResized()) {
             renderer.Resize(window.width(), window.height());
             engine.SetScreenSize(window.width(), window.height());
+        }
+        // A level chosen on the map screen. Loaded here, at the top of a
+        // frame, rather than inside the menu's action: the load tears down
+        // the world the frame that requested it was still drawing.
+        {
+            std::string nextDir, nextName, nextSketch;
+            if (engine.menu().TakePendingLevel(nextDir, nextName, nextSketch)) {
+                presentLoading(nextName, nextSketch);
+                tearDown();
+                // A level LOADS UNLOCKED: CLevel:Synchronize pushes Lev.Pos out
+                // through the camera only while the mouse is free, and pulls
+                // our camera INTO Lev.Pos otherwise.
+                engine.SetMouseLocked(false);
+                host.RunString("Game:LoadLevel('" + nextDir + "')");
+                bringUp(nextDir);
+                engine.menu().Close();
+                previous = std::chrono::steady_clock::now();
+                continue;
+            }
         }
         const auto now = std::chrono::steady_clock::now();
         const float dt = std::chrono::duration<float>(now - previous).count();
@@ -589,8 +700,16 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
         // ships as "None" - so the key belongs to the engine, and the scripts
         // only observe the transition through those two hooks.
         if (window.TakeEscape()) {
-            if (engine.menu().active()) engine.menu().Close();
-            else engine.menu().Open();
+            if (engine.menu().active()) {
+                // On the map, Escape is "back to the main menu"; in a key
+                // capture it keeps the old key; with no level loaded there is
+                // nothing to close the menu onto.
+                if (engine.menu().capturing()) engine.menu().KeyPressed(27);
+                else if (engine.menu().mapMode()) engine.menu().Back();
+                else if (levelUp) engine.menu().Close();
+            } else if (levelUp) {
+                engine.menu().Open();
+            }
         }
 
         // Who owns the mouse. Playing means captured, so the view steers the
@@ -618,7 +737,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
             const int navKeys[5] = {0x26, 0x28, 0x0D, 0x25, 0x27};
             for (int i = 0; i < 5; ++i) {
                 const bool down = vk[navKeys[i]];
-                if (down && !navHeld[i]) {
+                // A key capture takes every key, the navigation ones too.
+                if (down && !navHeld[i] && !engine.menu().capturing()) {
                     if (i == 0) engine.menu().NavUp();
                     else if (i == 1) engine.menu().NavDown();
                     else if (i == 2) engine.menu().NavActivate();
@@ -632,11 +752,30 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
             // seat it on the first row so the keyboard works immediately.
             engine.menu().FocusFirst();
             engine.menu().Update(window.mouseX(), window.mouseY(), window.TakeLeftClick());
+            // Every key and mouse-button edge, for a key capture. After Update
+            // so the click that opened one is not also the key it binds.
+            {
+                static bool anyHeld[Input::kKeyCount] = {};
+                for (int k = 1; k < Input::kKeyCount; ++k) {
+                    const bool down = vk[k];
+                    if (down && !anyHeld[k] && engine.menu().capturing())
+                        engine.menu().KeyPressed(k);
+                    anyHeld[k] = down;
+                }
+            }
             engine.menu().Draw(window.width(), window.height());
         }
         host.CallGlobal("Game_GC", nullptr, 0);
         // Entities the scripts spawned this frame get their renderer slots.
         engine.FlushToRenderer();
+
+        // Cfg.FOV is a horizontal angle; the projection wants the vertical
+        // one for this window's aspect.
+        {
+            const float aspect = window.height() > 0 ? float(window.width()) / float(window.height()) : 1.f;
+            const float half = engine.cameraFov() * 0.5f * 3.14159265f / 180.f;
+            camera.fovDegrees = 2.f * std::atan(std::tan(half) / aspect) * 180.f / 3.14159265f;
+        }
 
         renderer.BeginFrame();
         if (skyReady)
@@ -778,10 +917,13 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 
         if (hudReady) hud.End();
 
+        // PAINFUL_QUIET drops the overlay, for captures of the menu's top edge.
+        if (!getenv("PAINFUL_QUIET")) {
         renderer.DebugText(1, "PainfulEngine (script-driven)  -  %s  -  %.1f fps",
                            renderer.BackendName().c_str(), dt > 0.f ? 1.f / dt : 0.f);
         renderer.DebugText(2, "%s   map %s   %zu script entities (%zu created, %zu released)",
-                           levelName, info.mapFile.c_str(), engine.entities().size(),
+                           levelUp ? currentLevel.c_str() : "(menu)", info.mapFile.c_str(),
+                           engine.entities().size(),
                            engine.created(), engine.released());
         renderer.DebugText(7, "hud: %s, %zu quads in %zu draws, %zu fonts baked",
                            hudReady ? "on" : "OFF", hud.quadsThisFrame(), hud.drawCalls(),
@@ -819,6 +961,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
                                ? "   |   green awake, yellow asleep, magenta script, "
                                  "red non-colliding, GREEN BOX = no physics body"
                                : "");
+        }
         renderer.EndFrame();
 
         if (!shotPath.empty()) {

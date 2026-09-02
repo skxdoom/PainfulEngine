@@ -90,6 +90,10 @@ public:
     int  height() const { return height_; }
     // True for one poll after the window changed size.
     bool TakeResized();
+    // Cfg.Resolution / Cfg.Fullscreen, at boot and from the Video Options
+    // screen. Fullscreen takes the display's closest real mode; windowed
+    // resizes in place. The size change comes back through TakeResized.
+    void SetMode(int width, int height, bool fullscreen);
 
 private:
     SDL_Window* window_ = nullptr;

@@ -130,6 +130,9 @@ int ScriptEngine::L_WORLD_LoadMap(lua_State* L) {
     // With physics attached the static world is built HERE, synchronously:
     // the entity bodies follow through PO_Create later in this same level
     // load, and they need something to rest on.
+    // A map was already up: this is a level switch, and the scripts have just
+    // released their own entities in Game:Clear. Drop what is ours.
+    if (self->mapLoaded_) self->ResetLevelState();
     self->mapLoaded_ = false;
     if (self->physics_ && self->world_.loadRequested) {
         const std::string path = self->host_->ResolvePath(self->world_.mapPath);
@@ -150,6 +153,22 @@ int ScriptEngine::L_WORLD_LoadMap(lua_State* L) {
         }
     }
     return 0;
+}
+
+void ScriptEngine::ResetLevelState() {
+    // The active meshes are entities the ENGINE made from the map's `phys`
+    // objects (CreateActiveMeshes); GObjects:Clear never sees them.
+    std::vector<int> engineOwned;
+    for (const auto& kv : entities_)
+        if (kv.second.worldObject) engineOwned.push_back(kv.first);
+    for (int handle : engineOwned) ReleaseEntity(handle);
+    water_.clear();
+    lastExploded_.clear();
+    contactVelocity_.clear();
+    excludedSlots_.clear();
+    if (playerHandle_ && Find(playerHandle_) == nullptr) playerHandle_ = 0;
+    LogInfo("level switch: %zu engine entities dropped, %zu script entities still live",
+            engineOwned.size(), entities_.size());
 }
 
 // WORLD.Init(activeMeshesMassScale, defaultMeshFriction,

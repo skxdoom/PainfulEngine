@@ -113,7 +113,7 @@ public:
         TakeMouseDelta(dx, dy);
         const float k = sensitivity_ * kDegreesPerPixel;
         dx *= k;
-        dy *= k;
+        dy *= invert_ ? -k : k;
     }
 
     // INP.LoadBindings(): the bindings live in the scripts' own Cfg table as
@@ -144,6 +144,18 @@ public:
     // "Left Mouse Button" -> 1, "Space" -> 32, "None" -> 0. The names are
     // the engine's own, recovered from its key-name table in Engine.dll.
     static int VirtualKeyForEngName(const std::string& name);
+    // ...and back: 1 -> "Left Mouse Button", 65 -> "A". Empty for a code the
+    // table has no name for, which the key capture treats as "not a key".
+    static std::string EngNameForVirtualKey(int vk);
+    // INP.GetShortNameByEngName: the abbreviation the HUD shows, "LMB" for
+    // "Left Mouse Button". Anything without one is its own short name.
+    static std::string ShortNameForEngName(const std::string& name);
+
+    // MOUSE.SetInverse: Cfg.InvertMouse, the vertical axis reversed. Applied
+    // to the look deltas the scripts read, so it reaches the view through the
+    // same path as the sensitivity.
+    void SetInvert(bool on) { invert_ = on; }
+    bool invert() const { return invert_; }
 
 private:
     struct Bind {
@@ -157,6 +169,7 @@ private:
     float mouseDx_ = 0.f, mouseDy_ = 0.f;
     float mouseX_ = 0.f, mouseY_ = 0.f;
     float sensitivity_ = 40.f;   // Cfg.MouseSensitivity's shipped value
+    bool invert_ = false;        // Cfg.InvertMouse
 
     std::vector<Bind> actionBinds_;
     std::vector<Bind> uiBinds_;

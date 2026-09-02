@@ -67,9 +67,21 @@ bool TextureCache::Init(const std::string& texturesRoot, bool createWhite) {
         std::string base = Lower(p.stem().string());
         std::string full = texturesRoot + "/" + relOrig;
 
-        // .dds wins when several formats share a name - it is what shipped.
-        if (ext == ".dds" || index_.find(noExt) == index_.end()) index_[noExt] = full;
-        if (ext == ".dds" || index_.find(base) == index_.end()) index_[base] = full;
+        // When several formats share a name: .dds wins - it is what shipped -
+        // then .tga, then .bmp. HUD/ChkChecked ships as a .tga (the red tick,
+        // 40x37) beside a .bmp that is a 16-pixel Windows icon; a directory
+        // listing hands the .bmp over first, and first-seen would draw the
+        // icon.
+        const auto rank = [](const std::string& e) {
+            return e == ".dds" ? 3 : e == ".tga" ? 2 : 1;
+        };
+        const auto better = [&](const std::string& key) {
+            const auto it = index_.find(key);
+            if (it == index_.end()) return true;
+            return rank(ext) > rank(Lower(fs::path(it->second).extension().string()));
+        };
+        if (better(noExt)) index_[noExt] = full;
+        if (better(base)) index_[base] = full;
     }
     return true;
 }

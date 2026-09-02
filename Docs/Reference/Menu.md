@@ -279,18 +279,171 @@ wrong for an avoidable reason: the probe output was truncated at 14 lines and
 the `false` calls all come later. Measuring and then reading only the head of
 the measurement is worse than not measuring, because it looks like evidence.)
 
-### Stage 4 - campaign flow
+### Stage 4 - campaign flow — **done, the map as a stand-in layout**
 
-The level map and board (`SwitchToMap`, `ActivateMap`, `AddLevelToMap`,
-`MapSetCurrLevel`, `MapNextLevel`), and the loading screen
-(`ActivateLoadingScreen`, `LoadingProgress`, `SetLoadingScreenOverall`,
-`SetProgressIcon`).
+Landed 2026-09-02. Three facts from the binaries set the shape:
+
+- **The original boots with no level.** Painkiller.exe calls `Game:Init(true)`
+  (the string is in the exe; the reports' `Game:Init()` makes the empty
+  "NoName" level instead), and Engine.dll then runs
+  `PainMenu:ActivateScreen(MainMenu)` itself. `PainfulEngine.exe` with no
+  level does the same; a named level goes straight in, for the probes.
+- **The map is engine UI.** `PMENU.SwitchToMap` / `ActivateMap`
+  (0x10074930 / 0x10074880) are one call, `EngineGame::SwitchMapSelect`. The
+  engine clears the screen, calls `Levels_FillMap()` back into Lua - which
+  declares every level through `PMENU.AddLevelToMap(chapter, dir, name,
+  sketch, cardCondition, cardIndex, status)`, status 0 unavailable, 1 current,
+  2 finished, 3 locked - and takes the screen over. Choosing a level runs
+  `Game:LoadLevel('<dir>')` (the format string is in Painkiller.exe) and
+  `Game:OnPlay`.
+- **A level switch is a session.** `Game:LoadLevel` runs `Game:Clear` (the
+  scripts release their own entities) and then `WORLD.LoadMap`, so the app's
+  world renderer, sky, corona collision and camera seat are a pair of
+  functions - tear down, bring up - rather than a one-off at boot, and
+  `WORLD.LoadMap` drops what the scripts never see: the engine-made
+  active-mesh entities and the water (`ScriptEngine::ResetLevelState`). The
+  load is deferred to the top of the next frame, since the menu action that
+  asks for it is running over the world it will tear down; a level also has to
+  load with the mouse UNLOCKED, or `CLevel:Synchronize` pulls our camera into
+  `Lev.Pos` instead of pushing the level's seat out.
+
+**The map's layout is measured off a capture of the original, not read out
+of `MapSelect`'s renderer.** The dial at the left is the chapter selector: the
+five `klawisz1..5` files are the pentagram's wedges with their Roman numerals
+baked in (each cut to its own size: 178x106, 77x136, 125x92, 132x109, 89x140),
+drawn clean, glowing under the pointer, and pressed-red for the chapter on
+show, centred a hundred units from the dial's centre at (270,278) on the five
+points clockwise from the top. The arched `okienko` plate sits on the ring's
+top with the `cyferka` digit in its cutout. The `krysztal` crystal in the
+centre is the button that starts the level - lit when it can be played,
+brighter under the pointer, dark when locked - and the arrows either side of
+the plate, part of the map's own art, are previous and next level. The black
+panel at the upper right takes the level's sketch: a parchment scrap centred
+on a transparent 512-square, drawn 450 units wide over the panel's centre so
+the scrap spans the window. The info panel at the bottom left is a menu
+BORDER, not a map texture, reading "Chapter N / Level N / name" with the name
+in red. `pentagra_czysty` sits bottom right. Not placed yet: the `karta*`
+tarot card of the level's reward.
+
+The loading screen is one frame - the `HUD/loading/loading` art, the sketch
+and the name - drawn before the load. The original's progress bar
+(`LoadingProgress`, `Menu_RenderLoadingScreen`) would need the renderer
+re-entered from inside a native; the load is synchronous and short.
+
+**Diagnostics:** `PAINFUL_MAP_PICK=<dir>` chooses a level the moment the map
+opens, so `game <root> "" --exec ... --shot` drives menu → difficulty → map →
+level without a hand on the mouse (the exec chunk must hook `Game_Render`,
+not `Game_Tick`: the menu pauses the tick chain).
+
+### The widgets, from the shipped art
+
+Compared against captures of the original screens, 2026-09-02:
+
+- **Plates** (`EnableItemBG "blaszka"`) go under EVERY row that asked for one
+  - the shipped Options screen shows five - not only the focused one, at the
+  art's proportions: `blaszka_lewa` / `_prawa` are 110 x 114, so a cap is
+  110/114 of the plate's height, and the plate stands 67 authoring units tall
+  on the 80-unit row pitch, centred on the text, spanning the menu box less
+  84 units each side (the original's is 553 wide in a 720-unit box).
+  `MaterialSize` can report a padded texture size, which is what stretched
+  the caps before; the files' own numbers are used.
+- **Sliders** are the LARGE `HUD/border` set: `strzalka_duza` points right
+  (mirrored for the left end), `kreska_duza` tiles the line, `dzwigienka_duza`
+  is the upright knob. The value is right-aligned to `menuLeft +
+  sliderCtrlWidth` (AddSlider's ninth argument, 700 by default), the bar of
+  `sliderWidth` ends an arrow and a value-slot short of it; a row with its
+  own x lays the bar after its label. A float slider holds its value times
+  100 (`PainMenu:AddItem` scales it up, `ApplySlider` back down) and shows it
+  divided - Gamma reads 1.00, not 100.00.
+- **Checkboxes** sit before the label with no On/Off word. `HUD/ChkChecked.tga`
+  (40 x 37) is the red diamond tick ALONE on transparency and `ChkUnchecked`
+  is empty; the bevelled box under them is drawn as a dark fill with a rim in
+  the item's colour. The `.bmp` beside the `.tga` is a 16-pixel Windows icon,
+  which is why the texture index now prefers `.dds`, then `.tga`, then `.bmp`
+  when a name ships in several formats.
+- **Plates** repeat `blaszka_centrum` (103 x 114) at the plate's scale
+  between the caps rather than stretching it; **slider** spearheads point
+  INTO the line.
+- **Tab groups** (`AddTabGroup`) draw a 180 x 52 tab box ten units in from
+  the group's x and eight down, the next 172 along, over a panel that starts
+  fifty units below the group's y: VideoOptions' group at (122,70) 776x560
+  puts its panel from y 120 to 630, and ControlsConfig declares the same
+  panel as an explicit `EmptyBorder` at y 110. Every group's tab box shows;
+  only the visible group's panel. The tab LABELS are ordinary rows the script
+  places itself, dropping the inactive one eight units.
+- **The list scroller** is the SMALL set: `strzalka_mala` points down (flipped
+  for the top), `kreska_mala` is vertical line, `dzwigienka_mala` the thumb.
+- `PainMenu_PrintGameVersion()` is run every menu frame, as the engine does,
+  for the "Version: 1.64" at the top right.
+- `PAINFUL_QUIET=1` drops the debug overlay for captures of a screen's top.
+
+### The key table (ControlsConfig) — **done**
+
+`PMENU.AddKeyControl(name, label, primaryOption, alternativeOption,
+primaryText, alternativeText [, primaryKey, alternativeKey])` (0x100764c0,
+eight strings) declares one action's row and `SetKeyItemIndex` places it,
+index 0 being the disabled header row. The rows carry no position: they are a
+TABLE inside the border the script names `KeyBorder` - (50,110), 924 x 410, a
+50-high header band, three columns of 328 / 308 / 308 authoring units - the
+label left in its column, the two keys CENTRED in theirs, the header row
+centred throughout, 27 units a row so thirteen of the fourteen show (the
+original's count) and the rest scroll as the focus moves, with the scroller
+drawn beside the table.
+
+Choosing a row opens a capture; the next key or mouse button pressed lands in
+the column the pointer (or left / right) picked, Escape keeps the old key,
+Backspace and Delete bind `None`, and a key already bound elsewhere moves
+(`MenuScreen::IsKeyInUse`). The engine's own `PainMenu:AfterControlChange(name)`
+hook runs after each change. `GetPrimaryKey` / `GetAlternateKey` hand the
+engine key names back to `PainMenu:ApplyControlConfig`, which writes `Cfg`,
+and `ApplyControlSettings` runs `INP.LoadBindings` and `Cfg:Save` - the
+original's own path from a rebind to config.ini.
+
+Two things the script does on this screen are traps: the border is tied to its
+scroller through `SetBorderScroller` OR `SetScrollerForBorder`, chosen by
+`math.random(40) == 12`, and each must RETURN a different one of its arguments
+(the border's name, the scroller's name) or the script bounces to the main
+menu - it reads as a tamper check.
+
+`INP.GetKeyNameByEngName` answers the engine name itself (the per-language
+table is the same strings in English); `GetShortNameByEngName` is the HUD's
+abbreviation table ("LMB", "RCtrl", "WheelFwd").
+
+### config.ini: read and written in the same place
+
+`Cfg:Save` writes `config.ini` through `io.open`, and the plain library opens
+that against the PROCESS working directory - while `Cfg:Load` reads it through
+`DoFile`, which the host resolves against the executable's directory. Launched
+from anywhere but `Bin/`, every setting the menu applied was saved to a copy
+elsewhere and gone by the next start. `io.open` now resolves a bare path the
+same way (`LuaHost::IoOpenResolved`). Verified: the Controls screen's apply
+rewrites `Bin/config.ini` byte-identical when nothing changed, and nothing
+appears in the working directory.
+
+What of `Cfg` reaches the engine: the key bindings (`INP.LoadBindings`),
+`MouseSensitivity` and `InvertMouse` (`MOUSE.SetSensitivity` / `SetInverse`),
+the volumes (`SOUND.ApplySoundSettings`), `FOV` (`R3D.SetCameraFOV`, held as
+the HORIZONTAL angle - the shipped config's 115 on a 3440x1440 display is a
+horizontal figure - and turned into the vertical one for the window's aspect
+each frame), `Resolution` and `Fullscreen` (`R3D.ApplyVideoSettings` and at
+boot, `Window::SetMode`; `PAINFUL_WINDOWED=1` and `PAINFUL_RES=WxH` override
+a diagnostic run), `Language`, and the HUD's own fields, which the HUD scripts
+read directly. Recorded but not yet honoured: `SmoothMouse`,
+`WheelSensitivity`, gamma / brightness / contrast, and the render toggles
+(shadows, texture quality and filtering, coronas, decals, dynamic lights,
+weather) - each waits for the feature it names.
 
 ### Deferred
 
 Multiplayer and the server browser (~20 natives, and there is no networking
-layer to sit under them), movies (`PlayMovie` is Bink), and the CD-key and
-registry-bonus DRM.
+layer to sit under them), movies (`PlayMovie` is Bink - it answers false at
+once and the callers carry on), the CD-key and registry-bonus DRM, the credits
+roll (`ShowCredits`), and the save / load lists (`AddLoadSave`,
+`AddSaveGameToList`, `GetSelectedSGSlot`) which wait on `WORLD.SaveGame` /
+`LoadGame` themselves. Also still stubs on the options screens: the weapon
+priority lists (`AddList` / `MoveListItemUp` / `Down` / `GetListItems`),
+`SetStaticTextRect`, `AddImageButton*`, `AddSliderImage`, `AddNumEdit`,
+`AddPassword`.
 
 ## Three things play-testing found
 
@@ -332,19 +485,17 @@ it as a second texture stage alongside the glyph atlas.
 
 Two things about it are not guessable:
 
-**It is `MODULATE2X` - the product, DOUBLED.** This took two wrong turns worth
-recording. A plain modulate leaves the rows a muddy brown that vanishes into
-the art: the pattern is a warm gold near `230, 170, 120` and the rows are
-authored `RGBA(100, 100, 100)`. Treating the pattern as the colour source and
-the item colour as alpha-only looks right on the main menu - and is wrong,
-because it throws the hue away. `PainMenu` defaults `underMouseColor` to
-`RGBA(166, 3, 3)`, a RED that has to survive as a colour, which is why the
-hovered row was never turning red.
-
-Doubling makes all three states land, and the authored numbers are what say
-so: they sit near half scale, which is the signature of that fixed-function
-op. Gold for a normal row (`0.90 x 0.39 x 2`), bright red under the pointer
-(`0.65 x 0.90 x 2` clamps), washed out for a disabled one at 155.
+**It is a plain MODULATE - pattern times colour, not doubled.** This took
+three turns. A plain modulate looked like "a muddy brown that vanishes into
+the art", so the blend was doubled (`MODULATE2X`), argued from the authored
+numbers sitting near half scale: gold rows, bright red under the pointer.
+Captures of the original settled it the other way (2026-09-02): on the bronze
+plates the rows ARE a dark bronze-brown, and the hovered row a dark red - the
+gold pattern near `230, 170, 120` times `RGBA(100, 100, 100)`, and times
+`RGBA(166, 3, 3)` under the pointer, undoubled. The earlier judgement was made
+with no plates under the rows; on the plates, dark is the look. Treating the
+pattern as the colour source and the item colour as alpha-only remains wrong
+for the same reason as before: it throws the red away.
 
 **It is sampled in screen space, not with the glyph's atlas UVs.** The original
 can use its own atlas coordinates because its font texture was authored against

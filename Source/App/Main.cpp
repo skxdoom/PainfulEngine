@@ -17,8 +17,8 @@ using namespace painful;
 
 static int Usage() {
     LogInfo("PainfulEngine\n");
-    LogInfo("  PainfulEngine                                 find the game data and play");
-    LogInfo("  PainfulEngine game <DataRoot> [level] [flags]  play a named level");
+    LogInfo("  PainfulEngine                                 find the game data, open the menu");
+    LogInfo("  PainfulEngine game <DataRoot> [level] [flags]  play a named level (none: the menu)");
     LogInfo("");
     LogInfo("  flags: --shot <file>   capture one frame to a .tga and exit");
     LogInfo("         --exec <lua>    run a Lua chunk once the world is up");
@@ -37,13 +37,9 @@ static int DefaultRun(const char* exePath) {
         return 2;
     }
     MountRoot(root.c_str());
-    std::string level = "C1L1_Cathedral";
-    if (!FileSystem::Get().IsDirectory(root + "/Levels/" + level)) {
-        for (const DirEntry& entry : FileSystem::Get().List(root + "/Levels")) {
-            if (entry.isDirectory) { level = entry.name; break; }
-        }
-    }
-    return GameCmd(root.c_str(), level.c_str(), exePath, "", nullptr);
+    // No level: the original's own start. Game:Init(true), the main menu up
+    // over an empty world, and the map screen loads whatever is chosen.
+    return GameCmd(root.c_str(), "", exePath, "", nullptr);
 }
 
 int main(int argc, char** argv) {
@@ -58,7 +54,9 @@ int main(int argc, char** argv) {
         if (arg == "--shot" && i + 1 < argc) shot = argv[++i];
         else if (arg == "--exec" && i + 1 < argc) exec = argv[++i];
     }
-    return GameCmd(argv[2], argc >= 4 ? argv[3] : "C1L1_Cathedral", argv[0], shot, exec);
+    // `game <root>` alone boots to the menu like a plain launch; a level name
+    // goes straight into it, which is what the probes and the screenshots use.
+    return GameCmd(argv[2], argc >= 4 ? argv[3] : "", argv[0], shot, exec);
 }
 
 #ifdef _WIN32

@@ -23,6 +23,22 @@ namespace {
 // Registry key under which the host pointer is stored, so lua_CFunctions can
 // find their way back without globals.
 const char* const kHostKey = "painful.host";
+const char* const kIoOpenKey = "painful.io.open";
+
+// io.open with the path put through LuaHost::ResolvePath first, so a bare
+// "config.ini" lands beside the executable whatever the working directory.
+int IoOpenResolved(lua_State* L) {
+    LuaHost* host = LuaHost::FromState(L);
+    const char* name = luaL_checkstring(L, 1);
+    const std::string resolved = host ? host->ResolvePath(name) : std::string(name);
+    const int nargs = lua_gettop(L);
+    lua_pushstring(L, kIoOpenKey);
+    lua_gettable(L, LUA_REGISTRYINDEX);
+    lua_pushstring(L, resolved.c_str());
+    for (int i = 2; i <= nargs; ++i) lua_pushvalue(L, i);
+    lua_call(L, nargs, LUA_MULTRET);
+    return lua_gettop(L) - nargs;
+}
 
 bool StartsWithCI(const std::string& s, const char* prefix) {
     size_t n = 0;
@@ -93,6 +109,24 @@ bool LuaHost::Init(const std::string& dataRoot) {
     luaopen_debug(L_);
     StashTraceback(L_);
     lua_settop(L_, 0);
+
+    // io.open resolves a bare path the way DoFile does. Cfg:Save writes
+    // "config.ini" through io.open, and the plain library opens that against
+    // the PROCESS working directory - so a launch from anywhere but Bin/ read
+    // Bin/config.ini and then saved a copy somewhere else, and every setting
+    // the menu applied was lost by the next start. Same rule both ways now.
+    lua_getglobal(L_, "io");
+    if (lua_istable(L_, -1)) {
+        lua_pushstring(L_, "open");
+        lua_gettable(L_, -2);                       // io, io.open
+        lua_pushstring(L_, kIoOpenKey);
+        lua_insert(L_, -2);                         // io, key, io.open
+        lua_settable(L_, LUA_REGISTRYINDEX);        // registry[key] = io.open
+        lua_pushstring(L_, "open");
+        lua_pushcfunction(L_, IoOpenResolved);
+        lua_settable(L_, -3);                       // io.open = ours
+    }
+    lua_pop(L_, 1);
 
     lua_pushstring(L_, kHostKey);
     lua_pushlightuserdata(L_, this);
@@ -192,6 +226,48 @@ bool LuaHost::Boot() {
     return DoFile("../Data/LScripts/Loader.lua");
 }
 
+std::string LuaHost::GetTextPath(const std::string& path) const {
+    if (!L_) return {};
+    size_t start = 0;
+    bool first = true;
+    while (start <= path.size()) {
+        const size_t dot = path.find('.', start);
+        const std::string part = path.substr(start, dot == std::string::npos ? std::string::npos
+                                                                               : dot - start);
+        if (first) {
+            lua_getglobal(L_, part.c_str());
+            first = false;
+        } else {
+            if (!lua_istable(L_, -1)) { lua_pop(L_, 1); return {}; }
+            lua_pushlstring(L_, part.data(), part.size());
+            lua_gettable(L_, -2);
+            lua_remove(L_, -2);
+        }
+        if (dot == std::string::npos) break;
+        start = dot + 1;
+    }
+    const char* s = lua_tostring(L_, -1);
+    std::string out = s ? s : "";
+    lua_pop(L_, 1);
+    return out;
+}
+
+bool LuaHost::GetBoolField(const char* table, const std::string& field, bool fallback) const {
+    if (!L_) return fallback;
+    lua_getglobal(L_, table);
+    if (!lua_istable(L_, -1)) {
+        lua_pop(L_, 1);
+        return fallback;
+    }
+    lua_pushlstring(L_, field.data(), field.size());
+    lua_gettable(L_, -2);
+    bool out = fallback;
+    if (lua_isboolean(L_, -1)) out = lua_toboolean(L_, -1) != 0;
+    else if (lua_isnumber(L_, -1)) out = lua_tonumber(L_, -1) != 0;
+    lua_pop(L_, 2);
+    return out;
+}
+
 std::string LuaHost::GetTextField(const char* table, const std::string& field) const {
     if (!L_) return {};
     lua_getglobal(L_, table);
@@ -276,7 +352,28 @@ bool LuaHost::CallGameMethod(const char* method, const char* stringArg) {
     return true;
 }
 
-bool LuaHost::CallGameInit() { return CallGameMethod("Init", nullptr); }
+// Game:Init(nolevel). Painkiller.exe calls `Game:Init(true)` - no level, the
+// menu comes up over an empty world - and the reports call `Game:Init()`,
+// which makes the empty "NoName" level so a scripted load has a Lev.
+bool LuaHost::CallGameInit(bool noLevel) {
+    if (!noLevel) return CallGameMethod("Init", nullptr);
+    lua_pushcfunction(L_, Traceback);
+    lua_getglobal(L_, "Game");
+    if (!lua_istable(L_, -1)) { lua_pop(L_, 2); return false; }
+    lua_pushstring(L_, "Init");
+    lua_gettable(L_, -2);
+    if (!lua_isfunction(L_, -1)) { lua_pop(L_, 3); return false; }
+    lua_insert(L_, -2);
+    lua_pushboolean(L_, 1);
+    if (lua_pcall(L_, 2, 0, -4) != 0) {
+        LogWarn("Game:Init(true): %s", lua_tostring(L_, -1));
+        lua_pop(L_, 2);
+        ++scriptErrors_;
+        return false;
+    }
+    lua_pop(L_, 1);
+    return true;
+}
 
 bool LuaHost::CallGameLoadLevel(const std::string& levelName) {
     return CallGameMethod("LoadLevel", levelName.c_str());

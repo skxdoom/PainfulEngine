@@ -418,6 +418,19 @@ public:
     void SetResolutions(std::vector<std::string> modes) {
         resolutions_ = std::move(modes);
     }
+    // R3D.ApplyVideoSettings(resolution, fullscreen, ...): the app owns the
+    // window, so the mode change is handed out. Cfg.Resolution is "WxH".
+    void SetVideoModeHandler(std::function<void(int, int, bool)> handler) {
+        setVideoMode_ = std::move(handler);
+    }
+    // R3D.SetCameraFOV / GetCameraFOV: Cfg.FOV, the HORIZONTAL field of view
+    // in degrees (Game:Init applies it; PainMenu:OpenMenu sets 90 for the
+    // menu and restores it). The app derives the vertical angle for the
+    // window's aspect each frame.
+    float cameraFov() const { return cameraFov_; }
+    static int L_R3D_SetCameraFOV(lua_State* L);
+    static int L_R3D_GetCameraFOV(lua_State* L);
+    static int L_R3D_ApplyVideoSettings(lua_State* L);
     int screenWidth() const { return screenW_; }
     int screenHeight() const { return screenH_; }
 
@@ -933,6 +946,41 @@ private:
     static int L_PMENU_SetItemFonts(lua_State* L);
     static int L_PMENU_SetItemFontsTex(lua_State* L);
     static int L_PMENU_SetItemVisibility(lua_State* L);
+    // The campaign map: EngineGame::SwitchMapSelect and the Map* family.
+    static int L_PMENU_SwitchToMap(lua_State* L);
+    static int L_PMENU_AddLevelToMap(lua_State* L);
+    static int L_PMENU_MapReset(lua_State* L);
+    static int L_PMENU_MapSetCurrLevel(lua_State* L);
+    static int L_PMENU_MapNextLevel(lua_State* L);
+    static int L_PMENU_MapGetCurrLevel(lua_State* L);
+    static int L_PMENU_MapGetCurrChapter(lua_State* L);
+    static int L_PMENU_MapGetCurrLevelName(lua_State* L);
+    static int L_PMENU_MapGetCurrLevelCardCondition(lua_State* L);
+    static int L_PMENU_MapGetCurrLevelCardIndex(lua_State* L);
+    // Bink movies: none here. Returns false, which every caller tolerates.
+    static int L_PMENU_PlayMovie(lua_State* L);
+    // The key table and its accessors (ControlsConfig).
+    static int L_PMENU_AddKeyControl(lua_State* L);
+    static int L_PMENU_AddSimpleKeyConf(lua_State* L);
+    static int L_PMENU_SetKeyItemIndex(lua_State* L);
+    static int L_PMENU_GetPrimaryKey(lua_State* L);
+    static int L_PMENU_GetAlternateKey(lua_State* L);
+    static int L_PMENU_GetSimpleKey(lua_State* L);
+    static int L_PMENU_AddScroller(lua_State* L);
+    static int L_PMENU_SetScrollerForBorder(lua_State* L);
+    static int L_PMENU_SetBorderScroller(lua_State* L);
+    static int L_INP_GetKeyNameByEngName(lua_State* L);
+    static int L_INP_GetShortNameByEngName(lua_State* L);
+    static int L_MOUSE_SetInverse(lua_State* L);
+    static int L_MOUSE_SetSmooth(lua_State* L);
+    static int L_MOUSE_SetWheelSensitivity(lua_State* L);
+    // Presentation knobs that are recorded and not yet honoured.
+    static int L_PMENU_NoOp(lua_State* L);
+    static int L_PMENU_LaunchURL(lua_State* L);
+    // What a level switch has to drop that the scripts do not release
+    // themselves: the engine-made active-mesh entities, the water, the
+    // per-level caches. Run by WORLD.LoadMap when a map was already up.
+    void ResetLevelState();
     static int L_PMENU_SetItemAlign(lua_State* L);
     static int L_PMENU_SetItemWidth(lua_State* L);
     static int L_PMENU_EnableItemBG(lua_State* L);
@@ -1049,6 +1097,8 @@ private:
     // this is also what R3D.ScreenSize answers.
     int screenW_ = 1024, screenH_ = 768;
     std::vector<std::string> resolutions_;
+    std::function<void(int, int, bool)> setVideoMode_;
+    float cameraFov_ = 90.f;
     // What HUD.SetFont selected. PrintXY overrides it per call, so this is
     // only what GetTextWidth / GetTextHeight measure against.
     std::string hudFont_ = "timesbd";

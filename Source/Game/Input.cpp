@@ -86,6 +86,36 @@ const NamedAction kUIBinds[] = {
 
 } // namespace
 
+std::string Input::EngNameForVirtualKey(int vk) {
+    if (vk <= 0) return "None";
+    if ((vk >= 'A' && vk <= 'Z') || (vk >= '0' && vk <= '9')) return std::string(1, char(vk));
+    for (const NamedKey& k : kNamedKeys)
+        if (k.vk == vk) return k.name;
+    return {};
+}
+
+std::string Input::ShortNameForEngName(const std::string& name) {
+    struct Short { const char* eng; const char* brief; };
+    static const Short kShort[] = {
+        {"Left Mouse Button", "LMB"},   {"Right Mouse Button", "RMB"},
+        {"Middle Mouse Button", "MMB"}, {"Mouse Wheel Forward", "WheelFwd"},
+        {"Mouse Wheel Back", "WheelBack"}, {"Backspace", "BkSp"},
+        {"Return", "Enter"},   {"Control", "Ctrl"},   {"Escape", "Esc"},
+        {"Page Up", "PgUp"},   {"Page Down", "PgDn"}, {"Cursor Left", "Left"},
+        {"Cursor Up", "Up"},   {"Cursor Right", "Right"}, {"Cursor Down", "Down"},
+        {"Print Screen", "PrtSc"}, {"Insert", "Ins"},  {"Delete", "Del"},
+        {"Left Shift", "LShift"},  {"Right Shift", "RShift"},
+        {"Left Ctrl", "LCtrl"},    {"Right Ctrl", "RCtrl"},
+        {"Left Alt", "LAlt"},      {"Right Alt", "RAlt"},
+        {"Numpad Enter", "NumEnter"}, {"Caps Lock", "Caps"},
+        {"Num Lock", "NumLk"},     {"Scroll Lock", "ScrLk"},
+    };
+    for (const Short& s : kShort)
+        if (name == s.eng) return s.brief;
+    if (name.compare(0, 7, "Numpad ") == 0) return "Num" + name.substr(7);
+    return name;
+}
+
 int Input::VirtualKeyForEngName(const std::string& name) {
     if (name.empty()) return 0;
     // Letters and digits are their own names, and are already their codes.

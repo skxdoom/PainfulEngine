@@ -67,12 +67,21 @@ bool WorldRenderer::Init(const std::string& shaderDir) {
     return true;
 }
 
-void WorldRenderer::Shutdown() {
+// Drops the LEVEL and keeps the programs: what a level switch wants. Upload
+// sets every other per-level member itself.
+void WorldRenderer::Clear() {
     for (Chunk& c : chunks_) {
         if (bgfx::isValid(c.vbo)) bgfx::destroy(c.vbo);
         if (bgfx::isValid(c.ibo)) bgfx::destroy(c.ibo);
     }
     chunks_.clear();
+    zoneGraph_ = ZoneGraph();
+    waterChunks_ = 0;
+    detailOn_ = false;
+}
+
+void WorldRenderer::Shutdown() {
+    Clear();
     if (bgfx::isValid(program_))   { bgfx::destroy(program_);   program_   = BGFX_INVALID_HANDLE; }
     if (bgfx::isValid(sDiffuse_))  { bgfx::destroy(sDiffuse_);  sDiffuse_  = BGFX_INVALID_HANDLE; }
     if (bgfx::isValid(sLightmap_)) { bgfx::destroy(sLightmap_); sLightmap_ = BGFX_INVALID_HANDLE; }

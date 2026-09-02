@@ -57,13 +57,17 @@ public:
     // Empty when the table or the field is absent, which is what a caller
     // wants: it falls back to its own default rather than drawing nothing.
     std::string GetTextField(const char* table, const std::string& field) const;
+    // A string down a dotted path of tables, e.g. "TXT.Menu.Chapter".
+    std::string GetTextPath(const std::string& path) const;
+    // A boolean field (a number counts as its truth), e.g. Cfg.Fullscreen.
+    bool GetBoolField(const char* table, const std::string& field, bool fallback) const;
 
     // --- the engine -> Lua contract (names recovered from Engine.dll's
     // string table; definitions in Game.lua / HUD.lua) ---
 
     // Game:Init() - the engine calls it once after Loader.lua. Creates the
     // empty "NoName" level, loads config/bindings, applies settings.
-    bool CallGameInit();
+    bool CallGameInit(bool noLevel = false);
 
     // Game:LoadLevel(name) - the script-side level load: reads the .CLevel,
     // preloads the level's templates, LoadObj's every entity instance file,

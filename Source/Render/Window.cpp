@@ -110,6 +110,25 @@ bool Window::Open(const std::string& title, int width, int height) {
     return true;
 }
 
+void Window::SetMode(int width, int height, bool fullscreen) {
+    if (!window_ || width <= 0 || height <= 0) return;
+    if (fullscreen) {
+        SDL_DisplayMode mode;
+        const SDL_DisplayID display = SDL_GetDisplayForWindow(window_);
+        if (SDL_GetClosestFullscreenDisplayMode(display, width, height, 0.f, false, &mode)) {
+            SDL_SetWindowFullscreenMode(window_, &mode);
+        } else {
+            LogWarn("window: no fullscreen mode near %dx%d, using the desktop", width, height);
+            SDL_SetWindowFullscreenMode(window_, nullptr);
+        }
+        SDL_SetWindowFullscreen(window_, true);
+    } else {
+        SDL_SetWindowFullscreen(window_, false);
+        SDL_SetWindowSize(window_, width, height);
+    }
+    LogInfo("window: %dx%d %s", width, height, fullscreen ? "fullscreen" : "windowed");
+}
+
 void Window::Close() {
     if (window_) {
         SDL_DestroyWindow(window_);

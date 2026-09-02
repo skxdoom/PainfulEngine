@@ -38,6 +38,9 @@ public:
         TextButtonEx,  // a row whose VALUE is one of a list the script owns
         TextEdit,      // free text, and NumEdit which is the same with digits
         Border,        // the carved frame a panel sits inside
+        KeyControl,    // one action's row in the key table: label, primary, alternative
+        Scroller,      // declared by the scripts for a long list; drawn by nothing yet
+        TabGroup,      // a tab box over a panel; the group's rows show with it
     };
 
     // The frame is drawn from ten tiled pieces; see DrawBorder.
@@ -46,7 +49,10 @@ public:
     // Whether a kind carries a value the arrows change. TextButton does not:
     // it is chosen, not adjusted.
     // Everything but a caption can take focus.
-    static bool Focusable(Kind k) { return k != Kind::StaticText && k != Kind::Border; }
+    static bool Focusable(Kind k) {
+        return k != Kind::StaticText && k != Kind::Border && k != Kind::Scroller &&
+               k != Kind::TabGroup;
+    }
 
     static bool HasValue(Kind k) {
         return k == Kind::Checkbox || k == Kind::Slider || k == Kind::NumRange ||
@@ -102,11 +108,24 @@ public:
         std::string valueText;
         size_t maxLength = 0;        // TextEdit / NumEdit character cap
         float sliderWidth = 340.f;   // in 1024-wide authoring units
+        // AddSlider's ninth argument: where the value column ENDS, measured
+        // from the menu box's left edge (PainMenu defaults 700). The bar sits
+        // to its left, the value right-aligned against it.
+        float sliderCtrlWidth = 700.f;
         // --- Border ---------------------------------------------------------
         float height = 0.f;          // SetBorderSize, with width above
         float headerHeight = 0.f;    // SetBorderHeader: a dark band at the top
         bool dark = false;           // AddBorder's second argument
         std::vector<float> columns;  // SetBorderColCount / SetBorderColumn
+        // KeyControl: the engine key names ("Left Mouse Button", "None") the
+        // scripts read back with GetPrimaryKey / GetAlternateKey and write to
+        // Cfg, and the words shown for them. keyIndex is the row in the key
+        // table (SetKeyItemIndex); 0 is the header. keySingle is
+        // AddSimpleKeyConf's one-key variant.
+        std::string keyPrimary, keyAlt;
+        std::string keyPrimaryText, keyAltText;
+        int keyIndex = -1;
+        bool keySingle = false;
         // Declaration order, so keyboard navigation walks the screen the way
         // the script wrote it rather than the way a map happens to sort.
         int order = 0;
@@ -192,6 +211,43 @@ public:
 
     const std::string& focusedName() const { return focused_; }
 
+    // --- the campaign map (PMENU.SwitchToMap) -----------------------------
+    // One level as Levels_FillMap declares it through PMENU.AddLevelToMap.
+    struct MapLevel {
+        int chapter = 1;
+        std::string dir;            // the level directory, what Game:LoadLevel takes
+        std::string name;           // the localised name
+        std::string sketch;         // HUD/Map/sketch_*, or sketch_question when locked
+        std::string cardCondition;  // the tarot card's unlock text
+        int cardIndex = 0;
+        int status = 0;             // 0 unavailable, 1 current, 2 finished, 3 locked
+    };
+    // The engine's own SwitchMapSelect: clear the screen, ask the scripts for
+    // the levels, take the screen over with the map.
+    void EnterMap();
+    void AddMapLevel(const MapLevel& level);
+    void MapReset();
+    void MapSetCurrent(int level, int chapter);     // 1-based, MapSetCurrLevel
+    void MapNextLevel();
+    int mapCurrLevel() const { return mapCurrLevel_; }
+    int mapCurrChapter() const { return mapCurrChapter_; }
+    const MapLevel* mapCurrent() const;
+    bool mapMode() const { return mapMode_; }
+    // Escape on the map: back to the main menu. False when not on the map.
+    bool Back();
+
+    // --- key binding ------------------------------------------------------
+    // Choosing a key row starts a capture; the next key or mouse button
+    // pressed lands in the column the pointer (or left/right) picked. Escape
+    // cancels, Backspace and Delete bind "None". The app feeds every key edge
+    // while a capture is open.
+    bool capturing() const { return !capture_.empty(); }
+    void KeyPressed(int vk);
+    // The level the player chose on the map, once. The app loads it at the
+    // top of a frame, since the load tears down the world the menu is drawn
+    // over.
+    bool TakePendingLevel(std::string& dir, std::string& name, std::string& sketch);
+
 private:
     // The interface was authored at 1024x768; everything the scripts position
     // is in those units and is scaled to the real window here, which is what
@@ -233,6 +289,52 @@ private:
     std::string onText_ = "On", offText_ = "Off";
     std::vector<int> borderArt_;   // the ten frame pieces, resolved on first use
     int screenW_ = 1024, screenH_ = 768;
+
+    // The map.
+    struct Rect {
+        float x = 0, y = 0, w = 0, h = 0;
+        bool Contains(float px, float py) const {
+            return px >= x && py >= y && px < x + w && py < y + h;
+        }
+    };
+    int MapMat(const std::string& name);
+    std::vector<int> MapChapterLevels(int chapter) const;
+    int MapChapterCount() const;
+    void DrawMap();
+    void UpdateMap(float mouseX, float mouseY, bool clicked);
+    void MapChoose();
+    void MapMoveChapter(int delta);
+    void MapMoveCursor(int delta);
+    std::vector<MapLevel> mapLevels_;
+    bool mapMode_ = false;
+    bool blackEdition_ = false;           // the last background named *_black
+    int mapChapter_ = 1;                  // the chapter on show, 1-based
+    int mapCursor_ = 0;                   // the card under focus within it
+    int mapHoverChapter_ = 0;
+    int mapCurrChapter_ = 0, mapCurrLevel_ = 0;   // the marker, 1-based, 0 = none
+    std::map<std::string, int> mapMat_;          // art by name, any screen
+    std::vector<Rect> mapDigitRects_;            // the chapter numerals
+    Rect mapCrystalRect_, mapArrowRects_[2];     // go, previous level, next level
+    bool mapCrystalHover_ = false;
+    MapLevel pendingLevel_;
+    bool hasPendingLevel_ = false;
+
+    // Widgets drawn from the shipped art (HUD/border, HUD/blachy_menu, HUD/Chk*).
+    void DrawTabGroup(const Item& item, int index);
+    void DrawSlider(const Item& item, float labelX, float y, int size, uint32_t colour,
+                    float menuLeft, bool explicitX);
+    void DrawCheckbox(const Item& item, float x, float y, int size);
+    void DrawKeyScroller();
+
+    // The key table.
+    void DrawKeyRow(Item& item, bool focused);
+    void EnsureKeyRowVisible();
+    int keyColumn_ = 1;              // 1 primary, 2 alternative - where the pointer is
+    int keyScroll_ = 0;              // first visible row of the table, 0-based
+    float keyColumn2X_ = 0.f;        // screen x where the alternative column starts
+    std::string capture_;            // the row being rebound, or empty
+    int captureColumn_ = 1;
+    bool captureFresh_ = false;      // set on the frame the capture opened
     // An action can activate a different screen, which clears the items out
     // from under the loop that is walking them. So actions are deferred to the
     // end of the frame rather than run where they are found.

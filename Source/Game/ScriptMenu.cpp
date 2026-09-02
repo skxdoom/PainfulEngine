@@ -2,6 +2,17 @@
 
 #include "ScriptEngineInternal.h"
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <shellapi.h>
+#endif
+
 namespace painful {
 
 // --------------------------------------------------------------- the menu
@@ -85,6 +96,208 @@ int ScriptEngine::L_PMENU_ShowMenu(lua_State* L) {
 
 int ScriptEngine::L_PMENU_ReturnToGame(lua_State* L) {
     From(L)->menu_.Close();
+    return 0;
+}
+
+// ---------------------------------------------------------------- the map
+//
+// PMENU.SwitchToMap / ActivateMap (0x10074930 / 0x10074880) are one call:
+// EngineGame::SwitchMapSelect(true). The engine clears the screen, calls
+// Levels_FillMap() back into Lua, and draws its own map; choosing a level
+// runs Game:LoadLevel('<dir>') - the strings Engine.dll and Painkiller.exe
+// carry. MenuSystem::EnterMap does the same.
+int ScriptEngine::L_PMENU_SwitchToMap(lua_State* L) {
+    From(L)->menu_.EnterMap();
+    return 0;
+}
+
+// PMENU.AddLevelToMap(chapter, dir, name, sketch, cardCondition, cardIndex,
+// status) - Levels_FillMap's one call per level. status: 0 unavailable, 1
+// the current level, 2 finished, 3 locked by difficulty.
+int ScriptEngine::L_PMENU_AddLevelToMap(lua_State* L) {
+    MenuSystem::MapLevel level;
+    level.chapter = int(luaL_optnumber(L, 1, 1));
+    level.dir = luaL_optstring(L, 2, "");
+    level.name = luaL_optstring(L, 3, "");
+    level.sketch = luaL_optstring(L, 4, "");
+    level.cardCondition = luaL_optstring(L, 5, "");
+    level.cardIndex = int(luaL_optnumber(L, 6, 0));
+    level.status = int(luaL_optnumber(L, 7, 0));
+    From(L)->menu_.AddMapLevel(level);
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_MapReset(lua_State* L) {
+    From(L)->menu_.MapReset();
+    return 0;
+}
+
+// PMENU.MapSetCurrLevel(level, chapter), both 1-based (0x10075250 takes one
+// off each). SaveGame.lua restores the marker with it.
+int ScriptEngine::L_PMENU_MapSetCurrLevel(lua_State* L) {
+    From(L)->menu_.MapSetCurrent(int(luaL_optnumber(L, 1, 1)), int(luaL_optnumber(L, 2, 1)));
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_MapNextLevel(lua_State* L) {
+    From(L)->menu_.MapNextLevel();
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_MapGetCurrLevel(lua_State* L) {
+    lua_pushnumber(L, From(L)->menu_.mapCurrLevel());
+    return 1;
+}
+
+int ScriptEngine::L_PMENU_MapGetCurrChapter(lua_State* L) {
+    lua_pushnumber(L, From(L)->menu_.mapCurrChapter());
+    return 1;
+}
+
+int ScriptEngine::L_PMENU_MapGetCurrLevelName(lua_State* L) {
+    const MenuSystem::MapLevel* level = From(L)->menu_.mapCurrent();
+    lua_pushstring(L, level ? level->name.c_str() : "");
+    return 1;
+}
+
+int ScriptEngine::L_PMENU_MapGetCurrLevelCardCondition(lua_State* L) {
+    const MenuSystem::MapLevel* level = From(L)->menu_.mapCurrent();
+    lua_pushstring(L, level ? level->cardCondition.c_str() : "");
+    return 1;
+}
+
+int ScriptEngine::L_PMENU_MapGetCurrLevelCardIndex(lua_State* L) {
+    const MenuSystem::MapLevel* level = From(L)->menu_.mapCurrent();
+    lua_pushnumber(L, level ? level->cardIndex : 0);
+    return 1;
+}
+
+// PMENU.PlayMovie(path, soundTrack) -> played? The movies are Bink and there
+// is no decoder here, so the answer is false at once: the logo reel and the
+// intro are skipped, and PainMenu:SelectDifficulty carries on to the map
+// regardless of the result.
+int ScriptEngine::L_PMENU_PlayMovie(lua_State* L) {
+    LogInfo("PMENU.PlayMovie(%s): no Bink decoder, skipped", luaL_optstring(L, 1, ""));
+    lua_pushboolean(L, 0);
+    return 1;
+}
+
+int ScriptEngine::L_PMENU_NoOp(lua_State*) { return 0; }
+
+// ---------------------------------------------------------------- key rows
+
+// PMENU.AddKeyControl(name, label, primaryOption, alternativeOption,
+// primaryText, alternativeText [, primaryKey, alternativeKey]) - 0x100764c0
+// takes eight strings, the last two defaulting. The header row passes only
+// the six, its texts being the column titles.
+int ScriptEngine::L_PMENU_AddKeyControl(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const std::string name = luaL_optstring(L, 1, "");
+    if (name.empty()) return 0;
+    MenuSystem::Item& item = self->menu_.Add(name, MenuSystem::Kind::KeyControl);
+    item.text = luaL_optstring(L, 2, "");
+    item.keyPrimaryText = luaL_optstring(L, 5, "");
+    item.keyAltText = luaL_optstring(L, 6, "");
+    item.keyPrimary = luaL_optstring(L, 7, "");
+    item.keyAlt = luaL_optstring(L, 8, "");
+    return 0;
+}
+
+// PMENU.AddSimpleKeyConf(name, keyText, key, index) - 0x10076a20: one key,
+// the message-macro rows.
+int ScriptEngine::L_PMENU_AddSimpleKeyConf(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const std::string name = luaL_optstring(L, 1, "");
+    if (name.empty()) return 0;
+    MenuSystem::Item& item = self->menu_.Add(name, MenuSystem::Kind::KeyControl);
+    item.keySingle = true;
+    item.keyPrimaryText = luaL_optstring(L, 2, "");
+    item.keyPrimary = luaL_optstring(L, 3, "");
+    item.keyIndex = int(luaL_optnumber(L, 4, 1));
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_SetKeyItemIndex(lua_State* L) {
+    if (MenuSystem::Item* item = From(L)->menu_.Find(luaL_optstring(L, 1, "")))
+        item->keyIndex = int(luaL_optnumber(L, 2, 0));
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_GetPrimaryKey(lua_State* L) {
+    const MenuSystem::Item* item = From(L)->menu_.Find(luaL_optstring(L, 1, ""));
+    lua_pushstring(L, item ? item->keyPrimary.c_str() : "None");
+    return 1;
+}
+
+int ScriptEngine::L_PMENU_GetAlternateKey(lua_State* L) {
+    const MenuSystem::Item* item = From(L)->menu_.Find(luaL_optstring(L, 1, ""));
+    lua_pushstring(L, item ? item->keyAlt.c_str() : "None");
+    return 1;
+}
+
+int ScriptEngine::L_PMENU_GetSimpleKey(lua_State* L) {
+    const MenuSystem::Item* item = From(L)->menu_.Find(luaL_optstring(L, 1, ""));
+    lua_pushstring(L, item ? item->keyPrimary.c_str() : "None");
+    return 1;
+}
+
+// PMENU.AddScroller(name, text, desc, min, max, value, height): the key
+// table's scroll bar. Declared so the border can be tied to it; the table
+// scrolls itself with the focus and the bar is not drawn yet.
+int ScriptEngine::L_PMENU_AddScroller(lua_State* L) {
+    const std::string name = luaL_optstring(L, 1, "");
+    if (!name.empty()) From(L)->menu_.Add(name, MenuSystem::Kind::Scroller);
+    return 0;
+}
+
+// The two ways to tie a border to a scroller return DIFFERENT names, and
+// PainMenu:AddControlConfig checks them:
+//
+//     if PMENU.SetBorderScroller("KeyBorder","KeyScroller") ~= "KeyBorder"
+//     if PMENU.SetScrollerForBorder("KeyBorder","KeyScroller") ~= "KeyScroller"
+//
+// either mismatch bouncing the player to the main menu. One is picked at
+// random each visit (math.random(40) == 12), which reads as a tamper check.
+int ScriptEngine::L_PMENU_SetScrollerForBorder(lua_State* L) {
+    lua_pushstring(L, luaL_optstring(L, 2, ""));
+    return 1;
+}
+
+int ScriptEngine::L_PMENU_SetBorderScroller(lua_State* L) {
+    lua_pushstring(L, luaL_optstring(L, 1, ""));
+    return 1;
+}
+
+// INP.GetKeyNameByEngName(eng) -> the name shown for a key. The engine keeps
+// a per-language table; in English the two are the same strings, which is
+// what is answered here for every language.
+int ScriptEngine::L_INP_GetKeyNameByEngName(lua_State* L) {
+    lua_pushstring(L, luaL_optstring(L, 1, "None"));
+    return 1;
+}
+
+int ScriptEngine::L_INP_GetShortNameByEngName(lua_State* L) {
+    lua_pushstring(L, Input::ShortNameForEngName(luaL_optstring(L, 1, "None")).c_str());
+    return 1;
+}
+
+int ScriptEngine::L_MOUSE_SetInverse(lua_State* L) {
+    if (Input* in = From(L)->input_) in->SetInvert(lua_toboolean(L, 1) != 0);
+    return 0;
+}
+
+// MOUSE.SetSmooth / SetWheelSensitivity: recorded nowhere yet. Smoothing
+// would filter the deltas; the wheel has no repeat rate to scale here.
+int ScriptEngine::L_MOUSE_SetSmooth(lua_State*) { return 0; }
+int ScriptEngine::L_MOUSE_SetWheelSensitivity(lua_State*) { return 0; }
+
+// PMENU.LaunchURL(url) - the demo's pre-order link. Handed to the shell.
+int ScriptEngine::L_PMENU_LaunchURL(lua_State* L) {
+    const char* url = luaL_optstring(L, 1, "");
+    LogInfo("PMENU.LaunchURL(%s)", url);
+#ifdef _WIN32
+    if (url[0]) ShellExecuteA(nullptr, "open", url, nullptr, nullptr, SW_SHOWNORMAL);
+#endif
     return 0;
 }
 
@@ -354,6 +567,7 @@ int ScriptEngine::L_PMENU_AddSlider(lua_State* L) {
                                        : luaL_optnumber(L, 6, 0) != 0;
     item.value = luaL_optnumber(L, 7, item.minValue);
     if (const double w = luaL_optnumber(L, 8, 0); w > 0) item.sliderWidth = float(w);
+    if (const double c = luaL_optnumber(L, 9, 0); c > 0) item.sliderCtrlWidth = float(c);
     return 0;
 }
 
@@ -484,7 +698,7 @@ int ScriptEngine::L_PMENU_AddTabGroup(lua_State* L) {
     ScriptEngine* self = From(L);
     const char* name = luaL_optstring(L, 1, nullptr);
     if (!name || !*name) return 0;
-    MenuSystem::Item& item = self->menu_.Add(name, MenuSystem::Kind::Border);
+    MenuSystem::Item& item = self->menu_.Add(name, MenuSystem::Kind::TabGroup);
     item.dark = lua_isboolean(L, 2) ? lua_toboolean(L, 2) != 0
                                     : luaL_optnumber(L, 2, 0) != 0;
     return 0;
@@ -530,6 +744,39 @@ int ScriptEngine::L_PMENU_SetBorderColumn(lua_State* L) {
     return 0;
 }
 
+
+// R3D.SetCameraFOV(degrees) / GetCameraFOV(). Cfg.FOV, applied by Game:Init;
+// PainMenu:OpenMenu sets 90 for the menu and puts the old value back. Held
+// here as the HORIZONTAL angle - the shipped config's 115 on a 3440x1440
+// display is a horizontal figure - and turned into the vertical one for the
+// window's aspect by the app.
+int ScriptEngine::L_R3D_SetCameraFOV(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const float fov = float(luaL_optnumber(L, 1, 90));
+    if (fov >= 10.f && fov <= 170.f) self->cameraFov_ = fov;
+    return 0;
+}
+
+int ScriptEngine::L_R3D_GetCameraFOV(lua_State* L) {
+    lua_pushnumber(L, From(L)->cameraFov_);
+    return 1;
+}
+
+// R3D.ApplyVideoSettings(resolution, fullscreen, gamma, brightness, contrast,
+// shadows, textureQuality, weatherEffects, viewWeaponModel, textureFiltering,
+// dynamicLights, projectors, coronas, decals, decalsStay) - what
+// PainMenu:ApplyVideoSettings hands over after the Video Options screen.
+// The mode is the part that reaches anything yet; the rest is recorded in
+// Cfg by the scripts and waits for the renderer features it names.
+int ScriptEngine::L_R3D_ApplyVideoSettings(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const std::string res = luaL_optstring(L, 1, "");
+    const bool fullscreen = lua_toboolean(L, 2) != 0;
+    int w = 0, h = 0;
+    if (std::sscanf(res.c_str(), "%d%*[xX]%d", &w, &h) == 2 && w > 0 && h > 0 && self->setVideoMode_)
+        self->setVideoMode_(w, h, fullscreen);
+    return 0;
+}
 
 // R3D.GetAvailableResolutions() -> an array of "WIDTHxHEIGHT" strings.
 //

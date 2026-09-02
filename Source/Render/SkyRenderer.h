@@ -26,6 +26,8 @@ public:
 
     bool Init(const std::string& shaderDir);
     void Shutdown();
+    // Drops the dome and keeps the program - a level switch.
+    void Unload();
 
     bool Load(const std::string& mapsRoot, const LevelInfo& info, TextureCache& textures);
 

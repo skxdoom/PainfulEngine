@@ -396,8 +396,12 @@ The ordered work queue, with the evidence behind each item, is
 - Acoustic environments and sound occlusion: `WORLD.FindEnvironmentAtPoint`,
   `SOUND.SetRoomType`, `SOUND3D.SetObstructed` / `SetIntensity`. Music streams
   (`SOUND.StreamLoad` / `StreamPlay`) too.
-- No menus (the `PMENU` surface), no save/load (`WORLD.SaveGame` / `LoadGame`),
-  no netcode.
+- Menus: the main menu, options, controls (with key capture) and the campaign
+  map work, and a plain launch boots to the menu and starts a new game
+  through it, with a runtime level switch. Still missing: save/load
+  (`WORLD.SaveGame` / `LoadGame` and the slot lists), the weapon priority
+  lists, credits, movies (Bink), multiplayer. The map's layout is a stand-in
+  ([`Menu.md`](Reference/Menu.md)). No netcode.
 - `.pkm` mod packages do not auto-mount yet — their internal format is still an
   open question, and the `GZipPack` exports hint the engine also reads real
   ZIPs.

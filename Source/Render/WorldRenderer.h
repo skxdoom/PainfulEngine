@@ -24,6 +24,8 @@ public:
     // shaderDir holds the compiled vs_world.bin / fs_world.bin.
     bool Init(const std::string& shaderDir);
     void Shutdown();
+    // Drops the level's chunks and keeps the programs - a level switch.
+    void Clear();
 
     // levelHint is the map name, used to find per-level textures.
     // shaders may be null; material state then falls back to built-in defaults.

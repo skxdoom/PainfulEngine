@@ -67,12 +67,19 @@ bool SkyRenderer::Init(const std::string& shaderDir) {
     return true;
 }
 
-void SkyRenderer::Shutdown() {
+// Drops the dome and keeps the program: a level switch loads another.
+void SkyRenderer::Unload() {
     for (Part& p : parts_) {
         if (bgfx::isValid(p.vbo)) bgfx::destroy(p.vbo);
         if (bgfx::isValid(p.ibo)) bgfx::destroy(p.ibo);
     }
     parts_.clear();
+    layered_ = false;
+    layerCount_ = 0;
+}
+
+void SkyRenderer::Shutdown() {
+    Unload();
     bgfx::UniformHandle* uniforms[] = {&sTex1_, &sTex2_, &sMask_, &sLmap_,
                                        &uXform1_, &uXform2_, &uRot_};
     for (bgfx::UniformHandle* u : uniforms) {

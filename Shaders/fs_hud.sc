@@ -41,8 +41,14 @@ void main()
 		// RGBA(166,3,3), a RED that has to survive as a hue. Doubling makes
 		// all three land: gold for a normal row, bright red under the
 		// pointer, washed-out for a disabled one.
+		// Plain MODULATE after all. Doubling was argued from the authored
+		// numbers sitting near half scale; against captures of the original
+		// the rows are DARK - a bronze-brown on the plates, dark red under
+		// the pointer - which is exactly pattern times colour, undoubled.
+		// The earlier "muddy brown that vanishes into the art" was judged
+		// with no plates under the rows; on the plates it is the look.
 		vec4 pattern = texture2D(s_pattern, gl_FragCoord.xy * u_hudParams.xy);
-		gl_FragColor = vec4(pattern.rgb * v_color0.rgb * 2.0, texel.a * v_color0.a);
+		gl_FragColor = vec4(pattern.rgb * v_color0.rgb, texel.a * v_color0.a);
 	}
 	else
 	{
