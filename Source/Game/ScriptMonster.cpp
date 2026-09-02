@@ -7,6 +7,7 @@
 // rule that sizes the body. Docs/Reference/MonsterMovement.md.
 
 #include "ScriptEngineInternal.h"
+#include <set>
 
 namespace painful {
 
@@ -79,33 +80,36 @@ bool ScriptEngine::MonsterBodyScale(Entity& e, float& k, float& rootOffsetY) {
     const float hipAboveSoles = (rootPos[1] - skel->lo[1]) * e.scale;
     if (hipAboveSoles <= 0.f) return false;
 
-    // SCALED SO THE SPHERES SPAN THE MODEL.
+    // THE ENGINE'S RULE, NOW THAT ITS REFERENCE IS IDENTIFIED.
     //
-    // Deriving k from the hip height is what the engine's
-    // (root.y - entity.y) * 10/11 appears to do, and it is right for a rig
-    // whose root sits at a humanoid hip - about 0.53 of total height. It is
-    // wrong wherever a rig disagrees, and they do:
+    // Entity+0x54 is the entity's LOCAL BoundingBox (RenderLocalBoundingBox
+    // 0x101D0A90 draws it), so the (root.y - Entity+0x58) in
+    // CreatePhysicsObject is the hip's height above the model's lowest
+    // point. bodyScale = that * 10/11, and the sizer's unit is 0.2 * bodyScale.
+    // The stack is built about the hip: CreatePhysicsObject places the body at
+    // entity + root and keeps -root as the pivot.
     //
-    //     banshee   root at 0.70 of height -> body came out 1.30x the model
-    //     vamp_v2   root at 0.245          -> body came out 0.46x
-    //
-    // The error tracked that ratio exactly, which is the tell: the reference
-    // the engine measures from (Entity+0x58) is NOT the soles, and until it is
-    // identified the hip is the wrong thing to scale by.
-    //
-    // The shape's own geometry gives a reference that cannot drift. The three
-    // spheres run from -4.8k to +5.5k, so k = height / 10.3 makes the body span
-    // the model on every rig by construction. The LAYOUT is still the engine's;
-    // only what sets its size is ours.
-    const float modelHeight = (skel->hi[1] - skel->lo[1]) * e.scale;
-    if (modelHeight <= 0.f) return false;
-    k = modelHeight / 10.3f;
-    // Placed from the SOLES, for the same reason: the lowest sphere reaches
-    // 4.8k below the offset point, so putting the offset that far above the
-    // model's lowest point stands the body on the ground. Anchoring to the
-    // root instead inherited the root's own inconsistency, which is what put
-    // the hip-origin rigs through the floor.
-    rootOffsetY = skel->lo[1] * e.scale + 4.8f * k;
+    // This is NOT a body that spans the model. On a monk the lowest sphere
+    // ends 0.19 above the soles and the top one clears the head; on a rig
+    // whose root sits high (banshee, 0.70 of height) the stack is 1.3x the
+    // model, on one whose root sits low (vamp, 0.245) it is half - and that
+    // is what the player walks into in the original. An earlier version here
+    // sized k = height / 10.3 and stood the stack on the soles, which made
+    // every rig the same relative size and put its lowest sphere 0.19 lower.
+    // Per-rig numbers: Docs/Reference/MonsterMovement.md.
+    k = 0.2f * hipAboveSoles * (10.f / 11.f);
+    rootOffsetY = rootPos[1] * e.scale;
+    {
+        static std::set<std::string> logged;
+        if (logged.insert(e.source).second) {
+            const float height = (skel->hi[1] - skel->lo[1]) * e.scale;
+            LogInfo("monster body %-14s height %.2f hip %.2f  k %.3f (was %.3f)  radii %.2f/%.2f/%.2f  "
+                    "bottom %+.2f above soles, top %+.2f above head",
+                    e.source.c_str(), height, hipAboveSoles, k, height / 10.3f, 2.6f * k, 3.0f * k,
+                    1.5f * k, hipAboveSoles - 4.8f * k,
+                    (hipAboveSoles + 5.5f * k) - height);
+        }
+    }
     return k > 0.f;
 }
 

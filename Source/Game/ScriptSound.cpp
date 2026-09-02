@@ -341,18 +341,18 @@ int ScriptEngine::L_PATH_GetShortest(lua_State* L) {
     if (a < 0 || b < 0) return 0;
     if (!self->waypoints_.FindPath(a, b, self->routeScratch_)) return 0;
 
-    const float minDist = float(luaL_optnumber(L, 8, 0));
-    for (size_t i = 0; i < self->routeScratch_.size(); ++i) {
+    // THE START NODE IS NOT A POINT. Pathfinder2::GetShortestPath (0x1016C070)
+    // pops the route's first node straight into the path's "last point"
+    // slot (+0x28), so the first GetNextPoint is the SECOND node - the first
+    // step away from where the walker already is - and a one-node route is
+    // an empty path, which IsFinished reports and CActor reads as "walk
+    // straight". Handing the nearest node over made every walk begin with a
+    // turn toward a waypoint half a unit away, often behind: Cemetery's
+    // zombies took 71 walking stops in 15 s and could not keep up.
+    (void)luaL_optnumber(L, 8, 0);   // WPminDist: stored by the original, not consulted here
+    for (size_t i = 1; i < self->routeScratch_.size(); ++i) {
         const WaypointSet::Node& n =
             self->waypoints_.nodes[size_t(self->routeScratch_[i])];
-        if (i == 0 && minDist > 0.f) {
-            float d = 0.f;
-            for (int c = 0; c < 3; ++c) {
-                const float e = n.pos[c] - from[c];
-                d += e * e;
-            }
-            if (d < minDist * minDist) continue;
-        }
         for (int c = 0; c < 3; ++c) route.points.push_back(n.pos[c]);
     }
     return 0;

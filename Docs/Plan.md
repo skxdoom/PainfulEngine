@@ -172,8 +172,12 @@ What is argued rather than recovered, and where to look if the feel is off:
    relies on the sphere stack rolling over lips and on `Lev.AI_walkUp`; if
    monsters balk at steps the player climbs, that is where to look.
 
-Still open from Stage 10: `MonsterBodyScale`'s `k = height / 10.3` is a shape
-argument, and `Entity+0x58` is unidentified.
+Closed from Stage 10: `Entity+0x58` is the local bounding box's minimum Y, so
+`MonsterBodyScale` now runs the engine's own rule (hip above soles x 10/11,
+stack about the hip) - the per-rig table is in
+[`MonsterMovement.md`](Reference/MonsterMovement.md). The wall slide also
+clips against dynamic bodies at least as heavy as the character, since the
+Cemetery's graves became bodies and monsters bounced off them as off walls.
 
 ### Stage 14b — active meshes — DONE
 

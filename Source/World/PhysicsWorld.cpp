@@ -416,15 +416,30 @@ public:
         const bool ca = characters->count(a.GetID().GetIndexAndSequenceNumber()) != 0;
         const bool cb = characters->count(b.GetID().GetIndexAndSequenceNumber()) != 0;
         if (!ca && !cb) return;
-        // Only what cannot give way: the world and the kinematic pushers.
-        // Against another dynamic body the contact impulse stays - that is
-        // how a crowd shuffles, and clipping it left a queue standing still.
+        // Only what will not give way: the world, the kinematic pushers, and
+        // a dynamic body at least as heavy as the character - a gravestone,
+        // a pinned-then-released stone. Another character or a light prop
+        // keeps the contact impulse instead: that is how a crowd shuffles and
+        // how a monster shoves a barrel aside, and clipping those left a
+        // queue standing still. A heavy sleeping body was the gap: the
+        // Cemetery's graves became bodies and monsters bounced off them the
+        // way they had off walls.
+        auto blocks = [this](const JPH::Body& me, const JPH::Body& other) {
+            if (!other.IsDynamic()) return true;
+            if (characters->count(other.GetID().GetIndexAndSequenceNumber())) return false;
+            const JPH::MotionProperties* mine = me.GetMotionProperties();
+            const JPH::MotionProperties* theirs = other.GetMotionProperties();
+            if (!mine || !theirs) return true;
+            const float myInv = mine->GetInverseMass(), theirInv = theirs->GetInverseMass();
+            if (theirInv <= 0.f) return true;
+            return theirInv <= myInv;   // at least my mass
+        };
         const JPH::Vec3 n = manifold.mWorldSpaceNormal;   // from a into b
         std::lock_guard<std::mutex> guard(lock_);
-        if (ca && !b.IsDynamic())
+        if (ca && blocks(a, b))
             charContacts_.push_back({a.GetID().GetIndexAndSequenceNumber(),
                                      {n.GetX(), n.GetY(), n.GetZ()}});
-        if (cb && !a.IsDynamic())
+        if (cb && blocks(b, a))
             charContacts_.push_back({b.GetID().GetIndexAndSequenceNumber(),
                                      {-n.GetX(), -n.GetY(), -n.GetZ()}});
     }
@@ -526,6 +541,8 @@ struct PhysicsWorld::Impl {
     std::unordered_set<uint32_t> characterBodies;
     // Pinned active meshes: static twins a moving body may knock loose.
     std::unordered_set<uint32_t> pinnedActiveBodies;
+    // Last step's blocking contacts per character body (the wall slide's input).
+    std::vector<ScriptContactListener::CharContact> lastTouching;
 
     // Ragdoll settings are per MODEL and shared between every instance of it;
     // the bone order is the part order, which only the builder knows.
@@ -1031,7 +1048,10 @@ void PhysicsWorld::Update(float dt) {
                 const JPH::Vec3 v = bodies.GetLinearVelocity(sb.body);
                 const JPH::Vec3 cmd(ch.lastWish[0], ch.lastWish[1], ch.lastWish[2]);
                 const JPH::Vec3 dv = v - cmd;
-                if (JPH::Vec3(dv.GetX(), 0.f, dv.GetZ()).Length() < 4.f) continue;
+                static const float minDv = std::getenv("PAINFUL_CHAR_TRACE_MIN")
+                                               ? float(std::atof(std::getenv("PAINFUL_CHAR_TRACE_MIN")))
+                                               : 4.f;
+                if (JPH::Vec3(dv.GetX(), 0.f, dv.GetZ()).Length() < minDv) continue;
                 std::vector<ScriptContactListener::Pending> touching;
                 impl_->contacts.Peek(touching);
                 std::string partners;
@@ -1048,8 +1068,16 @@ void PhysicsWorld::Update(float dt) {
                              p.normal[2]);
                     partners += buf;
                 }
+                // The slide's own contact list for this body: what was clipped.
+                for (const ScriptContactListener::CharContact& c : impl_->lastTouching) {
+                    if (c.body != sb.body.GetIndexAndSequenceNumber()) continue;
+                    char buf[64];
+                    snprintf(buf, sizeof buf, " {clip %.2f,%.2f,%.2f}", c.blocked[0], c.blocked[1],
+                             c.blocked[2]);
+                    partners += buf;
+                }
                 const JPH::RVec3 pos = bodies.GetPosition(sb.body);
-                LogInfo("CHAR slot %d cmd=(%.2f %.2f %.2f) got=(%.2f %.2f %.2f) at=(%.2f %.2f %.2f)%s",
+                LogInfo("CHAR slot %d cmd=(%.2f %.2f %.2f) got=(%.2f %.2f %.2f) at=(%.3f %.3f %.3f)%s",
                         ch.slot, cmd.GetX(), cmd.GetY(), cmd.GetZ(), v.GetX(), v.GetY(), v.GetZ(),
                         float(pos.GetX()), float(pos.GetY()), float(pos.GetZ()),
                         partners.empty() ? " (no contacts recorded)" : partners.c_str());
@@ -1419,6 +1447,7 @@ int PhysicsWorld::CreateActiveMeshBody(const MapObject& object, float worldScale
     // A pinned body starts static and is released to dynamic later; Jolt
     // only keeps motion properties on a static body when told so here.
     body.mAllowDynamicOrKinematic = true;
+    body.mEnhancedInternalEdgeRemoval = true;   // see MakeScriptBodyCharacter
     // AddMesh: SetFriction(DefaultMeshFriction), SetRestitution(DefaultMeshRestitution).
     body.mFriction = settings_.meshFriction;
     body.mRestitution = settings_.meshRestitution;
@@ -1693,13 +1722,26 @@ void PhysicsWorld::MakeScriptBodyCharacter(int slot, float k, float rootOffsetY)
             // GUESS: Havok's default material. CActor:PO_Create says friction
             // is deliberately left alone because a higher one stops them
             // climbing stairs, and PO_SetFriction never reaches Havok.
-            body.SetFriction(0.5f);
+            // 0.1: CreatePhysicsObject writes 0.1 friction and 0.001
+            // restitution into every non-player body's wrapper (the field
+            // SetFriction writes), and CActor:PO_Create leaves it there
+            // because a higher one stops them climbing stairs.
+            // PAINFUL_CHAR_FRICTION overrides it for experiments.
+            static const float charFriction = std::getenv("PAINFUL_CHAR_FRICTION")
+                                                  ? float(std::atof(std::getenv("PAINFUL_CHAR_FRICTION")))
+                                                  : 0.1f;
+            body.SetFriction(charFriction);
             body.SetRestitution(0.f);
             body.GetMotionProperties()->SetLinearDamping(0.f);
             body.GetMotionProperties()->SetAngularDamping(0.f);
             // Re-commanded every step, so it never has a reason to sleep - and
             // a sleeping body would hold a velocity without moving.
             body.SetAllowSleeping(false);
+            // A sphere stack sliding across a triangle mesh catches the seams
+            // between triangles without this: ghost contacts with normals
+            // tilted against the motion, which took 40% of a zombie's
+            // commanded speed on a flat Cemetery path whatever the friction.
+            body.SetEnhancedInternalEdgeRemoval(true);
         }
     }
     bodies.SetLinearAndAngularVelocity(id, JPH::Vec3::sZero(), JPH::Vec3::sZero());
@@ -1709,7 +1751,7 @@ void PhysicsWorld::MakeScriptBodyCharacter(int slot, float k, float rootOffsetY)
     StandCharacterOnFloor(slot, 100.f);
 }
 
-void PhysicsWorld::StandCharacterOnFloor(int slot, float maxLift) {
+void PhysicsWorld::StandCharacterOnFloor(int slot, float maxLift, float minLift) {
     Impl::Character* ch = impl_->CharacterOf(slot);
     if (!ch || !ScriptBodyExists(slot) || !impl_->scriptBodies[size_t(slot)].inWorld) return;
     JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
@@ -1757,7 +1799,7 @@ void PhysicsWorld::StandCharacterOnFloor(int slot, float maxLift) {
     }
     if (!found) return;
     const float lift = std::min(floorY + 0.02f - bottom, maxLift);
-    if (lift <= 0.001f) return;
+    if (lift <= minLift) return;
     bodies.SetPosition(id, JPH::RVec3(p.GetX(), p.GetY() + lift, p.GetZ()),
                        JPH::EActivation::Activate);
     const JPH::Vec3 v = bodies.GetLinearVelocity(id);
@@ -1846,15 +1888,17 @@ void PhysicsWorld::StepCharacters() {
     // into a pew at 8 units/s every step, a body sank into it and was thrown
     // back out at 4 the moment the command stopped; the AI read that as a
     // shove and re-planned. Measured: Docs/Reference/MonsterMovement.md.
-    static std::vector<ScriptContactListener::CharContact> touching;
+    std::vector<ScriptContactListener::CharContact>& touching = impl_->lastTouching;
     impl_->contacts.TakeCharacterContacts(touching);
     for (Impl::Character& ch : impl_->characters) {
         if (ch.slot < 0 || size_t(ch.slot) >= impl_->scriptBodies.size()) continue;
         const Impl::ScriptBody& sb = impl_->scriptBodies[size_t(ch.slot)];
         if (sb.body.IsInvalid() || !sb.inWorld) continue;
         if (bodies.GetMotionType(sb.body) != JPH::EMotionType::Dynamic) continue;
-        // The two-sided-mesh stand-in, a step's worth at a time.
-        StandCharacterOnFloor(ch.slot, 0.1f);
+        // The two-sided-mesh stand-in, a step's worth at a time - and only for
+        // a real embedding. Lifting the resting slop too kept the bodies
+        // airborne 49% of their steps and cost speed on every landing.
+        StandCharacterOnFloor(ch.slot, 0.1f, 0.05f);
 
         const JPH::RVec3 p = bodies.GetPosition(sb.body);
         const float cx = float(p.GetX());

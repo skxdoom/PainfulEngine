@@ -414,7 +414,10 @@ private:
     // on that floor. Havok's mesh is two-sided and pushes an embedded body out
     // on its own; Jolt's is one-sided and drops it through. maxLift caps the
     // correction (a whole placement, or one step's worth).
-    void StandCharacterOnFloor(int slot, float maxLift);
+    // minLift: ignore an embedding shallower than this - a resting body sits
+    // Jolt's penetration slop (~0.02) into the floor, and lifting that every
+    // step kept the bodies airborne half the time, bouncing off CCD landings.
+    void StandCharacterOnFloor(int slot, float maxLift, float minLift = 0.001f);
     void CreatePawnProbe();
     // The collidable map geometry as one static body; shared by Load and
     // LoadWorldMesh.

@@ -610,6 +610,30 @@ on. Measured: 4.309 with it on, 0.000 with it off.
   takes `Ragdoll::SelfExplosion` (0x1019CC40) instead of the plain force.
 
 
+## Collision groups: what collides with what
+
+Recovered 2026-09-02 from the Havok world's construction (`FUN_101B5960`,
+called by `PhysicsWorld::PhysicsWorld` 0x10196B10): a group filter that
+enables every pair and then disables a list. `ECollisionGroups` in
+`Definitions.lua` names the groups. The defaults: a script body created with
+no group is **4 (Body)**, the player **23 (PlayerBody)**, an active mesh 3
+(Normal), the sizer's `-1` branch at 0x101B3E20.
+
+What matters for actors, group 4:
+- **4 vs 4 is NOT disabled** - monsters collide with each other.
+- 4 vs 23 not disabled - monsters collide with the player's body.
+- 4 vs 3 not disabled - and with active meshes.
+- disabled: 4 vs 5, 6, 7, 8, 9, 21, 22, 25, 30 - missiles, ragdolls,
+  non-colliding, particles, inside-items, RagdollSpecial, Barrier,
+  OnlyWithFixedSpecial, ClientGrenade.
+
+So a live monster passes through a `barrier` object (22) that stops the
+player, and through ragdolls (6, which is why corpses do not trip them).
+MonsterBarrier (27) is the mirror: disabled against 23 and almost everything
+else, NOT against 4. The full disabled-pair list is in the decompile
+(`PainfulEngineHelpers/ghidra/colgroup3.log`); the port's layers implement the
+actor-relevant part of it and not the rest.
+
 ## Active meshes: world geometry that is a rigid body
 
 Implemented 2026-09-02. Sources: `WorldMesh::SetupFlags` 0x101D7050,

@@ -68,7 +68,33 @@ floor" means ground within 1.5 of the soles, which is generous by design.
 
 - the sizer builds the shape from `bodyScale`, which for a scale argument <= 0
   is `(root.y - Entity+0x58) * 10/11` off the `ROOOT` joint (flag 0x10 marks
-  that case);
+  that case). **`Entity+0x54` is the entity's LOCAL bounding box**
+  (`RenderLocalBoundingBox` 0x101D0A90 draws it), so `+0x58` is its minimum Y,
+  the model's lowest point: bodyScale is the hip's height above the soles
+  times 10/11, and the sizer's unit k is 0.2 of that. Identified 2026-09-02;
+  until then the port sized k = height / 10.3 and stood the stack on the
+  soles. The Fatter stack (case 2 of 0x101B3E20, constants 0x102C8CDC..):
+  spheres at -2.2k r 2.6k, +1.0k r 3.0k, +4.0k r 1.5k about the hip.
+
+  What that gives, per rig (height and hip in world units, k old = height/10.3):
+
+  | rig | height | hip above soles | k engine | k old | radii | lowest sphere above soles | top above head |
+  |---|---:|---:|---:|---:|---|---:|---:|
+  | evilmonkv2 | 2.75 | 1.54 | 0.279 | 0.267 | 0.73 / 0.84 / 0.42 | +0.20 | +0.32 |
+  | zombie | 3.37 | 1.86 | 0.337 | 0.328 | 0.88 / 1.01 / 0.51 | +0.24 | +0.34 |
+  | banshee | 2.49 | 1.73 | 0.315 | 0.242 | 0.82 / 0.94 / 0.47 | +0.22 | +0.97 |
+  | beast | 1.50 | 0.87 | 0.158 | 0.146 | 0.41 / 0.47 / 0.24 | +0.11 | +0.24 |
+  | bagbaby | 1.89 | 0.94 | 0.170 | 0.184 | 0.44 / 0.51 / 0.26 | +0.12 | -0.02 |
+  | bones | 1.06 | 0.31 | 0.056 | 0.103 | 0.15 / 0.17 / 0.08 | +0.04 | -0.44 |
+  | amputee | 1.53 | 1.63 | 0.296 | 0.149 | 0.77 / 0.89 / 0.44 | +0.21 | +1.72 |
+
+  So the original's humanoids are the same width as ours were or a little
+  wider - the monk's widest sphere 0.84 against 0.80 - and every stack floats
+  its lowest sphere a fifth of a unit above the soles. "You could get closer
+  to them in the original" is not the radius; what differs is that the
+  original's player is a body that can press into a monster under load and
+  ours is a sweep that stops at the hull, and that the shove (halved on the
+  earlier play test) moves an attacking monster away as you walk into it.
 - the Havok body is placed at `entity + root`, with `PhysicsObject+4..0xc` =
   `-root` as the pivot offset, so `GetPosition` still reports the entity;
 - `SetFreedomOfRotation(1, 1.0)`: an inertia of FLT_MAX about X and Z and 10
@@ -138,6 +164,42 @@ upward-facing surface between a unit above its head and its soles, capped to
 the middle sphere's height so a ledge beside the body is not mistaken for a
 floor under it. A whole placement when the body is made or teleported, 0.1 per
 step after that.
+
+### The Cemetery chase (2026-09-02)
+
+Reported from play: skeletons wedge among the graves and on each other where
+the original's follow through and pile up. `Tools`-style probe: twelve
+`Zombie_Soldier_WalkOnly` spawned in a ring nine units from the Cemetery spawn,
+the player walked in a square through the graveyard, every actor's stops and
+walk orders logged. Found, in order:
+
+1. **The route's start node was handed to the script.** Every walk order began
+   with a waypoint 0.3-0.75 away, at 60-180 degrees off the goal, and the
+   60-degree gate stopped the actor to turn toward it. `Pathfinder2::
+   GetShortestPath` (0x1016C070) pops the start node into the path's own
+   "last point" slot the moment the route is built, so the first
+   `GetNextPoint` is the SECOND node and a one-node route is an empty path.
+   `L_PATH_GetShortest` now does the same. First waypoints went to within 30
+   degrees at 1.6-3 units; wedged actors from 5-7 to 1-3 per window.
+2. **The floor lift was bouncing them.** `StandCharacterOnFloor` lifted a
+   resting body out of Jolt's 0.02 slop every step, so the bodies were
+   airborne 49% of their steps and lost travel on every CCD landing. It now
+   lifts only an embedding deeper than 0.05: airborne 7%.
+3. **Friction is 0.1**, from `CreatePhysicsObject`, not the 0.5 guessed.
+4. **The rest is the crowd**, and the original has it too. With the slide's
+   contact list in the trace, a zombie's Z velocity tracked its command while
+   its X was halved from the step it touched a neighbour: two bodies converging
+   shoulder to shoulder push into each other and the solver takes the
+   sideways component. Character-to-character contacts are not clipped on
+   purpose. The group filter (Physics.md) confirms the original's actors DO
+   collide with each other - group 4 with group 4 is not disabled - so the
+   jam is physics both engines share. Mean achieved speed on the chase is 64%
+   of the commanded; on open ground a driven monk makes 100%.
+
+What is not yet as the original: the player pressing into a monster's hull
+under load (ours stops at it, and a monk pinned against a wall by the push can
+end up 0.25 from the player), and whatever Havok's contact solver does
+differently in a crowd.
 
 ### Measured after the rework
 
