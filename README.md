@@ -1,15 +1,21 @@
-# PainfulEngine
+# Painful Engine
 
-An open reimplementation of **PainEngine**, the engine behind *Painkiller* (2004).
+A cross-platform and 64-bit recreation of **PainEngine**, the engine behind *Painkiller* (2004).
 
-Requires your own copy of the game's data. **No original assets or binaries are
-distributed with this project.**
+Requires your own copy of the game. No original assets or binaries are
+distributed with this project.
 
-Painkiller's gameplay logic is not compiled — it lives in Lua scripts and
-serialised property tables. A source port therefore means implementing the
-*native API those scripts call* rather than rewriting the game's design. Every
-rule the engine follows is recovered from something the game shipped: the data,
-the shipped Lua, or `Engine.dll` decompiled in Ghidra.
+**Current version is super early** — see [`Docs/Status.md`](Docs/Status.md). It launches the game and can be played with a lot of bugs and occasional crashes. I'm moving towards a first alpha release.
+
+## Goals (all on-going)
+
+- Full compatibility with **Painkiller** and **Battle Out Of Hell** singleplayer campaigns
+- Making the physics and the gameplay to act as close to the original as possible
+- Support for Windowed and Borderless modes
+- Support for widescreen resolutions
+- Higher resolution Post Process Effects and Water Reflections
+- Possible bug fixes
+- Possible further graphics enhancements
 
 ## Building
 
@@ -34,19 +40,8 @@ cmake -S . -B build -DPAINFUL_DEPLOY_DIR="X:/Painkiller/Bin"
 ## Playing
 
 Copy `PainfulEngine.exe` into the game's `Bin/` directory, beside the original
-`Painkiller.exe`, and run it. With no arguments
-it finds the sibling data directory and opens the first campaign level. A
-vanilla install works untouched — the `.pak` archives are read directly, with
+`Painkiller.exe`, and run it. The `.pak` archives are read directly, with
 numbered patch archives layered the way the original engine mounts them.
-
-WASD to move, shift for fast, space/ctrl for up and down, `N` for noclip, `P`
-for the collision wireframe, `[` `]` to cycle levels. **Escape opens the menu**,
-which pauses the game and hands the mouse over.
-
-```
-PainfulEngine                            find the game data and play
-PainfulEngine game <DataRoot> [level]    play a named level
-```
 
 ## Tools
 
@@ -62,18 +57,15 @@ PainfulTools lua <DataRoot> 60 <name>                      boot the scripts, tic
 PainfulTools run <DataRoot>/Levels/<name> <DataRoot>       the free-camera viewer
 ```
 
-## Status
+## Documentation
 
-The engine plays: the shipped Lua loads a level, creates the player, and moves
-him with the game's own constants. Skeletal animation, monsters, ragdolls,
-sound, particles, physics and the HUD all run from the original scripts. Not
-yet: water and post-processing, save/load, and multiplayer.
+Nearly every rule in `Docs/` was recovered rather than guessed. Where a guess
+was made and later proved wrong, the docs say so and say how it was caught;
+that record is deliberate, and worth keeping as the project grows.
 
 The inventory, with the authority cited for each rule, is in
 [`Docs/Status.md`](Docs/Status.md). What is left, and in what order, is in
 [`Docs/Plan.md`](Docs/Plan.md).
-
-## Documentation
 
 `Docs/Reference/` holds the recovered rules — durable, and changed only when a
 new fact is recovered.
@@ -127,10 +119,6 @@ Written by Dmitry Karpukhin, in collaboration with **Claude** (Anthropic),
 which wrote a substantial share of the engine, the Ghidra analysis behind it
 and these docs. Per-commit authorship is recorded in `Co-Authored-By`
 trailers throughout the history.
-
-Nearly every rule in `Docs/` was recovered rather than guessed. Where a guess
-was made and later proved wrong, the docs say so and say how it was caught;
-that record is deliberate, and worth keeping as the project grows.
 
 ## Third-party
 
