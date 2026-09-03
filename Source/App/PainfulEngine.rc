@@ -1,0 +1,5 @@
+// ID 1: Explorer takes the lowest-numbered RT_GROUP_ICON, and SDL_RegisterApp
+// takes the first one it enumerates, so this covers the .exe, the window and
+// the taskbar with no runtime call. The path is relative to this file; the .ico
+// sits one level up because PainfulTools shares it.
+1 ICON "../PainfulEngine.ico"

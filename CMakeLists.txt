@@ -40,6 +40,12 @@ else()
   target_compile_options(EngineWarnings INTERFACE -Wall -Wextra)
 endif()
 
+# The executable icons (Source/App and Source/Tools .rc files). Visual Studio
+# compiles .rc unasked; Ninja and the Makefile generators do not.
+if(WIN32)
+  enable_language(RC)
+endif()
+
 include(Folders)
 include(Dependencies)
 add_subdirectory(Source)

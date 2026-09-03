@@ -1,0 +1,2 @@
+// The game's icon on the tools too - see App/PainfulEngine.rc for the ID.
+1 ICON "../PainfulEngine.ico"

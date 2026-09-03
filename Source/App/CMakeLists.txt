@@ -6,12 +6,21 @@
 #
 # WIN32: a GUI-subsystem executable, so double-clicking it opens no console.
 # main() is kept as the entry point via the WinMain shim in Main.cpp.
+#
+# PainfulEngine.rc carries the icon - ../PainfulEngine.ico, shared with Tools.
 add_executable(PainfulEngine WIN32
   Main.cpp
   GameApp.cpp  GameApp.h
+  PainfulEngine.rc
 )
 target_link_libraries(PainfulEngine PRIVATE Game)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} PREFIX "" FILES
   ${CMAKE_CURRENT_SOURCE_DIR}/Main.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/GameApp.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/GameApp.h)
+  ${CMAKE_CURRENT_SOURCE_DIR}/GameApp.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/PainfulEngine.rc)
+
+# The .ico is not a source. MSBuild's tracker finds it anyway; Ninja does not
+# scan RC statements, and would keep linking the previous icon.
+set_source_files_properties(PainfulEngine.rc PROPERTIES
+  OBJECT_DEPENDS ${PAINFUL_SOURCE}/PainfulEngine.ico)

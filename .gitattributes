@@ -2,3 +2,5 @@
 *.sc text
 *.cpp text
 *.h text
+*.rc text
+*.ico binary
