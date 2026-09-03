@@ -68,6 +68,26 @@ public:
         // ParticleRenderer slots, indexed by the per-entity emitter index the
         // scripts hold (-1 entries when running headless).
         std::vector<int> emitterSlots;
+        // What made each slot, kept so a save can remake it: AddEmitter's
+        // file, SetupEmitter's transform, SetEvolve, Die. Parallel to
+        // emitterSlots. Docs/Reference/LuaHost.md, "Saving".
+        struct EmitterRec {
+            std::string file;
+            float scale = 1.f;
+            float offset[3] = {0, 0, 0};
+            float rotDeg[3] = {0, 0, 0};
+            bool setup = false;
+            bool evolveSet = false, evolve = false;
+            bool stopped = false;
+        };
+        std::vector<EmitterRec> emitterRecs;
+        // BILLBOARD.SetupCorona's arguments, for the same reason.
+        bool hasCorona = false;
+        float coronaArgs[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+        std::string coronaTex;
+        uint32_t coronaColor = 0;
+        int coronaBlend = 1;
+        bool coronaSpriteOnly = false;
         // REGION.BuildFromPoint volume: the points' AABB, held in the
         // entity's LOCAL space and offset by pos at test time. That is the
         // shipped convention - CreateRegion and Teleport.CBox both author
@@ -103,6 +123,7 @@ public:
         float soundInterval = -1.f;      // arg 5: >= 0 loops, -1 plays once
         float soundStartIn = -1.f;       // SND.Play's delay, counted down
         int soundVoice = 0;              // the AudioEngine voice, 0 when silent
+        bool soundPlaying = false;       // SND.Play happened and SND.Stop has not
         // ENTITY.EnableCollisions(e, on, minTime=0.4, minStrength=0.6) - whether
         // this body reports contacts to the scripts, and how often. The cooldown
         // is what stops a prop resting against another from reporting forever.
@@ -156,6 +177,18 @@ public:
         // Defaults are CreatePhysicsObject's (0x101999f0).
         float bodyFriction = 0.1f;
         float bodyRestitution = 0.001f;
+        // PO_Create's shape arguments and the dressing that followed, so a
+        // save can make the body again: mass, freedom of rotation, damping,
+        // pinned. -1 means "never set". Docs/Reference/LuaHost.md, "Saving".
+        int bodyType = 0;
+        float bodyArgScale = -1.f;
+        float bodyMass = -1.f;
+        int bodyFreedomMode = -1;
+        float bodyFreedomSoft = 1.f;
+        float bodyLinDamp = -1.f, bodyAngDamp = -1.f;
+        bool bodyPinned = false;
+        bool bodyNonColliding = false;
+        int bodyGravity = -1;            // PO_EnableGravity: 0/1, -1 never called
         // ENTITY.PO_EnableGravity. A projectile is not in the solver, so the
         // body's gravity factor is a value nothing reads - TickProjectiles has
         // to integrate this itself, or Stake:Tick's arc never happens.
@@ -455,6 +488,18 @@ public:
     // Writes the pawn's position back into the player entity, so the scripts
     // read where the player actually is. Call after every pawn move.
     void SyncPlayerFromPawn();
+
+    // --- save / load (WORLD.SaveGame / LoadGame) ---------------------------
+    // The engine-side half of a save: every entity with what remakes it, the
+    // player's pawn, the camera. The scripts save their own tables beside it.
+    // ScriptSave.cpp; Docs/Reference/LuaHost.md, "Saving".
+    bool SaveWorld(const std::string& path);
+    bool LoadWorld(const std::string& path);
+    // The app polls this once per frame: WORLD.LoadMap ran since last asked,
+    // so the level renderer has to be rebuilt. hasMap is false for the empty
+    // "NoName" level; fromSave says LoadWorld followed, in which case the
+    // world must not be settled or the player re-spawned.
+    bool TakeLevelChange(std::string& levelName, bool& hasMap, bool& fromSave);
 
     // Tests the player against every region volume and posts
     // REGION_ENTERED / REGION_LEFT into Game_GetMsg on the transitions.
@@ -852,6 +897,8 @@ private:
     static int L_WORLD_AddEntity(lua_State* L);
     static int L_WORLD_FindEntityByName(lua_State* L);
     static int L_WORLD_LoadMap(lua_State* L);
+    static int L_WORLD_SaveGame(lua_State* L);
+    static int L_WORLD_LoadGame(lua_State* L);
     static int L_PHYSICS_ActiveMeshGroupActivate(lua_State* L);
     static int L_PHYSICS_ActiveMeshGroupEnable(lua_State* L);
     static int L_PHYSICS_ActiveMeshGroupStaticMeshEnable(lua_State* L);
@@ -859,6 +906,9 @@ private:
     // Promotes every "phys" object of the loaded map into a body and an
     // entity; called from WORLD.LoadMap once the mesh is in.
     void CreateActiveMeshes();
+    // Level_GetActiveMeshesData(name), the Lua global the ENGINE calls per
+    // active mesh; 1 means "use WORLD.Init's ActiveMeshesMassScale".
+    float ActiveMeshMassScale(const std::string& objectName);
     static int L_WORLD_SetupFog(lua_State* L);
     static int L_WORLD_SetFarClipDist(lua_State* L);
     static int L_WORLD_AmbientColor(lua_State* L);
@@ -975,6 +1025,12 @@ private:
     static int L_PMENU_GetAlternateKey(lua_State* L);
     static int L_PMENU_GetSimpleKey(lua_State* L);
     static int L_PMENU_AddScroller(lua_State* L);
+    static int L_PMENU_AddLoadSave(lua_State* L);
+    static int L_PMENU_AddSaveGameToList(lua_State* L);
+    static int L_PMENU_ClearList(lua_State* L);
+    static int L_PMENU_GetSelectedSGSlot(lua_State* L);
+    static int L_PMENU_SetAllowSave(lua_State* L);
+    static int L_PMENU_SetListMaxHeight(lua_State* L);
     static int L_PMENU_SetScrollerForBorder(lua_State* L);
     static int L_PMENU_SetBorderScroller(lua_State* L);
     static int L_INP_GetKeyNameByEngName(lua_State* L);
@@ -1009,6 +1065,12 @@ private:
     uint32_t explosionCounter_ = 0;
     std::unordered_map<int, Entity> entities_;
     int nextHandle_ = 1;
+    // Save/load: every entity goes, then each saved one is rebuilt at its
+    // saved handle (the scripts hold them in EntityToObject).
+    void ReleaseAllEntities();
+    void RebuildEntity(int handle, Entity& e);
+    int levelChangeSerial_ = 0, levelChangeSeen_ = 0;
+    bool loadedFromSave_ = false;
     size_t created_ = 0, released_ = 0;
     WorldState world_;
 

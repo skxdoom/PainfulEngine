@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <set>
@@ -137,7 +138,28 @@ bool FileSystem::RelToRoot(const std::string& path, std::string& lcRel) const {
     return true;
 }
 
+const FileSystem::ExtraMount* FileSystem::FindExtra(const std::string& path,
+                                                     uint32_t* entry) const {
+    if (extra_.empty()) return nullptr;
+    const std::string key = Lower(NormalizePath(path));
+    // Later mounts win, as with the numbered archives.
+    for (auto it = extra_.rbegin(); it != extra_.rend(); ++it) {
+        const std::string& d = it->dirKey;
+        if (key.size() <= d.size() + 1 || key.compare(0, d.size(), d) != 0 ||
+            key[d.size()] != '/')
+            continue;
+        const auto e = it->entries.find(key.substr(d.size() + 1));
+        if (e == it->entries.end()) continue;
+        if (entry) *entry = e->second;
+        return &*it;
+    }
+    return nullptr;
+}
+
 bool FileSystem::ReadPakFile(const std::string& path, std::vector<uint8_t>& out) const {
+    uint32_t entry = 0;
+    if (const ExtraMount* m = FindExtra(path, &entry))
+        return m->archive->Read(m->archive->entries()[entry], out);
     std::string lcRel;
     if (!RelToRoot(path, lcRel)) return false;
     const auto it = files_.find(lcRel);
@@ -147,12 +169,65 @@ bool FileSystem::ReadPakFile(const std::string& path, std::vector<uint8_t>& out)
 }
 
 bool FileSystem::Exists(const std::string& path) const {
+    if (FindExtra(path, nullptr)) return true;
     std::string lcRel;
     if (RelToRoot(path, lcRel) &&
         (files_.count(lcRel) || tree_.count(lcRel)))
         return true;
     std::error_code ec;
     return fs::exists(path, ec);
+}
+
+int FileSystem::MountPack(const std::string& pakPath, const std::string& dir) {
+    auto archive = std::make_unique<PakArchive>();
+    if (!archive->Open(pakPath)) {
+        LogWarn("pack %s: %s", pakPath.c_str(), archive->error().c_str());
+        return 0;
+    }
+    ExtraMount m;
+    m.handle = nextExtraHandle_++;
+    m.dirKey = Lower(NormalizePath(dir));
+    const auto& entries = archive->entries();
+    for (uint32_t i = 0; i < entries.size(); ++i)
+        if (!entries[i].isDirectory && !entries[i].name.empty())
+            m.entries[Lower(entries[i].name)] = i;
+    m.archive = std::move(archive);
+    extra_.push_back(std::move(m));
+    return extra_.back().handle;
+}
+
+void FileSystem::UnmountPack(int handle) {
+    for (auto it = extra_.begin(); it != extra_.end(); ++it)
+        if (it->handle == handle) {
+            extra_.erase(it);
+            return;
+        }
+}
+
+bool FileSystem::BeginPak(const std::string& pakPath) {
+    return writer_.Begin(pakPath);
+}
+
+bool FileSystem::EndPak() {
+    return writer_.End();
+}
+
+bool FileSystem::WriteFile(const std::string& path, const std::vector<uint8_t>& data) {
+    if (writer_.open()) {
+        const std::string norm = NormalizePath(path);
+        const size_t slash = norm.find_last_of('/');
+        return writer_.Add(slash == std::string::npos ? norm : norm.substr(slash + 1), data);
+    }
+    FILE* fp = nullptr;
+#ifdef _MSC_VER
+    if (fopen_s(&fp, path.c_str(), "wb") != 0 || !fp) return false;
+#else
+    fp = std::fopen(path.c_str(), "wb");
+    if (!fp) return false;
+#endif
+    const bool ok = data.empty() || std::fwrite(data.data(), 1, data.size(), fp) == data.size();
+    std::fclose(fp);
+    return ok;
 }
 
 bool FileSystem::IsDirectory(const std::string& path) const {
@@ -166,13 +241,25 @@ std::vector<DirEntry> FileSystem::List(const std::string& dir) const {
     std::vector<DirEntry> out;
     std::set<std::string> seen;
 
+    // A registered pack's files come first, the way its entries shadow disk.
+    if (!extra_.empty()) {
+        const std::string key = Lower(NormalizePath(dir));
+        for (const ExtraMount& m : extra_) {
+            if (m.dirKey != key) continue;
+            for (const auto& kv : m.entries) {
+                if (kv.first.find('/') != std::string::npos) continue;   // nested: not a child
+                if (!seen.insert(kv.first).second) continue;
+                out.push_back({m.archive->entries()[kv.second].name, false});
+            }
+        }
+    }
     std::string lcRel;
     if (RelToRoot(dir, lcRel)) {
         const auto node = tree_.find(lcRel);
         if (node != tree_.end()) {
             for (const auto& kv : node->second) {
+                if (!seen.insert(kv.first).second) continue;
                 out.push_back(kv.second);
-                seen.insert(kv.first);
             }
         }
     }

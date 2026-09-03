@@ -330,7 +330,7 @@ wrong:
 | Acoustics | `WORLD.FindEnvironmentAtPoint` (200), `SOUND.SetRoomType`, `SOUND3D.SetObstructed` / `SetIntensity`. `SOUND.SetSoundProperties` is done ([`Sound.md`](Reference/Sound.md)). |
 | Visibility switching | `WORLD.UseSwitchZones` (398), `EnablePortal`, the antiportal family, `EnableDrawMeshGroup`. |
 | Streams | `SOUND.StreamLoad` / `StreamPlay` / `StreamPause` / `StreamSetVolume` — music. |
-| Menus and save/load | the rest of `PMENU` (weapon lists, credits, save/load slot lists, the image widgets), `WORLD.SaveGame` / `LoadGame`. The map screen's exact layout ([`Menu.md`](Reference/Menu.md)). |
+| Menus | the rest of `PMENU` (weapon lists, credits, the image widgets). The map screen's exact layout ([`Menu.md`](Reference/Menu.md)). Save/load is done ([`LuaHost.md`](Reference/LuaHost.md), "Saving and loading"); what a save does not carry is listed there. |
 | Netcode | `NET`, `MPSTATS`, `GAMESPY`, `ENTITY.EnableNetworkSynchronization`, `SetSynchroString`. Last, and possibly never. |
 
 

@@ -132,8 +132,10 @@ int ScriptEngine::L_PO_Enable(lua_State* L) {
             //
             // Projectiles only: this is one-way, and a prop that is disabled
             // and later re-enabled has to come back solid.
-            if (!enable && e->isProjectile)
+            if (!enable && e->isProjectile) {
+                e->bodyNonColliding = true;
                 self->physics_->MakeScriptBodyNonColliding(e->physicsBody);
+            }
         }
     }
     return 0;

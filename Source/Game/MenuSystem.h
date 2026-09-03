@@ -42,6 +42,7 @@ public:
         KeyControl,    // one action's row in the key table: label, primary, alternative
         Scroller,      // declared by the scripts for a long list; drawn by nothing yet
         TabGroup,      // a tab box over a panel; the group's rows show with it
+        LoadSave,      // the save-game table: level, playtime, saved-at, difficulty
     };
 
     // The frame is drawn from ten tiled pieces; see DrawBorder.
@@ -134,6 +135,19 @@ public:
         float textRect[4] = {0, 0, 0, 0};
         // Slider: where the bar was drawn, in pixels, for the mouse.
         float barX = 0, barY = 0, barW = 0, barH = 0;
+        // LoadSave: the rows PMENU.AddSaveGameToList added. Row 0 is the
+        // header when its slot is "header"; "empty" is the new-save row.
+        // MenuItemList (Engine.dll 0x1006b310); layout in DrawLoadSave.
+        struct SaveRow {
+            std::string slot, level, time, date, diff;
+        };
+        std::vector<SaveRow> rows;
+        int selected = -1;           // index into rows, -1 none
+        bool allowSave = true;       // PMENU.SetAllowSave
+        float listMaxHeight = 0.f;   // PMENU.SetListMaxHeight, authoring units
+        int listScroll = 0;          // first data row on show
+        std::vector<float> rowTop;   // screen y of each row this frame (0 = not drawn)
+        float rowH = 0.f;
         // Declaration order, so keyboard navigation walks the screen the way
         // the script wrote it rather than the way a map happens to sort.
         int order = 0;
@@ -179,6 +193,9 @@ public:
     // engine owns the transition and the scripts observe it.
     void Open();
     void Close();
+    // PMENU.Activate: the scripts' own way out - PainMenu:LoadLevel and
+    // SaveGame:Load end with Activate(false) - so off means the screen goes
+    // and the world unpauses, without the CloseMenu hook Escape runs.
     void Activate(bool on);
     bool active() const { return active_; }
     void Clear();          // PMENU.Clear: leave menu mode entirely
@@ -393,6 +410,13 @@ private:
     // The key table.
     void DrawKeyRow(Item& item, bool focused);
     void EnsureKeyRowVisible();
+    // The save table: draws it, sets the Delete/Save/Load buttons' enabled
+    // state from the selection, and answers clicks and arrows inside it.
+    void DrawLoadSave(Item& item, bool focused);
+    void ListClick(Item& item, float mouseY);
+    bool ListNav(Item& item, int delta);
+    void ListActivate(Item& item);
+    void ListButtons(const Item& item);
     int keyColumn_ = 1;              // 1 primary, 2 alternative - where the pointer is
     int keyScroll_ = 0;              // first visible row of the table, 0-based
     float keyColumn2X_ = 0.f;        // screen x where the alternative column starts

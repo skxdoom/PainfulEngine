@@ -448,6 +448,56 @@ Compared against captures of the original screens, 2026-09-02:
   for the "Version: 1.64" at the top right.
 - `PAINFUL_QUIET=1` drops the debug overlay for captures of a screen's top.
 
+### The save table (`MenuItemTypes.LoadSave`) — **done**
+
+Sources: `HUD/Menu/SaveGame/LoadSaveMenu.lua`, `PainMenu:AddLoadSave` /
+`ReloadSaveGameList` / `SaveGame`; Engine.dll `MenuScreen::AddLoadSave`
+0x10073540, the `MenuItemLoadSave` constructor 0x1006b310 (vtable
+0x102b22f8), its sizing 0x1006b620, row drawing 0x1006adc0,
+`MenuItemList::Render` 0x100688f0 / `SendEvent` 0x10068d50 / `AddItem`
+0x10069510, and the natives `AddSaveGameToList` 0x1007bd50,
+`GetSelectedSGSlot` 0x1007f520, `SetAllowSave` 0x1007f6a0, `ClearList`
+0x1007f600. Flow in [`LuaHost.md`](LuaHost.md), "Saving and loading".
+
+`PainMenu:AddLoadSave` creates the table with `PMENU.AddLoadSave(name, true)`
+and then `ReloadSaveGameList` fills it: `ClearList`, a `"header"` row of four
+empty strings (the column captions are the four sort BUTTONS the screen
+declares at y 180 - Level, Playtime, Save time, Difficulty - each re-sorting
+the list), an `"empty"` row reading `TXT.Menu.NewSave` when a save is allowed
+(`SetAllowSave(true)`: a single-player game in progress below Trauma with a
+live player), then one row per `SaveGames/NNN` whose `SaveGame.Info` matches
+the screen - the Saves screen shows `Quick` / `Normal` / `NewLevel`, the
+Autosaves screen `CheckPoint` / `AutoNewLevel`. Each row is
+`(slot, level, playtime, "date time", difficulty)`; the slot is the folder
+name, which is what `GetSelectedSGSlot` hands back and what
+`SaveGame:Load('NNN')` / `Delete` take.
+
+Layout, from the decompile, in authoring units off the item's (x, y) - the
+screens put it at (100, 180): the table is 824 wide; its frame sits 20 out on
+each side, 850 wide and `listMaxHeight + 40` tall, with a 40-unit header band
+and columns of 400 / 126 / 200 / 140. The header row draws 4 units ABOVE y,
+the first data row 16 below it, and rows are one text height apart (the
+hit test starts at 14). Column texts: the level name at x (the header's is
+centred in 380), playtime centred in [380, 510], saved-at in [506, 716],
+difficulty in [716, 826] - the six floats right after the vtable. A row
+under the pointer draws in the under-mouse colour and the CHOSEN row in the
+disabled colour (the screen sets that to RGB(200,200,200) for exactly this).
+The engine sizes the list to `listMaxHeight` and adds a scroller once the
+rows overflow.
+
+The buttons follow the selection, as the sizing code does each pass: with no
+row chosen `DeleteButton`, `SaveButton` and `LoadButton` are all disabled;
+with one, Save is enabled when saving is allowed and Delete / Load when the
+row is not `"empty"`. A second click on the chosen row, or Enter, is the
+Load button (the Save button on the new-save row); the arrows walk the rows
+and leave the table at either end. `GetSelectedSGSlot` answers nil for the
+new-save row, which is how `PainMenu:SaveGame` tells "save to a fresh slot"
+from "overwrite this one, after a yes/no".
+
+Not drawn: the original recolours a `[Quick]` / `[Auto]` / `[Checkpoint]`
+prefix on the level name (grey and red literals in the row drawer) and can
+drop a shadow under each row; the rows here are plain.
+
 ### The key table (ControlsConfig) — **done**
 
 `PMENU.AddKeyControl(name, label, primaryOption, alternativeOption,
@@ -508,10 +558,8 @@ weather) - each waits for the feature it names.
 
 Multiplayer and the server browser (~20 natives, and there is no networking
 layer to sit under them), movies (`PlayMovie` is Bink - it answers false at
-once and the callers carry on), the CD-key and registry-bonus DRM, the credits
-roll (`ShowCredits`), and the save / load lists (`AddLoadSave`,
-`AddSaveGameToList`, `GetSelectedSGSlot`) which wait on `WORLD.SaveGame` /
-`LoadGame` themselves. Also still stubs on the options screens: the weapon
+once and the callers carry on), the CD-key and registry-bonus DRM, and the
+credits roll (`ShowCredits`). Also still stubs on the options screens: the weapon
 priority lists (`AddList` / `MoveListItemUp` / `Down` / `GetListItems`),
 `SetStaticTextRect`, `AddImageButton*`, `AddSliderImage`, `AddNumEdit`,
 `AddPassword`.
@@ -595,6 +643,13 @@ to 720 authoring units - so hit-testing the text left most of the row dead.
 And rows are spaced further apart than a line is tall (80 units against about
 60), leaving a dead band between them; each row in a column now grows down to
 meet the next, so a column hit-tests as one continuous strip.
+
+And when boxes overlap, the SMALLEST one under the pointer wins, not the
+first declared. The save screen is the case: `DeleteButton` is a centred row
+(`x = -1`, so its box is the whole 880-unit menu row) while `SaveButton` and
+`LoadButton` sit on the same line at their own x. Taking the first match gave
+Delete the pointer over all three once it was enabled, so Load could never
+be hovered with a save selected (2026-09-03).
 
 The system cursor is hidden while the menu is up, since the menu draws its
 own. Relative mode hides it during play anyway, which is why this only shows

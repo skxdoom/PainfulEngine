@@ -305,6 +305,12 @@ that buys:
   device stream, with the original's virtual-voice policy deciding what is
   audible: `SOUND.SetSoundProperties` caps instances per file and spaces
   their starts ([`Sound.md`](Reference/Sound.md)).
+- **Save and load.** The shipped `SaveGame.lua` runs as written: quick save
+  and load (F5 / F9), checkpoints, the level-start autosave, and the Saves /
+  Autosaves screens with their table, over the original's own container -
+  `Save.dat` is a pak, and its name seed is now known, which also made the
+  archive reader exact. The world file is ours; what it carries and what it
+  does not is in [`LuaHost.md`](Reference/LuaHost.md), "Saving and loading".
 
 ## What is missing
 
@@ -396,12 +402,12 @@ The ordered work queue, with the evidence behind each item, is
 - Acoustic environments and sound occlusion: `WORLD.FindEnvironmentAtPoint`,
   `SOUND.SetRoomType`, `SOUND3D.SetObstructed` / `SetIntensity`. Music streams
   (`SOUND.StreamLoad` / `StreamPlay`) too.
-- Menus: the main menu, options, controls (with key capture) and the campaign
-  map work, and a plain launch boots to the menu and starts a new game
-  through it, with a runtime level switch. Still missing: save/load
-  (`WORLD.SaveGame` / `LoadGame` and the slot lists), the weapon priority
-  lists, credits, movies (Bink), multiplayer. The map's layout is a stand-in
-  ([`Menu.md`](Reference/Menu.md)). No netcode.
+- Menus: the main menu, options, controls (with key capture), the campaign
+  map and the save / load screens work, and a plain launch boots to the menu
+  and starts a new game through it, with a runtime level switch. Still
+  missing: the weapon priority lists, credits, movies (Bink), multiplayer.
+  The map's layout is a stand-in ([`Menu.md`](Reference/Menu.md)). No
+  netcode.
 - `.pkm` mod packages do not auto-mount yet — their internal format is still an
   open question, and the `GZipPack` exports hint the engine also reads real
   ZIPs.

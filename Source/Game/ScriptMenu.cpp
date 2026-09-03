@@ -294,6 +294,71 @@ int ScriptEngine::L_PMENU_AddScroller(lua_State* L) {
     return 0;
 }
 
+// ---------------------------------------------------------------- save list
+//
+// PMENU.AddLoadSave(name, bool) creates the table (0x10078110 ->
+// MenuScreen::AddLoadSave); PainMenu:ReloadSaveGameList then ClearList()s it
+// and AddSaveGameToList(name, slot, level, playtime, savedAt, difficulty)
+// fills it, "header" first and "empty" for the new-save row. GetSelectedSGSlot
+// (0x1007f520) is the chosen row's slot, nil for "empty" or nothing, and
+// SetAllowSave (0x1007f6a0) is the Save button's gate. Docs/Reference/Menu.md.
+int ScriptEngine::L_PMENU_AddLoadSave(lua_State* L) {
+    const std::string name = luaL_optstring(L, 1, "");
+    if (name.empty()) return 0;
+    MenuSystem::Item& item = From(L)->menu_.Add(name, MenuSystem::Kind::LoadSave);
+    item.rows.clear();
+    item.selected = -1;
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_AddSaveGameToList(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    MenuSystem::Item* item = MenuItemArg(From(L), L, &menu);
+    if (!item || item->kind != MenuSystem::Kind::LoadSave) return 0;
+    MenuSystem::Item::SaveRow row;
+    row.slot = luaL_optstring(L, 2, "");
+    row.level = luaL_optstring(L, 3, "");
+    row.time = luaL_optstring(L, 4, "");
+    row.date = luaL_optstring(L, 5, "");
+    row.diff = luaL_optstring(L, 6, "");
+    // AddItem (0x10069510) keeps one row per slot.
+    for (const auto& r : item->rows)
+        if (r.slot == row.slot) return 0;
+    item->rows.push_back(row);
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_ClearList(lua_State* L) {
+    MenuSystem::Item* item = From(L)->menu_.Find(luaL_optstring(L, 1, "SaveList"));
+    if (!item) return 0;
+    item->rows.clear();
+    item->selected = -1;
+    item->listScroll = 0;
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_GetSelectedSGSlot(lua_State* L) {
+    const MenuSystem::Item* item = From(L)->menu_.Find(luaL_optstring(L, 1, "SaveList"));
+    if (!item || item->selected < 0 || size_t(item->selected) >= item->rows.size()) return 0;
+    const std::string& slot = item->rows[size_t(item->selected)].slot;
+    if (slot == "empty" || slot == "header") return 0;
+    lua_pushstring(L, slot.c_str());
+    return 1;
+}
+
+int ScriptEngine::L_PMENU_SetAllowSave(lua_State* L) {
+    if (MenuSystem::Item* item = From(L)->menu_.Find("SaveList"))
+        item->allowSave = lua_isnoneornil(L, 1) ? true : (lua_toboolean(L, 1) != 0);
+    return 0;
+}
+
+int ScriptEngine::L_PMENU_SetListMaxHeight(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu))
+        item->listMaxHeight = float(luaL_optnumber(L, 2, 0));
+    return 0;
+}
+
 // The two ways to tie a border to a scroller return DIFFERENT names, and
 // PainMenu:AddControlConfig checks them:
 //

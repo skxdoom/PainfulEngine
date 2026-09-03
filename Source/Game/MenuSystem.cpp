@@ -47,6 +47,10 @@ void MenuSystem::Close() {
 }
 
 void MenuSystem::Activate(bool on) {
+    if (!on) {
+        ClearScreen();
+        if (active_ && setPaused_) setPaused_(false);
+    }
     active_ = on;
     if (!on) focused_.clear();
 }
@@ -168,12 +172,16 @@ void MenuSystem::FocusFirst() {
 void MenuSystem::NavUp() {
     if (boardMode_) return;
     if (mapMode_) { MapMoveChapter(-1); return; }
+    if (Item* f = Find(focused_))
+        if (f->kind == Kind::LoadSave && ListNav(*f, -1)) return;
     MoveFocus(-1);
     EnsureKeyRowVisible();
 }
 void MenuSystem::NavDown() {
     if (boardMode_) return;
     if (mapMode_) { MapMoveChapter(1); return; }
+    if (Item* f = Find(focused_))
+        if (f->kind == Kind::LoadSave && ListNav(*f, 1)) return;
     MoveFocus(1);
     EnsureKeyRowVisible();
 }
@@ -229,7 +237,10 @@ void MenuSystem::NavAdjust(int direction) {
 void MenuSystem::NavActivate() {
     if (boardMode_) { LeaveBoard(); return; }
     if (mapMode_) { MapChoose(); return; }
-    if (Item* item = Find(focused_)) Choose(*item);
+    if (Item* item = Find(focused_)) {
+        if (item->kind == Kind::LoadSave) ListActivate(*item);
+        else Choose(*item);
+    }
 }
 
 void MenuSystem::Update(float mouseX, float mouseY, bool clicked) {
@@ -270,12 +281,19 @@ void MenuSystem::Update(float mouseX, float mouseY, bool clicked) {
     // The mouse wins over the keyboard whenever it is over a row: hover moves
     // focus, so the description text and the highlight follow the pointer.
     if (showMouse_ && capture_.empty() && dragging_.empty()) {
+        // The SMALLEST box under the pointer wins, not the first declared: a
+        // centred row (the save screen's Delete, x = -1) is hit-tested as the
+        // whole menu row, and Save and Load sit on that same line at their
+        // own x. Declaration order gave Delete the pointer over all three.
+        Item* hit = nullptr;
         for (Item* item : Ordered()) {
             if (!Focusable(item->kind) || !item->visible || item->disabled) continue;
             if (item->hitW <= 0.f || item->hitH <= 0.f) continue;
             if (mouseX < item->hitX || mouseX > item->hitX + item->hitW) continue;
             if (mouseY < item->hitY || mouseY > item->hitY + item->hitH) continue;
-
+            if (!hit || item->hitW * item->hitH < hit->hitW * hit->hitH) hit = item;
+        }
+        if (Item* item = hit) {
             if (focused_ != item->name) {
                 focused_ = item->name;
                 if (playSound_ && !item->sndLightOn.empty()) playSound_(item->sndLightOn);
@@ -283,8 +301,10 @@ void MenuSystem::Update(float mouseX, float mouseY, bool clicked) {
             // Which key cell of a row the pointer is over.
             if (item->kind == Kind::KeyControl)
                 keyColumn_ = (keyColumn2X_ > 0.f && mouseX >= keyColumn2X_) ? 2 : 1;
-            if (clicked) Choose(*item);
-            break;
+            if (clicked) {
+                if (item->kind == Kind::LoadSave) ListClick(*item, mouseY);
+                else Choose(*item);
+            }
         }
     }
 
@@ -344,6 +364,10 @@ void MenuSystem::Draw(int screenW, int screenH) {
         if (isFocused) focusedItem = item;
         if (item->kind == Kind::KeyControl) {
             DrawKeyRow(*item, isFocused);
+            continue;
+        }
+        if (item->kind == Kind::LoadSave) {
+            DrawLoadSave(*item, isFocused);
             continue;
         }
         // A static text with a rectangle wraps into it, its lines centred:
@@ -1026,6 +1050,165 @@ void MenuSystem::DrawKeyRow(Item& item, bool focused) {
     item.hitY = y;
     item.hitW = bw * SX;
     item.hitH = kKeyRowH * SY;
+}
+
+// ---------------------------------------------------------------- save list
+//
+// MenuItemList as Engine.dll draws it (row drawing FUN_1006adc0, sizing
+// FUN_1006b620): an 824-unit-wide table whose frame sits 20 units out on each
+// side, 850 wide, listMaxHeight + 40 tall, with a 40-unit header band and
+// columns of 400 / 126 / 200 / 140. Rows are one text height apart, the
+// header row four units ABOVE the item's y and the first data row 16 below
+// it. Column texts: the level name at x (centred in 380 for the header),
+// playtime centred in [380, 510], saved-at in [506, 716], difficulty in
+// [716, 826]. The selected row draws in the DISABLED colour, the row under
+// the pointer in the under-mouse colour. Docs/Reference/Menu.md.
+namespace {
+constexpr float kListW = 824.f, kListPad = 20.f, kListFrameW = 850.f, kListHeaderH = 40.f;
+constexpr float kListCols[4] = {400.f, 126.f, 200.f, 140.f};
+constexpr float kColX[4] = {0.f, 380.f, 506.f, 716.f};
+constexpr float kColW[4] = {380.f, 130.f, 210.f, 110.f};
+}  // namespace
+
+void MenuSystem::ListButtons(const Item& item) {
+    Item* del = Find("DeleteButton");
+    Item* save = Find("SaveButton");
+    Item* load = Find("LoadButton");
+    const bool sel = item.selected >= 0 && size_t(item.selected) < item.rows.size();
+    const bool real = sel && item.rows[size_t(item.selected)].slot != "empty" &&
+                      item.rows[size_t(item.selected)].slot != "header";
+    if (del) del->disabled = !real;
+    if (load) load->disabled = !real;
+    if (save) save->disabled = !(sel && item.allowSave);
+}
+
+void MenuSystem::DrawLoadSave(Item& item, bool focused) {
+    const float SX = sx(), SY = sy();
+    const int size = int(std::lround(double(item.fontBigSize) * double(SY)));
+    const float x = (item.x >= 0.f ? item.x : 100.f) * SX;
+    const float y = item.y * SY;
+    item.rowH = hud_->TextHeight(item.fontBig, size);
+    if (item.rowH <= 0.f) item.rowH = 22.f * SY;
+
+    // The frame, with the header band and the four columns.
+    {
+        Item frame;
+        frame.x = (item.x >= 0.f ? item.x : 100.f) - kListPad;
+        frame.y = item.y - kListPad;
+        frame.width = kListFrameW;
+        frame.height = (item.listMaxHeight > 0.f ? item.listMaxHeight : 400.f) + kListHeaderH;
+        frame.headerHeight = kListHeaderH;
+        frame.columns.assign(kListCols, kListCols + 4);
+        DrawBorder(frame);
+    }
+
+    const bool hasHeader = !item.rows.empty() && item.rows[0].slot == "header";
+    const int first = hasHeader ? 1 : 0;
+    const float bodyH = (item.listMaxHeight > 0.f ? item.listMaxHeight : 400.f) * SY;
+    const int visible = std::max(1, int(bodyH / item.rowH));
+    const int dataRows = int(item.rows.size()) - first;
+    item.listScroll = std::max(0, std::min(item.listScroll, dataRows - visible));
+
+    item.rowTop.assign(item.rows.size(), 0.f);
+    const uint32_t plain = ArgbToAbgr(item.textColor);
+    const uint32_t chosen = ArgbToAbgr(item.disabledColor);
+    const uint32_t hot = ArgbToAbgr(item.underMouseColor);
+    const int tex = FontTexture(item, true);
+    const bool pointerIn = showMouse_ && mouseX_ >= x && mouseX_ <= x + kListW * SX;
+
+    auto drawRow = [&](const Item::SaveRow& r, float ry, bool header, uint32_t colour) {
+        const std::string* cols[4] = {&r.level, &r.time, &r.date, &r.diff};
+        for (int c = 0; c < 4; ++c) {
+            float cx;
+            if (c == 0 && !header) {
+                cx = x;
+            } else {
+                const float w = hud_->TextWidth(item.fontBig, size, *cols[c]);
+                cx = x + (kColX[c] + (kColW[c] - w / SX) * 0.5f) * SX;
+            }
+            hud_->Text(item.fontBig, size, cx, ry, *cols[c], colour, tex);
+        }
+    };
+
+    if (hasHeader) drawRow(item.rows[0], y - 4.f * SY, true, plain);
+    float ry = y + 16.f * SY;
+    for (int i = first + item.listScroll; i < int(item.rows.size()) && i < first + item.listScroll + visible; ++i) {
+        const bool hover = pointerIn && mouseY_ >= ry && mouseY_ < ry + item.rowH;
+        uint32_t colour = plain;
+        if (i == item.selected) colour = chosen;
+        else if (hover && !item.disabled) colour = hot;
+        drawRow(item.rows[size_t(i)], ry, false, colour);
+        item.rowTop[size_t(i)] = ry;
+        ry += item.rowH;
+    }
+
+    // The small scroller down the frame's right edge when the rows overflow.
+    if (dataRows > visible) {
+        const int arrow = MapMat("HUD/border/strzalka_mala");
+        const int line = MapMat("HUD/border/kreska_mala");
+        const int thumb = MapMat("HUD/border/dzwigienka_mala");
+        const float aw = 35.f * SX, ah = 42.f * SY;
+        const float bx = x - kListPad * SX + (kListFrameW - 30.f) * SX - aw * 0.5f;
+        const float top = y - kListPad * SY + kListHeaderH * SY + 6.f * SY;
+        const float bottom = y - kListPad * SY + bodyH + kListHeaderH * SY - 6.f * SY;
+        if (line > 0) hud_->Tiles(line, bx, top + ah, 0.f, bottom - top - 2.f * ah);
+        if (arrow > 0) {
+            hud_->Quad(arrow, bx, top, aw, ah, 0xffffffffu, 0.f, 1.f, 1.f, 0.f);
+            hud_->Quad(arrow, bx, bottom - ah, aw, ah, 0xffffffffu);
+        }
+        if (thumb > 0) {
+            const float tw = 40.f * SX, th = 29.f * SY;
+            const float travel = (bottom - ah) - (top + ah) - th;
+            const float t = float(item.listScroll) / float(std::max(1, dataRows - visible));
+            hud_->Quad(thumb, bx + aw * 0.5f - tw * 0.5f, top + ah + travel * t, tw, th,
+                       0xffffffffu);
+        }
+    }
+
+    // The whole table is the hit target; a click picks the row under it.
+    item.hitX = x;
+    item.hitY = y + 14.f * SY;
+    item.hitW = kListW * SX;
+    item.hitH = bodyH;
+    (void)focused;
+    ListButtons(item);
+}
+
+void MenuSystem::ListClick(Item& item, float mouseY) {
+    for (size_t i = 0; i < item.rows.size(); ++i) {
+        if (item.rowTop[i] <= 0.f) continue;
+        if (mouseY >= item.rowTop[i] && mouseY < item.rowTop[i] + item.rowH) {
+            // A second click on the chosen row is the same as pressing Enter.
+            if (int(i) == item.selected) ListActivate(item);
+            item.selected = int(i);
+            return;
+        }
+    }
+}
+
+// Up and down walk the rows; at either end the focus leaves the table.
+bool MenuSystem::ListNav(Item& item, int delta) {
+    const int first = (!item.rows.empty() && item.rows[0].slot == "header") ? 1 : 0;
+    const int last = int(item.rows.size()) - 1;
+    if (last < first) return false;
+    int next = item.selected < 0 ? (delta > 0 ? first : last) : item.selected + delta;
+    if (next < first || next > last) return false;
+    item.selected = next;
+    const float bodyH = (item.listMaxHeight > 0.f ? item.listMaxHeight : 400.f) * sy();
+    const int visible = std::max(1, int(bodyH / std::max(1.f, item.rowH)));
+    const int row = next - first;
+    if (row < item.listScroll) item.listScroll = row;
+    else if (row >= item.listScroll + visible) item.listScroll = row - visible + 1;
+    return true;
+}
+
+// Enter on a save loads it; on the new-save row it saves.
+void MenuSystem::ListActivate(Item& item) {
+    if (item.selected < 0 || size_t(item.selected) >= item.rows.size()) return;
+    ListButtons(item);
+    const bool empty = item.rows[size_t(item.selected)].slot == "empty";
+    const Item* button = Find(empty ? "SaveButton" : "LoadButton");
+    if (button && !button->disabled && !button->action.empty()) pending_.push_back(button->action);
 }
 
 void MenuSystem::EnsureKeyRowVisible() {

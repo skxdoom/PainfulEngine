@@ -49,25 +49,30 @@ int ScriptEngine::L_WORLD_FindEntityByName(lua_State* L) {
 // factor comes from the Lua global the ENGINE calls, Level_GetActiveMeshesData
 // (CLevel.lua:970), substring-matched on the lowercased name; 1 means "use
 // ActiveMeshesMassScale", which WORLD.Init brings a moment later.
+float ScriptEngine::ActiveMeshMassScale(const std::string& objectName) {
+    lua_State* L = host_ ? host_->state() : nullptr;
+    float massScale = 1.f;
+    if (L) {
+        const int top = lua_gettop(L);
+        lua_pushstring(L, "Level_GetActiveMeshesData");
+        lua_gettable(L, LUA_GLOBALSINDEX);
+        if (lua_isfunction(L, -1)) {
+            lua_pushstring(L, objectName.c_str());
+            if (lua_pcall(L, 1, 1, 0) == 0 && lua_isnumber(L, -1))
+                massScale = float(lua_tonumber(L, -1));
+        }
+        lua_settop(L, top);
+    }
+    return massScale;
+}
+
 void ScriptEngine::CreateActiveMeshes() {
     if (!physics_ || !mapLoaded_) return;
-    lua_State* L = host_ ? host_->state() : nullptr;
     size_t made = 0, pinned = 0;
     for (size_t i = 0; i < map_.objects.size(); ++i) {
         const MapObject& o = map_.objects[i];
         if (!o.isActiveMesh() || o.vertexCount() == 0) continue;
-        float massScale = 1.f;
-        if (L) {
-            const int top = lua_gettop(L);
-            lua_pushstring(L, "Level_GetActiveMeshesData");
-            lua_gettable(L, LUA_GLOBALSINDEX);
-            if (lua_isfunction(L, -1)) {
-                lua_pushstring(L, o.name.c_str());
-                if (lua_pcall(L, 1, 1, 0) == 0 && lua_isnumber(L, -1))
-                    massScale = float(lua_tonumber(L, -1));
-            }
-            lua_settop(L, top);
-        }
+        const float massScale = ActiveMeshMassScale(o.name);
         float origin[3];
         const int slot = physics_->CreateActiveMeshBody(
             o, world_.scale, massScale, o.isPinned(), o.nameHas("concave"),
@@ -134,6 +139,10 @@ int ScriptEngine::L_WORLD_LoadMap(lua_State* L) {
     // released their own entities in Game:Clear. Drop what is ours.
     if (self->mapLoaded_) self->ResetLevelState();
     self->mapLoaded_ = false;
+    // A level is going up (or the empty one): the app rebuilds its renderer
+    // on the next TakeLevelChange, and a LoadWorld after this marks itself.
+    ++self->levelChangeSerial_;
+    self->loadedFromSave_ = false;
     if (self->physics_ && self->world_.loadRequested) {
         const std::string path = self->host_->ResolvePath(self->world_.mapPath);
         // Load reports success as "no error recorded", so the reused mesh

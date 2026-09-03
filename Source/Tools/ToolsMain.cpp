@@ -95,6 +95,10 @@ const Command kCommands[] = {
  "list a directory through the mounted view",
  [](int, char** argv) { return FilesCmd(argv[2], argv[3]); }},
 
+{"pakcheck", 3, Root::kArgv2, "level", "<DataRoot>",
+ "pak name seed formula vs brute-force decode, per archive",
+ [](int, char** argv) { return PakCheckCmd(argv[2]); }},
+
 {"zones", 4, Root::kArgv3, "level", "<levelDir> <DataRoot> [x y z]",
  "portal/zone graph, optionally from a point",
  [](int argc, char** argv) {

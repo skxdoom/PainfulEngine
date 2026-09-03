@@ -388,9 +388,11 @@ void ScriptEngine::UpdateViewAttached() {
 // keeps burning while the same emitter data used for an impact fires once.
 int ScriptEngine::L_PARTICLE_SetEvolve(lua_State* L) {
     ScriptEngine* self = From(L);
-    const Entity* e = self->Find(HandleArg(L, 1));
-    if (!e || !self->particles_) return 0;
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e) return 0;
     const bool on = lua_isboolean(L, 2) ? lua_toboolean(L, 2) != 0 : true;
+    for (Entity::EmitterRec& rec : e->emitterRecs) { rec.evolveSet = true; rec.evolve = on; }
+    if (!self->particles_) return 0;
     for (int slot : e->emitterSlots)
         if (slot >= 0) self->particles_->SetScriptEmitterEvolve(slot, on);
     return 0;

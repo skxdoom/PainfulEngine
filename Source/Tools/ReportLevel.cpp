@@ -270,6 +270,36 @@ int LevelsCmd(const char* dataRoot) {
 // Diagnostic: dump a sky dome mesh - object names and their materials.
 // Diagnostic: parse a .dat item pack, or with a directory, validate every pack.
 
+// Every *.pak under the data root: how many directory names the writer's seed
+// formula (PakArchive::NameKey) decodes differently from the scoring decoder.
+// Zero everywhere is what lets the formula be trusted; the count of entries
+// is the evidence. Docs/Reference/Formats.md, "Name obfuscation".
+int PakCheckCmd(const char* dataRoot) {
+    size_t totalEntries = 0, totalMismatch = 0;
+    int archives = 0;
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(dataRoot, ec)) {
+        if (!entry.is_regular_file()) continue;
+        std::string ext = entry.path().extension().string();
+        for (char& c : ext) c = char(std::tolower(static_cast<unsigned char>(c)));
+        if (ext != ".pak") continue;
+        size_t entries = 0;
+        const size_t mism = PakArchive::VerifyNameFormula(entry.path().string(), &entries);
+        if (mism == size_t(-1)) {
+            LogInfo("%-20s unreadable", entry.path().filename().string().c_str());
+            continue;
+        }
+        LogInfo("%-20s %7zu entries, %zu differ", entry.path().filename().string().c_str(),
+                entries, mism);
+        totalEntries += entries;
+        totalMismatch += mism;
+        ++archives;
+    }
+    LogInfo("%d archives, %zu entries, %zu decode differently", archives, totalEntries,
+            totalMismatch);
+    return totalMismatch == 0 ? 0 : 1;
+}
+
 int FilesCmd(const char* dataRoot, const char* dir) {
     FileSystem::Get().MountData(dataRoot);
     std::vector<uint8_t> data;

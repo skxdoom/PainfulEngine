@@ -320,12 +320,15 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
         renderer.SetClearColor(0.f, 0.f, 0.f);
     };
 
-    auto bringUp = [&](const std::string& levelName) {
+    // fromSave: WORLD.LoadGame put every entity and the player back where the
+    // save left them, so nothing is settled and the play transition is not
+    // re-run - SaveGame:Load sets Game.Active itself.
+    auto bringUp = [&](const std::string& levelName, bool fromSave) {
     // Let the props settle before the first frame, the same fixed steps the
     // hand-driven path takes, and draw them where they came to rest - all of
     // them, because settled means asleep and asleep is what the per-frame
     // sync deliberately skips.
-    physics.Settle(90);
+    if (!fromSave) physics.Settle(90);
     engine.SyncFromPhysics(false);
 
     // The transition into gameplay, in the engine's own order (Game.lua's
@@ -346,12 +349,14 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
         LogInfo("camera seated from the level at %.1f %.1f %.1f", seatPos[0], seatPos[1],
                 seatPos[2]);
     engine.SetMouseLocked(true);
-    host.CallGameOnPlay();
-    // The level start's last step, as SaveGame.lua and the console run it:
-    // seats the pawn at the camera, seeds Player.Pos from the entity and
-    // enables the physics object. Without it the first tick reads a zero
-    // Player.Pos into PX/PY/PZ and ambush boxes over the origin fire at load.
-    host.RunString("Game:SwitchPlayerToPhysics(true)");
+    if (!fromSave) {
+        host.CallGameOnPlay();
+        // The level start's last step, as SaveGame.lua and the console run it:
+        // seats the pawn at the camera, seeds Player.Pos from the entity and
+        // enables the physics object. Without it the first tick reads a zero
+        // Player.Pos into PX/PY/PZ and ambush boxes over the origin fire at load.
+        host.RunString("Game:SwitchPlayerToPhysics(true)");
+    }
 
     // Model lighting. In this path there is no Level object at all - the script
     // layer creates the entities and hands the renderer state over through the
@@ -478,12 +483,21 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 
     // Boot: a named level goes straight to play; none is the original's own
     // start, with the main menu up and the map loading whatever is chosen.
+    // A level load the engine itself did not start - SaveGame:Load from the
+    // menu or the quick-load key, or a StartLevel save sending the game back
+    // to the map - is noticed here, after the fact, and the renderer follows.
+    auto consumeLevelChange = [&]() {
+        std::string changed;
+        bool hasMap = false, fromSave = false;
+        engine.TakeLevelChange(changed, hasMap, fromSave);
+    };
     if (!noLevel) {
         host.CallGameLoadLevel(levelName);
         // One chunk of Lua after the level is up, for turning on whatever a
         // run is meant to look at - Cfg.ShowFPS, a spawn, a camera placement.
         if (exec && exec[0]) host.RunString(exec);
-        bringUp(levelName);
+        bringUp(levelName, false);
+        consumeLevelChange();
     } else {
         if (exec && exec[0]) host.RunString(exec);
         engine.menu().Open();
@@ -498,6 +512,19 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
             renderer.Resize(window.width(), window.height());
             engine.SetScreenSize(window.width(), window.height());
         }
+        // A level the scripts loaded on their own during the last frame: a
+        // save (the world comes back as saved), or a StartLevel save that
+        // went to the empty level and the map.
+        {
+            std::string changed;
+            bool hasMap = false, fromSave = false;
+            if (engine.TakeLevelChange(changed, hasMap, fromSave)) {
+                tearDown();
+                if (hasMap) bringUp(changed, fromSave);
+                previous = std::chrono::steady_clock::now();
+                continue;
+            }
+        }
         // A level chosen on the map screen. Loaded here, at the top of a
         // frame, rather than inside the menu's action: the load tears down
         // the world the frame that requested it was still drawing.
@@ -511,7 +538,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
                 // our camera INTO Lev.Pos otherwise.
                 engine.SetMouseLocked(false);
                 host.RunString("Game:LoadLevel('" + nextDir + "')");
-                bringUp(nextDir);
+                bringUp(nextDir, false);
+                consumeLevelChange();
                 engine.menu().Close();
                 previous = std::chrono::steady_clock::now();
                 continue;

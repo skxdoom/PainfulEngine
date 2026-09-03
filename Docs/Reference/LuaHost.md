@@ -578,6 +578,99 @@ Still unverified against the binary, and suspect for the same reason:
 `RotateQuatByAxisAngle` composes `r * q`, which under this convention would
 apply them in the other order. Nothing measured has needed it yet.
 
+## Saving and loading
+
+Sources: `Main/SaveGame.lua`, `HUD/PainMenu.lua` (`ReloadSaveGameList`),
+`Main/Utils.lua` (`SaveFullObj`); Engine.dll `PCFSystem::SaveGame`
+0x100518a0 / `LoadGame` 0x10051700, `GFileManager::CreatePAK` 0x1017f0e0 /
+`ClosePAK` 0x1017e6d0 / `CreateFileWriter` 0x1017e8f0, the FS natives at
+0x10123c10..0x10124390; the two shipped saves under `SaveGames/`.
+
+A save is a folder, `SaveGames/NNN/`, and the split of work is the game's
+usual one: the SCRIPTS serialise their own tables, the ENGINE serialises the
+world, and the file layer stitches them into one container.
+
+**The container.** `SaveGame:Save` writes `SaveGame.Info` as a loose file
+(the menu lists saves by reading only that), then `FS.CreatePAK("Save.dat")`,
+and every `FS.File_Open` / `File_Write` / `File_Close` and the
+`WORLD.SaveGame` that follow land INSIDE that pak under their basename until
+`FS.ClosePAK`. `Save.dat` is an ordinary `.pak`
+([`Formats.md`](Formats.md), including the name seed this work recovered).
+`File_Write` strips one trailing `\n` or `\r` and writes CRLF, which is why
+the shipped `.Info` files are CRLF. Loading is the mirror:
+`FS.RegisterPack("Save.dat", "<dir>/")` mounts the pak over the save's own
+folder so `DoFile("<dir>/LevelStart.Info")` and `FS.FindFiles("<dir>/*.CLevel")`
+read out of it, and `UnregisterPack` drops it. In the engine this is
+`FileSystem::MountPack` / `BeginPak` / `WriteFile`; the natives are in
+`Natives.cpp` and resolve paths through `LuaHost::ResolvePath`, so
+`../SaveGames` is the folder beside `Data`.
+
+What goes in, in `SaveGame:Save`'s order: `LevelStart.Info` and
+`CurrState.Info` (the level-state snapshots), then for a real save the level
+as `<name>.CLevel`, every live object as `<name>.<Class>` (`SaveFullObj` -
+tables recursively, functions and `s_` statics skipped, object references as
+`"ref:<name>"`), `OtherData.State` (the `EntityToObject` map, handle to
+object name), `Game.State` (the whole `Game` table), and last
+`<level>.World` from `WORLD.SaveGame`. The save TYPES matter: `StartLevel`,
+`NewLevel` and `AutoNewLevel` stop after the `.Info` files and load by
+starting the level fresh through the map screen; `Normal`, `Quick` and
+`CheckPoint` carry the world. Slot 000 is rewritten as `StartLevel` at every
+`Game:OnPlay(true)`, so a level start always produces it.
+
+**The world file.** The original's is `"C^"`, a version (3), then glass,
+`"AUDIOv01"` plus the Miles state, Havok physics, pathfinding, entities,
+portal state and zone state - and `SaveGame:AfterLoadEntities()` is called
+from C++ between the entities and the portals. That file is Havok state and
+cannot be read or written here, so `WORLD.SaveGame` writes OUR file in the
+same place (`PKSV`, version 1; `Source/Game/ScriptSave.cpp`) under the same
+contract: every entity comes back at the HANDLE it had, because the scripts
+saved those handles in `EntityToObject` and in every `_Entity` field, and
+`Cache:PrecacheLevel` is deliberately run only after `LoadGame` so the counter
+is not disturbed ("indeksy musza isc od zera").
+
+The rule the file follows: an entity is stored as what MADE it, not as the
+slots it holds. The natives now retain their own arguments on the entity -
+`PO_Create`'s body type and scale and the mass / rotation freedom / damping /
+pinned / gravity dressing, `PARTICLE.AddEmitter`'s file with `SetupEmitter`'s
+transform and the `SetEvolve` / `Die` state, `BILLBOARD.SetupCorona`'s
+fourteen arguments, `SND.Setup3D`'s sound and whether `SND.Play` happened -
+and `LoadWorld` replays them through the same subsystem calls the natives
+make, then applies the live state on top (pose, velocity, animation slot and
+time, hidden meshes, the ragdoll pose as a seed for `EnableRagdoll`). Active
+meshes are remade from their map object, the player's pawn is respawned at
+its saved head position with the walk/fly state, and the camera pose is set
+so the app's next frame seats on it. `LoadWorld` first releases EVERY
+entity, including the active meshes and water the preceding `WORLD.LoadMap`
+just made (their handles belong to the save), and water surfaces are then
+re-pointed at the restored entities of the same name.
+
+**The app side.** `SaveGame:Load` runs inside a tick or a menu action, so
+the level renderer it invalidates is rebuilt afterwards: `WORLD.LoadMap`
+bumps a serial, `ScriptEngine::TakeLevelChange` reports it at the top of the
+next frame, and `GameApp` tears down and brings up the level with
+`fromSave` set - no `Settle`, no `Game:OnPlay`, no `SwitchPlayerToPhysics`,
+since `SaveGame:Load` sets `Game.Active` and the world is already where it
+was. A `StartLevel` save goes to the empty level and the map screen instead,
+which the same hook handles as a teardown. `PMENU.Activate(false)`, which
+`SaveGame:Load` and `PainMenu:LoadLevel` end with, clears the screen and
+unpauses without the `CloseMenu` hook Escape runs.
+
+Verified headless (`PainfulTools lua <root> N C1L1_Cathedral "<chunk>"`):
+a save taken forty frames after teleporting into the first ambush, and its
+load in a fresh process, agree on the live-actor count, the player position,
+the object count and the player's health, with no script error on either
+side; the pack written is decoded independently (a PowerShell parse of its
+directory with the seed formula) to the same 665 names.
+
+Not carried over: the animation cross-fade in progress (the new run starts on
+the current animation), angular velocity of free bodies (`angVel` is kept,
+the solver's own spin is not read back), the particle systems' live
+particles (emitters restart), 2D sounds and music streams (script-side, and
+the scripts restart the level's music), and anything in the stub natives
+(decals, dynamic lights). `SOUND.SaveGame_ResumeSounds` and the bookkeeping
+`WORLD.SwitchToState` / `LateVBsBegin` / `LateVBsEnd` / `UpdateAllEntities` /
+`Release` are no-ops here.
+
 ## Next stages
 2. Damage: the shot lands but nothing takes it yet. `ENTITY.ExplodeItem`,
    `ENTITY.EnableGunPass`, `ENTITY.SetRotationCAM`, and whatever the hit

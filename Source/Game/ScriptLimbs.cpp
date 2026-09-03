@@ -398,6 +398,7 @@ int ScriptEngine::L_PO_EnableGravity(lua_State* L) {
     // 0.2s after the shot and that has to reach TickProjectiles, or the stake
     // flies dead flat until it times out.
     e->gravityOn = on;
+    e->bodyGravity = on ? 1 : 0;
     if (self->physics_ && e->physicsBody >= 0)
         self->physics_->SetScriptBodyGravityFactor(e->physicsBody, on ? 1.f : 0.f);
     return 0;

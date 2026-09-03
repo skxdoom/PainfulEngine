@@ -356,6 +356,24 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"PMENU", "SetItemSounds", L_PMENU_SetItemSounds},
         {"PMENU", "DisableItem", L_PMENU_DisableItem},
         {"PMENU", "EnableItem", L_PMENU_EnableItem},
+        // Save / load: the slot table and the world file. The rest of the
+        // load sequence's WORLD calls are bookkeeping the original needs and
+        // we do not (state switch, deferred vertex buffers, a full entity
+        // transform pass, a sound pause/resume pair).
+        {"PMENU", "AddLoadSave", L_PMENU_AddLoadSave},
+        {"PMENU", "AddSaveGameToList", L_PMENU_AddSaveGameToList},
+        {"PMENU", "ClearList", L_PMENU_ClearList},
+        {"PMENU", "GetSelectedSGSlot", L_PMENU_GetSelectedSGSlot},
+        {"PMENU", "SetAllowSave", L_PMENU_SetAllowSave},
+        {"PMENU", "SetListMaxHeight", L_PMENU_SetListMaxHeight},
+        {"WORLD", "SaveGame", L_WORLD_SaveGame},
+        {"WORLD", "LoadGame", L_WORLD_LoadGame},
+        {"WORLD", "SwitchToState", L_PMENU_NoOp},
+        {"WORLD", "LateVBsBegin", L_PMENU_NoOp},
+        {"WORLD", "LateVBsEnd", L_PMENU_NoOp},
+        {"WORLD", "UpdateAllEntities", L_PMENU_NoOp},
+        {"WORLD", "Release", L_PMENU_NoOp},
+        {"SOUND", "SaveGame_ResumeSounds", L_PMENU_NoOp},
     };
     for (const auto& n : natives) host.RegisterNative(n.module, n.name, n.fn, this);
 }

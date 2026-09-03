@@ -1,6 +1,6 @@
 # Core - the foundation: no dependency on anything else in the engine.
 #   Common      Mat4, Reader, ReadFile
-#   PakArchive  one .pak: directory parse, name de-obfuscation, inflate
+#   PakArchive  one .pak: directory parse, name de-obfuscation, inflate; PakWriter
 #   FileSystem  the mounted view: archives shadow loose files
 #   AppPaths    finding the game data and the executable's own resources
 add_library(Core STATIC

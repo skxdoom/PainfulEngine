@@ -103,6 +103,119 @@ bool LooksZlib(const uint8_t* d, size_t n) {
            (d[1] == 0x01 || d[1] == 0x9C || d[1] == 0xDA || d[1] == 0x5E);
 }
 
+// One directory entry as stored: the name still scrambled.
+struct RawEntry {
+    std::vector<uint8_t> enc;
+    uint32_t offset = 0, uncompressedSize = 0, compressedSize = 0;
+};
+
+bool ReadDirectory(std::FILE* fp, std::vector<RawEntry>& out, std::string& error) {
+    uint8_t header[5];
+    if (Seek64(fp, 0) != 0 || std::fread(header, 1, 5, fp) != 5) {
+        error = "truncated header";
+        return false;
+    }
+    uint32_t dirOff;
+    std::memcpy(&dirOff, header + 1, 4);
+#ifdef _WIN32
+    _fseeki64(fp, 0, SEEK_END);
+    const uint64_t fileSize = static_cast<uint64_t>(_ftelli64(fp));
+#else
+    fseeko(fp, 0, SEEK_END);
+    const uint64_t fileSize = static_cast<uint64_t>(ftello(fp));
+#endif
+    if (dirOff >= fileSize) { error = "directory offset out of range"; return false; }
+
+    // The directory is a contiguous tail region; read it whole.
+    std::vector<uint8_t> dir(static_cast<size_t>(fileSize - dirOff));
+    if (Seek64(fp, dirOff) != 0 ||
+        std::fread(dir.data(), 1, dir.size(), fp) != dir.size()) {
+        error = "cannot read directory";
+        return false;
+    }
+
+    size_t p = 0;
+    auto u32 = [&](uint32_t& v) {
+        if (p + 4 > dir.size()) return false;
+        std::memcpy(&v, dir.data() + p, 4);
+        p += 4;
+        return true;
+    };
+    uint32_t count;
+    if (!u32(count)) { error = "truncated directory"; return false; }
+    out.reserve(count);
+    for (uint32_t i = 0; i < count; ++i) {
+        RawEntry e;
+        uint32_t nameLen;
+        if (!u32(nameLen) || p + nameLen > dir.size()) {
+            error = "truncated entry name";
+            return false;
+        }
+        e.enc.assign(dir.data() + p, dir.data() + p + nameLen);
+        p += nameLen;
+        if (!u32(e.offset) || !u32(e.uncompressedSize) || !u32(e.compressedSize)) {
+            error = "truncated entry";
+            return false;
+        }
+        out.push_back(std::move(e));
+    }
+    return true;
+}
+
+// The writer's own keystream (PakArchive::NameKey), or empty when it yields
+// anything non-printable.
+std::string DecodeByFormula(const RawEntry& e, uint32_t index) {
+    std::string s(e.enc.size(), '\0');
+    for (size_t j = 0; j < e.enc.size(); ++j) {
+        const int c = e.enc[j] ^ PakArchive::NameKey(e.enc.size(), index, j);
+        if (c < 32 || c > 126) return {};
+        s[j] = static_cast<char>(c);
+    }
+    return s;
+}
+
+// The scoring decoder: every printable seed per name, then the best-looking
+// candidate, then a neighbour pass for near-ties (shared directory, and the
+// archive's lexicographic order). Kept as the fallback and the verifier.
+void DecodeByScoring(const std::vector<RawEntry>& raw, std::vector<std::string>& names) {
+    const size_t count = raw.size();
+    std::vector<std::vector<std::pair<int, std::string>>> cands(count);
+    for (size_t i = 0; i < count; ++i) {
+        const size_t nameLen = raw[i].enc.size();
+        for (int k0 = 0; k0 < 256; ++k0) {
+            std::string s = TryDecode(raw[i].enc.data(), nameLen, k0);
+            if (!s.empty() || nameLen == 0) cands[i].emplace_back(k0, std::move(s));
+            if (nameLen == 0) break;
+        }
+    }
+    names.assign(count, std::string());
+    for (size_t i = 0; i < count; ++i) {
+        int best = INT_MIN;
+        for (const auto& kv : cands[i]) {
+            int sc = ScoreName(kv.second);
+            if (sc > best) { best = sc; names[i] = kv.second; }
+        }
+    }
+    for (size_t i = 0; i < count; ++i) {
+        if (cands[i].size() <= 1) continue;
+        const std::string prevDir = i > 0 ? DirOf(names[i - 1]) : std::string();
+        const std::string nextDir = i + 1 < count ? DirOf(names[i + 1]) : std::string();
+        const std::string prevName = i > 0 ? LowerCopy(names[i - 1]) : std::string();
+        const std::string nextName = i + 1 < count ? LowerCopy(names[i + 1]) : std::string();
+        int best = INT_MIN;
+        for (const auto& kv : cands[i]) {
+            int sc = ScoreName(kv.second);
+            const std::string d = DirOf(kv.second);
+            if (!d.empty() && CleanDir(d) && (d == prevDir || d == nextDir)) sc += 20;
+            const std::string lc = LowerCopy(kv.second);
+            if ((prevName.empty() || lc >= prevName) &&
+                (nextName.empty() || lc <= nextName))
+                sc += 10;
+            if (sc > best) { best = sc; names[i] = kv.second; }
+        }
+    }
+}
+
 } // namespace
 
 PakArchive::~PakArchive() {
@@ -123,104 +236,49 @@ bool PakArchive::Open(const std::string& path) {
         return false;
     }
 #endif
-    uint8_t header[5];
-    if (std::fread(header, 1, 5, fp_) != 5) {
-        error_ = "truncated header";
-        return false;
-    }
-    uint32_t dirOff;
-    std::memcpy(&dirOff, header + 1, 4);
+    std::vector<RawEntry> raw;
+    if (!ReadDirectory(fp_, raw, error_)) return false;
 
-    if (Seek64(fp_, 0) != 0) { error_ = "seek failed"; return false; }
-#ifdef _WIN32
-    _fseeki64(fp_, 0, SEEK_END);
-    const uint64_t fileSize = static_cast<uint64_t>(_ftelli64(fp_));
-#else
-    fseeko(fp_, 0, SEEK_END);
-    const uint64_t fileSize = static_cast<uint64_t>(ftello(fp_));
-#endif
-    if (dirOff >= fileSize) { error_ = "directory offset out of range"; return false; }
-
-    // The directory is a contiguous tail region; read it whole.
-    std::vector<uint8_t> dir(static_cast<size_t>(fileSize - dirOff));
-    if (Seek64(fp_, dirOff) != 0 ||
-        std::fread(dir.data(), 1, dir.size(), fp_) != dir.size()) {
-        error_ = "cannot read directory";
-        return false;
-    }
-
-    size_t p = 0;
-    auto u32 = [&](uint32_t& v) {
-        if (p + 4 > dir.size()) return false;
-        std::memcpy(&v, dir.data() + p, 4);
-        p += 4;
-        return true;
-    };
-    uint32_t count;
-    if (!u32(count)) { error_ = "truncated directory"; return false; }
-
-    entries_.reserve(count);
-    // Every printable decode of every name, kept for the coherence pass.
-    std::vector<std::vector<std::pair<int, std::string>>> cands(count);
-    for (uint32_t i = 0; i < count; ++i) {
-        uint32_t nameLen;
-        if (!u32(nameLen) || p + nameLen > dir.size()) {
-            error_ = "truncated entry name";
-            return false;
-        }
-        const uint8_t* enc = dir.data() + p;
-        p += nameLen;
-        for (int k0 = 0; k0 < 256; ++k0) {
-            std::string s = TryDecode(enc, nameLen, k0);
-            if (!s.empty() || nameLen == 0) cands[i].emplace_back(k0, std::move(s));
-            if (nameLen == 0) break;
-        }
+    entries_.clear();
+    entries_.reserve(raw.size());
+    std::vector<std::string> scored;
+    for (size_t i = 0; i < raw.size(); ++i) {
         Entry e;
-        if (!u32(e.offset) || !u32(e.uncompressedSize) || !u32(e.compressedSize)) {
-            error_ = "truncated entry";
-            return false;
+        e.offset = raw[i].offset;
+        e.uncompressedSize = raw[i].uncompressedSize;
+        e.compressedSize = raw[i].compressedSize;
+        e.name = DecodeByFormula(raw[i], uint32_t(i));
+        if (e.name.empty() && !raw[i].enc.empty()) {
+            if (scored.empty()) DecodeByScoring(raw, scored);
+            e.name = scored[i];
         }
+        e.isDirectory = !e.name.empty() && e.name.back() == '/';
         entries_.push_back(std::move(e));
     }
-
-    // First pass: highest-scoring candidate per entry.
-    for (uint32_t i = 0; i < count; ++i) {
-        int best = INT_MIN;
-        for (const auto& kv : cands[i]) {
-            int sc = ScoreName(kv.second);
-            if (sc > best) { best = sc; entries_[i].name = kv.second; }
-        }
-    }
-    // Second pass: neighbours disambiguate near-ties - the arithmetic
-    // keystream leaves several printable decodes for short names. Two
-    // signals: sharing a confident neighbour's directory, and keeping the
-    // archive's lexicographic order (the directory is stored sorted, which
-    // is what separates true ties like "ntu.vso" vs "fog.vso" - identical
-    // length, letter count and a known extension either way).
-    for (uint32_t i = 0; i < count; ++i) {
-        if (cands[i].size() <= 1) continue;
-        const std::string prevDir = i > 0 ? DirOf(entries_[i - 1].name) : std::string();
-        const std::string nextDir =
-            i + 1 < count ? DirOf(entries_[i + 1].name) : std::string();
-        const std::string prevName =
-            i > 0 ? LowerCopy(entries_[i - 1].name) : std::string();
-        const std::string nextName =
-            i + 1 < count ? LowerCopy(entries_[i + 1].name) : std::string();
-        int best = INT_MIN;
-        for (const auto& kv : cands[i]) {
-            int sc = ScoreName(kv.second);
-            const std::string d = DirOf(kv.second);
-            if (!d.empty() && CleanDir(d) && (d == prevDir || d == nextDir)) sc += 20;
-            const std::string lc = LowerCopy(kv.second);
-            if ((prevName.empty() || lc >= prevName) &&
-                (nextName.empty() || lc <= nextName))
-                sc += 10;
-            if (sc > best) { best = sc; entries_[i].name = kv.second; }
-        }
-    }
-    for (Entry& e : entries_)
-        e.isDirectory = !e.name.empty() && e.name.back() == '/';
     return true;
+}
+
+size_t PakArchive::VerifyNameFormula(const std::string& path, size_t* entriesOut) {
+    if (entriesOut) *entriesOut = 0;
+    std::FILE* fp = nullptr;
+#ifdef _MSC_VER
+    if (fopen_s(&fp, path.c_str(), "rb") != 0 || !fp) return size_t(-1);
+#else
+    fp = std::fopen(path.c_str(), "rb");
+    if (!fp) return size_t(-1);
+#endif
+    std::vector<RawEntry> raw;
+    std::string error;
+    const bool ok = ReadDirectory(fp, raw, error);
+    std::fclose(fp);
+    if (!ok) return size_t(-1);
+    std::vector<std::string> scored;
+    DecodeByScoring(raw, scored);
+    size_t mismatches = 0;
+    for (size_t i = 0; i < raw.size(); ++i)
+        if (DecodeByFormula(raw[i], uint32_t(i)) != scored[i]) ++mismatches;
+    if (entriesOut) *entriesOut = raw.size();
+    return mismatches;
 }
 
 bool PakArchive::Read(const Entry& e, std::vector<uint8_t>& out) const {
@@ -249,6 +307,73 @@ bool PakArchive::Read(const Entry& e, std::vector<uint8_t>& out) const {
         return false;
     }
     return true;
+}
+
+// ---------------------------------------------------------------- writer
+
+bool PakWriter::Begin(const std::string& path) {
+    End();
+    path_ = path;
+    dir_.clear();
+    // Header first: version 1, and the directory offset patched in by End -
+    // GFileManager::CreatePAK (0x1017f0e0) writes the same five bytes.
+    body_.assign(5, 0);
+    body_[0] = 1;
+    open_ = true;
+    return true;
+}
+
+bool PakWriter::Add(const std::string& name, const std::vector<uint8_t>& data) {
+    if (!open_) return false;
+    Entry e;
+    e.name = name;
+    e.offset = uint32_t(body_.size());
+    e.uncompressedSize = uint32_t(data.size());
+    // Level 1: the shipped saves carry the 0x78 0x01 zlib header, and the
+    // archive reader detects stored-vs-deflated per entry so it does not
+    // matter for reading, only for matching what the original wrote.
+    mz_ulong cap = mz_compressBound(mz_ulong(data.size()));
+    std::vector<uint8_t> comp(static_cast<size_t>(cap), uint8_t(0));
+    if (mz_compress2(comp.data(), &cap, data.data(), mz_ulong(data.size()), 1) != MZ_OK)
+        return false;
+    comp.resize(size_t(cap));
+    e.compressedSize = uint32_t(comp.size());
+    body_.insert(body_.end(), comp.begin(), comp.end());
+    dir_.push_back(std::move(e));
+    return true;
+}
+
+bool PakWriter::End() {
+    if (!open_) return false;
+    open_ = false;
+    const uint32_t dirOff = uint32_t(body_.size());
+    std::memcpy(body_.data() + 1, &dirOff, 4);
+    auto u32 = [&](uint32_t v) {
+        const uint8_t* b = reinterpret_cast<const uint8_t*>(&v);
+        body_.insert(body_.end(), b, b + 4);
+    };
+    u32(uint32_t(dir_.size()));
+    for (size_t i = 0; i < dir_.size(); ++i) {
+        const Entry& e = dir_[i];
+        u32(uint32_t(e.name.size()));
+        for (size_t j = 0; j < e.name.size(); ++j)
+            body_.push_back(uint8_t(e.name[j]) ^ PakArchive::NameKey(e.name.size(), uint32_t(i), j));
+        u32(e.offset);
+        u32(e.uncompressedSize);
+        u32(e.compressedSize);
+    }
+    std::FILE* fp = nullptr;
+#ifdef _MSC_VER
+    if (fopen_s(&fp, path_.c_str(), "wb") != 0 || !fp) return false;
+#else
+    fp = std::fopen(path_.c_str(), "wb");
+    if (!fp) return false;
+#endif
+    const bool ok = std::fwrite(body_.data(), 1, body_.size(), fp) == body_.size();
+    std::fclose(fp);
+    body_.clear();
+    dir_.clear();
+    return ok;
 }
 
 } // namespace painful

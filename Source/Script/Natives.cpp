@@ -14,6 +14,7 @@ extern "C" {
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -647,6 +648,125 @@ int L_FS_FindFiles(lua_State* L) {
     return 1;
 }
 
+// ---------------------------------------------------------------- FS writes
+//
+// The save system's file layer, as GFileManager does it (Engine.dll
+// 0x1017e8f0 CreateFileWriter): File_Open hands back a writer, File_Write
+// appends, File_Close commits - to disk, or into the pak that CreatePAK
+// opened, under the file's basename. Docs/Reference/LuaHost.md, "Saving".
+
+struct ScriptFile {
+    std::string path;
+    std::vector<uint8_t> data;
+};
+
+int L_FS_File_Open(lua_State* L) {
+    const char* path = luaL_optstring(L, 1, "");
+    if (!*path) return 0;
+    ScriptFile* f = new ScriptFile;
+    f->path = LuaHost::FromState(L)->ResolvePath(path);
+    lua_pushlightuserdata(L, f);
+    return 1;
+}
+
+// File_Write(f, text): one trailing "\n" or "\r" is replaced by "\r\n" - the
+// original (0x10124180) strips it and writes its own CRLF, which is why the
+// shipped .Info files are CRLF though the scripts write "\n".
+int L_FS_File_Write(lua_State* L) {
+    ScriptFile* f = static_cast<ScriptFile*>(lua_touserdata(L, 1));
+    if (!f || !lua_isstring(L, 2)) return 0;
+    const char* s = lua_tostring(L, 2);
+    size_t n = lua_strlen(L, 2);
+    bool newline = false;
+    if (n > 0 && (s[n - 1] == '\n' || s[n - 1] == '\r')) {
+        --n;
+        newline = true;
+    }
+    f->data.insert(f->data.end(), s, s + n);
+    if (newline) {
+        f->data.push_back('\r');
+        f->data.push_back('\n');
+    }
+    return 0;
+}
+
+int L_FS_File_Close(lua_State* L) {
+    ScriptFile* f = static_cast<ScriptFile*>(lua_touserdata(L, 1));
+    if (!f) return 0;
+    if (!FileSystem::Get().WriteFile(f->path, f->data))
+        LogWarn("FS.File_Close: cannot write %s", f->path.c_str());
+    delete f;
+    return 0;
+}
+
+int L_FS_File_Exist(lua_State* L) {
+    const std::string path = LuaHost::FromState(L)->ResolvePath(luaL_optstring(L, 1, ""));
+    lua_pushboolean(L, FileSystem::Get().Exists(path) ? 1 : 0);
+    return 1;
+}
+
+int L_FS_File_GetSize(lua_State* L) {
+    const std::string path = LuaHost::FromState(L)->ResolvePath(luaL_optstring(L, 1, ""));
+    std::vector<uint8_t> bytes;
+    lua_pushnumber(L, ReadFile(path, bytes) ? double(bytes.size()) : 0.0);
+    return 1;
+}
+
+int L_FS_CreatePAK(lua_State* L) {
+    const std::string path = LuaHost::FromState(L)->ResolvePath(luaL_optstring(L, 1, ""));
+    FileSystem::Get().BeginPak(path);
+    return 0;
+}
+
+int L_FS_ClosePAK(lua_State* L) {
+    (void)L;
+    FileSystem::Get().EndPak();
+    return 0;
+}
+
+// FS.RegisterPack(pakPath, dir) -> handle or nil. Mounts the pak over `dir`,
+// so DoFile("<dir>/x") reads out of it (0x101242c0, GFileManager::RegisterPack).
+int L_FS_RegisterPack(lua_State* L) {
+    LuaHost* host = LuaHost::FromState(L);
+    const std::string pak = host->ResolvePath(luaL_optstring(L, 1, ""));
+    const std::string dir = host->ResolvePath(luaL_optstring(L, 2, ""));
+    const int handle = FileSystem::Get().MountPack(pak, dir);
+    if (handle <= 0) return 0;
+    lua_pushlightuserdata(L, reinterpret_cast<void*>(static_cast<intptr_t>(handle)));
+    return 1;
+}
+
+int L_FS_UnregisterPack(lua_State* L) {
+    if (!lua_islightuserdata(L, 1)) return 0;
+    FileSystem::Get().UnmountPack(
+        int(reinterpret_cast<intptr_t>(lua_touserdata(L, 1))));
+    return 0;
+}
+
+int L_FS_CreateDirectory(lua_State* L) {
+    const std::string path = LuaHost::FromState(L)->ResolvePath(luaL_optstring(L, 1, ""));
+    std::error_code ec;
+    lua_pushnumber(L, std::filesystem::create_directory(path, ec) ? 1 : 0);
+    return 1;
+}
+
+int L_FS_RemoveDirectory(lua_State* L) {
+    const std::string path = LuaHost::FromState(L)->ResolvePath(luaL_optstring(L, 1, ""));
+    std::error_code ec;
+    std::filesystem::remove(path, ec);      // only an EMPTY directory goes, as RemoveDirectoryA
+    return 0;
+}
+
+// FS.DeleteFiles(dir): every FILE directly in dir (0x10142f10 lists "*.*"
+// and DeleteFileA's each); subdirectories stay.
+int L_FS_DeleteFiles(lua_State* L) {
+    const std::string dir = LuaHost::FromState(L)->ResolvePath(luaL_optstring(L, 1, ""));
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(dir, ec))
+        if (entry.is_regular_file()) std::filesystem::remove(entry.path(), ec);
+    return 0;
+}
+
 // ---------------------------------------------------------------- tables
 
 const luaL_reg kGlobalImpls[] = {
@@ -738,6 +858,18 @@ const ModuleImpl kModuleImpls[] = {
     {"MOUSE", "GetPos", L_MOUSE_GetPos},
     {"FS", "FindFiles", L_FS_FindFiles},
     {"FS", "GetBaseObjInfo", L_FS_GetBaseObjInfo},
+    {"FS", "File_Open", L_FS_File_Open},
+    {"FS", "File_Write", L_FS_File_Write},
+    {"FS", "File_Close", L_FS_File_Close},
+    {"FS", "File_Exist", L_FS_File_Exist},
+    {"FS", "File_GetSize", L_FS_File_GetSize},
+    {"FS", "CreatePAK", L_FS_CreatePAK},
+    {"FS", "ClosePAK", L_FS_ClosePAK},
+    {"FS", "RegisterPack", L_FS_RegisterPack},
+    {"FS", "UnregisterPack", L_FS_UnregisterPack},
+    {"FS", "CreateDirectory", L_FS_CreateDirectory},
+    {"FS", "RemoveDirectory", L_FS_RemoveDirectory},
+    {"FS", "DeleteFiles", L_FS_DeleteFiles},
     {"CAM", "GetPos", L_CAM_GetPos},
     {"CAM", "GetForwardVector", L_CAM_GetForwardVector},
     {"CAM", "GetAng", L_CAM_GetAng},

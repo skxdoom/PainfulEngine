@@ -403,6 +403,7 @@ int ScriptEngine::L_ENTITY_ExplodeItem(lua_State* L) {
     // as the debris having inherited the whole item's collision.
     src->visible = false;
     self->SyncPose(*src);
+    src->bodyNonColliding = true;
     if (self->physics_ && src->physicsBody >= 0)
         self->physics_->MakeScriptBodyNonColliding(src->physicsBody);
 
@@ -595,6 +596,9 @@ int ScriptEngine::L_PARTICLE_AddEmitter(lua_State* L) {
                                                   *self->emitterLib_, *self->textures_,
                                                   self->world_.levelName);
     e->emitterSlots.push_back(slot);
+    Entity::EmitterRec rec;
+    rec.file = luaL_optstring(L, 2, "");
+    e->emitterRecs.push_back(rec);
     lua_pushnumber(L, double(e->emitterSlots.size() - 1));
     return 1;
 }
@@ -612,6 +616,12 @@ int ScriptEngine::L_PARTICLE_SetupEmitter(lua_State* L) {
                              float(luaL_optnumber(L, 6, 0))};
     const float rotDeg[3] = {float(luaL_optnumber(L, 7, 0)), float(luaL_optnumber(L, 8, 0)),
                              float(luaL_optnumber(L, 9, 0))};
+    if (idx < e->emitterRecs.size()) {
+        Entity::EmitterRec& rec = e->emitterRecs[idx];
+        rec.setup = true;
+        rec.scale = float(luaL_optnumber(L, 3, 1.0));
+        for (int c = 0; c < 3; ++c) { rec.offset[c] = offset[c]; rec.rotDeg[c] = rotDeg[c]; }
+    }
     self->particles_->SetupScriptEmitter(e->emitterSlots[idx],
                                          float(luaL_optnumber(L, 3, 1.0)), offset, rotDeg);
     self->UpdateAttachments(*e);
@@ -633,10 +643,15 @@ int ScriptEngine::L_BILLBOARD_SetupCorona(lua_State* L) {
 
     float args[9];
     for (int i = 0; i < 9; ++i) args[i] = float(luaL_optnumber(L, 2 + i, 0));
+    e->hasCorona = true;
+    for (int i = 0; i < 9; ++i) e->coronaArgs[i] = args[i];
+    e->coronaTex = luaL_optstring(L, 11, "");
+    e->coronaColor = uint32_t(int64_t(luaL_optnumber(L, 12, 0)));
+    e->coronaBlend = int(luaL_optnumber(L, 13, 1));
+    e->coronaSpriteOnly = lua_toboolean(L, 14) != 0;
     e->spriteSlot = self->billboards_->SetupScriptCorona(
-        e->spriteSlot, args, luaL_optstring(L, 11, ""),
-        uint32_t(int64_t(luaL_optnumber(L, 12, 0))), int(luaL_optnumber(L, 13, 1)),
-        lua_toboolean(L, 14) != 0, *self->textures_, self->world_.levelName);
+        e->spriteSlot, args, e->coronaTex, e->coronaColor, e->coronaBlend,
+        e->coronaSpriteOnly, *self->textures_, self->world_.levelName);
     self->billboards_->SetScriptSpritePos(e->spriteSlot, e->pos);
     return 0;
 }
@@ -854,6 +869,8 @@ int ScriptEngine::L_PO_Create(lua_State* L) {
         collisionGroup, sphereRadius);
     if (slot >= 0) {
         e->physicsBody = slot;
+        e->bodyType = bodyType;
+        e->bodyArgScale = argScale;
         // Noncolliding (7) only. That group means "touches nothing", which is
         // what the stake, the bolt and the electro disk are made with, and it
         // is the one unambiguous signal. Particles (8) is NOT included: shell
@@ -1033,6 +1050,7 @@ int ScriptEngine::L_PARTICLE_Die(lua_State* L) {
         e->parent = 0;
         e->parentBound = false;
     }
+    for (Entity::EmitterRec& rec : e->emitterRecs) rec.stopped = true;
     if (self->particles_)
         for (int slot : e->emitterSlots)
             if (slot >= 0) self->particles_->StopScriptEmitter(slot);

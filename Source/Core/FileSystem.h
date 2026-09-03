@@ -56,6 +56,23 @@ public:
     // RELATIVE to dir with '/' separators.
     std::vector<std::string> ListRecursive(const std::string& dir) const;
 
+    // --- packs mounted at an arbitrary directory (FS.RegisterPack) --------
+    // A save's Save.dat is registered over its own folder, so
+    // "<dir>/LevelStart.Info" reads out of the pack while "<dir>/SaveGame.Info"
+    // stays a loose file beside it. Returns a handle (> 0) or 0 on failure;
+    // a pack's entries shadow loose files under the same directory.
+    int MountPack(const std::string& pakPath, const std::string& dir);
+    void UnmountPack(int handle);
+
+    // --- writing (FS.File_*, FS.CreatePAK / ClosePAK) ---------------------
+    // Between BeginPak and EndPak every WriteFile goes INTO the pak under its
+    // basename, which is how the original's GFileManager::CreateFileWriter
+    // behaves while a pak is open; otherwise WriteFile is a plain disk write.
+    bool BeginPak(const std::string& pakPath);
+    bool EndPak();
+    bool pakOpen() const { return writer_.open(); }
+    bool WriteFile(const std::string& path, const std::vector<uint8_t>& data);
+
 private:
     struct FileRef {
         uint32_t archive = 0;
@@ -85,6 +102,19 @@ private:
     // lowercase directory path -> children keyed by lowercase name. The root
     // is "". std::map keeps each listing sorted.
     std::unordered_map<std::string, std::map<std::string, DirEntry>> tree_;
+
+    struct ExtraMount {
+        int handle = 0;
+        std::string dirKey;            // lowercase absolute directory, no trailing slash
+        std::unique_ptr<PakArchive> archive;
+        std::unordered_map<std::string, uint32_t> entries;   // lowercase relative name -> entry
+    };
+    // The mount serving `path`, and the entry index, when a registered pack
+    // holds it.
+    const ExtraMount* FindExtra(const std::string& path, uint32_t* entry) const;
+    std::vector<ExtraMount> extra_;
+    int nextExtraHandle_ = 1;
+    PakWriter writer_;
 };
 
 } // namespace painful

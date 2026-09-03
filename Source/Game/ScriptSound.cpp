@@ -587,7 +587,10 @@ int ScriptEngine::L_PO_SetMass(lua_State* L) {
     if (!e || !self->physics_) return 0;
     const float mass = float(luaL_optnumber(L, 2, 0));
     if (e->ragdollSlot >= 0) self->physics_->SetRagdollMass(e->ragdollSlot, mass);
-    else if (e->physicsBody >= 0) self->physics_->SetScriptBodyMass(e->physicsBody, mass);
+    else if (e->physicsBody >= 0) {
+        self->physics_->SetScriptBodyMass(e->physicsBody, mass);
+        const_cast<Entity*>(e)->bodyMass = mass;
+    }
     return 0;
 }
 
@@ -615,29 +618,33 @@ int ScriptEngine::L_PO_SetRestitution(lua_State* L) {
 // Softness and 3 (FullFree) otherwise.
 int ScriptEngine::L_PO_SetFreedomOfRotation(lua_State* L) {
     ScriptEngine* self = From(L);
-    if (const Entity* e = self->Find(HandleArg(L, 1)))
-        if (self->physics_ && e->physicsBody >= 0)
+    if (Entity* e = self->Find(HandleArg(L, 1)))
+        if (self->physics_ && e->physicsBody >= 0) {
+            e->bodyFreedomMode = int(luaL_optnumber(L, 2, 0));
+            e->bodyFreedomSoft = float(luaL_optnumber(L, 3, 1.0));
             self->physics_->SetScriptBodyFreedomOfRotation(
-                e->physicsBody, int(luaL_optnumber(L, 2, 0)),
-                float(luaL_optnumber(L, 3, 1.0)));
+                e->physicsBody, e->bodyFreedomMode, e->bodyFreedomSoft);
+        }
     return 0;
 }
 
 int ScriptEngine::L_PO_SetLinearDamping(lua_State* L) {
     ScriptEngine* self = From(L);
-    if (const Entity* e = self->Find(HandleArg(L, 1)))
-        if (self->physics_ && e->physicsBody >= 0)
-            self->physics_->SetScriptBodyLinearDamping(e->physicsBody,
-                                                       float(luaL_optnumber(L, 2, 0)));
+    if (Entity* e = self->Find(HandleArg(L, 1)))
+        if (self->physics_ && e->physicsBody >= 0) {
+            e->bodyLinDamp = float(luaL_optnumber(L, 2, 0));
+            self->physics_->SetScriptBodyLinearDamping(e->physicsBody, e->bodyLinDamp);
+        }
     return 0;
 }
 
 int ScriptEngine::L_PO_SetAngularDamping(lua_State* L) {
     ScriptEngine* self = From(L);
-    if (const Entity* e = self->Find(HandleArg(L, 1)))
-        if (self->physics_ && e->physicsBody >= 0)
-            self->physics_->SetScriptBodyAngularDamping(e->physicsBody,
-                                                        float(luaL_optnumber(L, 2, 0)));
+    if (Entity* e = self->Find(HandleArg(L, 1)))
+        if (self->physics_ && e->physicsBody >= 0) {
+            e->bodyAngDamp = float(luaL_optnumber(L, 2, 0));
+            self->physics_->SetScriptBodyAngularDamping(e->physicsBody, e->bodyAngDamp);
+        }
     return 0;
 }
 
@@ -689,6 +696,7 @@ int ScriptEngine::L_SND_EntityPlay(lua_State* L) {
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e || !self->audio_ || e->soundName.empty()) return 0;
     const float delay = float(luaL_optnumber(L, 2, 0.0));
+    e->soundPlaying = true;
     if (delay > 0.f) { e->soundStartIn = delay; return 0; }
     self->StartBoundSound(*e);
     return 0;
@@ -699,6 +707,7 @@ int ScriptEngine::L_SND_EntityStop(lua_State* L) {
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e) return 0;
     e->soundStartIn = -1.f;
+    e->soundPlaying = false;
     if (self->audio_ && e->soundVoice) self->audio_->Stop(e->soundVoice);
     return 0;
 }

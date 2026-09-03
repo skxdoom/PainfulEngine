@@ -194,6 +194,7 @@ int ScriptEngine::L_PO_SetPinned(lua_State* L) {
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e || !self->physics_ || e->physicsBody < 0) return 0;
     const bool pinned = lua_isnoneornil(L, 2) ? true : (lua_toboolean(L, 2) != 0);
+    e->bodyPinned = pinned;
     self->physics_->SetScriptBodyPinned(e->physicsBody, pinned);
     return 0;
 }

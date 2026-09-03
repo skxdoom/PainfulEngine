@@ -77,6 +77,7 @@ int EntitiesCmd(const char* levelDir, const char* dataRoot, const char* type);
 int FitCmd(const char* levelDir, const char* dataRoot);
 int LevelsCmd(const char* dataRoot);
 int FilesCmd(const char* dataRoot, const char* dir);
+int PakCheckCmd(const char* dataRoot);
 int LightingCmd(const char* levelDir, const char* dataRoot,
                 const float* at, const float* eye);
 int ZonesCmd(const char* levelDir, const char* dataRoot, const float* pos);

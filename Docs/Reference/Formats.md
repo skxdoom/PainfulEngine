@@ -133,15 +133,28 @@ Per-entry arithmetic keystream over the filename bytes:
 decoded[j] = encoded[j] XOR ((k0 + 2*j) & 0xFF)
 ```
 
-`k0` is a per-entry seed (it drifts roughly with entry index but the exact
-generator is not yet pinned down — see Open Questions). It doesn't need to be:
-names are ASCII paths, so each name is recovered by trying all 256 seeds and
-scoring for path-likeness (`/`, known extensions, alnum ratio), with two
-neighbour tiebreaks: directory coherence, and the fact that **the directory is
-stored in lexicographic order** — a candidate that keeps `prev <= name <= next`
-wins true ties (e.g. `ntu.vso` vs `fog.vso`: same length, same letter count,
-both known extensions). Recovers **65,628/65,628 file names across all ten
-shipped archives**, validated against a full reference extraction.
+`k0` is **`2*nameLen + nameLen%5 + entryIndex`** (all in one byte). The
+scrambler is Engine.dll `FUN_101810c0(name, len, index)`, called for every
+directory entry by both writers - `GPack::Make` 0x10181d20 (the tool that
+built the shipped archives) and `GFileManager::ClosePAK` 0x1017e6d0 (the
+save system's `Save.dat`) - and it XORs byte `j` with
+`2*(len + j) + len%5 + index`, which is the keystream above with that `k0`.
+Recovered 2026-09-03 from the save-game work; `PainfulTools pakcheck
+<DataRoot>` decodes every shipped archive both ways and reports how many
+names differ: **66,697 directory entries across the ten archives, 0 differ**
+(the formula is the engine's decoder now, `PakArchive::NameKey`; the writer,
+`PakWriter`, uses the same function).
+
+Before the formula was known the names were recovered by trying all 256
+seeds and scoring for path-likeness (`/`, known extensions, alnum ratio),
+with two neighbour tiebreaks: directory coherence, and the fact that **the
+directory is stored in lexicographic order** — a candidate that keeps
+`prev <= name <= next` wins true ties (e.g. `ntu.vso` vs `fog.vso`: same
+length, same letter count, both known extensions). That decoder recovers
+**65,628/65,628 file names across all ten shipped archives**, validated
+against a full reference extraction, and stays in the engine as the fallback
+for a name the formula does not decode to printable ASCII (none shipped)
+and as `pakcheck`'s cross-check.
 
 Two hard-won decoder rules (each silently corrupted names before it was fixed):
 the known-extension list must be COMPLETE (a censused list of all 61 shipped
@@ -154,6 +167,16 @@ vote each other past the correct names. Implemented twice, in agreement:
 
 Decoded names are relative paths with `/` separators, e.g. `Decals/blood.ini`,
 `C1L1_Cathedral/C1L1_Cathedral.CLevel`, `actor/alastor/alastor-fly-fire.wav`.
+
+### `Save.dat` is a pak
+
+A save game's `SaveGames/NNN/Save.dat` is this same format, written by
+`FS.CreatePAK` / `FS.ClosePAK` around the save: version byte 1, zlib level 1
+streams (`78 01`), names stored as bare basenames (`LevelStart.Info`,
+`C1L1_Cathedral.CLevel`, `Game.State`, `C1L1_Cathedral.World`, ...), no
+directory entries. The engine mounts it over its own folder with
+`FS.RegisterPack`. The flow and the world file's own format are in
+[`LuaHost.md`](LuaHost.md), "Saving and loading".
 
 ### Numbered patch layering (observed in exe string table)
 For each category the engine mounts, in priority order:
