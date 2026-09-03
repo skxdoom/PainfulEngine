@@ -200,6 +200,28 @@ void HudRenderer::QuadRotated(Material handle, float x, float y, float w, float 
     Push(tex, quad);
 }
 
+// Four corners the caller has already placed, top-left, top-right,
+// bottom-right, bottom-left. What a shape needs once it has been turned in a
+// space the screen scales unevenly: rotate there, then scale each corner.
+void HudRenderer::QuadCorners(Material handle, const float xy[8], uint32_t abgr) {
+    bgfx::TextureHandle tex = white_;
+    if (handle > 0 && size_t(handle) <= materials_.size()) {
+        const Mat& m = materials_[size_t(handle) - 1];
+        if (m.used) tex = m.texture;
+    }
+    const float uv[4][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+    Vertex quad[4];
+    for (int i = 0; i < 4; ++i) {
+        quad[i].x = xy[i * 2];
+        quad[i].y = xy[i * 2 + 1];
+        quad[i].z = 0.f;
+        quad[i].abgr = abgr;
+        quad[i].u = uv[i][0];
+        quad[i].v = uv[i][1];
+    }
+    Push(tex, quad);
+}
+
 void HudRenderer::Tiles(Material handle, float x, float y, float w, float h, uint32_t abgr) {
     int tw = 0, th = 0;
     if (!MaterialSize(handle, tw, th) || tw <= 0 || th <= 0) return;

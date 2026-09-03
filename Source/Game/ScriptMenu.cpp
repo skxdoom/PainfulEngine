@@ -172,6 +172,50 @@ int ScriptEngine::L_PMENU_MapGetCurrLevelCardIndex(lua_State* L) {
     return 1;
 }
 
+// ---------------------------------------------------------------- the board
+
+int ScriptEngine::L_PMENU_SwitchToBoard(lua_State* L) {
+    From(L)->menu_.EnterBoard();
+    return 0;
+}
+
+// MBOARD.SetupSlots(type, count, y, width, height, spaceWidth, y2) - seven
+// ints (0x?); y2 is -1 on every shipped row.
+int ScriptEngine::L_MBOARD_SetupSlots(lua_State* L) {
+    From(L)->menu_.BoardSetupSlots(int(luaL_optnumber(L, 1, 0)), int(luaL_optnumber(L, 2, 0)),
+                                   float(luaL_optnumber(L, 3, 0)), float(luaL_optnumber(L, 4, 0)),
+                                   float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)));
+    return 0;
+}
+
+int ScriptEngine::L_MBOARD_SetSlotPosition(lua_State* L) {
+    From(L)->menu_.BoardSetSlotX(int(luaL_optnumber(L, 1, 0)), int(luaL_optnumber(L, 2, 0)),
+                                 float(luaL_optnumber(L, 3, 0)));
+    return 0;
+}
+
+// MBOARD.AddCard(type, name, texture, desc, cost, available, selected,
+// bigImage): int, three strings, int, two bools, string.
+int ScriptEngine::L_MBOARD_AddCard(lua_State* L) {
+    MenuSystem::BoardCard card;
+    card.type = int(luaL_optnumber(L, 1, 1));
+    card.name = luaL_optstring(L, 2, "");
+    card.texture = luaL_optstring(L, 3, "");
+    card.desc = luaL_optstring(L, 4, "");
+    card.cost = int(luaL_optnumber(L, 5, 0));
+    card.available = lua_toboolean(L, 6) != 0;
+    card.selected = lua_toboolean(L, 7) != 0;
+    card.bigImage = luaL_optstring(L, 8, "");
+    From(L)->menu_.BoardAddCard(card);
+    return 0;
+}
+
+int ScriptEngine::L_MBOARD_IsCardInSlot(lua_State* L) {
+    lua_pushboolean(L, From(L)->menu_.BoardCardInSlot(int(luaL_optnumber(L, 1, 0)),
+                                                       int(luaL_optnumber(L, 2, 0))));
+    return 1;
+}
+
 // PMENU.PlayMovie(path, soundTrack) -> played? The movies are Bink and there
 // is no decoder here, so the answer is false at once: the logo reel and the
 // intro are skipped, and PainMenu:SelectDifficulty carries on to the map
@@ -418,6 +462,17 @@ int ScriptEngine::L_PMENU_SetItemVisibility(lua_State* L) {
     return 0;
 }
 
+// PMENU.SetStaticTextRect(name, x1, y1, x2, y2) - 0x?: four ints after the
+// name, the corners of the box a static text wraps into.
+int ScriptEngine::L_PMENU_SetStaticTextRect(lua_State* L) {
+    MenuSystem* menu = nullptr;
+    if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu)) {
+        item->hasTextRect = true;
+        for (int i = 0; i < 4; ++i) item->textRect[i] = float(luaL_optnumber(L, 2 + i, 0));
+    }
+    return 0;
+}
+
 int ScriptEngine::L_PMENU_SetItemAlign(lua_State* L) {
     MenuSystem* menu = nullptr;
     if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu))
@@ -507,6 +562,31 @@ int ScriptEngine::L_MOUSE_GetPos(lua_State* L) {
 // Miles has two buses and we have one, so the two are composed: master scales
 // everything and sfx scales the 3D effects, and effects are very nearly all we
 // play. A separate music bus is worth splitting out when streaming lands.
+// The 3D sound providers - Miles' list in the original ("Miles Fast 2D
+// Positional Audio", the EAX variants). PainMenu:FillSoundProviders walks
+// GetNumOfProviders / Get3DSoundProviderName(i) / Set3DSoundProvider(name)
+// and shows the one GetCurrent3DSoundProviderName names. There is one here:
+// the port's own mixer.
+namespace {
+const char* const kSoundProvider = "PainfulEngine Mixer";
+}
+int ScriptEngine::L_SOUND_GetNumOfProviders(lua_State* L) {
+    lua_pushnumber(L, 1);
+    return 1;
+}
+int ScriptEngine::L_SOUND_Get3DSoundProviderName(lua_State* L) {
+    lua_pushstring(L, kSoundProvider);
+    return 1;
+}
+int ScriptEngine::L_SOUND_GetCurrent3DSoundProviderName(lua_State* L) {
+    lua_pushstring(L, kSoundProvider);
+    return 1;
+}
+int ScriptEngine::L_SOUND_Set3DSoundProvider(lua_State* L) {
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
 int ScriptEngine::L_SOUND_ApplySoundSettings(lua_State* L) {
     ScriptEngine* self = From(L);
     const double master = luaL_optnumber(L, 1, 100.0) * 0.01;

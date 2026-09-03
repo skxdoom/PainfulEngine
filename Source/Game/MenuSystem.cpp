@@ -61,6 +61,7 @@ void MenuSystem::ClearScreen() {
     nextOrder_ = 0;
     focused_.clear();
     mapMode_ = false;
+    boardMode_ = false;
     if (backgroundMaterial_ > 0 && hud_) hud_->ReleaseMaterial(backgroundMaterial_);
     backgroundMaterial_ = 0;
     background_.clear();
@@ -160,22 +161,25 @@ void MenuSystem::MoveFocus(int delta) {
 // the moment it opens and the highlight has somewhere to be. The mouse takes
 // over the instant it moves over a row.
 void MenuSystem::FocusFirst() {
-    if (mapMode_) return;
+    if (mapMode_ || boardMode_) return;
     if (focused_.empty()) MoveFocus(1);
 }
 
 void MenuSystem::NavUp() {
+    if (boardMode_) return;
     if (mapMode_) { MapMoveChapter(-1); return; }
     MoveFocus(-1);
     EnsureKeyRowVisible();
 }
 void MenuSystem::NavDown() {
+    if (boardMode_) return;
     if (mapMode_) { MapMoveChapter(1); return; }
     MoveFocus(1);
     EnsureKeyRowVisible();
 }
 
 void MenuSystem::NavAdjust(int direction) {
+    if (boardMode_) return;
     if (mapMode_) { MapMoveCursor(direction); return; }
     // Left and right on a key row pick the column the next capture edits.
     if (const Item* f = Find(focused_))
@@ -223,6 +227,7 @@ void MenuSystem::NavAdjust(int direction) {
 }
 
 void MenuSystem::NavActivate() {
+    if (boardMode_) { LeaveBoard(); return; }
     if (mapMode_) { MapChoose(); return; }
     if (Item* item = Find(focused_)) Choose(*item);
 }
@@ -231,13 +236,40 @@ void MenuSystem::Update(float mouseX, float mouseY, bool clicked) {
     if (!active_) return;
     mouseX_ = mouseX;
     mouseY_ = mouseY;
+    if (boardMode_) { UpdateBoard(mouseX, mouseY, clicked); return; }
     if (mapMode_) { UpdateMap(mouseX, mouseY, clicked); return; }
     // The click that opened a capture must not also be the key it binds.
     captureFresh_ = false;
 
+    // A slider follows a held button across its bar: press anywhere on the
+    // bar and the knob goes there, drag and it follows. Dragging keeps hold
+    // of the slider it started on even when the pointer strays off the bar.
+    if (showMouse_ && capture_.empty()) {
+        if (!mouseDown_) dragging_.clear();
+        Item* drag = dragging_.empty() ? nullptr : Find(dragging_);
+        if (mouseDown_ && !drag) {
+            for (Item* item : Ordered()) {
+                if (item->kind != Kind::Slider || !item->visible || item->disabled) continue;
+                if (item->barW <= 0.f) continue;
+                if (mouseX < item->barX - 20.f || mouseX > item->barX + item->barW + 20.f) continue;
+                if (mouseY < item->barY || mouseY > item->barY + item->barH) continue;
+                dragging_ = item->name;
+                focused_ = item->name;
+                drag = item;
+                break;
+            }
+        }
+        if (drag && drag->barW > 0.f) {
+            const double t = std::max(0.f, std::min(1.f, (mouseX - drag->barX) / drag->barW));
+            double v = drag->minValue + t * (drag->maxValue - drag->minValue);
+            if (!drag->isFloat) v = std::round(v);
+            drag->value = std::max(drag->minValue, std::min(drag->maxValue, v));
+        }
+    }
+
     // The mouse wins over the keyboard whenever it is over a row: hover moves
     // focus, so the description text and the highlight follow the pointer.
-    if (showMouse_ && capture_.empty()) {
+    if (showMouse_ && capture_.empty() && dragging_.empty()) {
         for (Item* item : Ordered()) {
             if (!Focusable(item->kind) || !item->visible || item->disabled) continue;
             if (item->hitW <= 0.f || item->hitH <= 0.f) continue;
@@ -269,6 +301,11 @@ void MenuSystem::Draw(int screenW, int screenH) {
     if (!active_ || !hud_) return;
     screenW_ = screenW;
     screenH_ = screenH;
+    if (boardMode_) {
+        DrawBoard();
+        if (showMouse_) DrawCursor();
+        return;
+    }
     if (mapMode_) {
         DrawMap();
         if (showMouse_) DrawCursor();
@@ -307,6 +344,43 @@ void MenuSystem::Draw(int screenW, int screenH) {
         if (isFocused) focusedItem = item;
         if (item->kind == Kind::KeyControl) {
             DrawKeyRow(*item, isFocused);
+            continue;
+        }
+        // A static text with a rectangle wraps into it, its lines centred:
+        // the yes/no prompt's question, three lines across the box.
+        if (item->kind == Kind::StaticText && item->hasTextRect) {
+            const int size = int(std::lround(double(item->fontBigSize) * double(sy())));
+            const float x1 = item->textRect[0] * sx(), x2 = item->textRect[2] * sx();
+            const float width = x2 - x1;
+            const float lineH = hud_->TextHeight(item->fontBig, size);
+            std::vector<std::string> lines;
+            std::string line, word;
+            const auto flush = [&]() { lines.push_back(line); line.clear(); };
+            for (size_t i = 0; i <= item->text.size(); ++i) {
+                const char ch = i < item->text.size() ? item->text[i] : ' ';
+                if (ch == ' ' || ch == '\n' || i == item->text.size()) {
+                    if (!word.empty()) {
+                        const std::string trial = line.empty() ? word : line + " " + word;
+                        if (!line.empty() && hud_->TextWidth(item->fontBig, size, trial) > width)
+                            flush();
+                        line = line.empty() ? word : line + " " + word;
+                        word.clear();
+                    }
+                    if (ch == '\n') flush();
+                } else {
+                    word += ch;
+                }
+            }
+            if (!line.empty()) flush();
+            float y = item->textRect[1] * sy();
+            const uint32_t colour = ArgbToAbgr(item->textColor);
+            for (const std::string& l : lines) {
+                const float w = hud_->TextWidth(item->fontBig, size, l);
+                hud_->Text(item->fontBig, size, x1 + (width - w) * 0.5f, y, l, colour,
+                           FontTexture(*item, true));
+                y += lineH;
+            }
+            item->hitW = item->hitH = 0.f;
             continue;
         }
 
@@ -371,14 +445,31 @@ void MenuSystem::Draw(int screenW, int screenH) {
             DrawItemBG(*item, plateX, y + h * 0.5f - plateH * 0.5f, menuW - 168.f * sx(), plateH);
         }
 
-        // A checkbox is its box, then its label - not a label with "On"
-        // beside it (HUD/ChkChecked, ChkUnchecked).
-        float labelX = x;
-        if (item->kind == Kind::Checkbox) {
-            DrawCheckbox(*item, x, y, size);
-            labelX = x + 50.f * sx();
+        // A CENTRED row with a value is one string, "label: value", centred
+        // as a whole - "Speakers setup: Two Speakers" on the Sound screen -
+        // rather than a label here and a value in a column that does not
+        // exist for it. A centred checkbox centres box and label as a pair.
+        const bool centredRow =
+            item->x < 0.f && (item->align == kAlignCenter || item->align == kAlignNone);
+        std::string label = item->text;
+        bool inlineValue = false;
+        if (centredRow && (item->kind == Kind::TextButtonEx || item->kind == Kind::NumRange)) {
+            label += ": " + ValueString(*item);
+            inlineValue = true;
         }
-        hud_->Text(item->fontBig, size, labelX, y, item->text, ArgbToAbgr(colour),
+        float labelX = x;
+        if (inlineValue)
+            labelX = (float(screenW) - hud_->TextWidth(item->fontBig, size, label)) * 0.5f;
+        // A checkbox is its box, then its label - not a label with "On"
+        // beside it.
+        if (item->kind == Kind::Checkbox) {
+            const float boxW = 36.f * sx(), gap = 12.f * sx();
+            float bx = x;
+            if (centredRow) bx = (float(screenW) - (boxW + gap + w)) * 0.5f;
+            DrawCheckbox(*item, bx, y, size);
+            labelX = bx + boxW + gap;
+        }
+        hud_->Text(item->fontBig, size, labelX, y, label, ArgbToAbgr(colour),
                    FontTexture(*item, true));
 
         // The hit target is the ROW, not the word. PMENU.SetMenuWidth is what
@@ -414,7 +505,7 @@ void MenuSystem::Draw(int screenW, int screenH) {
         // text - otherwise the values in a list of options would not line up.
         if (item->kind == Kind::Slider) {
             DrawSlider(*item, x, y, size, colour, menuLeft, item->x >= 0.f);
-        } else if (HasValue(item->kind)) {
+        } else if (HasValue(item->kind) && !inlineValue) {
             // A full-width row puts its value a fixed sliderWidth along, so
             // the values in a column line up. A HALF row - one side of a
             // two-column line - has no room for that: sliderWidth is 340
@@ -521,6 +612,16 @@ void MenuSystem::DrawItemBG(Item& item, float x, float y, float w, float h) {
         }
     }
     hud_->Quad(item.itemBGMat[2], x + w - capR, y, capR, h, 0xffffffffu);
+}
+
+// The words a value shows as, for the rows that write it into their label.
+std::string MenuSystem::ValueString(const Item& item) const {
+    switch (item.kind) {
+    case Kind::Checkbox: return item.value != 0.0 ? onText_ : offText_;
+    case Kind::TextButtonEx: return item.valueText;
+    case Kind::NumRange: return std::to_string(int(item.value));
+    default: return {};
+    }
 }
 
 float MenuSystem::ValueWidth(const Item& item, int size) {
@@ -718,9 +819,16 @@ void MenuSystem::DrawSlider(const Item& item, float labelX, float y, int size, u
         barRight = valueRight - valueSlot - 12.f * SX - aw;
         barLeft = barRight - item.sliderWidth * SX;
     }
-    const float cy = y + float(size) * 0.5f;
+    // The bar runs through the middle of the text's line, not of its point
+    // size: the line is taller than the size and the glyphs sit low in it.
+    const float cy = y + hud_->TextHeight(item.fontBig, size) * 0.5f;
     const double span = item.maxValue - item.minValue;
     const double t = span > 0.0 ? (item.value - item.minValue) / span : 0.0;
+    // For the mouse: the bar and its arrows, a line's height tall.
+    const_cast<Item&>(item).barX = barLeft;
+    const_cast<Item&>(item).barW = barRight - barLeft;
+    const_cast<Item&>(item).barY = cy - 20.f * SY;
+    const_cast<Item&>(item).barH = 40.f * SY;
 
     // The LARGE set is the slider's: strzalka_duza points right, kreska_duza
     // is a stretch of horizontal line, dzwigienka_duza the upright knob. (The
@@ -743,22 +851,19 @@ void MenuSystem::DrawSlider(const Item& item, float labelX, float y, int size, u
     hud_->Text(item.fontBig, size, valueX, y, buf, abgr, FontTexture(item, true));
 }
 
-// HUD/ChkChecked.tga is the red diamond tick ALONE on transparency (40 x 37;
-// the .bmp beside it is a 16-pixel Windows icon the resolver must not pick),
-// and ChkUnchecked is empty. The bevelled box under it is drawn here: a dark
-// fill with a bronze rim, in the item's own colour, which is what the
-// original's box looks like beside "Invert Mouse".
+// The menu's checkbox is HUD/ikonki/checkbox_pusty (empty) and
+// checkbox_zaznaczony (ticked): the bevelled bronze box with its red tick,
+// as one piece. (HUD/ChkChecked is the HUD's own tick, not the menu's.)
 void MenuSystem::DrawCheckbox(const Item& item, float x, float y, int size) {
-    const float bw = 40.f * sx(), bh = 37.f * sy();
-    const float by = y + float(size) * 0.5f - bh * 0.5f;
-    const float rim = std::max(1.f, 2.f * sy());
-    const uint32_t bronze = ArgbToAbgr(item.disabled ? item.disabledColor : item.textColor);
-    hud_->Quad(0, x, by, bw, bh, bronze);
-    hud_->Quad(0, x + rim, by + rim, bw - 2.f * rim, bh - 2.f * rim, 0xff141414u);
-    if (item.value != 0.0) {
-        const int tick = MapMat("HUD/ChkChecked");
-        if (tick > 0) hud_->Quad(tick, x, by, bw, bh, 0xffffffffu);
-    }
+    const int box = MapMat(item.value != 0.0 ? "HUD/ikonki/checkbox_zaznaczony"
+                                             : "HUD/ikonki/checkbox_pusty");
+    if (box <= 0) return;
+    // The file is 55 x 51; the original draws it about 36 x 33 authoring
+    // units, a line's height, measured off the Sound screen.
+    const float bw = 36.f * sx(), bh = 33.f * sy();
+    const float th = hud_->TextHeight(item.fontBig, size);
+    hud_->Quad(box, x, y + th * 0.5f - bh * 0.5f, bw, bh,
+               item.disabled ? 0xffa0a0a0u : 0xffffffffu);
 }
 
 // A tab group is a tab box - 180 x 52, the first ten units in from the
@@ -991,6 +1096,9 @@ namespace {
 // plate at the bottom left reads "Chapter N / Level N / name"; a pentagram
 // marker sits bottom right.
 constexpr float kDialCX = 270.f, kDialCY = 278.f, kDialR = 177.f, kNumeralR = 100.f;
+constexpr float kRingR = 163.f;                              // the band with the padlocks
+constexpr float kPlateR = 150.f;                             // the selector plate's centre
+constexpr float kCardX = 750.f, kCardY = 597.f, kCardW = 82.f, kCardH = 125.f;
 constexpr float kOkienkoW = 287.f, kOkienkoH = 121.f;        // the arched plate
 constexpr float kDigitW = 50.f, kDigitH = 51.f;              // cyferka
 // klawisz1..5, the wedges, each cut to its own size.
@@ -1001,7 +1109,7 @@ constexpr float kArrowLX = 120.f, kArrowRX = 360.f, kArrowY = 124.f;   // hit zo
 constexpr float kArrowW = 60.f, kArrowH = 44.f;
 constexpr float kPanelX = 477.f, kPanelY = 192.f, kPanelW = 320.f, kPanelH = 240.f;
 constexpr float kPlateX = 92.f, kPlateY = 526.f, kPlateW = 306.f, kPlateH = 108.f;
-constexpr float kPentX = 875.f, kPentY = 630.f, kPentW = 139.f, kPentH = 139.f;
+constexpr float kPentX = 824.f, kPentY = 588.f, kPentW = 139.f, kPentH = 139.f;
 constexpr float kPi = 3.14159265f;
 constexpr uint32_t kMapText = 0xff60c0e8u;       // ABGR: warm gold
 constexpr uint32_t kMapTextFocus = 0xffffffffu;
@@ -1035,7 +1143,14 @@ int MenuSystem::MapChapterCount() const {
 void MenuSystem::EnterMap() {
     ClearScreen();
     mapLevels_.clear();
-    if (runAction_) runAction_("Levels_FillMap()");
+    if (runAction_) {
+        runAction_("Levels_FillMap()");
+        // The cards' pictures by index, for the map's card button: the
+        // level's cardIndex names an entry of MagicCards.
+        runAction_("__pkCardTex = {} if MagicCards then "
+                   "for i,o in MagicCards.timeCards do __pkCardTex['c'..o.index] = o.texture end "
+                   "for i,o in MagicCards.permCards do __pkCardTex['c'..o.index] = o.texture end end");
+    }
     mapMode_ = true;
     active_ = true;
     showMouse_ = true;
@@ -1051,6 +1166,12 @@ void MenuSystem::EnterMap() {
         if (mapLevels_[size_t(levels[k])].status == 1) mapCursor_ = int(k);
     LogInfo("map: %zu levels in %d chapters, chapter %d on show", mapLevels_.size(),
             MapChapterCount(), mapChapter_);
+    // PAINFUL_MAP_CURSOR=<k>: a diagnostic that puts the focus on the k-th
+    // level of the chapter on show, for captures of the ring.
+    if (const char* cur = getenv("PAINFUL_MAP_CURSOR")) MapMoveCursor(std::atoi(cur));
+    // The plate starts ON the chosen level; it slides only for later moves.
+    plateAngle_ = float(mapCursor_) * (kPi / 3.f);
+    plateClock_ = std::chrono::steady_clock::now();
     // PAINFUL_MAP_PICK=<dir>: a diagnostic that chooses a level the moment the
     // map opens, so the menu-to-level path can be driven without a hand on
     // the mouse. Any level, locked or not.
@@ -1089,10 +1210,15 @@ void MenuSystem::MapNextLevel() {
 }
 
 const MenuSystem::MapLevel* MenuSystem::mapCurrent() const {
-    if (mapCurrChapter_ <= 0 || mapCurrLevel_ <= 0) return nullptr;
-    const std::vector<int> levels = MapChapterLevels(mapCurrChapter_);
-    if (size_t(mapCurrLevel_ - 1) >= levels.size()) return nullptr;
-    return &mapLevels_[size_t(levels[size_t(mapCurrLevel_ - 1)])];
+    // On the map the "current" level is the one under focus: that is what
+    // Hud_RenderLevelStats asks MapGetCurrLevelName for when the plate is
+    // hovered. Off the map it is the marker.
+    int chapter = mapCurrChapter_, level = mapCurrLevel_;
+    if (mapMode_) { chapter = mapChapter_; level = mapCursor_ + 1; }
+    if (chapter <= 0 || level <= 0) return nullptr;
+    const std::vector<int> levels = MapChapterLevels(chapter);
+    if (size_t(level - 1) >= levels.size()) return nullptr;
+    return &mapLevels_[size_t(levels[size_t(level - 1)])];
 }
 
 void MenuSystem::MapMoveChapter(int delta) {
@@ -1105,7 +1231,8 @@ void MenuSystem::MapMoveChapter(int delta) {
 void MenuSystem::MapMoveCursor(int delta) {
     const int n = int(MapChapterLevels(mapChapter_).size());
     if (n <= 0) return;
-    mapCursor_ = std::max(0, std::min(n - 1, mapCursor_ + delta));
+    // Round the ring: past the last level comes the first.
+    mapCursor_ = ((mapCursor_ + delta) % n + n) % n;
 }
 
 // A card that is current or finished loads; a locked one does nothing, as in
@@ -1124,10 +1251,23 @@ void MenuSystem::MapChoose() {
 }
 
 bool MenuSystem::Back() {
-    if (!mapMode_) return false;
-    mapMode_ = false;
-    if (runAction_) runAction_("PainMenu:ActivateScreen(MainMenu)");
-    return true;
+    if (boardMode_) { LeaveBoard(); return true; }
+    if (mapMode_) {
+        mapMode_ = false;
+        if (runAction_) runAction_("PainMenu:ActivateScreen(MainMenu)");
+        return true;
+    }
+    // On an ordinary screen Escape is the Back button: PainMenu adds it as
+    // the item "BackButton" carrying the screen's backAction, which on the
+    // option screens applies the settings on the way out. A screen without
+    // one - the main menu, a yes/no prompt - answers false and the app
+    // decides (close onto the game, or nothing with no level up).
+    if (const Item* back = Find("BackButton"))
+        if (!back->action.empty()) {
+            pending_.push_back(back->action);
+            return true;
+        }
+    return false;
 }
 
 bool MenuSystem::TakePendingLevel(std::string& dir, std::string& name, std::string& sketch) {
@@ -1151,18 +1291,29 @@ void MenuSystem::UpdateMap(float mouseX, float mouseY, bool clicked) {
         }
     }
     mapCrystalHover_ = mapCrystalRect_.Contains(mouseX, mouseY);
+    mapLevelHover_ = -1;
+    for (size_t k = 0; k < mapLevelRects_.size(); ++k)
+        if (mapLevelRects_[k].Contains(mouseX, mouseY)) mapLevelHover_ = int(k);
+    mapPlateHover_ = mapPlateRect_.Contains(mouseX, mouseY);
+    mapCardHover_ = mapCardRect_.Contains(mouseX, mouseY);
+    mapPentHover_ = mapPentRect_.Contains(mouseX, mouseY);
     if (clicked) {
         if (mapArrowRects_[0].Contains(mouseX, mouseY)) MapMoveCursor(-1);
         else if (mapArrowRects_[1].Contains(mouseX, mouseY)) MapMoveCursor(1);
         else if (mapCrystalHover_) MapChoose();
+        else if (mapCardHover_) EnterBoard();
+        else if (mapPentHover_) Back();
+        else
+            for (size_t k = 0; k < mapLevelRects_.size(); ++k)
+                if (mapLevelRects_[k].Contains(mouseX, mouseY) && mapCursor_ != int(k)) {
+                    mapCursor_ = int(k);
+                    if (playSound_) playSound_("menu/menu/option-light-on");
+                }
     }
 }
 
 void MenuSystem::DrawMap() {
     const float SX = sx(), SY = sy();
-    const int bg = MapMat(blackEdition_ ? "HUD/Map/Map_black" : "HUD/Map/Map");
-    if (bg > 0) hud_->Quad(bg, 0.f, 0.f, float(screenW_), float(screenH_), 0xffffffffu);
-
     mapDigitRects_.clear();
     const std::vector<int> levels = MapChapterLevels(mapChapter_);
     const MapLevel* shown =
@@ -1171,16 +1322,106 @@ void MenuSystem::DrawMap() {
             : nullptr;
     const bool playable = shown && (shown->status == 1 || shown->status == 2);
 
-    // The arched okienko plate at the top of the ring, the chapter's digit in
-    // its cutout.
+    // The sketch goes UNDER the map. Map.dds is DXT3 and its black window is
+    // transparent (alpha 0), so what is drawn before it shows through the
+    // window and stops under the opaque straps that cross it - which is how
+    // the original's scrap sits behind the leather. The scrap's picture is
+    // the upper left of its texture; 474 units wide from (383,145) it fills
+    // the window as in a full-screen 3440x1440 pair.
+    if (shown) {
+        const int sm = MapMat(shown->sketch);
+        const float side = 474.f;
+        if (sm > 0)
+            hud_->Quad(sm, 383.f * SX, 145.f * SY, side * SX, side * SY,
+                       playable ? 0xffffffffu : 0xffa0a0a0u);
+    }
+    const int bg = MapMat(blackEdition_ ? "HUD/Map/Map_black" : "HUD/Map/Map");
+    if (bg > 0) hud_->Quad(bg, 0.f, 0.f, float(screenW_), float(screenH_), 0xffffffffu);
+
+    // The levels around the ring, thirty degrees apart clockwise from the
+    // top, level 1 at the top. The ring's own art holds a padlock at every
+    // spot: an open level gets its digit drawn over the lock, a locked one
+    // keeps the lock. The arched okienko plate is the SELECTOR - it sits on
+    // the chosen level's spot, turned to follow the ring, with the digit in
+    // its cutout (so with level 1 chosen it is the tab at the top) - and the
+    // spot under the pointer shows the plate too, as the original's hover.
+    mapLevelRects_.clear();
     {
         const int plate = MapMat("HUD/Map/okienko");
-        const float px = (kDialCX - kOkienkoW * 0.5f) * SX, py = (kDialCY - kDialR - 30.f) * SY;
-        if (plate > 0) hud_->Quad(plate, px, py, kOkienkoW * SX, kOkienkoH * SY, 0xffffffffu);
-        const int digit = MapMat("HUD/Map/cyferka" + std::to_string(mapChapter_) + "_wcisnieta");
-        if (digit > 0)
-            hud_->Quad(digit, (kDialCX - kDigitW * 0.5f) * SX, py + 28.f * SY, kDigitW * SX,
-                       kDigitH * SY, 0xffffffffu);
+        const float pw = kOkienkoW * 0.83f, ph = kOkienkoH * 0.83f;
+        // SIX fixed slots sixty degrees apart, level 1 at the top; a chapter
+        // has four to six levels and the slots past its count stay locked.
+        const float step = 2.f * kPi / 6.f;
+
+        // The selector plate SLIDES around the ring from the level it was
+        // on to the one chosen, the short way round, at about a third of a
+        // second per slot.
+        {
+            const auto now = std::chrono::steady_clock::now();
+            const float dt = std::min(0.1f, std::chrono::duration<float>(now - plateClock_).count());
+            plateClock_ = now;
+            const float target = float(mapCursor_) * step;
+            float diff = target - plateAngle_;
+            while (diff > kPi) diff -= 2.f * kPi;
+            while (diff < -kPi) diff += 2.f * kPi;
+            const float maxStep = 3.5f * dt;
+            if (std::fabs(diff) <= maxStep) plateAngle_ = target;
+            else plateAngle_ += diff > 0.f ? maxStep : -maxStep;
+        }
+        if (plate > 0) {
+            // The plate is turned in AUTHORING space, where the ring is a
+            // circle, and its four corners are then scaled to the screen one
+            // by one. The screen scales the two axes differently on a
+            // widescreen window, so a rectangle rotated on screen keeps its
+            // sides at the wrong lengths at every angle but straight up and
+            // down - the plate on the two o'clock slot came out squat while
+            // the top one was right.
+            const float a = plateAngle_;
+            const float cx = kDialCX + kPlateR * std::sin(a);
+            const float cy = kDialCY - kPlateR * std::cos(a);
+            const float c = std::cos(a), s = std::sin(a);
+            const float local[4][2] = {{-pw * 0.5f, -ph * 0.5f}, {pw * 0.5f, -ph * 0.5f},
+                                       {pw * 0.5f, ph * 0.5f},   {-pw * 0.5f, ph * 0.5f}};
+            float xy[8];
+            for (int i = 0; i < 4; ++i) {
+                const float ax = cx + local[i][0] * c - local[i][1] * s;
+                const float ay = cy + local[i][0] * s + local[i][1] * c;
+                xy[i * 2] = ax * SX;
+                xy[i * 2 + 1] = ay * SY;
+            }
+            hud_->QuadCorners(plate, xy, 0xffffffffu);
+        }
+        for (size_t k = 0; k < 6; ++k) {
+            const bool exists = k < levels.size();
+            const MapLevel* l = exists ? &mapLevels_[size_t(levels[k])] : nullptr;
+            const bool open = l && (l->status == 1 || l->status == 2);
+            const bool chosen = int(k) == mapCursor_;
+            const bool hover = int(k) == mapLevelHover_;
+            const float a = float(k) * step;
+            const float dx = std::sin(a), dy = -std::cos(a);
+            Rect r;
+            r.w = kDigitW * SX;
+            r.h = kDigitH * SY;
+            r.x = (kDialCX + kRingR * dx) * SX - r.w * 0.5f;
+            r.y = (kDialCY + kRingR * dy) * SY - r.h * 0.5f;
+            if (open) {
+                // The pressed digit ships for 1..6 only; the lit one stands in.
+                int m = chosen ? MapMat("HUD/Map/cyferka" + std::to_string(k + 1) + "_wcisnieta") : 0;
+                if (m <= 0)
+                    m = MapMat("HUD/Map/cyferka" + std::to_string(k + 1) +
+                               ((chosen || hover) ? "_swiec" : "_normalna"));
+                if (m > 0) hud_->Quad(m, r.x, r.y, r.w, r.h, 0xffffffffu);
+            } else {
+                // A locked slot - or one past the chapter's count - wears the
+                // padlock: HUD/Map/question, the same 50 x 51 as a digit.
+                const int lock = MapMat("HUD/Map/question");
+                if (lock > 0) hud_->Quad(lock, r.x, r.y, r.w, r.h, 0xffffffffu);
+            }
+            r.x -= 8.f * SX; r.y -= 8.f * SY; r.w += 16.f * SX; r.h += 16.f * SY;
+            // A slot past the chapter's count is not a level: no hit area.
+            if (!exists) r.w = r.h = 0.f;
+            mapLevelRects_.push_back(r);
+        }
     }
 
     // The chapters are the pentagram's five wedges, one klawisz file each
@@ -1224,15 +1465,6 @@ void MenuSystem::DrawMap() {
 
     // The sketch in the panel, and the plate: "Chapter N / Level N / name".
     if (shown) {
-        // The sketch is a parchment scrap centred on a transparent 512-square,
-        // drawn at that size over the panel's centre: the scrap then fills the
-        // black window the way the original shows it.
-        const int sm = MapMat(shown->sketch);
-        const float side = 450.f;       // the scrap then spans the window, as in the original
-        if (sm > 0)
-            hud_->Quad(sm, (kPanelX + kPanelW * 0.5f - side * 0.5f) * SX,
-                       (kPanelY + kPanelH * 0.5f - side * 0.5f) * SY, side * SX, side * SY,
-                       playable ? 0xffffffffu : 0xffa0a0a0u);
         // The info panel is a menu border - dark striped fill, gold frame -
         // not a map texture.
         Item panel;
@@ -1256,10 +1488,189 @@ void MenuSystem::DrawMap() {
         hud_->Text("timesbd", size, lx, py + 40.f * SY, line2, kMapText);
         hud_->Text("timesbd", size, lx, py + 68.f * SY, shown->name,
                    playable ? kMapTextRed : kMapTextLocked);
+        mapPlateRect_ = {px, py, kPlateW * SX, kPlateH * SY};
+
+        // The tarot card in its slot, bottom right: the karta art as shipped
+        // (glowing under the pointer), which is the whole card, picture and
+        // all - the original shows the same card whatever the level, and
+        // laying the level's own picture over it put a second image on top.
+        // It opens the board.
+        const int frame = MapMat(mapCardHover_ ? "HUD/Map/karta_swiec" : "HUD/Map/karta_czysta");
+        mapCardRect_ = {kCardX * SX, kCardY * SY, kCardW * SX, kCardH * SY};
+        if (frame > 0)
+            hud_->Quad(frame, mapCardRect_.x, mapCardRect_.y, mapCardRect_.w, mapCardRect_.h,
+                       0xffffffffu);
     }
-    const int pent = MapMat("HUD/Map/pentagra_czysty");
+    // The pentagram marker is the way back to the main menu.
+    const int pent = MapMat(mapPentHover_ ? "HUD/Map/pentagra_swiec" : "HUD/Map/pentagra_czysty");
+    mapPentRect_ = {kPentX * SX, kPentY * SY, kPentW * SX, kPentH * SY};
     if (pent > 0)
-        hud_->Quad(pent, kPentX * SX, kPentY * SY, kPentW * SX, kPentH * SY, 0xffffffffu);
+        hud_->Quad(pent, mapPentRect_.x, mapPentRect_.y, mapPentRect_.w, mapPentRect_.h,
+                   0xffffffffu);
+
+    // Hovering the plate shows the level's statistics board - the same
+    // Hud_RenderLevelStats the engine calls for the in-game Tab screen. It
+    // draws through HUD.* into the batch that is open right now.
+    if (mapPlateHover_ && shown && runAction_)
+        runAction_("if Hud_RenderLevelStats then Hud_RenderLevelStats() end");
+}
+
+// ---------------------------------------------------------------- the board
+//
+// PMENU.SwitchToBoard is EngineGame::SwitchMagicBoard. The engine calls
+// MagicBoard:Setup() back into Lua, which declares four slot rows through
+// MBOARD.SetupSlots / SetSlotPosition (the top row of small permanent-card
+// slots, the two large selected-permanent slots, the three large selected-
+// tarot slots, the bottom row of small tarot slots - HUD/Board/board is drawn
+// to fit them) and every card through MBOARD.AddCard with whether the player
+// owns it and whether it is selected. Cards owned sit in their kind's small
+// row; selected ones move to the large slots of their kind. Leaving runs
+// MagicBoard_UpdateCardsStatus(), which reads the result back through
+// IsCardInSlot and writes Game.CardsSelected.
+//
+// STAND-IN: a click moves a card between its row and the first free large
+// slot of its kind, and the board's gold cost of equipping (MagicBoard::
+// GetCash / SetCash, the counter beside the crystal) is not charged. The
+// crystal accepts and returns to the map; so does Escape.
+namespace {
+constexpr float kBoardCrystalX = 490.f, kBoardCrystalY = 195.f;
+constexpr float kBoardCrystalW = 173.f, kBoardCrystalH = 132.f;
+constexpr float kBoardZoomX = 250.f, kBoardZoomY = 250.f, kBoardZoomSide = 220.f;
+constexpr int kTimeAll = 0, kPermAll = 1, kTimeSel = 2, kPermSel = 3;
+}  // namespace
+
+void MenuSystem::EnterBoard() {
+    ClearScreen();
+    for (BoardSlots& s : boardSlots_) s = BoardSlots();
+    boardCards_.clear();
+    boardHover_ = -1;
+    if (runAction_) runAction_("if MagicBoard and MagicBoard.Setup then MagicBoard:Setup() end");
+    boardMode_ = true;
+    active_ = true;
+    showMouse_ = true;
+    if (setPaused_) setPaused_(true);
+    LogInfo("board: %zu cards, rows %d/%d/%d/%d", boardCards_.size(), boardSlots_[0].count,
+            boardSlots_[1].count, boardSlots_[2].count, boardSlots_[3].count);
+}
+
+void MenuSystem::LeaveBoard() {
+    if (!boardMode_) return;
+    boardMode_ = false;
+    if (runAction_)
+        runAction_("if MagicBoard_UpdateCardsStatus then MagicBoard_UpdateCardsStatus() end");
+    EnterMap();
+}
+
+void MenuSystem::BoardSetupSlots(int type, int count, float y, float w, float h, float space) {
+    if (type < 0 || type > 3) return;
+    BoardSlots& s = boardSlots_[type];
+    s.count = std::max(0, count);
+    s.y = y; s.w = w; s.h = h; s.space = space;
+    s.x.assign(size_t(s.count), 0.f);
+    for (int i = 0; i < s.count; ++i) s.x[size_t(i)] = float(i) * space;
+}
+
+void MenuSystem::BoardSetSlotX(int type, int slot, float x) {
+    if (type < 0 || type > 3) return;
+    BoardSlots& s = boardSlots_[type];
+    if (slot >= 0 && size_t(slot) < s.x.size()) s.x[size_t(slot)] = x;
+}
+
+void MenuSystem::BoardAddCard(const BoardCard& card) { boardCards_.push_back(card); }
+
+std::vector<const MenuSystem::BoardCard*> MenuSystem::BoardCardsOfType(int type) const {
+    std::vector<const BoardCard*> out;
+    for (const BoardCard& c : boardCards_)
+        if (c.type == type) out.push_back(&c);
+    return out;
+}
+
+bool MenuSystem::BoardCardInSlot(int type, int index) const {
+    if (index < 0) return false;
+    if (type == kTimeAll || type == kPermAll) {
+        const std::vector<const BoardCard*> cards = BoardCardsOfType(type == kTimeAll ? 1 : 2);
+        return size_t(index) < cards.size() && !cards[size_t(index)]->selected;
+    }
+    int filled = 0;
+    for (const BoardCard* c : BoardCardsOfType(type == kTimeSel ? 1 : 2))
+        if (c->selected) ++filled;
+    return index < filled;
+}
+
+void MenuSystem::UpdateBoard(float mouseX, float mouseY, bool clicked) {
+    boardHover_ = -1;
+    for (const auto& rc : boardCardRects_)
+        if (rc.first.Contains(mouseX, mouseY)) boardHover_ = rc.second;
+    boardCrystalHover_ = boardCrystalRect_.Contains(mouseX, mouseY);
+    if (!clicked) return;
+    if (boardCrystalHover_) { LeaveBoard(); return; }
+    if (boardHover_ < 0 || size_t(boardHover_) >= boardCards_.size()) return;
+    BoardCard& card = boardCards_[size_t(boardHover_)];
+    if (!card.available) return;
+    if (card.selected) {
+        card.selected = false;
+    } else {
+        // Only as many as the large slots of its kind hold.
+        const int cap = boardSlots_[card.type == 1 ? kTimeSel : kPermSel].count;
+        int used = 0;
+        for (const BoardCard* c : BoardCardsOfType(card.type))
+            if (c->selected) ++used;
+        if (used < cap) card.selected = true;
+    }
+    if (playSound_) playSound_("menu/menu/option-accept");
+}
+
+void MenuSystem::DrawBoard() {
+    const float SX = sx(), SY = sy();
+    const int bg = MapMat(blackEdition_ ? "HUD/Board/board_black" : "HUD/Board/board");
+    if (bg > 0) hud_->Quad(bg, 0.f, 0.f, float(screenW_), float(screenH_), 0xffffffffu);
+    boardCardRects_.clear();
+
+    // A card's picture is square; it sits in the top of its slot, the slot
+    // being as wide as the picture.
+    const auto drawCard = [&](const BoardCard& c, int index, const BoardSlots& s, int slot) {
+        if (slot < 0 || size_t(slot) >= s.x.size()) return;
+        Rect r{s.x[size_t(slot)] * SX, s.y * SY, s.w * SX, s.h * SY};
+        const int art = MapMat(c.texture);
+        const uint32_t tint = (index == boardHover_) ? 0xffffffffu : 0xffd8d8d8u;
+        if (art > 0) hud_->Quad(art, r.x, r.y, r.w, r.w, tint);
+        boardCardRects_.push_back({r, index});
+    };
+    for (int kind = 1; kind <= 2; ++kind) {
+        const BoardSlots& all = boardSlots_[kind == 1 ? kTimeAll : kPermAll];
+        const BoardSlots& sel = boardSlots_[kind == 1 ? kTimeSel : kPermSel];
+        int ordinal = 0, chosen = 0;
+        for (size_t i = 0; i < boardCards_.size(); ++i) {
+            const BoardCard& c = boardCards_[i];
+            if (c.type != kind) continue;
+            const int slot = ordinal++;
+            if (!c.available) continue;
+            if (c.selected) drawCard(c, int(i), sel, chosen++);
+            else drawCard(c, int(i), all, slot);
+        }
+    }
+
+    // The crystal: accept and back to the map.
+    const int crystal = MapMat(boardCrystalHover_ ? "HUD/Board/krysztal_board_swiec"
+                                                  : "HUD/Board/krysztal_board_czysty");
+    boardCrystalRect_ = {kBoardCrystalX * SX, kBoardCrystalY * SY, kBoardCrystalW * SX,
+                         kBoardCrystalH * SY};
+    if (crystal > 0)
+        hud_->Quad(crystal, boardCrystalRect_.x, boardCrystalRect_.y, boardCrystalRect_.w,
+                   boardCrystalRect_.h, 0xffffffffu);
+
+    // The card under the pointer, large, with its name, cost and text.
+    if (boardHover_ >= 0 && size_t(boardHover_) < boardCards_.size()) {
+        const BoardCard& c = boardCards_[size_t(boardHover_)];
+        const int big = MapMat(c.bigImage.empty() ? c.texture : c.bigImage);
+        const float zx = kBoardZoomX * SX, zy = kBoardZoomY * SY, zs = kBoardZoomSide;
+        if (big > 0) hud_->Quad(big, zx, zy, zs * SX, zs * SY, 0xffffffffu);
+        const int size = int(std::lround(24.0 * SY));
+        const int small = int(std::lround(18.0 * SY));
+        hud_->Text("timesbd", size, zx, zy + (zs + 6.f) * SY, c.name, kMapTextRed);
+        hud_->Text("timesbd", small, zx, zy + (zs + 34.f) * SY, std::to_string(c.cost), kMapText);
+        hud_->Text("timesbd", small, zx, zy + (zs + 56.f) * SY, c.desc, kMapText);
+    }
 }
 
 void MenuSystem::DrawCursor() {

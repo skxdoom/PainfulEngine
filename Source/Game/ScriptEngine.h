@@ -882,6 +882,7 @@ private:
     static int L_HUD_GetTextWidth(lua_State* L);
     static int L_HUD_GetTextHeight(lua_State* L);
     static int L_HUD_SetTransparency(lua_State* L);
+    static int L_HUD_PrepareString(lua_State* L);
     static int L_HUD_GetTransparency(lua_State* L);
     static int L_HUD_StripColorInfo(lua_State* L);
     static int L_HUD_ColorSubstr(lua_State* L);
@@ -946,6 +947,7 @@ private:
     static int L_PMENU_SetItemFonts(lua_State* L);
     static int L_PMENU_SetItemFontsTex(lua_State* L);
     static int L_PMENU_SetItemVisibility(lua_State* L);
+    static int L_PMENU_SetStaticTextRect(lua_State* L);
     // The campaign map: EngineGame::SwitchMapSelect and the Map* family.
     static int L_PMENU_SwitchToMap(lua_State* L);
     static int L_PMENU_AddLevelToMap(lua_State* L);
@@ -957,6 +959,12 @@ private:
     static int L_PMENU_MapGetCurrLevelName(lua_State* L);
     static int L_PMENU_MapGetCurrLevelCardCondition(lua_State* L);
     static int L_PMENU_MapGetCurrLevelCardIndex(lua_State* L);
+    // The tarot board.
+    static int L_PMENU_SwitchToBoard(lua_State* L);
+    static int L_MBOARD_SetupSlots(lua_State* L);
+    static int L_MBOARD_SetSlotPosition(lua_State* L);
+    static int L_MBOARD_AddCard(lua_State* L);
+    static int L_MBOARD_IsCardInSlot(lua_State* L);
     // Bink movies: none here. Returns false, which every caller tolerates.
     static int L_PMENU_PlayMovie(lua_State* L);
     // The key table and its accessors (ControlsConfig).
@@ -989,6 +997,10 @@ private:
     static int L_PMENU_EnableItem(lua_State* L);
     static int L_MOUSE_GetPos(lua_State* L);
     static int L_SOUND_ApplySoundSettings(lua_State* L);
+    static int L_SOUND_GetNumOfProviders(lua_State* L);
+    static int L_SOUND_Get3DSoundProviderName(lua_State* L);
+    static int L_SOUND_GetCurrent3DSoundProviderName(lua_State* L);
+    static int L_SOUND_Set3DSoundProvider(lua_State* L);
     static int L_SOUND_SetMasterVolume(lua_State* L);
 
     LuaHost* host_ = nullptr;

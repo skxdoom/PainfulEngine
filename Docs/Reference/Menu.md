@@ -322,8 +322,62 @@ panel at the upper right takes the level's sketch: a parchment scrap centred
 on a transparent 512-square, drawn 450 units wide over the panel's centre so
 the scrap spans the window. The info panel at the bottom left is a menu
 BORDER, not a map texture, reading "Chapter N / Level N / name" with the name
-in red. `pentagra_czysty` sits bottom right. Not placed yet: the `karta*`
-tarot card of the level's reward.
+in red; hovering it runs `Hud_RenderLevelStats()`, the same board the in-game
+Tab key shows, over the map. The ring has SIX fixed slots sixty degrees
+apart, level 1 at the top; a chapter has four to six levels and the slots
+past its count stay locked and unreachable. An open level gets its `cyferka`
+digit drawn on its slot; every other slot wears the padlock, `HUD/Map/
+question` (50 x 51, the same size as a digit - an earlier note here that the
+locks were baked into the map was wrong; the map's band carries runes). The arched `okienko` plate is the SELECTOR, not a title, and
+nothing follows the pointer: it sits on the chosen level's slot at radius
+150, turned to follow the ring, with the digit at radius 163 in its cutout -
+so with level 1 chosen it is the tab at the top - and when the choice moves
+it SLIDES round the ring the short way, about a third of a second a slot;
+the ring wraps. The turn is worked out in AUTHORING space, where the ring is
+a circle, and the plate's four corners are then scaled to the screen one by
+one (`HudRenderer::QuadCorners`): the screen scales the two axes differently
+on a widescreen window, so a rectangle rotated ON SCREEN keeps its sides at
+the wrong lengths at every angle but straight up and down - the plate on the
+two o'clock slot came out squat while the top one was right. The tarot card
+sits in its slot at (750,597) as the shipped `karta` art alone - the same
+card whatever the level, as in the original - and the pentagram marker at
+(824,588); both measured against a full-screen 3440x1440 pair. **The sketch
+is drawn UNDER the map.** `Map.dds` is DXT3 and its black window is
+transparent (alpha 0), so whatever is drawn before the map shows through the
+window and stops under the opaque leather straps that cross it - that is
+how the original's scrap sits behind the straps and is clipped to the
+window, and why the window reads dark: it is the frame's clear colour. The
+scrap's picture is the upper left of its texture; 474 units wide from
+(383,145) it fills the window as in the full-screen pair, the same rule
+placing a locked level's padlock plate. `PAINFUL_MAP_CURSOR=<k>` focuses the
+k-th level for a capture. The level's tarot card sits bottom right in the
+`karta` frame (glowing under the pointer) with the card's picture in its
+window - `MagicCards` gives the picture for the level's `cardIndex` - and
+opens the board. The `pentagra` marker beside it is the way back to the main
+menu.
+
+### The tarot board (`PMENU.SwitchToBoard`, the `MBOARD` natives)
+
+`EngineGame::SwitchMagicBoard`: the engine calls `MagicBoard:Setup()` back
+into Lua, which declares four slot rows through `MBOARD.SetupSlots(type,
+count, y, w, h, spaceWidth, y2)` and `SetSlotPosition(type, i, x)` - the small
+permanent-card row along the top, the two large selected-permanent slots,
+the three large selected-tarot slots, the small tarot row along the bottom,
+all in authoring units that `HUD/Board/board` is drawn to fit - and every card
+through `MBOARD.AddCard(type, name, texture, desc, cost, available, selected,
+bigImage)`. On the way out the engine runs `MagicBoard_UpdateCardsStatus()`,
+which reads the selection back through `IsCardInSlot(type, i)`: for a small
+row, whether card `i` of that kind still sits there (not selected); for a
+large row, whether slot `i` holds a card.
+
+Port: owned cards sit in their kind's small row at their own ordinal,
+selected ones fill the large slots of their kind in order; a click moves a
+card across while a large slot is free; the card under the pointer is shown
+large with its name, cost and text; the crystal (or Escape) accepts and
+returns to the map. **Stand-in:** equipping is free - the gold cost the
+original charges through `MagicBoard::GetCash` / `SetCash`, and its counter
+beside the crystal, are not done. A fresh game owns no cards, so the board
+starts empty; cards arrive as levels are finished.
 
 The loading screen is one frame - the `HUD/loading/loading` art, the sketch
 and the name - drawn before the load. The original's progress bar
@@ -355,12 +409,29 @@ Compared against captures of the original screens, 2026-09-02:
   own x lays the bar after its label. A float slider holds its value times
   100 (`PainMenu:AddItem` scales it up, `ApplySlider` back down) and shows it
   divided - Gamma reads 1.00, not 100.00.
-- **Checkboxes** sit before the label with no On/Off word. `HUD/ChkChecked.tga`
-  (40 x 37) is the red diamond tick ALONE on transparency and `ChkUnchecked`
-  is empty; the bevelled box under them is drawn as a dark fill with a rim in
-  the item's colour. The `.bmp` beside the `.tga` is a 16-pixel Windows icon,
-  which is why the texture index now prefers `.dds`, then `.tga`, then `.bmp`
-  when a name ships in several formats.
+- **Checkboxes** sit before the label with no On/Off word, and are
+  `HUD/ikonki/checkbox_pusty` / `checkbox_zaznaczony` (55 x 51, drawn about
+  36 x 33): the bevelled bronze box with its red tick as one piece.
+  (`HUD/ChkChecked` is the HUD's own tick, not the menu's; its `.bmp`
+  neighbour is a 16-pixel Windows icon, which is why the texture index
+  prefers `.dds`, then `.tga`, then `.bmp` when a name ships in several
+  formats.) A centred checkbox centres box and label as a pair.
+- **A centred row with a value** - `TextButtonEx` or `NumRange` with a
+  negative x and `Center`/`None` alignment - is one string, "label: value",
+  centred as a whole: "Speakers setup: Two Speakers" on the Sound screen.
+- **Sliders follow the mouse**: press anywhere on the bar and the knob goes
+  there, drag and it follows, holding on to the slider it started on. The
+  bar runs through the middle of the text's LINE, not of its point size.
+- **Static text with a rectangle** (`SetStaticTextRect(name, x1, y1, x2,
+  y2)`) wraps into it with its lines centred - the yes/no prompt's question
+  over (240,240)-(780,380). Every such text goes through `HUD.PrepareString`,
+  which the engine uses to re-encode for its font; unbound it answered
+  nothing and every prompt carried a nil question.
+- **Escape** on an ordinary screen is the Back button: PainMenu adds it as
+  the item `BackButton` carrying the screen's `backAction`, which on the
+  option screens applies the settings on the way out. The main menu and a
+  prompt have none, so Escape there closes the menu onto the game, or does
+  nothing with no level up.
 - **Plates** repeat `blaszka_centrum` (103 x 114) at the plate's scale
   between the caps rather than stretching it; **slider** spearheads point
   INTO the line.

@@ -1,4 +1,5 @@
 #pragma once
+#include <chrono>
 #include <functional>
 #include <map>
 #include <string>
@@ -126,6 +127,13 @@ public:
         std::string keyPrimaryText, keyAltText;
         int keyIndex = -1;
         bool keySingle = false;
+        // StaticText: SetStaticTextRect(name, x1, y1, x2, y2) - the text is
+        // wrapped to the rectangle and its lines centred in it. A yes/no
+        // prompt is the case: one long question over (240,240)-(780,380).
+        bool hasTextRect = false;
+        float textRect[4] = {0, 0, 0, 0};
+        // Slider: where the bar was drawn, in pixels, for the mouse.
+        float barX = 0, barY = 0, barW = 0, barH = 0;
         // Declaration order, so keyboard navigation walks the screen the way
         // the script wrote it rather than the way a map happens to sort.
         int order = 0;
@@ -156,6 +164,11 @@ public:
     // draws itself - a checkbox's On and Off.
     void SetTextReader(std::function<std::string(const std::string&)> read) {
         readText_ = std::move(read);
+    }
+    // Any string down a dotted global path ("__pkCardTex.c6"), for the few
+    // things the map needs out of script tables that are not TXT.
+    void SetPathReader(std::function<std::string(const std::string&)> read) {
+        readPath_ = std::move(read);
     }
 
     // --- screen lifecycle -------------------------------------------------
@@ -233,8 +246,37 @@ public:
     int mapCurrChapter() const { return mapCurrChapter_; }
     const MapLevel* mapCurrent() const;
     bool mapMode() const { return mapMode_; }
-    // Escape on the map: back to the main menu. False when not on the map.
+    // Escape on the map: back to the main menu; on the board: back to the
+    // map. False when on neither.
     bool Back();
+
+    // --- the tarot board (PMENU.SwitchToBoard, the MBOARD natives) ---------
+    // EngineGame::SwitchMagicBoard: the engine calls MagicBoard:Setup() back
+    // into Lua - which declares the slot rows and every card - shows the
+    // board, and runs MagicBoard_UpdateCardsStatus() on the way out so the
+    // scripts read the selection back through IsCardInSlot.
+    struct BoardSlots {
+        int count = 0;
+        float y = 0, w = 0, h = 0, space = 0;
+        std::vector<float> x;
+    };
+    struct BoardCard {
+        int type = 1;              // MagicCardsTypes: 1 Time, 2 Perm
+        std::string name, texture, desc, bigImage;
+        int cost = 0;
+        bool available = false;
+        bool selected = false;
+    };
+    void EnterBoard();
+    void LeaveBoard();
+    bool boardMode() const { return boardMode_; }
+    void BoardSetupSlots(int type, int count, float y, float w, float h, float space);
+    void BoardSetSlotX(int type, int slot, float x);
+    void BoardAddCard(const BoardCard& card);
+    // MBOARD.IsCardInSlot(type, i): for an All row, whether card i of that
+    // row's kind still sits there (i.e. is NOT selected); for a Sel row,
+    // whether slot i holds a card.
+    bool BoardCardInSlot(int type, int index) const;
 
     // --- key binding ------------------------------------------------------
     // Choosing a key row starts a capture; the next key or mouse button
@@ -243,6 +285,8 @@ public:
     // while a capture is open.
     bool capturing() const { return !capture_.empty(); }
     void KeyPressed(int vk);
+    // Whether the left button is held right now, for dragging a slider.
+    void SetMouseDown(bool down) { mouseDown_ = down; }
     // The level the player chose on the map, once. The app loads it at the
     // top of a frame, since the load tears down the world the menu is drawn
     // over.
@@ -259,6 +303,7 @@ private:
     std::vector<Item*> Ordered();
     int FontTexture(const Item& item, bool big);
     float ValueWidth(const Item& item, int size);
+    std::string ValueString(const Item& item) const;
     void DrawItemBG(Item& item, float x, float y, float w, float h);
     void DrawValue(const Item& item, float x, float y, int size, uint32_t colour);
     void DrawBorder(const Item& item);
@@ -313,9 +358,28 @@ private:
     int mapHoverChapter_ = 0;
     int mapCurrChapter_ = 0, mapCurrLevel_ = 0;   // the marker, 1-based, 0 = none
     std::map<std::string, int> mapMat_;          // art by name, any screen
-    std::vector<Rect> mapDigitRects_;            // the chapter numerals
+    std::vector<Rect> mapDigitRects_;            // the chapter wedges
+    std::vector<Rect> mapLevelRects_;            // the level digits on the ring
     Rect mapCrystalRect_, mapArrowRects_[2];     // go, previous level, next level
+    Rect mapPlateRect_, mapCardRect_, mapPentRect_;
     bool mapCrystalHover_ = false;
+    bool mapPlateHover_ = false, mapCardHover_ = false, mapPentHover_ = false;
+    int mapLevelHover_ = -1;                     // the ring spot under the pointer
+    float plateAngle_ = 0.f;                     // where the selector plate is, radians
+    std::chrono::steady_clock::time_point plateClock_ = std::chrono::steady_clock::now();
+    std::function<std::string(const std::string&)> readPath_;
+
+    // The board.
+    void DrawBoard();
+    void UpdateBoard(float mouseX, float mouseY, bool clicked);
+    std::vector<const BoardCard*> BoardCardsOfType(int type) const;
+    bool boardMode_ = false;
+    BoardSlots boardSlots_[4];                   // by BoardSlotsTypes
+    std::vector<BoardCard> boardCards_;
+    int boardHover_ = -1;                        // index into boardCards_
+    std::vector<std::pair<Rect, int>> boardCardRects_;
+    Rect boardCrystalRect_;
+    bool boardCrystalHover_ = false;
     MapLevel pendingLevel_;
     bool hasPendingLevel_ = false;
 
@@ -333,6 +397,8 @@ private:
     int keyScroll_ = 0;              // first visible row of the table, 0-based
     float keyColumn2X_ = 0.f;        // screen x where the alternative column starts
     std::string capture_;            // the row being rebound, or empty
+    bool mouseDown_ = false;
+    std::string dragging_;           // the slider the held button is on
     int captureColumn_ = 1;
     bool captureFresh_ = false;      // set on the frame the capture opened
     // An action can activate a different screen, which clears the items out

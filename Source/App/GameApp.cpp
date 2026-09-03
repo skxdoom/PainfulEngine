@@ -252,6 +252,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
     engine.menu().SetTextReader([&host](const std::string& key) {
         return host.GetTextPath("TXT." + key);
     });
+    engine.menu().SetPathReader([&host](const std::string& path) {
+        return host.GetTextPath(path);
+    });
 
     // Escape belongs to the menu here, not to the window: see the game loop.
     window.SetEscapeQuits(false);
@@ -705,8 +708,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
                 // capture it keeps the old key; with no level loaded there is
                 // nothing to close the menu onto.
                 if (engine.menu().capturing()) engine.menu().KeyPressed(27);
-                else if (engine.menu().mapMode()) engine.menu().Back();
-                else if (levelUp) engine.menu().Close();
+                else if (!engine.menu().Back() && levelUp) engine.menu().Close();
             } else if (levelUp) {
                 engine.menu().Open();
             }
@@ -751,6 +753,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
             // A freshly built screen has no highlight until something moves;
             // seat it on the first row so the keyboard works immediately.
             engine.menu().FocusFirst();
+            engine.menu().SetMouseDown(vk[1]);        // VK_LBUTTON, for slider drags
             engine.menu().Update(window.mouseX(), window.mouseY(), window.TakeLeftClick());
             // Every key and mouse-button edge, for a key capture. After Update
             // so the click that opened one is not also the key it binds.

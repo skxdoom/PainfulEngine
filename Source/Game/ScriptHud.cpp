@@ -372,6 +372,15 @@ int ScriptEngine::L_HUD_GetTextHeight(lua_State* L) {
     return 1;
 }
 
+// HUD.PrepareString(s) -> s. Every static text and prompt goes through it;
+// the engine's version re-encodes for its font. Left unbound it answered
+// nothing, and a yes/no prompt then carried a nil question - an empty box
+// with Yes and No.
+int ScriptEngine::L_HUD_PrepareString(lua_State* L) {
+    lua_pushstring(L, luaL_optstring(L, 1, ""));
+    return 1;
+}
+
 // HUD.SetTransparency(percent) / GetTransparency() -> 0-255.
 //
 // The argument is a PERCENTAGE - it comes from the HUD Transparency slider in

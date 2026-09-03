@@ -42,6 +42,9 @@ public:
     // about the dial's hub a few pixels away.
     void QuadRotated(Material m, float x, float y, float w, float h, float radians,
                      float pivotX, float pivotY, uint32_t abgr);
+    // Four corners already placed on screen: top-left, top-right,
+    // bottom-right, bottom-left, as x,y pairs.
+    void QuadCorners(Material m, const float xy[8], uint32_t abgr);
     // Repeats a texture at its NATIVE size across a rectangle rather than
     // stretching it - HUD::DrawTiles in the original, and how every piece of
     // the menu frame is drawn. A width or height of 0 means "one texture
