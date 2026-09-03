@@ -1,4 +1,5 @@
 #include "BillboardRenderer.h"
+#include "ShaderLoad.h"
 #include "../Core/Common.h"
 #include "../Core/Log.h"
 #include "MaterialState.h"
@@ -10,12 +11,6 @@
 namespace painful {
 
 namespace {
-
-bgfx::ShaderHandle LoadShader(const std::string& path) {
-    std::vector<uint8_t> data;
-    if (!ReadFile(path, data) || data.empty()) return BGFX_INVALID_HANDLE;
-    return bgfx::createShader(bgfx::copy(data.data(), static_cast<uint32_t>(data.size())));
-}
 
 struct BillboardVertex {
     float x, y, z;
@@ -88,8 +83,8 @@ private:
 bool BillboardRenderer::Init(const std::string& shaderDir) {
     // Billboards are the same geometry as particles - a camera-facing textured
     // quad with one vertex colour - so they share the shader pair.
-    bgfx::ShaderHandle vs = LoadShader(shaderDir + "/vs_particle.bin");
-    bgfx::ShaderHandle fs = LoadShader(shaderDir + "/fs_particle.bin");
+    bgfx::ShaderHandle vs = LoadShader(shaderDir, "vs_particle");
+    bgfx::ShaderHandle fs = LoadShader(shaderDir, "fs_particle");
     if (!bgfx::isValid(vs) || !bgfx::isValid(fs)) {
         LogWarn("billboards: missing vs_particle/fs_particle in %s", shaderDir.c_str());
         return false;

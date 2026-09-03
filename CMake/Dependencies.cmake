@@ -14,14 +14,14 @@ add_subdirectory(${PAINFUL_ROOT}/External/SDL ${CMAKE_BINARY_DIR}/external/SDL E
 set(BGFX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BGFX_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
 set(BGFX_INSTALL        OFF CACHE BOOL "" FORCE)
-# We need exactly one of bgfx's tools - shaderc. Left at the default, TOOLS also
-# builds texturec, texturev, geometryc, geometryv and bin2c; the two viewers are
-# full applications, and none of the five is ever invoked here.
+# Two of bgfx's tools: shaderc compiles the .sc sources, bin2c turns each
+# compiled .bin into a C array for Shaders/CMakeLists.txt to embed. The other
+# three - texturec, geometryc and the two viewers - are never invoked here.
 set(BGFX_BUILD_TOOLS          ON  CACHE BOOL "" FORCE)
 set(BGFX_BUILD_TOOLS_SHADER   ON  CACHE BOOL "" FORCE)
+set(BGFX_BUILD_TOOLS_BIN2C    ON  CACHE BOOL "" FORCE)
 set(BGFX_BUILD_TOOLS_GEOMETRY OFF CACHE BOOL "" FORCE)
 set(BGFX_BUILD_TOOLS_TEXTURE  OFF CACHE BOOL "" FORCE)
-set(BGFX_BUILD_TOOLS_BIN2C    OFF CACHE BOOL "" FORCE)
 set(BGFX_AMALGAMATED    ON  CACHE BOOL "" FORCE)
 set(BX_AMALGAMATED      ON  CACHE BOOL "" FORCE)
 # Not EXCLUDE_FROM_ALL: we need the shaderc target addressable for shader builds.

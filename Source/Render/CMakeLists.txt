@@ -12,6 +12,7 @@ add_library(Render STATIC
   DebugLines.cpp         DebugLines.h
   FontCache.cpp          FontCache.h
   HudRenderer.cpp        HudRenderer.h
+  ShaderLoad.cpp         ShaderLoad.h
                          Camera.h
                          Frustum.h
                          MeshVertex.h
@@ -31,5 +32,11 @@ target_link_libraries(Render PUBLIC World SDL3::SDL3-static bgfx bimg_decode bim
 # only the include path to reach them.
 target_include_directories(Render PRIVATE
   ${PAINFUL_ROOT}/External/bgfx/bgfx/3rdparty/stb)
+
+# The shaders are compiled and turned into C arrays by the Shaders target,
+# which the top-level CMakeLists adds BEFORE this one so the generated
+# ShaderBlobs.h exists to be included here.
+add_dependencies(Render Shaders)
+target_include_directories(Render PRIVATE ${PAINFUL_SHADER_GEN_DIR})
 
 painful_layer(Render)

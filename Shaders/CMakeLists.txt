@@ -1,59 +1,112 @@
-# The bgfx shader sources, compiled by shaderc into Shaders/ beside the
-# executable. One project, sibling to PainfulEngine: shaders are a build
-# product of their own, not a layer of the engine.
+# The bgfx shader sources, compiled by shaderc and embedded in the executable.
+#
+# Every shader is built once PER BACKEND the platform's bgfx can use, bin2c
+# turns each result into a C array, and BGFX_EMBEDDED_SHADER picks between them
+# at runtime from bgfx::getRendererType(). So one binary carries D3D11, Vulkan
+# and OpenGL on Windows, and ships without a Shaders folder beside it.
+#
+# The suffixes are bgfx's, not ours: embedded_shader.h concatenates _dxbc, _spv,
+# _glsl, _mtl onto the shader name, so the bin2c symbol has to match exactly.
 
-set(SHADER_OUT_DIR $<TARGET_FILE_DIR:PainfulEngine>/Shaders)
 set(SHADER_INC ${PAINFUL_ROOT}/External/bgfx/bgfx/src)
 set(SHADER_DEF ${CMAKE_CURRENT_SOURCE_DIR}/varying.def.sc)
+set(SHADER_GEN ${CMAKE_CURRENT_BINARY_DIR}/generated)
+set(PAINFUL_SHADER_GEN_DIR ${SHADER_GEN} PARENT_SCOPE)
 
-# Each shader compiles straight into the output folder, then a copy lands in
-# stamps/ - that copy is what the custom command declares as its OUTPUT, so the
-# build only re-runs shaderc when a .sc actually changes. (The real output path
-# uses a generator expression, which OUTPUT cannot take.)
-function(add_shader NAME TYPE PROFILE)
-  add_custom_command(
-    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/stamps/${NAME}.bin
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADER_OUT_DIR}
-    COMMAND $<TARGET_FILE:shaderc>
-            -f ${CMAKE_CURRENT_SOURCE_DIR}/${NAME}.sc
-            -o ${SHADER_OUT_DIR}/${NAME}.bin
-            --type ${TYPE} --platform windows -p ${PROFILE}
-            -i ${SHADER_INC} --varyingdef ${SHADER_DEF}
-    COMMAND ${CMAKE_COMMAND} -E copy ${SHADER_OUT_DIR}/${NAME}.bin
-            ${CMAKE_CURRENT_BINARY_DIR}/stamps/${NAME}.bin
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${NAME}.sc ${SHADER_DEF} shaderc
-    COMMENT "shaderc ${NAME}.sc"
-  )
-  list(APPEND SHADER_STAMPS ${CMAKE_CURRENT_BINARY_DIR}/stamps/${NAME}.bin)
-  set(SHADER_STAMPS ${SHADER_STAMPS} PARENT_SCOPE)
+# suffix : shaderc profile : shaderc platform.
+#   Windows  D3D11 is what bgfx picks here, D3D12 its second choice; Vulkan
+#            and GL ride along so one binary runs wherever a driver is missing.
+#   macOS    Metal direct. Vulkan there means MoltenVK, which bgfx scores below
+#            Metal, and GLSL 430 is above the 4.1 macOS caps at.
+#   Linux    Vulkan first, GL behind it - bgfx's own order.
+if(WIN32)
+  set(SHADER_BACKENDS "dxbc:s_5_0:windows" "dxil:s_6_0:windows"
+                      "spv:spirv:windows" "glsl:430:linux")
+elseif(APPLE)
+  set(SHADER_BACKENDS "mtl:metal:osx" "spv:spirv:osx")
+else()
+  set(SHADER_BACKENDS "spv:spirv:linux" "glsl:430:linux")
+endif()
+
+set(SHADER_NAMES
+  vs_world  fs_world
+  vs_entity fs_entity
+            fs_sky
+  vs_particle fs_particle
+  vs_debug  fs_debug
+  vs_hud    fs_hud
+  vs_water  fs_water)
+
+set(SHADER_HEADERS "")
+set(SHADER_SOURCES "")
+foreach(NAME ${SHADER_NAMES})
+  set(TYPE v)
+  if(NAME MATCHES "^fs_")
+    set(TYPE f)
+  endif()
   list(APPEND SHADER_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/${NAME}.sc)
-  set(SHADER_SOURCES ${SHADER_SOURCES} PARENT_SCOPE)
-endfunction()
+  foreach(BACKEND ${SHADER_BACKENDS})
+    string(REPLACE ":" ";" PARTS ${BACKEND})
+    list(GET PARTS 0 SUFFIX)
+    list(GET PARTS 1 PROFILE)
+    list(GET PARTS 2 PLATFORM)
+    set(BIN ${CMAKE_CURRENT_BINARY_DIR}/bin/${NAME}_${SUFFIX}.bin)
+    set(HDR ${SHADER_GEN}/${NAME}_${SUFFIX}.h)
+    add_custom_command(
+      OUTPUT ${HDR}
+      COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADER_GEN}
+      COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/bin
+      COMMAND $<TARGET_FILE:shaderc>
+              -f ${CMAKE_CURRENT_SOURCE_DIR}/${NAME}.sc -o ${BIN}
+              --type ${TYPE} --platform ${PLATFORM} -p ${PROFILE}
+              -i ${SHADER_INC} --varyingdef ${SHADER_DEF}
+      COMMAND $<TARGET_FILE:bin2c> -f ${BIN} -o ${HDR} -n ${NAME}_${SUFFIX}
+      DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${NAME}.sc ${SHADER_DEF} shaderc bin2c
+      COMMENT "shaderc ${NAME}.sc -> ${SUFFIX}"
+      VERBATIM)
+    list(APPEND SHADER_HEADERS ${HDR})
+  endforeach()
+endforeach()
 
-add_shader(vs_world    v s_5_0)
-add_shader(fs_world    f s_5_0)
-add_shader(vs_entity   v s_5_0)
-add_shader(fs_entity   f s_5_0)
-add_shader(fs_sky      f s_5_0)
-add_shader(vs_particle v s_5_0)
-add_shader(fs_particle f s_5_0)
-add_shader(vs_debug    v s_5_0)
-add_shader(fs_debug    f s_5_0)
-add_shader(vs_hud      v s_5_0)
-add_shader(fs_hud      f s_5_0)
-add_shader(vs_water    v s_5_0)
-add_shader(fs_water    f s_5_0)
+# ShaderBlobs.h: the arrays, plus the list macro ShaderLoad.cpp expands into the
+# EmbeddedShader table. The BGFX_PLATFORM_SUPPORTS_* zeros matter - left alone,
+# embedded_shader.h would reference an _essl and _dxil array on Windows that we
+# never generate, and the table would not compile.
+set(BLOBS "// Generated by Shaders/CMakeLists.txt. Do not edit.\n#pragma once\n\n")
+foreach(SUPPORTED DXBC DXIL ESSL GLSL METAL NVN PSSL SPIRV WGSL)
+  set(ON_OFF 0)
+  foreach(BACKEND ${SHADER_BACKENDS})
+    string(REPLACE ":" ";" PARTS ${BACKEND})
+    list(GET PARTS 0 SUFFIX)
+    if((SUPPORTED STREQUAL "DXBC"  AND SUFFIX STREQUAL "dxbc") OR
+       (SUPPORTED STREQUAL "DXIL"  AND SUFFIX STREQUAL "dxil") OR
+       (SUPPORTED STREQUAL "SPIRV" AND SUFFIX STREQUAL "spv")  OR
+       (SUPPORTED STREQUAL "GLSL"  AND SUFFIX STREQUAL "glsl") OR
+       (SUPPORTED STREQUAL "METAL" AND SUFFIX STREQUAL "mtl"))
+      set(ON_OFF 1)
+    endif()
+  endforeach()
+  string(APPEND BLOBS "#define BGFX_PLATFORM_SUPPORTS_${SUPPORTED} ${ON_OFF}\n")
+endforeach()
+string(APPEND BLOBS "\n#include <bgfx/embedded_shader.h>\n\n")
+foreach(NAME ${SHADER_NAMES})
+  foreach(BACKEND ${SHADER_BACKENDS})
+    string(REPLACE ":" ";" PARTS ${BACKEND})
+    list(GET PARTS 0 SUFFIX)
+    string(APPEND BLOBS "#include \"${NAME}_${SUFFIX}.h\"\n")
+  endforeach()
+endforeach()
+# One line, no backslash continuations: CMake collapses them on the way through
+# file(GENERATE) and leaves a literal backslash-n in the middle of the macro.
+string(APPEND BLOBS "\n#define PAINFUL_SHADER_LIST(X)")
+foreach(NAME ${SHADER_NAMES})
+  string(APPEND BLOBS " X(${NAME})")
+endforeach()
+string(APPEND BLOBS "\n")
+file(GENERATE OUTPUT ${SHADER_GEN}/ShaderBlobs.h CONTENT "${BLOBS}")
 
 # SOURCES carries the .sc files so they are browsable and editable in the IDE;
 # HEADER_FILE_ONLY stops anything trying to compile them as C++.
-add_custom_target(Shaders ALL
-  DEPENDS ${SHADER_STAMPS}
-  SOURCES ${SHADER_SOURCES} ${SHADER_DEF})
+add_custom_target(Shaders ALL DEPENDS ${SHADER_HEADERS} SOURCES ${SHADER_SOURCES} ${SHADER_DEF})
 set_source_files_properties(${SHADER_SOURCES} ${SHADER_DEF} PROPERTIES HEADER_FILE_ONLY TRUE)
-add_dependencies(Shaders PainfulEngine)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} PREFIX "" FILES ${SHADER_SOURCES} ${SHADER_DEF})
-
-# The deploy hangs off this target (and so must be declared in this directory:
-# add_custom_command(TARGET) requires it). Why it hangs off Shaders and not off
-# the executable is in CMake/Deploy.cmake.
-include(Deploy)

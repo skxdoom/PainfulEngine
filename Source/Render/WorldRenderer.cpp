@@ -1,4 +1,5 @@
 #include "WorldRenderer.h"
+#include "ShaderLoad.h"
 #include "../Core/Common.h"
 #include "../Core/Log.h"
 #include "MeshVertex.h"
@@ -11,32 +12,22 @@ namespace painful {
 
 namespace {
 
-bgfx::ShaderHandle LoadShader(const std::string& path) {
-    std::vector<uint8_t> data;
-    if (!ReadFile(path, data) || data.empty()) {
-        LogWarn("cannot read shader %s", path.c_str());
-        return BGFX_INVALID_HANDLE;
-    }
-    const bgfx::Memory* mem = bgfx::copy(data.data(), static_cast<uint32_t>(data.size()));
-    return bgfx::createShader(mem);
-}
-
 } // namespace
 
 bool WorldRenderer::Init(const std::string& shaderDir) {
     layout_ = MakeMeshLayout();
 
     namespace fs = std::filesystem;
-    bgfx::ShaderHandle vs = LoadShader((fs::path(shaderDir) / "vs_world.bin").string());
-    bgfx::ShaderHandle fs_ = LoadShader((fs::path(shaderDir) / "fs_world.bin").string());
+    bgfx::ShaderHandle vs = LoadShader(shaderDir, "vs_world");
+    bgfx::ShaderHandle fs_ = LoadShader(shaderDir, "fs_world");
     if (!bgfx::isValid(vs) || !bgfx::isValid(fs_)) return false;
 
     program_ = bgfx::createProgram(vs, fs_, true);
 
     // Water gets its own program. Missing shaders are not fatal: water then
     // falls back to the ordinary world path.
-    bgfx::ShaderHandle wvs = LoadShader((fs::path(shaderDir) / "vs_water.bin").string());
-    bgfx::ShaderHandle wfs = LoadShader((fs::path(shaderDir) / "fs_water.bin").string());
+    bgfx::ShaderHandle wvs = LoadShader(shaderDir, "vs_water");
+    bgfx::ShaderHandle wfs = LoadShader(shaderDir, "fs_water");
     if (bgfx::isValid(wvs) && bgfx::isValid(wfs)) {
         waterProgram_ = bgfx::createProgram(wvs, wfs, true);
         sNormal_ = bgfx::createUniform("s_normal", bgfx::UniformType::Sampler);

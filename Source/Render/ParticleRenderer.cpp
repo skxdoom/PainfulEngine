@@ -1,4 +1,5 @@
 #include "ParticleRenderer.h"
+#include "ShaderLoad.h"
 #include "../Core/Common.h"
 #include "../Core/Log.h"
 #include "MaterialState.h"
@@ -11,12 +12,6 @@
 namespace painful {
 
 namespace {
-
-bgfx::ShaderHandle LoadShader(const std::string& path) {
-    std::vector<uint8_t> data;
-    if (!ReadFile(path, data) || data.empty()) return BGFX_INVALID_HANDLE;
-    return bgfx::createShader(bgfx::copy(data.data(), static_cast<uint32_t>(data.size())));
-}
 
 struct ParticleVertex {
     float x, y, z;
@@ -88,8 +83,8 @@ void ParticleRenderer::RandVec(const float lo[3], const float hi[3], float out[3
 }
 
 bool ParticleRenderer::Init(const std::string& shaderDir) {
-    bgfx::ShaderHandle vs = LoadShader(shaderDir + "/vs_particle.bin");
-    bgfx::ShaderHandle fs = LoadShader(shaderDir + "/fs_particle.bin");
+    bgfx::ShaderHandle vs = LoadShader(shaderDir, "vs_particle");
+    bgfx::ShaderHandle fs = LoadShader(shaderDir, "fs_particle");
     if (!bgfx::isValid(vs) || !bgfx::isValid(fs)) {
         LogWarn("particles: missing vs_particle/fs_particle in %s", shaderDir.c_str());
         return false;

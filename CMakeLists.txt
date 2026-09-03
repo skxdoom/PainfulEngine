@@ -48,7 +48,9 @@ endif()
 
 include(Folders)
 include(Dependencies)
-add_subdirectory(Source)
+# Shaders first: it compiles the .sc sources into C arrays that Render
+# includes, so its generated headers have to exist before Source builds.
 add_subdirectory(Shaders)
+add_subdirectory(Source)
 
 set_property(DIRECTORY ${PAINFUL_ROOT} PROPERTY VS_STARTUP_PROJECT PainfulEngine)

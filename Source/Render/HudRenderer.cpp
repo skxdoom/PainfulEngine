@@ -1,4 +1,5 @@
 #include "HudRenderer.h"
+#include "ShaderLoad.h"
 
 #include "../Core/Common.h"
 #include "../Core/FileSystem.h"
@@ -14,12 +15,6 @@ namespace painful {
 
 namespace {
 
-bgfx::ShaderHandle LoadShader(const std::string& path) {
-    std::vector<uint8_t> data;
-    if (!ReadFile(path, data) || data.empty()) return BGFX_INVALID_HANDLE;
-    return bgfx::createShader(bgfx::copy(data.data(), uint32_t(data.size())));
-}
-
 // Alpha over what is already on screen, no depth at all: the 2D layer is drawn
 // last, in the order the scripts ask for, and a panel must not be rejected by
 // the world's depth buffer.
@@ -30,8 +25,8 @@ constexpr uint64_t kState = BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A |
 
 bool HudRenderer::Init(const std::string& shaderDir, const std::string& fontsRoot) {
     namespace fs = std::filesystem;
-    bgfx::ShaderHandle vs = LoadShader((fs::path(shaderDir) / "vs_hud.bin").string());
-    bgfx::ShaderHandle fsh = LoadShader((fs::path(shaderDir) / "fs_hud.bin").string());
+    bgfx::ShaderHandle vs = LoadShader(shaderDir, "vs_hud");
+    bgfx::ShaderHandle fsh = LoadShader(shaderDir, "fs_hud");
     if (!bgfx::isValid(vs) || !bgfx::isValid(fsh)) {
         LogWarn("hud: vs_hud/fs_hud not found in %s", shaderDir.c_str());
         return false;

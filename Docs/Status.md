@@ -67,8 +67,8 @@ Source/
   Tools/    ToolsMain       the command table - PainfulTools.exe
             ViewerApp       the `run` free-camera viewer
             Report*         one file per family of headless reports
-Shaders/    bgfx shader sources, compiled by the build into Shaders/ beside
-            the executable
+Shaders/    bgfx shader sources, compiled once per backend and embedded in
+            the executable (D3D11, D3D12, Vulkan, OpenGL on Windows)
 Docs/       Reference/ the recovered rules, Status and Plan, Data/ the work queue
 ```
 

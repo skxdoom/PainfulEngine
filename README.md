@@ -22,9 +22,10 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
 ```
 
-The build also compiles the shaders, via bgfx's `shaderc`. To have each build
-copy the executable and shaders into a game folder, set the deploy path once (a
-local cache variable, never committed):
+The build also compiles the shaders, via bgfx's `shaderc` - once per graphics
+backend, embedded in the executable and chosen at runtime, so there is one file
+to ship. To have each build copy it into a game folder, set the deploy path once
+(a local cache variable, never committed):
 
 ```
 cmake -S . -B build -DPAINFUL_DEPLOY_DIR="X:/Painkiller/Bin"
@@ -32,8 +33,8 @@ cmake -S . -B build -DPAINFUL_DEPLOY_DIR="X:/Painkiller/Bin"
 
 ## Playing
 
-Copy `PainfulEngine.exe` and the `Shaders/` folder into the game's `Bin/`
-directory, beside the original `Painkiller.exe`, and run it. With no arguments
+Copy `PainfulEngine.exe` into the game's `Bin/` directory, beside the original
+`Painkiller.exe`, and run it. With no arguments
 it finds the sibling data directory and opens the first campaign level. A
 vanilla install works untouched — the `.pak` archives are read directly, with
 numbered patch archives layered the way the original engine mounts them.

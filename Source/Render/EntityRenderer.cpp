@@ -1,4 +1,5 @@
 #include "EntityRenderer.h"
+#include "ShaderLoad.h"
 #include "../Core/Common.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
@@ -26,12 +27,6 @@ bool EqualsNoCase(const std::string& a, const std::string& b) {
             return false;
     return true;
 }
-bgfx::ShaderHandle LoadShader(const std::string& path) {
-    std::vector<uint8_t> data;
-    if (!ReadFile(path, data) || data.empty()) return BGFX_INVALID_HANDLE;
-    return bgfx::createShader(bgfx::copy(data.data(), static_cast<uint32_t>(data.size())));
-}
-
 // Row-vector transform: uniform scale, then rotation, then translation in row 3.
 // "rot" is a row-major 3x3 rotation already in row-vector form.
 Mat4 MakeTransform(const float pos[3], const float rot[9], float scale) {
@@ -105,8 +100,8 @@ bool EntityRenderer::Init(const std::string& shaderDir) {
     layout_ = MakeMeshLayout();
 
     namespace fs = std::filesystem;
-    bgfx::ShaderHandle vs = LoadShader((fs::path(shaderDir) / "vs_entity.bin").string());
-    bgfx::ShaderHandle fsh = LoadShader((fs::path(shaderDir) / "fs_entity.bin").string());
+    bgfx::ShaderHandle vs = LoadShader(shaderDir, "vs_entity");
+    bgfx::ShaderHandle fsh = LoadShader(shaderDir, "fs_entity");
     if (!bgfx::isValid(vs) || !bgfx::isValid(fsh)) return false;
 
     program_ = bgfx::createProgram(vs, fsh, true);

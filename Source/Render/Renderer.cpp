@@ -5,7 +5,9 @@
 #include <bgfx/bgfx.h>
 #include <cstdarg>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <string>
 #include <vector>
 
 namespace painful {
@@ -65,6 +67,20 @@ struct ScreenShotCallback : public bgfx::CallbackI {
 
 ScreenShotCallback g_screenShotCallback;
 
+// PAINFUL_RENDERER=vulkan|opengl|d3d11|d3d12 forces a backend; anything else,
+// including unset, leaves the choice to bgfx.
+bgfx::RendererType::Enum RendererTypeFromEnv() {
+    const char* want = std::getenv("PAINFUL_RENDERER");
+    if (want == nullptr) return bgfx::RendererType::Count;
+    const std::string name = want;
+    if (name == "vulkan") return bgfx::RendererType::Vulkan;
+    if (name == "opengl") return bgfx::RendererType::OpenGL;
+    if (name == "d3d11") return bgfx::RendererType::Direct3D11;
+    if (name == "d3d12") return bgfx::RendererType::Direct3D12;
+    if (name == "metal") return bgfx::RendererType::Metal;
+    LogWarn("PAINFUL_RENDERER=%s is not a backend name", want);
+    return bgfx::RendererType::Count;
+}
 }  // namespace
 
 bool Renderer::Init(Window& window) {
@@ -79,7 +95,11 @@ bool Renderer::Init(Window& window) {
     bgfx::renderFrame();
 
     bgfx::Init init;
-    init.type = bgfx::RendererType::Count;   // let bgfx pick (D3D11 on Windows)
+    // Count lets bgfx choose, and its per-platform scoring is the right answer:
+    // D3D11 on Windows, Vulkan on Linux, Metal on macOS. PAINFUL_RENDERER
+    // overrides it for testing a backend the scoring would not pick here - the
+    // binary carries all of them.
+    init.type = RendererTypeFromEnv();
     init.platformData.nwh = nwh;
     init.resolution.width = static_cast<uint32_t>(window.width());
     init.resolution.height = static_cast<uint32_t>(window.height());
@@ -89,6 +109,9 @@ bool Renderer::Init(Window& window) {
         LogWarn("bgfx::init failed");
         return false;
     }
+    // Which backend answered, so a bug report says so without being asked. The
+    // shaders are embedded per backend, and this names the set in use.
+    LogInfo("renderer: %s", bgfx::getRendererName(bgfx::getRendererType()));
 
     width_ = window.width();
     height_ = window.height();

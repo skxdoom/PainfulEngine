@@ -1,4 +1,5 @@
 #include "SkyRenderer.h"
+#include "ShaderLoad.h"
 #include "../Core/Common.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
@@ -13,12 +14,6 @@
 namespace painful {
 
 namespace {
-
-bgfx::ShaderHandle LoadShader(const std::string& path) {
-    std::vector<uint8_t> data;
-    if (!ReadFile(path, data) || data.empty()) return BGFX_INVALID_HANDLE;
-    return bgfx::createShader(bgfx::copy(data.data(), static_cast<uint32_t>(data.size())));
-}
 
 // Sky dome objects name their layer: "layer01shape", "_trans_layer03shape".
 // The order of objects in the mesh does NOT match layer order, so the name is
@@ -51,8 +46,8 @@ bool IsTransparentShell(const std::string& name) {
 bool SkyRenderer::Init(const std::string& shaderDir) {
     layout_ = MakeMeshLayout();
     namespace fs = std::filesystem;
-    bgfx::ShaderHandle vs = LoadShader((fs::path(shaderDir) / "vs_world.bin").string());
-    bgfx::ShaderHandle fsh = LoadShader((fs::path(shaderDir) / "fs_sky.bin").string());
+    bgfx::ShaderHandle vs = LoadShader(shaderDir, "vs_world");
+    bgfx::ShaderHandle fsh = LoadShader(shaderDir, "fs_sky");
     if (!bgfx::isValid(vs) || !bgfx::isValid(fsh)) return false;
     program_ = bgfx::createProgram(vs, fsh, true);
     if (!bgfx::isValid(program_)) return false;

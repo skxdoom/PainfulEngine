@@ -1,4 +1,5 @@
 #include "DebugLines.h"
+#include "ShaderLoad.h"
 #include "../Core/Common.h"
 #include "../Core/Log.h"
 
@@ -8,12 +9,6 @@ namespace painful {
 
 namespace {
 
-bgfx::ShaderHandle LoadShader(const std::string& path) {
-    std::vector<uint8_t> data;
-    if (!ReadFile(path, data) || data.empty()) return BGFX_INVALID_HANDLE;
-    return bgfx::createShader(bgfx::copy(data.data(), static_cast<uint32_t>(data.size())));
-}
-
 struct LineVertex {
     float x, y, z;
     uint32_t abgr;
@@ -22,8 +17,8 @@ struct LineVertex {
 } // namespace
 
 bool DebugLines::Init(const std::string& shaderDir) {
-    bgfx::ShaderHandle vs = LoadShader(shaderDir + "/vs_debug.bin");
-    bgfx::ShaderHandle fs = LoadShader(shaderDir + "/fs_debug.bin");
+    bgfx::ShaderHandle vs = LoadShader(shaderDir, "vs_debug");
+    bgfx::ShaderHandle fs = LoadShader(shaderDir, "fs_debug");
     if (!bgfx::isValid(vs) || !bgfx::isValid(fs)) {
         LogWarn("debug lines: missing vs_debug/fs_debug in %s", shaderDir.c_str());
         return false;

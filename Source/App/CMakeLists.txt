@@ -24,3 +24,7 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} PREFIX "" FILES
 # scan RC statements, and would keep linking the previous icon.
 set_source_files_properties(PainfulEngine.rc PROPERTIES
   OBJECT_DEPENDS ${PAINFUL_SOURCE}/PainfulEngine.ico)
+
+# The optional copy into a game folder. It lives here because
+# add_custom_command(TARGET) has to be in the directory that defines the target.
+include(Deploy)
