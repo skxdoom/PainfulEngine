@@ -9,6 +9,7 @@
 #include "../Assets/AnimationCache.h"
 #include "../Assets/SkeletonCache.h"
 #include "../Assets/Waypoints.h"
+#include "Console.h"
 #include "MenuSystem.h"
 #include "../Assets/Mpk.h"
 #include "../Assets/Rde.h"
@@ -433,6 +434,9 @@ public:
 
     // The menu owns its own widget tree; the game loop drives and draws it.
     MenuSystem& menu() { return menu_; }
+    // The console: the game loop feeds it keys and draws it; the CONSOLE
+    // natives and the scripts' command dispatch meet in it.
+    Console& console() { return console_; }
 
     // Whether the simulation is frozen. The game loop skips the actor tick and
     // the physics step while this holds, and keeps drawing.
@@ -461,6 +465,17 @@ public:
     // menu and restores it). The app derives the vertical angle for the
     // window's aspect each frame.
     float cameraFov() const { return cameraFov_; }
+    static int L_CONSOLE_Activate(lua_State* L);
+    static int L_CONSOLE_IsActive(lua_State* L);
+    static int L_CONSOLE_AddMessage(lua_State* L);
+    static int L_CONSOLE_Print(lua_State* L);
+    static int L_CONSOLE_SetCurrentText(lua_State* L);
+    static int L_CONSOLE_GetCurrentText(lua_State* L);
+    static int L_CONSOLE_GetCursorPos(lua_State* L);
+    static int L_CONSOLE_SetFont(lua_State* L);
+    static int L_CONSOLE_SetMPMsgColor(lua_State* L);
+    static int L_CONSOLE_SetMPMsgPosition(lua_State* L);
+    static int L_CONSOLE_SetMPMsgFont(lua_State* L);
     static int L_R3D_SetCameraFOV(lua_State* L);
     static int L_R3D_GetCameraFOV(lua_State* L);
     static int L_R3D_ApplyVideoSettings(lua_State* L);
@@ -1161,6 +1176,7 @@ private:
     // 1-based to match HudRenderer::Material, so handle 0 stays "no texture".
     std::vector<std::pair<int, int>> headlessMaterials_;
     MenuSystem menu_;
+    Console console_;
     // WORLD.IsGamePaused reads this; Engine.dll keeps the same byte on the
     // World object at +0x10. No shipped script ever calls SetGamePaused, so
     // the engine is what writes it - which is why the menu owns it here.

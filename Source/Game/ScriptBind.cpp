@@ -374,6 +374,18 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"WORLD", "UpdateAllEntities", L_PMENU_NoOp},
         {"WORLD", "Release", L_PMENU_NoOp},
         {"SOUND", "SaveGame_ResumeSounds", L_PMENU_NoOp},
+        // The console. Demo* stay stubbed: no recorder.
+        {"CONSOLE", "Activate", L_CONSOLE_Activate},
+        {"CONSOLE", "IsActive", L_CONSOLE_IsActive},
+        {"CONSOLE", "AddMessage", L_CONSOLE_AddMessage},
+        {"CONSOLE", "Print", L_CONSOLE_Print},
+        {"CONSOLE", "SetCurrentText", L_CONSOLE_SetCurrentText},
+        {"CONSOLE", "GetCurrentText", L_CONSOLE_GetCurrentText},
+        {"CONSOLE", "GetCursorPos", L_CONSOLE_GetCursorPos},
+        {"CONSOLE", "SetFont", L_CONSOLE_SetFont},
+        {"CONSOLE", "SetMPMsgColor", L_CONSOLE_SetMPMsgColor},
+        {"CONSOLE", "SetMPMsgPosition", L_CONSOLE_SetMPMsgPosition},
+        {"CONSOLE", "SetMPMsgFont", L_CONSOLE_SetMPMsgFont},
     };
     for (const auto& n : natives) host.RegisterNative(n.module, n.name, n.fn, this);
 }

@@ -94,6 +94,10 @@ public:
     // Calls a global function with `nargs` numeric arguments. Errors are
     // logged and counted, never propagated.
     bool CallGlobal(const char* name, const double* args, int nargs);
+    // The same with a string first - the console's Hud_OnConsoleCommand(text)
+    // and Hud_OnSayToTeam(text, color) shapes.
+    bool CallGlobalStr(const char* name, const std::string& text, const double* args = nullptr,
+                       int nargs = 0);
 
     // Reads <global>.<field>.{X,Y,Z} - e.g. Lev.Pos, the level's authored
     // start position. False when any link of the chain is missing.

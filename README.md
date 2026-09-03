@@ -93,6 +93,7 @@ new fact is recovered.
 | [`Water.md`](Docs/Reference/Water.md) | water surfaces, the material tiers and what each needs |
 | [`Hud.md`](Docs/Reference/Hud.md) | the 2D layer: `MATERIAL`, `HUD.PrintXY`, fonts and the colour palette |
 | [`Menu.md`](Docs/Reference/Menu.md) | the retained widget model behind `PMENU`, and the staging |
+| [`Console.md`](Docs/Reference/Console.md) | the `~` console: the panel, its keys, the `CONSOLE` natives and how the cheats reach `Console.lua` |
 | [`Sound.md`](Docs/Reference/Sound.md) | the mixer, the voice pool and the `SOUND` natives |
 
 [`Docs/Data/native_priority.tsv`](Docs/Data/native_priority.tsv) ranks the native

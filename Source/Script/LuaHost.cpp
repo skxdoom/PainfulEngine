@@ -320,6 +320,26 @@ bool LuaHost::CallGlobal(const char* name, const double* args, int nargs) {
     return true;
 }
 
+bool LuaHost::CallGlobalStr(const char* name, const std::string& text, const double* args,
+                            int nargs) {
+    lua_pushcfunction(L_, Traceback);
+    lua_getglobal(L_, name);
+    if (!lua_isfunction(L_, -1)) {
+        lua_pop(L_, 2);
+        return false;
+    }
+    lua_pushlstring(L_, text.data(), text.size());
+    for (int i = 0; i < nargs; ++i) lua_pushnumber(L_, args[i]);
+    if (lua_pcall(L_, nargs + 1, 0, -nargs - 3) != 0) {
+        LogWarn("%s: %s", name, lua_tostring(L_, -1));
+        lua_pop(L_, 2);
+        ++scriptErrors_;
+        return false;
+    }
+    lua_pop(L_, 1);
+    return true;
+}
+
 // Method call on the global Game object: Game:<method>(stringArg?).
 bool LuaHost::CallGameMethod(const char* method, const char* stringArg) {
     lua_pushcfunction(L_, Traceback);

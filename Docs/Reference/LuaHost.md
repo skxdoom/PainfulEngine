@@ -50,7 +50,7 @@ change behaviour, because `Clone()` and the inheritance helpers branch on
    (`EXPLOSION`, `ENTITY_CREATE`, `ENTITY_DELETE`, `PO_CREATE`,
    `REGION_ENTERED`, `COLLISION_WITH_OTHER_ENTITY`, ...). Console input goes
    through `Hud_OnConsoleCommand` / `Hud_OnConsoleTab` / `Hud_OnSayToAll` /
-   `Hud_OnSayToTeam`.
+   `Hud_OnSayToTeam` ([`Console.md`](Console.md)).
 
 `LuaHost` mirrors this: `Boot()` runs the loader, `CallGameInit()` makes the
 method call, `FrameTick(delta)` issues the five per-frame calls plus GC in the

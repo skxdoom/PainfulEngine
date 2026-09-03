@@ -554,9 +554,64 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
         // detection lives in Input, so this has to run once per frame,
         // before anything asks a question of it.
         input.BeginFrame();
+        // The console. `~` toggles it, Game.Paused permitting - that is the
+        // whole of EngineGame::SwitchConsole (0x1001cdd0). While it is up the
+        // key presses are its own and the scripts see every key released,
+        // bar the modifiers, as InputSystem::ProcessEvents lets only
+        // Shift/Ctrl through a consumed event (0x1003e670). Escape closing it
+        // is ours; the original swallows Escape there and does nothing.
+        Console& con = engine.console();
         {
             const bool* keys = window.VirtualKeys();
-            for (int vk = 1; vk < Input::kKeyCount; ++vk) input.SetKeyDown(vk, keys[vk]);
+            static bool tildeHeld = false;
+            const bool tilde = keys[192];
+            bool toggled = false;
+            if (tilde && !tildeHeld) {
+                if (con.active()) {
+                    con.Activate(false, 0);
+                    toggled = true;
+                } else if (!host.GetBoolField("Game", "Paused", false)) {
+                    con.Activate(true, Console::kFull);
+                    toggled = true;
+                }
+            }
+            tildeHeld = tilde;
+            const std::vector<int> presses = window.TakeKeyPresses();
+            const std::string typed = window.TakeTextInput();
+            if (con.active() && !toggled) {
+                if (window.TakeEscape()) {
+                    con.Activate(false, 0);
+                } else {
+                    const bool ctrl = keys[17] || keys[162] || keys[163];
+                    for (const int vk : presses) {
+                        if (vk == 192 || vk == 27) continue;
+                        // Ctrl+V pastes the clipboard's first line, as the
+                        // handler does with OpenClipboard.
+                        if (ctrl && vk == 'V') {
+                            std::string clip = window.ClipboardText();
+                            const size_t nl = clip.find_first_of("\r\n");
+                            if (nl != std::string::npos) clip.resize(nl);
+                            con.TextInput(clip);
+                            continue;
+                        }
+                        con.KeyPressed(vk);
+                    }
+                    con.TextInput(typed);
+                }
+            }
+            window.SetTextInput(con.active());
+            // Opening drops whatever the player was holding - the action
+            // masks are zeroed in 0x100283e0 - so a run does not carry on
+            // under the panel.
+            if (con.TakeOpened()) input.Reset();
+        }
+        {
+            const bool* keys = window.VirtualKeys();
+            for (int vk = 1; vk < Input::kKeyCount; ++vk) {
+                const bool modifier = vk == 0x10 || vk == 0xA0 || vk == 0xA1 ||
+                                      vk == 0x11 || vk == 0xA2 || vk == 0xA3;
+                input.SetKeyDown(vk, keys[vk] && (!con.active() || modifier));
+            }
             // A wheel notch has no held state; it reads as pressed for the
             // one frame, under the codes Definitions.lua calls
             // MouseWheelForward / MouseWheelBack.
@@ -669,6 +724,24 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
         const double d[1] = {dt};
         engine.SetFrameDelta(dt);
 
+        // What Enter or Tab queued in the console goes to the scripts here,
+        // paused or not - the original's tick dispatches it the same way
+        // (0x10027e90), and Console.lua takes it from Hud_OnConsoleCommand.
+        {
+            std::string line;
+            switch (con.TakePending(line)) {
+            case Console::kPendCommand: host.CallGlobalStr("Hud_OnConsoleCommand", line); break;
+            case Console::kPendSayAll:  host.CallGlobalStr("Hud_OnSayToAll", line); break;
+            case Console::kPendSayTeam: {
+                const double green[1] = {double(0xFF00FF00u)};
+                host.CallGlobalStr("Hud_OnSayToTeam", line, green, 1);
+                break;
+            }
+            case Console::kPendTab:     host.CallGlobalStr("Hud_OnConsoleTab", line); break;
+            default: break;
+            }
+        }
+
         // Paused freezes the SIMULATION and nothing else: no actor tick, no
         // physics step, no animation. Rendering and the render callbacks carry
         // on below, so the HUD still draws behind the menu and the world stays
@@ -730,7 +803,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
         // the shipped Lua ever calls PainMenu:OpenMenu, and Cfg.KeyPrimaryMenu
         // ships as "None" - so the key belongs to the engine, and the scripts
         // only observe the transition through those two hooks.
-        if (window.TakeEscape()) {
+        if (!con.active() && window.TakeEscape()) {
             if (engine.menu().active()) {
                 // On the map, Escape is "back to the main menu"; in a key
                 // capture it keeps the old key; with no level loaded there is
@@ -766,7 +839,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
             // up, down, enter, left, right
             const int navKeys[5] = {0x26, 0x28, 0x0D, 0x25, 0x27};
             for (int i = 0; i < 5; ++i) {
-                const bool down = vk[navKeys[i]];
+                // The console over the menu owns these keys while it is up.
+                const bool down = vk[navKeys[i]] && !con.active();
                 // A key capture takes every key, the navigation ones too.
                 if (down && !navHeld[i] && !engine.menu().capturing()) {
                     if (i == 0) engine.menu().NavUp();
@@ -788,13 +862,20 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
             {
                 static bool anyHeld[Input::kKeyCount] = {};
                 for (int k = 1; k < Input::kKeyCount; ++k) {
-                    const bool down = vk[k];
+                    const bool down = vk[k] && !con.active();
                     if (down && !anyHeld[k] && engine.menu().capturing())
                         engine.menu().KeyPressed(k);
                     anyHeld[k] = down;
                 }
             }
             engine.menu().Draw(window.width(), window.height());
+        }
+        // The console over everything, and its message strip when it is
+        // down. The frame is the menu's border, drawn in authoring units, so
+        // the menu has to know the screen even while it is not up.
+        if (hudReady) {
+            engine.menu().SetScreenSize(window.width(), window.height());
+            con.Draw(hud, engine.menu(), window.width(), window.height(), elapsed);
         }
         host.CallGlobal("Game_GC", nullptr, 0);
         // Entities the scripts spawned this frame get their renderer slots.

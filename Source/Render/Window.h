@@ -42,6 +42,16 @@ public:
     // not here - Input owns that, because INP.Key's tri-state is a script
     // contract rather than a windowing one.
     const bool* VirtualKeys() const { return vkDown_; }
+    // Key presses since the last call, in order, as virtual-key codes and
+    // WITH auto-repeat - what a text field wants, where the held-state array
+    // above is what a game wants. Cleared by the call.
+    std::vector<int> TakeKeyPresses();
+    // Typed text since the last call (UTF-8), which only arrives while text
+    // input is on. Turned on for the console and off again after, so a game
+    // keypress never doubles as a character.
+    void SetTextInput(bool on);
+    std::string TakeTextInput();
+    std::string ClipboardText() const;
     // Wheel notches since the last call: positive forward, negative back.
     // The wheel has no held state, so it reaches the scripts as the
     // synthetic keys 253/254 pulsed for a single frame.
@@ -114,6 +124,9 @@ private:
     bool debugToggles_[6] = {false, false, false, false, false, false};   // F1..F6
     bool vkDown_[256] = {};
     int wheelSteps_ = 0;
+    std::vector<int> keyPresses_;
+    std::string textInput_;
+    bool textInputOn_ = false;
 };
 
 } // namespace painful

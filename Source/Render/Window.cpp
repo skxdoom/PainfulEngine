@@ -165,7 +165,10 @@ bool Window::PumpEvents() {
             if (const int vk = VirtualKeyFor(e.key.scancode)) vkDown_[vk] = false;
             break;
         case SDL_EVENT_KEY_DOWN:
-            if (const int vk = VirtualKeyFor(e.key.scancode)) vkDown_[vk] = true;
+            if (const int vk = VirtualKeyFor(e.key.scancode)) {
+                vkDown_[vk] = true;
+                keyPresses_.push_back(vk);
+            }
             if (e.key.key == SDLK_LEFTBRACKET) levelStep_ = -1;
             if (e.key.key == SDLK_RIGHTBRACKET) levelStep_ = 1;
             if (e.key.key == SDLK_N && !e.key.repeat) noclipToggle_ = true;
@@ -207,6 +210,9 @@ bool Window::PumpEvents() {
         }
         case SDL_EVENT_MOUSE_WHEEL:
             wheelSteps_ += int(e.wheel.y);
+            break;
+        case SDL_EVENT_TEXT_INPUT:
+            if (e.text.text) textInput_ += e.text.text;
             break;
         case SDL_EVENT_MOUSE_MOTION:
             // Both are tracked, because they answer different questions: the
@@ -252,6 +258,33 @@ bool Window::IsDown(Key key) const {
     if (key == Key::ScaleDown) return keys[SDL_SCANCODE_MINUS]  || keys[SDL_SCANCODE_KP_MINUS];
     SDL_Scancode code = ScancodeFor(key);
     return code != SDL_SCANCODE_UNKNOWN && keys[code];
+}
+
+std::vector<int> Window::TakeKeyPresses() {
+    std::vector<int> presses;
+    presses.swap(keyPresses_);
+    return presses;
+}
+
+void Window::SetTextInput(bool on) {
+    if (on == textInputOn_ || !window_) return;
+    textInputOn_ = on;
+    if (on) SDL_StartTextInput(window_);
+    else SDL_StopTextInput(window_);
+    textInput_.clear();
+}
+
+std::string Window::TakeTextInput() {
+    std::string s;
+    s.swap(textInput_);
+    return s;
+}
+
+std::string Window::ClipboardText() const {
+    char* text = SDL_GetClipboardText();
+    std::string s = text ? text : "";
+    if (text) SDL_free(text);
+    return s;
 }
 
 int Window::TakeWheelSteps() {

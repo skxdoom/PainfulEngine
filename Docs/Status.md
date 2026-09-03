@@ -311,6 +311,12 @@ that buys:
   `Save.dat` is a pak, and its name seed is now known, which also made the
   archive reader exact. The world file is ours; what it carries and what it
   does not is in [`LuaHost.md`](Reference/LuaHost.md), "Saving and loading".
+- **The console.** `~` drops the panel, and the shipped `Console.lua` runs
+  its commands as written: the cheats (`pkgod`, `pkweapons`, `pkhealth`,
+  `pkhaste`, `pkdemon`, ...), the settings, Tab completion and the history.
+  The multiplayer commands answer for themselves that there is no
+  multiplayer. Confirmations show on the message strip after the panel goes
+  down, as they did ([`Console.md`](Reference/Console.md)).
 
 ## What is missing
 

@@ -218,6 +218,12 @@ public:
     // Needs the screen size, so it only draws inside a frame the menu or the
     // HUD has already begun.
     void DrawFrame(float x, float y, float w, float h);
+    // The screen the authoring units scale to. Draw sets it itself; a caller
+    // drawing a frame while the menu is down (the console) sets it first.
+    void SetScreenSize(int w, int h) {
+        screenW_ = w;
+        screenH_ = h;
+    }
 
     // --- items ------------------------------------------------------------
     Item& Add(const std::string& name, Kind kind);

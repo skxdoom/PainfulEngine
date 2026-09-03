@@ -6,6 +6,7 @@
 # shipped Lua calls them by. ScriptEngineInternal.h carries what they share.
 add_library(Game STATIC
   MenuSystem.cpp    MenuSystem.h
+  Console.cpp       Console.h
   PlayerPawn.cpp    PlayerPawn.h
   Input.cpp         Input.h
 
@@ -21,6 +22,7 @@ add_library(Game STATIC
   ScriptWorld.cpp
   ScriptHud.cpp
   ScriptMenu.cpp
+  ScriptConsole.cpp
   ScriptDeath.cpp
   ScriptLimbs.cpp
   ScriptBind.cpp
