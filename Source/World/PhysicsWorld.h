@@ -329,6 +329,9 @@ public:
         float point[3] = {0, 0, 0};
         float normal[3] = {0, 0, 0};
         int bodySlot = -1;
+        // A ragdoll limb is neither a script body nor the world.
+        int ragdollSlot = -1;       // CreateRagdoll slot, or -1
+        int ragdollPart = -1;       // index into RagdollBones(ragdollSlot)
     };
 
     // WORLD.LineTrace and friends. staticOnly restricts it to the world mesh,

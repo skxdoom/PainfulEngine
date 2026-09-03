@@ -99,6 +99,28 @@ int ScriptEngine::TraceCommon(lua_State* L, bool staticOnly) {
     lua_pushnumber(L, hit.distance);
     for (int c = 0; c < 3; ++c) lua_pushnumber(L, hit.point[c]);
     for (int c = 0; c < 3; ++c) lua_pushnumber(L, hit.normal[c]);
+
+    // A CORPSE IS NOT A WALL. A ragdoll limb is no script body, so it arrived
+    // as bodySlot -1 and reported entity 0, which the scripts read as geometry.
+    // Report the pair a hit on the LIVE monster reports - owning entity plus a
+    // limb handle naming the bone. Docs/Reference/Physics.md
+    if (hit.ragdollSlot >= 0) {
+        int owner = 0, joint = -1;
+        for (const auto& row : self->entities())
+            if (row.second.ragdollSlot == hit.ragdollSlot) { owner = row.first; break; }
+        Entity* e = owner != 0 ? self->Find(owner) : nullptr;
+        if (e != nullptr && self->physics_ != nullptr) {
+            const std::vector<std::string>& parts = self->physics_->RagdollBones(hit.ragdollSlot);
+            if (hit.ragdollPart >= 0 && size_t(hit.ragdollPart) < parts.size())
+                joint = self->JointIndexByName(*e, parts[size_t(hit.ragdollPart)]);
+        }
+        if (owner != 0) {
+            lua_pushnumber(L, self->LimbHandle(owner, joint));
+            lua_pushnumber(L, owner);
+            return 10;
+        }
+    }
+
     lua_pushnumber(L, hit.bodySlot);
     // A WORLD HIT REPORTS ENTITY 0, NOT NIL - see IsFixedMesh, which answers
     // true for exactly that handle.
@@ -288,8 +310,13 @@ int ScriptEngine::L_MDL_GetJointFromHavokBody(lua_State* L) {
 }
 
 // ENTITY.IsFixedMesh(e) - is this the immovable world rather than something
-// that can be moved or hurt. A trace into the world reports entity 0, and an
-// entity with no simulated body is fixed in the same sense.
+// that can be moved or hurt. A trace into the world reports entity 0, and a
+// MESH with no simulated body is fixed in the same sense.
+//
+// A MODEL IS NEVER ONE, body or no body. CActor only calls PO_Create when
+// `CreatePO` is set - false for 147 of the 231 monster templates - so keying
+// on the body alone made those actors walls to PainHead:Tick, which tests this
+// before the damage and before the spinning branch. Docs/Reference/Physics.md
 int ScriptEngine::L_IsFixedMesh(lua_State* L) {
     ScriptEngine* self = From(L);
     const int handle = HandleArg(L, 1);
@@ -298,7 +325,7 @@ int ScriptEngine::L_IsFixedMesh(lua_State* L) {
         return 1;
     }
     const Entity* e = self->Find(handle);
-    lua_pushboolean(L, e != nullptr && e->physicsBody < 0);
+    lua_pushboolean(L, e != nullptr && e->type != kModel && e->physicsBody < 0);
     return 1;
 }
 

@@ -356,6 +356,38 @@ distinction its `FromMesh` / `FromMeshNotCentered` body types draw) is the
 thread to pull next; until then the renderer is the one placing them wrongly,
 and physics quietly corrects it on load.
 
+## A corpse is not a wall
+
+`PhysicsWorld::RayCast` resolved the body it hit against `scriptBodies` only.
+A ragdoll limb is in neither that list nor the world mesh, so every shot into a
+body already on the floor fell through the loop and came back `bodySlot = -1` —
+which `TraceCommon` reports as **entity 0**, and entity 0 is how the scripts
+spell "the world". `ENTITY.IsFixedMesh` answers true for it and
+`EntityToObject[0]` is nil, so a corpse read as level geometry to every
+projectile script at once.
+
+The Painkiller's released head shows it: spinning, it is meant to cross a crowd
+cutting everything on the way, and the shipped script sends it home on anything
+that is not a `CActor`.
+
+```lua
+if e and not (obj and (obj._Class == "CActor" or obj.DestroyPack)) then
+    ... self._back = true ...
+```
+
+Two contacts kill a 250 hp Deto, the third lands on the ragdoll it has just
+made, `EntityToObject[0]` is nil — and the blades bounce off their own kill 2.2 m
+into a 60 m throw. Intermittent by nature: it depends on whether anything dies
+in front of them, which is why a line of lepers (no gib ragdoll, so no corpse
+bodies) passed clean through while a real fight did not.
+
+A ray that hits a ragdoll now reports what a hit on the LIVE monster reports —
+the owning entity, and a limb handle naming the bone, so
+`GetJointFromHavokBody` and the weak-point tests keep working once the thing is
+down. Measured on five Detos in a line on TestFloor: before, `BACK at x=3.87,
+flown 2.2/60`; after, five kills and no `_back`, the corpses reporting
+`cls=CActor cg=10` (RagdollNonColliding).
+
 ## A body handle can go stale, and the scripts check
 
 `PHYSICS.IsHavokBodyInWorld(body)` (`0x101297d0`) takes one handle and pushes a
@@ -705,6 +737,32 @@ gib "still connected" looks like. With the mesh rule the monk keeps 10 of 14
 (the lower body stays one chunk under the skirt). A model whose live `.hke`
 is binary too (templar, vamp_v2) still cannot gib. Decoding the binary form
 replaces this.
+
+### STAND-IN: JointsLinked with a binary .hke
+
+`MDL.JointsLinked` asks whether a bone reaches the root THROUGH THE RAGDOLL, and
+`Stake`, `BoltStick` and `PainHead` all ask it before dealing damage: a "no"
+means the hit landed on a detachable element, so they take that body out of the
+traces and shoot again. With no decoded ragdoll the honest answer is the
+SKELETON's, which is yes; returning false instead is not a neutral default, it
+is the detachable-element answer.
+
+That is what it did, and it made **19 monster models unhittable by those three
+weapons** - leper, bones, dead_body, apoc_zombie, zombieapo_v2, vamp, vamp_cat,
+vamp_v2, witch, templar, executioner (+_v2), beast, Beast2, hellangel_rl,
+Lucyfer, leper_Monk, tank, military_base_gun. Every hit re-traced the same
+0.17 m sweep with the one body it had hit suppressed, found nothing, and
+returned before `OnDamage`. Measured on a leper: 4 contacts, 0 damage, health
+90 throughout; with the stand-in, `OnDamage(150)` on the first contact and
+health 0. The Painkiller's released head shows it most plainly - spinning, it
+is meant to pass through a body and cut it on the way, and it passed through
+doing nothing.
+
+The cost of the other error is one case: a hit on a prop the monster carries
+damages the monster instead of passing through it. `MDL.EnableJoint` names four
+such bones in the whole game. Text ragdolls are untouched - amputee and
+evilmonk still answer for 11 bodies and refuse the head, jaw and weapon roots.
+Decoding the binary form replaces this.
 
 Still stubs: `SetRagdollRestitution`, `SetRagdollCollisionGroup`,
 `EnableCollisionsToRagdoll` (the gib-splash collision sounds), and the

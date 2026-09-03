@@ -679,14 +679,20 @@ std::string ScriptEngine::JointName(Entity& e, int joint) {
 // traces and shoot again - passing through "some detachable element, e.g. a
 // scythe or a pauldron", in their own words.
 bool ScriptEngine::JointsLinked(Entity& e, int a, int b) {
-    const Hke* def = RagdollDef(e.source);
-    if (!def) return false;
     // A joint EnableJoint has switched off is out of the ragdoll, so it is
     // linked to nothing - which is exactly what the scripts want after a
     // monster has thrown the weapon that bone carried.
     for (int d : e.disabledJoints)
         if (d == a || d == b) return false;
-    return def->Linked(JointName(e, a), JointName(e, b));
+    if (const Hke* def = RagdollDef(e.source))
+        return def->Linked(JointName(e, a), JointName(e, b));
+
+    // NO DECODED RAGDOLL: answer as the SKELETON does, yes. False here is not
+    // a neutral default but the DETACHABLE-ELEMENT answer, which made the 19
+    // monsters with a binary .hke immune to stake, bolt and PainHead alike.
+    // Docs/Reference/Physics.md, "STAND-IN: JointsLinked with a binary .hke"
+    const auto it = ragdolls_.find(e.source);        // RagdollDef may rehash
+    return a >= 0 && b >= 0 && it != ragdolls_.end() && it->second.binary;
 }
 
 int ScriptEngine::L_MDL_JointsLinked(lua_State* L) {

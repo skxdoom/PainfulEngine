@@ -2886,7 +2886,22 @@ bool PhysicsWorld::RayCast(const float from[3], const float to[3], RayHit& out,
     for (size_t i = 0; i < impl_->scriptBodies.size(); ++i) {
         if (impl_->scriptBodies[i].body == collector.mHit.mBodyID) {
             out.bodySlot = int(i);
-            break;
+            return true;
+        }
+    }
+
+    // A RAGDOLL LIMB IS NOT THE WORLD: a corpse is made of these and none is a
+    // script body, so the loop above falls through. The caller turns the pair
+    // into the owning entity and a limb handle.
+    for (size_t r = 0; r < impl_->ragdolls.size(); ++r) {
+        const JPH::Ragdoll* rd = impl_->ragdolls[r].ragdoll;
+        if (rd == nullptr) continue;
+        for (size_t b = 0; b < rd->GetBodyCount(); ++b) {
+            if (rd->GetBodyID(int(b)) == collector.mHit.mBodyID) {
+                out.ragdollSlot = int(r);
+                out.ragdollPart = int(b);
+                return true;
+            }
         }
     }
     return true;
