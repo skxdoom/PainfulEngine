@@ -78,6 +78,12 @@ static void BuildViewProj(const Camera& camera, int width, int height, float out
 // World point -> screen pixels. False when the point is behind the eye, where
 // the perspective divide would mirror it back into view and hang a label on
 // the wrong side of the screen.
+//
+// AND FALSE WHEN IT IS OUTSIDE THE FRUSTUM, which w > 0 alone does not catch.
+// A point beside the camera is in front of the eye plane by a hair, so w is
+// near zero and x/w is enormous - the label does not go quietly off-screen, it
+// sweeps across it as the camera turns. The clip-space test is the same one
+// the rasteriser uses: |x| <= w and |y| <= w.
 static bool ProjectToScreen(const float world[3], const float viewProj[16],
                             int width, int height, float out[2]) {
     float clip[4];
@@ -85,6 +91,8 @@ static bool ProjectToScreen(const float world[3], const float viewProj[16],
         clip[c] = world[0] * viewProj[c] + world[1] * viewProj[4 + c] +
                   world[2] * viewProj[8 + c] + viewProj[12 + c];
     if (clip[3] <= 1e-4f) return false;
+    if (clip[0] < -clip[3] || clip[0] > clip[3]) return false;
+    if (clip[1] < -clip[3] || clip[1] > clip[3]) return false;
     out[0] = (clip[0] / clip[3] * 0.5f + 0.5f) * float(width);
     out[1] = (1.f - (clip[1] / clip[3] * 0.5f + 0.5f)) * float(height);
     return true;
@@ -1012,7 +1020,12 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
                       [](const Plate& a, const Plate& b) { return a.depth > b.depth; });
             for (const Plate& p : plates) {
                 const float w = hud.TextWidth("arial", 14, p.text);
-                const float x = p.x - w * 0.5f;
+                // NEVER NEGATIVE. HudRenderer::Text reads any x < 0 as the
+                // scripts' "centre me on the screen", so a label centred on
+                // something near the left edge - or on anything the projection
+                // put off-screen - jumped to the middle instead of being
+                // clipped. The outline below draws at x-1, so leave room for it.
+                const float x = std::max(1.f, p.x - w * 0.5f);
                 // Drawn four times in black, one pixel out in each direction,
                 // before the label itself. A nameplate lands on whatever the
                 // world happens to be behind it - pale stone, a lit doorway -
