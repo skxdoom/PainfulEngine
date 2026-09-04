@@ -29,12 +29,16 @@ namespace painful {
 //    currentSpeed += (MaximalBunnyHopSpeed - currentSpeed) *
 //    BunnyHopAcceleration, clamped at the maximum. Standing on the ground
 //    past the AfterLanding window resets currentSpeed to PlayerSpeed.
-//  - In the air the INPUT MASK is frozen, not the direction: the stored
-//    bits are re-accumulated every frame against the CURRENT camera basis,
-//    so holding a strafe and turning the mouse turns the motion with it.
-//    Turning back on the previous frame's direction bleeds speed by
-//    SlowdownDuringJump * speed * opposition (halved while it exceeds the
-//    speed).
+//  - Air control is CPMA-style: the MOUSE steers a jump, the keys do not. The
+//    input mask freezes at takeoff and is re-accumulated each frame against
+//    the current camera basis, so turning reverses the travel at full speed.
+//    Live input only cancels: the opposition is the live mask against the
+//    takeoff mask - camera-independent, since both use the same basis - and an
+//    opposite key bleeds speed by SlowdownDuringJump * speed * opposition
+//    (halved while it exceeds the speed) until the player drops in place.
+//  - MULTIPLAYER IS A SECOND MOVER, MultiPlayerAction (0x10194580), with its
+//    own tweak block; its reversal drops speed to 1.0 outright.
+//    Docs/Reference/PlayerMovement.md, "The two movers"
 class PlayerPawn {
 public:
     void Spawn(const float headPos[3]);
@@ -69,6 +73,10 @@ public:
     bool onGround() const { return onGround_; }
     // The body's widest half-width, for the region overlap in TickTriggers.
     static constexpr float radius() { return kRadius; }
+    // Which mover to be: the engine picks MultiPlayerAction for a multiplayer
+    // session. Our port has no such session yet, so the -mp launch flag stands
+    // in. Docs/Reference/PlayerMovement.md, "The two movers"
+    void SetMultiplayer(bool on) { mp_ = on; }
     // Whether the LAST Move actually performed a jump. ENTITY.PO_JumpedInLastAction
     // answers with this: CPlayer:Tick plays hero_jump on it, and inferring it
     // from "left the ground" made every stair play the sound.
@@ -173,6 +181,7 @@ private:
 
     // The bunny-hop state PlayerAction keeps on the physics object.
     float speed_ = 0.f;              // current target speed; 0 = uninitialised
+    bool mp_ = false;                // MultiPlayerAction rather than PlayerAction
     float velocity_[3] = {0, 0, 0};  // last frame's actual travel, per second
     float groundedTime_ = 0.f;       // seconds since touchdown
     bool jumpLatched_ = false;       // PlayerAction's +0x1e: cleared on release

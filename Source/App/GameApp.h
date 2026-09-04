@@ -16,6 +16,6 @@ namespace painful {
 // the world is up, or null. devUI: the -dev launch flag - the debug overlay
 // and the F1-F4/F6 toggles, all off in a normal launch.
 int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
-            const std::string& shotPath, const char* exec, bool devUI);
+            const std::string& shotPath, const char* exec, bool devUI, bool mpMove);
 
 }  // namespace painful

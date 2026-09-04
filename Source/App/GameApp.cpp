@@ -103,7 +103,7 @@ static bool ProjectToScreen(const float world[3], const float viewProj[16],
 // renderer and a free camera. The counterpart to `run`, which drives the
 // same subsystems by hand - as natives grow real, this path takes over.
 int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
-                   const std::string& shotPath, const char* exec, bool devUI) {
+                   const std::string& shotPath, const char* exec, bool devUI, bool mpMove) {
     const std::string root = dataRoot;
     const std::string shaderDir = ShaderDirFor(exePath);
 
@@ -249,6 +249,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
     engine.SetScreenSize(window.width(), window.height());
     engine.SetResolutions(window.DisplayModes());
     engine.AttachPlayer(&pawn);
+    // The engine picks MultiPlayerAction for a multiplayer session; this port
+    // has none, so the -mp flag stands in. Docs/Reference/PlayerMovement.md
+    pawn.SetMultiplayer(mpMove);
     engine.AttachInput(&input);
 
     // An item's `action` is a string of Lua the menu runs when it is chosen,

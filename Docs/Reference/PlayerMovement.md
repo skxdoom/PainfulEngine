@@ -65,6 +65,107 @@ consumes only `0x3e` — Forward, Backward, Left, Right, Jump. Everything else
 in the mask is the scripts talking to themselves through
 `ENTITY.PO_IsActionState`.
 
+## The two movers, and the tweak blocks they read
+
+There are two, and they are different functions with different rules:
+
+| | |
+|---|---|
+| `PhysicsObject::PlayerAction` | 0x10192260 — single player |
+| `PhysicsObject::MultiPlayerAction` | 0x10194580 — multiplayer |
+
+`Game.GMode` selects between them (`GModes.MultiplayerServer` / `MultiplayerClient`
+/ `DedicatedServer` versus `SingleGame`). **This port has no multiplayer session,
+so `GMode` is always `SingleGame` (2) even on a DM map** — the `-mp` launch flag
+stands in for the selection, and should be replaced by the real mode when
+multiplayer lands.
+
+Both read a tweak block off `*(GEngine + 0xd4)`. The blocks are two structs in
+one object, and the offsets come from `PhysicsEngine::GetTweaksFromScript`
+(0x10185a80), which stores each named field in order:
+
+| offset | PlayerMove | | offset | MultiPlayerMove |
+|---:|---|---|---:|---|
+| +0x04 | SecondsWhenYouCanBunnyHopAfterLanding | | +0x5c | AbsoluteVerticalVelocity… |
+| +0x08 | SecondsWhenYouCanBunnyHopBeforeLanding | | +0x60 | SecondsWhenYouCanBunnyHopAfterLanding |
+| +0x0c | PlayerSpeed | | +0x68 | PlayerSpeed |
+| +0x10 | BunnyHopAcceleration | | +0x6c | AccelerationWhenWalking |
+| +0x14 | JumpStrength | | +0x70 | DecelerationWhenWalking |
+| +0x18 | StairsUpSpeed | | +0x74 | BunnyHopAcceleration |
+| +0x1c | StairsDownSpeed | | +0x78 | JumpStrength |
+| +0x20 | MaximalItemPushMass | | +0x88 | MaximalBunnyHopSpeed |
+| +0x24 | MaximalBunnyHopSpeed | | +0x90 | SlowdownDuringJump |
+| +0x30 | SlowdownDuringJump | | +0x94 | StrongAirControl |
+| +0x34 | StrongAirControl | | +0x98 | WeakAirControl |
+| +0x38 | WeakAirControl | | +0xa0 | MinimalTimeBetweenBunnyHops |
+| +0x3c…0x50 | Ice*, SlopeAngleToSlide, Shocked* | | +0xa4 | BunnyHopDifficulty |
+
+The gaps are real — the layout is not tightly packed, and inferring it by
+assuming it was gave the wrong field for `+0x30`. Read the stores, not the
+Lua field order.
+
+`StrongAirControl` and `WeakAirControl` are **never read by either mover**;
+they belong to the `QWPhysics` path, which the shipped tweaks leave off.
+
+### The difference that matters: reversing in mid-air
+
+**Air control here is CPMA-style: the mouse steers a jump, the keys cannot.**
+What freezes at takeoff is the **direction mask** (`action & 0x1e`), and it is
+re-accumulated every airborne frame against the *current* camera basis. So
+turning the mouse turns the motion — a 180° turn reverses your travel at full
+speed — while no key press redirects it.
+
+Live input reaches the airborne branch for exactly one purpose: cancelling.
+Holding the opposite of the takeoff direction bleeds the speed until the player
+drops in place; a perpendicular key does nothing; the takeoff key does nothing.
+
+**The cancel is a KEY against the takeoff KEY, not a heading against a
+heading.** The live wish vector and the frozen-mask vector are built from the
+same camera basis, so their dot product depends only on the two masks —
+`forward · backward = −(rx² + rz²) = −1` and `forward · left = −rz·rx + rx·rz =
+0`, whatever the camera is doing. That is what lets the mouse steer freely
+while an opposite key still drains the speed.
+
+Two ways to get this wrong, both tried here:
+
+- measure the live input against the **world-space** takeoff direction, and a
+  180° mouse turn reads as a reversal — the player stops dead in mid-air, which
+  breaks the steering the game is built around;
+- refresh the frozen mask from live input, and the jump becomes key-steerable,
+  which it is not.
+
+The slowdown each mover then applies is spent differently:
+
+```
+single player   cut = SlowdownDuringJump(20) * speed * opposition * dt
+                while (cut > speed) cut *= 0.5      -- never a full stop
+                speed -= cut
+
+multiplayer     cut = SlowdownDuringJump(9999) * opposition * dt   -- no speed term
+                speed = cut < speed ? speed - cut : 1.0            -- dead stop
+```
+
+So both cancel a jump's direction, at different speeds. Single player bleeds
+geometrically — a factor of `1 - 20·dt` per frame, so about 0.667 at 60 fps —
+and multiplayer, where 9999 makes every reversal exceed the speed, clamps to
+1.0 at once.
+
+Measured in this port on C2L1_Bridge, jumping forward and then holding a key
+from frame 0. The velocity's sign never flips in either case — the player slows
+to a stop facing the way the jump went, rather than travelling backwards:
+
+| frame | SP hold Back | SP hold Left | SP mouse 180° | MP hold Back |
+|---:|---:|---:|---:|---:|
+| 0 | 8.00 | 8.00 | 8.00 | 11.00 |
+| 2 | 4.64 | 8.00 | 8.00 | 1.00 |
+| 6 | 2.24 | 8.00 | 8.00 | 1.00 |
+| 14 | 0.52 | 8.00 | 8.00 | 1.00 |
+| 22 | 0.25 | 8.00 | 8.00 | 1.00 |
+
+The last two columns are the checks that matter. A perpendicular press neither
+steers nor slows. A 180° mouse turn keeps the full 8.00 and flips the travel
+(`vz` +8 → −8) — steered, not cancelled.
+
 ## Movement rules (single player)
 
 - **Ground**: velocity = normalised wish direction × `currentSpeed`, an
@@ -78,7 +179,17 @@ in the mask is the scripts talking to themselves through
     BunnyHopAcceleration`, clamped at the maximum — an asymptotic approach
     to 15 m/s at stock values.
   - Grounded past the AfterLanding window, `currentSpeed` resets to
-    `PlayerSpeed`.
+    `PlayerSpeed`. That is the **ceiling** — it gives the hop bonus back.
+  - There is also a **floor**, and it is unconditional: every grounded frame,
+    `if (currentSpeed < PlayerSpeed) currentSpeed = PlayerSpeed`
+    (`if (speed < Tweak+0x0c) speed = Tweak+0x0c`). Being on the ground is
+    never slower than walking.
+
+    Only the ceiling was ported at first, which was invisible until jump
+    cancelling landed: a cancelled jump touches down at ~0.1 m/s, and with no
+    floor the player kept that until the AfterLanding window expired and
+    could not move. With it, walking speed comes back on the first grounded
+    frame — measured 0.02 → 8.00 across a single frame.
 - **Air**: what freezes is the **input mask, not the direction** — and that
   distinction is the whole of air control here. While grounded, PlayerAction
   stores both the travel direction and `action & 0x1e` on the physics

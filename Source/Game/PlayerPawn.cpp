@@ -24,18 +24,23 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
     jumpedThisMove_ = false;
     dt = std::min(dt, 0.05f);   // a hitch must not become a teleport
 
-    const float playerSpeed = float(tweaks.Number("PlayerMove.PlayerSpeed", 8.0));
-    const float jumpStrength = float(tweaks.Number("PlayerMove.JumpStrength", 1.0));
-    const float maxHopSpeed =
-        float(tweaks.Number("PlayerMove.MaximalBunnyHopSpeed", 15.0));
-    const float hopAccel =
-        float(tweaks.Number("PlayerMove.BunnyHopAcceleration", 0.3));
-    const float hopAfter =
-        float(tweaks.Number("PlayerMove.SecondsWhenYouCanBunnyHopAfterLanding", 0.2));
-    const float hopBefore =
-        float(tweaks.Number("PlayerMove.SecondsWhenYouCanBunnyHopBeforeLanding", 0.2));
-    const float slowdown =
-        float(tweaks.Number("PlayerMove.SlowdownDuringJump", 20.0));
+    // Two movers, two tweak blocks. PlayerAction (0x10192260) reads the
+    // PlayerMove block at tweaks+0x00..0x50; MultiPlayerAction (0x10194580)
+    // reads MultiPlayerMove at +0x5c..+0xac and nothing else.
+    // Docs/Reference/PlayerMovement.md, "The two movers"
+    const std::string blk = mp_ ? "MultiPlayerMove." : "PlayerMove.";
+    auto tw = [&](const char* name, double fallback) {
+        return float(tweaks.Number(blk + name, fallback));
+    };
+
+    const float playerSpeed = tw("PlayerSpeed", mp_ ? 11.0 : 8.0);
+    const float jumpStrength = tw("JumpStrength", mp_ ? 0.85 : 1.0);
+    const float maxHopSpeed = tw("MaximalBunnyHopSpeed", mp_ ? 28.0 : 15.0);
+    const float hopAccel = tw("BunnyHopAcceleration", mp_ ? 0.062 : 0.3);
+    const float hopAfter = tw("SecondsWhenYouCanBunnyHopAfterLanding", 0.2);
+    const float hopBefore = tw("SecondsWhenYouCanBunnyHopBeforeLanding", 0.2);
+    // 20 single player, 9999 multiplayer - and the two are spent differently.
+    const float slowdown = tw("SlowdownDuringJump", mp_ ? 9999.0 : 20.0);
     const float gravity = physics.settings().gravity;
 
     if (speed_ <= 0.f) speed_ = playerSpeed;
@@ -115,9 +120,15 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
             vx = airDir_[0] * speed_;
             vz = airDir_[1] * speed_;
         } else {
-            // Grounded past the hop window: back to walking speed. Ground
-            // movement is an instant snap to wishDir * speed - the original
-            // has no walk acceleration ramp.
+            // Grounded is never slower than walking: PlayerAction floors the
+            // speed at PlayerSpeed on every grounded frame (`if (speed <
+            // Tweak+0x0c) speed = Tweak+0x0c`). This is what gives a cancelled
+            // jump its legs back the instant it lands - without it the player
+            // kept the 0.1 the cancel had left and could not move.
+            speed_ = std::max(speed_, playerSpeed);
+            // Past the hop window the bunny-hop BONUS is given back too, which
+            // is the ceiling to that floor. Ground movement is an instant snap
+            // to wishDir * speed - the original has no walk acceleration ramp.
             if (groundedTime_ > hopAfter) speed_ = playerSpeed;
             vx = hasInput ? wish[0] * speed_ : 0.f;
             vz = hasInput ? wish[1] * speed_ : 0.f;
@@ -150,18 +161,35 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
             air[1] = airDir_[1];
         }
 
-        // Turning the motion back on itself costs speed - the
-        // SlowdownDuringJump term, halved while the cut exceeds the speed.
-        // Measured against the direction we were travelling LAST frame, so a
-        // smooth turn is nearly free and a hard reversal is not.
-        const float opposition = -(air[0] * airDir_[0] + air[1] * airDir_[1]);
+        // Cancelling is a KEY against the takeoff KEY, not a heading against a
+        // heading. Both vectors are built from the same camera basis, so the
+        // dot product depends only on the two masks: forward vs backward is -1
+        // and forward vs left is 0 whatever the camera is doing. That keeps the
+        // mouse free to steer the jump - the CPMA-style air control this game
+        // has - while only an opposite key drains the speed.
+        //
+        // Measuring the live input against the world-space takeoff direction
+        // instead made a 180-degree mouse turn read as a reversal and stopped
+        // the player in mid-air.
+        const float opposition = -(wish[0] * air[0] + wish[1] * air[1]);
         if (hasInput && opposition > 0.f) {
-            float cut = slowdown * speed_ * opposition * dt;
-            while (cut > speed_) cut *= 0.5f;
-            speed_ -= cut;
+            if (mp_) {
+                // No speed factor, and the cut is NOT halved to fit: a cut it
+                // cannot afford drops the player to 1.0 outright. At 9999 that
+                // is every reversal, which is the dead stop in multiplayer.
+                const float cut = slowdown * opposition * dt;
+                speed_ = cut < speed_ ? speed_ - cut : 1.f;
+            } else {
+                float cut = slowdown * speed_ * opposition * dt;
+                while (cut > speed_) cut *= 0.5f;
+                speed_ -= cut;
+            }
         }
-        airDir_[0] = air[0];
-        airDir_[1] = air[1];
+        // airDir_ is NOT refreshed here: the engine writes its reference
+        // direction (pfVar2[10..0xc]) only at takeoff, so the opposition is
+        // measured against the direction the jump began in for the whole
+        // flight. Updating it per frame let a reversal bite for one frame and
+        // then agree with itself, which bled 8.0 to 6.6 and no further.
         vx = air[0] * speed_;
         vz = air[1] * speed_;
     }
