@@ -356,6 +356,36 @@ distinction its `FromMesh` / `FromMeshNotCentered` body types draw) is the
 thread to pull next; until then the renderer is the one placing them wrongly,
 and physics quietly corrects it on load.
 
+## Activation and a body out of the world
+
+**A script body that is not in the world must never be activated.** Jolt puts it
+in the active list without a broadphase entry; the next `DestroyBody` frees it
+while it is still listed, and the following step reads a dead body in
+`JobApplyGravity`. The fault lands two frames after the call that caused it, on
+a solver worker thread, with nothing left to say who did it.
+
+`PO_Enable(e, false)` is what takes a body out — `SetScriptBodyEnabled` calls
+`RemoveBody` and clears `inWorld`. So every setter that wakes a body has to
+check `inWorld` first: `SetScriptBodyPose`, `SetScriptBodyVelocity`,
+`AddScriptBodyImpulse`.
+
+The staked grenade is the case that found it. `Stake:Tick`'s combo branch
+clones a `Grenade.CItem`, points its `_Entity` at the stake's own, and explodes
+it; `Grenade:Explode` disables the body first — *"bo inaczej by zglaszal msg
+'explosion' z soba samym"* — and an `ENTITY.SetVelocity` from a `GObjects:Update`
+pass then woke it again. Two Jolt asserts name it exactly:
+
+```
+BodyManager.cpp:506  body.IsInBroadPhase() - Use BodyInterface::AddBody to add the body first!
+BodyManager.cpp:353  !body->IsActive()
+```
+
+Both are on in Debug and RelWithDebInfo (`JPH_ENABLE_ASSERTS`, set in
+`CMake/Dependencies.cmake`), routed to the log through `JPH::AssertFailed` with
+a stack from `Core/CrashReport`. That pair — the assert for the rule, the stack
+for the caller — is how this was found; reading the code was not enough,
+because the guard was already present on one of the three setters.
+
 ## A corpse is not a wall
 
 `PhysicsWorld::RayCast` resolved the body it hit against `scriptBodies` only.

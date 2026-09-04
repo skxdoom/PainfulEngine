@@ -34,6 +34,7 @@
 #include "../Assets/Dat.h"
 #include "../Assets/Pkmdl.h"
 #include "../Core/FileSystem.h"
+#include "../Core/CrashReport.h"
 #include "../Core/Log.h"
 #include "Level.h"
 #include "Templates.h"
@@ -210,12 +211,29 @@ void TraceToLog(const char* format, ...) {
     LogInfo("jolt: %s", buffer);
 }
 
+#ifdef JPH_ENABLE_ASSERTS
+// Jolt's own answer to misusing its API, which lands at the CALL rather than
+// where the corrupted state finally faults. Returning false skips the
+// breakpoint, so a run reports every assert instead of stopping at the first.
+bool AssertToLog(const char* expr, const char* message, const char* file, JPH::uint line) {
+    LogWarn("jolt assert: %s:%u  %s%s%s", file, line, expr,
+            message != nullptr ? " - " : "", message != nullptr ? message : "");
+    // The assert names the rule; the stack names who broke it, which is the
+    // half that says what to fix.
+    LogStackHere("jolt assert");
+    return false;
+}
+#endif
+
 // Jolt's globals are process wide, so they are set up once and left alone -
 // tearing them down between levels would invalidate every shape still held.
 struct JoltRuntime {
     JoltRuntime() {
         JPH::RegisterDefaultAllocator();
         JPH::Trace = TraceToLog;
+#ifdef JPH_ENABLE_ASSERTS
+        JPH::AssertFailed = AssertToLog;
+#endif
         JPH::Factory::sInstance = new JPH::Factory();
         JPH::RegisterTypes();
     }
@@ -1573,6 +1591,12 @@ void PhysicsWorld::SetScriptBodyPose(int slot, const float pos[3],
 
 void PhysicsWorld::SetScriptBodyVelocity(int slot, const float v[3]) {
     if (!ScriptBodyExists(slot)) return;
+    // A disabled body is out of the world, and ACTIVATING ONE CORRUPTS THE
+    // SOLVER: Jolt puts it in the active list without a broadphase entry, and
+    // the next DestroyBody frees it there, so the following step reads a dead
+    // body in JobApplyGravity. Same guard as SetScriptBodyPose.
+    // Docs/Reference/Physics.md, "Activation and a body out of the world"
+    if (!impl_->scriptBodies[size_t(slot)].inWorld) return;
     JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
     const JPH::BodyID id = impl_->scriptBodies[slot].body;
     bodies.SetLinearVelocity(id, JPH::Vec3(v[0], v[1], v[2]));
@@ -1585,6 +1609,9 @@ void PhysicsWorld::SetScriptBodyVelocity(int slot, const float v[3]) {
 void PhysicsWorld::AddScriptBodyImpulse(int slot, const float at[3],
                                         const float impulse[3]) {
     if (!ScriptBodyExists(slot)) return;
+    // Out of the world takes no impulse - and must not be woken for one.
+    // See SetScriptBodyVelocity for what activating a removed body does.
+    if (!impl_->scriptBodies[size_t(slot)].inWorld) return;
     const JPH::Vec3 j(impulse[0], impulse[1], impulse[2]);
     if (j.IsNearZero()) return;
     JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();

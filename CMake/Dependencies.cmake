@@ -64,6 +64,14 @@ set(USE_LZCNT OFF CACHE BOOL "" FORCE)
 set(USE_TZCNT OFF CACHE BOOL "" FORCE)
 add_subdirectory(${PAINFUL_ROOT}/External/JoltPhysics/Build ${CMAKE_BINARY_DIR}/external/Jolt EXCLUDE_FROM_ALL)
 
+# Jolt's asserts, everywhere but Release. They catch API misuse AT THE CALL -
+# a body destroyed while still in the world, a lock taken twice - where the
+# alternative is an access violation two steps later in a solver job with
+# nothing left to say who did it. PUBLIC because Jolt requires the define to
+# match between the library and everything that includes its headers.
+# PhysicsWorld routes them through JPH::AssertFailed to the log.
+target_compile_definitions(Jolt PUBLIC $<$<NOT:$<CONFIG:Release>>:JPH_ENABLE_ASSERTS>)
+
 # ----------------------------------------------------------------------- miniz
 # DEFLATE for the .pak reader. bimg_decode already compiles a full miniz (it
 # comes with tinyexr), so the engine reuses those symbols at link time rather

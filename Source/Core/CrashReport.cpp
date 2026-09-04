@@ -86,6 +86,44 @@ void Frame(FILE* file, HANDLE proc, int index, DWORD64 pc) {
         Say(file, "  %2d  0x%016llx\n", index, pc);
 }
 
+// The frames, from a context. `skip` drops the reporting machinery's own.
+//
+// StackWalk64 advances the context it is given, so it takes a copy: the one in
+// EXCEPTION_POINTERS belongs to the OS.
+void Walk(FILE* file, const CONTEXT& from, int maxFrames, int skip) {
+    const HANDLE proc = GetCurrentProcess();
+    SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
+    SymInitialize(proc, nullptr, TRUE);
+
+    CONTEXT ctx = from;
+    STACKFRAME64 frame = {};
+#if defined(_M_X64)
+    frame.AddrPC.Offset = ctx.Rip;
+    frame.AddrFrame.Offset = ctx.Rbp;
+    frame.AddrStack.Offset = ctx.Rsp;
+    const DWORD machine = IMAGE_FILE_MACHINE_AMD64;
+#elif defined(_M_ARM64)
+    frame.AddrPC.Offset = ctx.Pc;
+    frame.AddrFrame.Offset = ctx.Fp;
+    frame.AddrStack.Offset = ctx.Sp;
+    const DWORD machine = IMAGE_FILE_MACHINE_ARM64;
+#else
+#error "CrashReport: no stack layout for this architecture"
+#endif
+    frame.AddrPC.Mode = AddrModeFlat;
+    frame.AddrFrame.Mode = AddrModeFlat;
+    frame.AddrStack.Mode = AddrModeFlat;
+
+    for (int i = 0, shown = 0; i < maxFrames + skip; ++i) {
+        if (!StackWalk64(machine, proc, GetCurrentThread(), &frame, &ctx, nullptr,
+                         SymFunctionTableAccess64, SymGetModuleBase64, nullptr))
+            break;
+        if (frame.AddrPC.Offset == 0) break;
+        if (i >= skip) Frame(file, proc, shown++, frame.AddrPC.Offset);
+    }
+    SymCleanup(proc);
+}
+
 LONG WINAPI Handler(EXCEPTION_POINTERS* ep) {
     const EXCEPTION_RECORD& rec = *ep->ExceptionRecord;
 
@@ -105,40 +143,7 @@ LONG WINAPI Handler(EXCEPTION_POINTERS* ep) {
             static_cast<unsigned long long>(rec.ExceptionInformation[1]));
     }
 
-    const HANDLE proc = GetCurrentProcess();
-    SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
-    SymInitialize(proc, nullptr, TRUE);
-
-    // The walk needs a writable copy: StackWalk64 advances the context it is
-    // given, and the one in EXCEPTION_POINTERS belongs to the OS.
-    CONTEXT ctx = *ep->ContextRecord;
-    STACKFRAME64 frame = {};
-#if defined(_M_X64)
-    frame.AddrPC.Offset = ctx.Rip;
-    frame.AddrFrame.Offset = ctx.Rbp;
-    frame.AddrStack.Offset = ctx.Rsp;
-    const DWORD machine = IMAGE_FILE_MACHINE_AMD64;
-#elif defined(_M_ARM64)
-    frame.AddrPC.Offset = ctx.Pc;
-    frame.AddrFrame.Offset = ctx.Fp;
-    frame.AddrStack.Offset = ctx.Sp;
-    const DWORD machine = IMAGE_FILE_MACHINE_ARM64;
-#else
-#error "CrashReport: no stack layout for this architecture"
-#endif
-    frame.AddrPC.Mode = AddrModeFlat;
-    frame.AddrFrame.Mode = AddrModeFlat;
-    frame.AddrStack.Mode = AddrModeFlat;
-
-    for (int i = 0; i < 64; ++i) {
-        if (!StackWalk64(machine, proc, GetCurrentThread(), &frame, &ctx, nullptr,
-                         SymFunctionTableAccess64, SymGetModuleBase64, nullptr))
-            break;
-        if (frame.AddrPC.Offset == 0) break;
-        Frame(file, proc, i, frame.AddrPC.Offset);
-    }
-
-    SymCleanup(proc);
+    Walk(file, *ep->ContextRecord, 64, 0);
     if (file != nullptr) {
         std::fclose(file);
         std::fprintf(stderr, "*** written to %s\n", CrashLogPath().c_str());
@@ -156,6 +161,16 @@ void InstallCrashHandler(const char* name) {
     SetUnhandledExceptionFilter(Handler);
 }
 
+void LogStackHere(const char* label) {
+    std::fprintf(stderr, "--- stack: %s\n", label != nullptr ? label : "");
+    CONTEXT ctx = {};
+    ctx.ContextFlags = CONTEXT_FULL;
+    RtlCaptureContext(&ctx);
+    // 2 = RtlCaptureContext's frame and this one.
+    Walk(nullptr, ctx, 24, 2);
+    std::fflush(stderr);
+}
+
 } // namespace painful
 
 #else   // !_WIN32
@@ -164,6 +179,7 @@ namespace painful {
 // POSIX would be a sigaction for SIGSEGV/SIGBUS/SIGFPE plus backtrace(3).
 // Nothing yet, and a no-op is the honest state - see Docs/Status.md.
 void InstallCrashHandler(const char*) {}
+void LogStackHere(const char*) {}
 } // namespace painful
 
 #endif
