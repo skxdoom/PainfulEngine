@@ -132,6 +132,9 @@ int Input::VirtualKeyForEngName(const std::string& name) {
 }
 
 void Input::BeginFrame() {
+    // A consumed UI action comes back once its key is up again.
+    for (const Bind& b : uiBinds_)
+        if (!IsDown(b.vk)) uiConsumed_ &= ~b.bit;
     std::memcpy(wasDown_, down_, sizeof(down_));
     // A wheel notch lasts exactly one frame: it went down last frame, so it
     // comes up now.
@@ -210,11 +213,18 @@ uint32_t Input::ActionMask() const {
     return mask;
 }
 
+// Held while the key is down; everything else is one press at a time. Which is
+// which is a STAND-IN read off the shipped scripts and play, not the engine's
+// own table - see Docs/Reference/PlayerMovement.md, "UI actions".
+constexpr uint32_t kUIHeld = UIAct::Scoreboard | UIAct::Zoom;
+
 uint32_t Input::UIActionMask() const {
     uint32_t mask = 0;
-    for (const Bind& b : uiBinds_)
-        if (IsDown(b.vk)) mask |= b.bit;
-    return mask;
+    for (const Bind& b : uiBinds_) {
+        const bool on = (b.bit & kUIHeld) ? IsDown(b.vk) : (KeyState(b.vk) == 1);
+        if (on) mask |= b.bit;
+    }
+    return mask & ~uiConsumed_;
 }
 
 bool Input::fireSwitched() const {

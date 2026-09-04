@@ -879,6 +879,7 @@ private:
     static int L_INP_Key(lua_State* L);
     static int L_INP_Action(lua_State* L);
     static int L_INP_UIAction(lua_State* L);
+    static int L_INP_RemoveUIAction(lua_State* L);
     static int L_INP_IsFireSwitched(lua_State* L);
     static int L_INP_LoadBindings(lua_State* L);
     static int L_INP_Reset(lua_State* L);

@@ -31,6 +31,15 @@ int ScriptEngine::L_INP_Action(lua_State* L) {
     return 1;
 }
 
+// INP.RemoveUIAction(mask) - consume a UI action so it does not fire again
+// while its key stays down. GameMP.lua needs it either side of the scoreboard
+// toggle. Docs/Reference/PlayerMovement.md
+int ScriptEngine::L_INP_RemoveUIAction(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (self->input_) self->input_->RemoveUIAction(uint32_t(luaL_optnumber(L, 1, 0)));
+    return 0;
+}
+
 int ScriptEngine::L_INP_UIAction(lua_State* L) {
     const ScriptEngine* self = From(L);
     const uint32_t mask = uint32_t(luaL_optnumber(L, 1, 0));

@@ -285,6 +285,42 @@ That is the semi-implicit step, not an error: velocity is decremented before
 the move, so the rise is `dt·Σ(v₀ − i·g·dt)` over the 17 rising steps, which
 is 0.753 exactly.
 
+## UI actions: some are HELD, most fire once per press
+
+`INP.UIAction(mask)` (`0x1011C9B0`) is a plain `(mask & arg) != 0` against
+`InputDevice+0x3458`; `INP.Action` is the same against `+0x3454`. Both natives
+only read, so the semantics live in how that mask is maintained — and what
+writes `+0x3458` is NOT recovered. The displacement search does not match its
+addressing form, so this is settled from the shipped scripts and from play:
+
+- **Held.** Holding Tab shows the scoreboard and releasing it hides it, in the
+  original. `Game.lua:489` and `GameMP.lua:474` both read it as a level:
+  `if UIAction(Scoreboard) then Show() else Hide() end`, and `Hud._showSPStats`
+  drives a per-frame draw.
+- **Once per press.** QuickSave, QuickLoad, Screenshot, SayToAll/Team and
+  Flashlight all act immediately with no guard of their own. The decisive one
+  is `PlayerLight.CLight`, where the shipped data has
+
+  ```lua
+  if INP.UIAction(UIActions.Flashlight) then
+      if self.Type == 3 then self.Type = 0 else self.Type = 3 end
+      SOUND.Play2D("misc/flashlight-button")
+  --    INP.RemoveUIAction(UIActions.Flashlight)
+  ```
+
+  with the consume **commented out**. That only works if the engine already
+  gives the action one press at a time; as a level it toggles the light and
+  plays the click every frame the key is down.
+
+`INP.RemoveUIAction` clears a bit early, which the MP scoreboard needs
+(`GameMP.lua:471`, `487`): it reads a HELD action and must not re-fire the
+toggle on the next frame while Tab is still down. A consumed bit comes back
+when its key is released.
+
+STAND-IN: which actions are held is inferred from the above, not recovered —
+Scoreboard and Zoom are held, the rest are triggered. Finding the writer of
+`InputDevice+0x3458` would replace this with the engine's own table.
+
 ## Reach is measured to the body's AXIS — `PLAYER.GetDistanceFromPoint`
 
 The native (`0x101393F0`, found through the `{name, fn}` table in `.rdata` at

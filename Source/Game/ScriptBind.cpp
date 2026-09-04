@@ -193,6 +193,7 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"INP", "GetActionStatus", L_INP_GetActionStatus},
         {"INP", "Action", L_INP_Action},
         {"INP", "UIAction", L_INP_UIAction},
+        {"INP", "RemoveUIAction", L_INP_RemoveUIAction},
         {"INP", "Key", L_INP_Key},
         {"INP", "IsFireSwitched", L_INP_IsFireSwitched},
         {"INP", "LoadBindings", L_INP_LoadBindings},

@@ -131,6 +131,9 @@ public:
     uint32_t UIActionMask() const;
     bool Action(uint32_t mask) const { return (ActionMask() & mask) != 0; }
     bool UIAction(uint32_t mask) const { return (UIActionMask() & mask) != 0; }
+    // INP.RemoveUIAction: clear a bit early, so a HELD action does not fire a
+    // toggle again next frame. It comes back when the key is released.
+    void RemoveUIAction(uint32_t mask) { uiConsumed_ |= mask; }
 
     // INP.IsFireSwitched(): primary and alternate fire swapped, either held
     // (FireSwitch) or latched (FireSwitchToggle).
@@ -173,6 +176,7 @@ private:
 
     std::vector<Bind> actionBinds_;
     std::vector<Bind> uiBinds_;
+    uint32_t uiConsumed_ = 0;   // RemoveUIAction, until the key comes up
     int fireSwitchKey_ = 0;         // held swap
     int fireSwitchToggleKey_ = 0;   // latched swap
     mutable bool fireSwitchLatch_ = false;
