@@ -17,6 +17,10 @@ distributed with this project.
 - Possible bug fixes
 - Possible further graphics enhancements
 
+## Why it's being made with AI
+
+The original **PainEngine** is closed source. Therefore the only viable way to recreate this engine and it's trademark feel is decompiling the original engine and reading huge chunks of unreadable decompiled code, in which AI is pretty good at. Ultimately it's just a passion project.
+
 ## Building
 
 Dependencies live in `External/` as git submodules and build from source, so
@@ -24,8 +28,8 @@ nothing is installed system-wide.
 
 ```
 git clone --recursive <this repo>
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Release
+cmake -S . -B Build -G "Visual Studio 17 2022" -A x64
+cmake --build Build --config Release
 ```
 
 The build also compiles the shaders, via bgfx's `shaderc` - once per graphics
@@ -34,7 +38,7 @@ to ship. To have each build copy it into a game folder, set the deploy path once
 (a local cache variable, never committed):
 
 ```
-cmake -S . -B build -DPAINFUL_DEPLOY_DIR="X:/Painkiller/Bin"
+cmake -S . -B Build -DPAINFUL_DEPLOY_DIR="X:/Painkiller/Bin"
 ```
 
 ## Playing
@@ -98,20 +102,14 @@ Copyright © 2026 Dmitry Karpukhin.
 
 PainfulEngine is **GPL-3.0-or-later** — see [`LICENSE`](LICENSE).
 
-Copyleft is the deliberate choice rather than the default one. This is a
-preservation and interoperability project, and the licence keeps it that way:
-anyone may study, change and share it, and nobody may take it closed or sell
-it on. That is also the norm among source ports of commercial games, for the
-same reasons.
-
-The licence covers this project's own code. It grants nothing over
-*Painkiller* itself, which remains its rights holders'. No game data, assets
-or binaries are included here, and running the engine requires your own copy
-of the game.
-
-*Painkiller* was made by People Can Fly. This project is not affiliated with
-them or with the game's current rights holders, and exists to understand and
-preserve the engine rather than to compete with it.
+- Copyleft is deliberate, not a default: anyone may study, change and share
+  this, and nobody may take it closed or sell it on.
+- The licence covers this project's own code. It grants nothing over
+  *Painkiller*, which remains its rights holders'.
+- No game data, assets or binaries are included. Running the engine requires
+  your own copy of the game.
+- *Painkiller* was made by People Can Fly. This project is not affiliated with
+  them or with the game's current rights holders.
 
 ## Credits
 

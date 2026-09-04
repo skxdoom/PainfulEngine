@@ -5,5 +5,5 @@ add_library(Script STATIC
   LuaHost.cpp  LuaHost.h
   Natives.cpp  NativeList.inc
 )
-target_link_libraries(Script PUBLIC Core lua)
+target_link_libraries(Script PUBLIC Core Lua)
 painful_layer(Script)

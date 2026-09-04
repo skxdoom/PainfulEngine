@@ -75,15 +75,15 @@ The full tree is in [`Docs/Status.md`](Docs/Status.md).
 ## Build
 
 ```
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Release
+cmake -S . -B Build -G "Visual Studio 17 2022" -A x64
+cmake --build Build --config Release
 ```
 
 `-DPAINFUL_DEPLOY_DIR=<game>/Bin` makes each build copy the executable into a
-game folder. Output is `build/Source/App/Release/` and
-`build/Source/Tools/Release/`. The shaders are compiled per backend and embedded,
-so the executable is the whole deliverable; a `Shaders/` folder beside it still
-overrides them, which is the way to test one without a rebuild.
+game folder. Output is `Build/Bin/<Config>/` for both executables and
+`Build/Lib/<Config>/` for the libraries. The shaders are compiled per backend
+and embedded, so the executable is the whole deliverable; a `Shaders/` folder
+beside it still overrides them, which is the way to test one without a rebuild.
 
 Verify a change without opening a window: every subsystem has a report.
 

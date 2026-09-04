@@ -8,12 +8,16 @@ set(SDL_STATIC   ON  CACHE BOOL "" FORCE)
 set(SDL_TESTS    OFF CACHE BOOL "" FORCE)
 set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(SDL_INSTALL  OFF CACHE BOOL "" FORCE)
-add_subdirectory(${PAINFUL_ROOT}/External/SDL ${CMAKE_BINARY_DIR}/external/SDL EXCLUDE_FROM_ALL)
+add_subdirectory(${PAINFUL_ROOT}/External/SDL ${CMAKE_BINARY_DIR}/External/SDL EXCLUDE_FROM_ALL)
 
 # ------------------------------------------------------------------------ bgfx
 set(BGFX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BGFX_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
 set(BGFX_INSTALL        OFF CACHE BOOL "" FORCE)
+# The bgfx-examples / bgfx-tools convenience aggregates. Their own option, not
+# BGFX_BUILD_EXAMPLES, so with examples off bgfx-examples stayed as an empty
+# target in the startup list; nothing here depends on either.
+set(BGFX_CUSTOM_TARGETS OFF CACHE BOOL "" FORCE)
 # Two of bgfx's tools: shaderc compiles the .sc sources, bin2c turns each
 # compiled .bin into a C array for Shaders/CMakeLists.txt to embed. The other
 # three - texturec, geometryc and the two viewers - are never invoked here.
@@ -25,7 +29,7 @@ set(BGFX_BUILD_TOOLS_TEXTURE  OFF CACHE BOOL "" FORCE)
 set(BGFX_AMALGAMATED    ON  CACHE BOOL "" FORCE)
 set(BX_AMALGAMATED      ON  CACHE BOOL "" FORCE)
 # Not EXCLUDE_FROM_ALL: we need the shaderc target addressable for shader builds.
-add_subdirectory(${PAINFUL_ROOT}/External/bgfx ${CMAKE_BINARY_DIR}/external/bgfx)
+add_subdirectory(${PAINFUL_ROOT}/External/bgfx ${CMAKE_BINARY_DIR}/External/bgfx)
 
 # Two bgfx targets build by default even with the examples and texture tools
 # off, and nothing we link reaches either: example-common is the samples'
@@ -62,7 +66,7 @@ set(USE_F16C  OFF CACHE BOOL "" FORCE)
 set(USE_FMADD OFF CACHE BOOL "" FORCE)
 set(USE_LZCNT OFF CACHE BOOL "" FORCE)
 set(USE_TZCNT OFF CACHE BOOL "" FORCE)
-add_subdirectory(${PAINFUL_ROOT}/External/JoltPhysics/Build ${CMAKE_BINARY_DIR}/external/Jolt EXCLUDE_FROM_ALL)
+add_subdirectory(${PAINFUL_ROOT}/External/JoltPhysics/Build ${CMAKE_BINARY_DIR}/External/Jolt EXCLUDE_FROM_ALL)
 
 # Jolt's asserts, everywhere but Release. They catch API misuse AT THE CALL -
 # a body destroyed while still in the world, a lock taken twice - where the
@@ -88,7 +92,7 @@ target_include_directories(miniz INTERFACE
 # `table.getn`, `math.mod`) that 5.1+ rejects, and Engine.dll statically links
 # exactly this interpreter. It is 2003-era ANSI C, so its warnings are not ours.
 set(PAINFUL_LUA_DIR ${PAINFUL_ROOT}/External/lua-5.0.2)
-add_library(lua STATIC
+add_library(Lua STATIC
   ${PAINFUL_LUA_DIR}/src/lapi.c
   ${PAINFUL_LUA_DIR}/src/lcode.c
   ${PAINFUL_LUA_DIR}/src/ldebug.c
@@ -117,18 +121,18 @@ add_library(lua STATIC
   ${PAINFUL_LUA_DIR}/src/lib/lstrlib.c
   ${PAINFUL_LUA_DIR}/src/lib/ltablib.c
 )
-target_include_directories(lua
+target_include_directories(Lua
   PUBLIC  ${PAINFUL_LUA_DIR}/include
   PRIVATE ${PAINFUL_LUA_DIR}/src)
 if(MSVC)
-  target_compile_options(lua PRIVATE /w)
+  target_compile_options(Lua PRIVATE /w)
 else()
-  target_compile_options(lua PRIVATE -w)
+  target_compile_options(Lua PRIVATE -w)
 endif()
 
 # --------------------------------------------------------------- IDE grouping
 painful_group_directory(${PAINFUL_ROOT}/External/SDL                "External/SDL")
 painful_group_directory(${PAINFUL_ROOT}/External/bgfx               "External/bgfx")
 painful_group_directory(${PAINFUL_ROOT}/External/JoltPhysics/Build  "External/Jolt")
-set_target_properties(lua   PROPERTIES FOLDER "External/Lua")
+set_target_properties(Lua   PROPERTIES FOLDER "External/Lua")
 set_target_properties(miniz PROPERTIES FOLDER "External")

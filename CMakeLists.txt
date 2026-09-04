@@ -25,6 +25,13 @@ endif()
 set(PAINFUL_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
 list(APPEND CMAKE_MODULE_PATH ${PAINFUL_ROOT}/CMake)
 
+# Everything buildable lands in two folders rather than beside whichever
+# CMakeLists declared it. The generator appends /<Config>, so a Release build
+# leaves both executables in Build/Bin/Release.
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Bin)
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Lib)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Lib)
+
 # bx (a bgfx dependency) uses designated initializers, so C++20 is required.
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
