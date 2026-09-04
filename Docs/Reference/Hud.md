@@ -63,6 +63,41 @@ Two coordinates are special. `HUD.PrintXY` centres the string horizontally when
 `x < 0` and vertically when `y < 0`, both against the real screen size - that
 is how every banner in the game is positioned.
 
+## The rotated quad — `HUD.DrawQuadRotated`
+
+The compass needle is the only caller (`Hud:QuadRot` / `QuadRotTrans`), and
+three things about it are not what the signature suggests.
+
+**It is centred on the PIVOT, not placed at x,y.** `HUD::DrawQuadRotated`
+(`0x1008F3C0`) builds its four vertices at `+-0.5 * w` and `+-0.5 * h`
+(`_DAT_102ae5b0` / `_DAT_102ae5e8`) — a quad about the origin — then derives
+its screen position from the POINT: the left edge it computes is
+`pivot.x - w/2`. Drawing from `x,y` as a top-left corner put the needle half
+its own size off the hub (the art is 62x92) plus the `(+16, -4)` the script
+offsets `x,y` by. The shadow still lands correctly because `Hud:QuadRot` gives
+it its own pivot, 5 right and 4 down.
+
+**What `x,y` is FOR is not recovered.** The compass always passes
+`pivot = (x + 16, y - 4)` for both the needle and its shadow, so the call site
+cannot separate them. Reading the rest of `0x1008F3C0`'s transform would
+settle it.
+
+**Rotate in 1024x768, then stretch.** The layout scales width by `w/1024` and
+height by `h/768` — different factors off 4:3 — so rotating a quad built that
+way shears it: upright it looks right, across it is stretched by the ratio
+between them (1.79x at 3440x1440). Making the needle rigid in SCREEN space is
+also wrong: the dial behind it takes the same two factors and is drawn as an
+ellipse, so a rigid needle stops matching the face it sits on. Rotate in the
+authored space, where the needle is rigid against its own dial, and stretch
+the turned corners afterwards.
+
+**The angle is negated.** Measured, not reasoned: put a compass target 10
+units along `Player.RightVector`, and `RenderCompass` hands the native
+`-1.5708` for a target on the RIGHT. The bearing turns the opposite way to a
+screen whose y points down. Reasoning "a target on the right is +pi/2" gives
+the wrong sign — the chain is `ENTITY.GetOrientation` -> `AngDist` ->
+`_arrowRot`, and it is easier to plant a known target and read the number.
+
 ## Colours
 
 Packed ARGB throughout, in a 32-bit number passed through Lua.

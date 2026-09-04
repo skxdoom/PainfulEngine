@@ -175,18 +175,27 @@ void HudRenderer::QuadRotated(Material handle, float x, float y, float w, float 
         const Mat& m = materials_[size_t(handle) - 1];
         if (m.used) tex = m.texture;
     }
-    // The pivot is an absolute screen point the caller names, so the quad's
-    // corners turn around it wherever it happens to be.
-    const float c = std::cos(radians), s = std::sin(radians);
-    const float corner[4][2] = {{x, y}, {x + w, y}, {x + w, y + h}, {x, y + h}};
+    // Centred on the PIVOT, turned in the authored 1024x768, then stretched
+    // like the dial behind it - which is why x,y does not place the quad and
+    // the width is not rigid on screen. Docs/Reference/Hud.md
+    const float ax = screenW_ > 0 ? float(screenW_) / 1024.f : 1.f;
+    const float ay = screenH_ > 0 ? float(screenH_) / 768.f : 1.f;
+    const float hw = (ax > 1e-6f ? w / ax : w) * 0.5f;
+    const float hh = (ay > 1e-6f ? h / ay : h) * 0.5f;
+    const float px = ax > 1e-6f ? pivotX / ax : pivotX;
+    const float py = ay > 1e-6f ? pivotY / ay : pivotY;
+
+    // Negated: the script's bearing turns the opposite way to a y-down screen.
+    const float c = std::cos(-radians), s = std::sin(-radians);
+    const float corner[4][2] = {{-hw, -hh}, {hw, -hh}, {hw, hh}, {-hw, hh}};
     const float uv[4][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
 
     Vertex quad[4];
     for (int i = 0; i < 4; ++i) {
-        const float dx = corner[i][0] - pivotX;
-        const float dy = corner[i][1] - pivotY;
-        quad[i].x = pivotX + dx * c - dy * s;
-        quad[i].y = pivotY + dx * s + dy * c;
+        const float dx = corner[i][0];
+        const float dy = corner[i][1];
+        quad[i].x = (px + dx * c - dy * s) * ax;
+        quad[i].y = (py + dx * s + dy * c) * ay;
         quad[i].z = 0.f;
         quad[i].abgr = abgr;
         quad[i].u = uv[i][0];
