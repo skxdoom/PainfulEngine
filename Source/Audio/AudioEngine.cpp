@@ -302,8 +302,11 @@ AudioEngine::Voice AudioEngine::Create(const std::string& name, bool positional)
 // play at all. The handle still works for the few callers that keep it - it
 // just stops being valid once the sound ends, which is exactly what those
 // callers are asking IsPlaying about.
-AudioEngine::Voice AudioEngine::Play2D(const std::string& name, float volume, bool loop,
-                                       bool noPitch) {
+AudioEngine::Voice AudioEngine::Play2D(const std::string& name, float volume,
+                                       bool sameSpeedInBulletTime, bool noPitch) {
+    // Recorded, not modelled: nothing scales voice speed with the game clock
+    // yet. Docs/Reference/Sound.md
+    (void)sameSpeedInBulletTime;
     const Voice v = Open(name, false, false);
     if (!v) return 0;
     std::lock_guard<std::mutex> guard(lock_);
@@ -311,7 +314,8 @@ AudioEngine::Voice AudioEngine::Play2D(const std::string& name, float volume, bo
     if (!p) return 0;
     p->volume = volume > 0.f ? volume : 1.f;
     p->gain[0] = p->gain[1] = p->volume;
-    p->loopsLeft = loop ? -1 : 0;
+    // Never loops. A held 2D loop is SOUND2D.Create + Play, not this call.
+    p->loopsLeft = 0;
     // A touch of pitch variation stops a repeated footfall sounding like a
     // machine; the soundsDef sets disablePitch where that would be wrong.
     p->speed = noPitch ? 1.0 : 0.95 + 0.1 * (double(SDL_rand(1000)) / 1000.0);

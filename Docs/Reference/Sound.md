@@ -75,6 +75,35 @@ pass finish, then stop", which only makes sense if 1 means once.
 silences exactly the sounds the scripts loop most.
 
 
+## `SOUND.Play2D` never loops — its third argument is bullet-time
+
+```lua
+function PlaySound2D(sound, volume, sameSpeedInBulletTime, noRandomize)
+    return SOUND.Play2D(sound, volume, sameSpeedInBulletTime, noRandomize)
+```
+
+`AudioEngine::Play2D` took that third argument as **loop**, so any caller
+passing it true started a voice that never ended. Only one shipped call site
+does — `Hud:RenderCompass`, the checkpoint heartbeat:
+
+```lua
+PlaySound2D("pickup_health_minisphere", vol, true, false)
+```
+
+which is a ONE-SHOT per pulse, gated by the glow cycle and a 1.5 s cooldown on
+`_glowStart`. Every pulse opened another endless voice on top of the last, so
+the heartbeat piled up until it was a wall of them. The other 11 call sites
+that pass a `true` pass it as the FOURTH argument, `noRandomize`, and were
+never affected — worth checking argument POSITION before assuming a shared
+fault.
+
+A looping 2D sound is not this call at all: it is `SOUND2D.Create(name, loop)`
+plus `SOUND2D.Play`, which is how `_sndRotor` and `_sndElectro` are held.
+
+`sameSpeedInBulletTime` is not modelled — nothing scales voice speed with the
+game clock yet, so the flag is recorded and ignored. When bullet-time reaches
+the mixer it says which voices keep their own rate.
+
 ## The lifetime bug worth remembering
 
 The first version gave every sound a held slot. Ninety-six one-shots later

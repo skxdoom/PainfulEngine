@@ -34,7 +34,11 @@ public:
 
     // `name` is a path under Sounds without the extension, exactly as the
     // scripts write it: "actor/evilmonkv2/monk_attack", "misc/gas-outflow-5sec".
-    Voice Play2D(const std::string& name, float volume, bool loop, bool noPitch);
+    // A ONE-SHOT. Arg 3 is the scripts sameSpeedInBulletTime, not a loop -
+    // taking it as one left the checkpoint heartbeat stacking endless voices.
+    // Docs/Reference/Sound.md
+    Voice Play2D(const std::string& name, float volume, bool sameSpeedInBulletTime,
+                 bool noPitch);
     // dist1 is where attenuation starts, dist2 where it reaches silence - the
     // soundsDef files carry both per sound.
     Voice Play3D(const std::string& name, const float pos[3], float dist1, float dist2,
