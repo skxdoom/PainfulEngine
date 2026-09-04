@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 
 namespace painful {
 
@@ -78,9 +79,21 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
     // the "space does not always jump" from play.
     if (!jump) jumpLatched_ = false;
 
+    // A bunny hop fires while still ABOVE the floor: that lift is what lets a
+    // smaller launch reach the standing jump's apex, so a chain tops out at one
+    // height. Probe for floor within kHopLift while falling.
+    bool airHop = false;
+    if (!onGround_ && jump && !jumpLatched_ && velY_ <= 0.f) {
+        float probe[3] = {head_[0], head_[1] - kEyeAboveFloor + kRadius, head_[2]};
+        const float startY = probe[1];
+        const float down[3] = {0.f, -kHopLift, 0.f};
+        physics.SlideSphere(probe, down, kRadius, true);
+        airHop = (startY - probe[1]) < kHopLift - 1e-3f;   // something stopped it
+    }
+
     float vx = 0.f, vz = 0.f;
-    if (onGround_) {
-        groundedTime_ += dt;
+    if (onGround_ || airHop) {
+        if (onGround_) groundedTime_ += dt;
         // While grounded, PlayerAction stores BOTH the travel direction and
         // the movement bits on the physics object, every frame. Whatever is
         // held at the moment the ground is left is what the airborne branch
@@ -101,8 +114,15 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
         const bool wantsHop = wantsJump && groundedTime_ <= hopAfter;
 
         if (wantsJump) {
-            // The engine's jump: JumpStrength * PlayerSpeed * 0.7.
-            velY_ = jumpStrength * playerSpeed * 0.7f;
+            // JumpStrength * PlayerSpeed * 0.7 (the 0.7 at 0x102c8648). The
+            // standing scale is a play-test STAND-IN, not a recovered rule; a
+            // hop drops it and makes the height up with kHopLift instead.
+            // Docs/Reference/PlayerMovement.md, "The jump height that does not add up"
+            static const float kStandScale = [] {
+                const char* e = std::getenv("PAINFUL_JUMPSCALE");
+                return e ? float(std::atof(e)) : 1.16f;
+            }();
+            velY_ = jumpStrength * playerSpeed * 0.7f * (airHop ? 1.f : kStandScale);
             // The scripts' jump sound hangs off this, so it must mean an actual
             // jump and not merely leaving the ground - a step-up does that too.
             jumpedThisMove_ = true;

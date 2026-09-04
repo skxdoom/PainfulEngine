@@ -175,6 +175,11 @@ private:
     static constexpr float kStepMax = 0.86f;       // a wall above this
     static constexpr float kStepPenalty = 0.3f;    // 0x102af83c
 
+    // How high above the floor a bunny hop may launch. Set so an unscaled hop
+    // matches a standing jump at 1.16: (1.16^2 - 1) * 5.6^2 / (2*19.62).
+    // A STAND-IN, like the scale it compensates.
+    static constexpr float kHopLift = 0.276f;
+
     float head_[3] = {0, 0, 0};
     float velY_ = 0.f;
     bool onGround_ = false;

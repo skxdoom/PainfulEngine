@@ -361,6 +361,69 @@ apex around 40 m at gravity 19.62, against 5.6 m/s and 0.8 m for a standing
 jump. The arithmetic is the shipped script's own; whether the original felt
 that high is untested here.
 
+## The jump height that does not add up
+
+**Confirmed from the binary**, and matching this port exactly:
+
+- `jumpVel = JumpStrength × PlayerSpeed × 0.7 / worldTimeScale`, the `0.7` read
+  at `0x102c8648` (0.699999988) and the multiply seen at `0x10193c85`.
+- `PlayerSpeed` there is the **tweak constant**, not `currentSpeed`, so speed
+  never raises a jump.
+- Gravity is the world's `GlobalData.Gravity` (2 × 9.81). `EngineGame::CreatePlayer`
+  builds the body with `CreatePhysicsObject(entity, 100, 1.0, -1, true)` — no
+  per-body gravity factor.
+
+That gives 5.6 m/s and an apex of 0.80 m, and this port measures 0.776 m. **But
+the original plays higher than that**, and a play-test puts it near ×1.15.
+The cause is not found. Ruled out so far:
+
+- a per-body gravity factor (there is none at creation);
+- `PromodePlayerMove` — `PlayerAction` reads only `0x00`–`0x58` and never the
+  Promode block at `0xe8`–`0x11c`, and that block describes a friction-and-
+  acceleration model `PlayerAction` has no terms for.
+
+Still open: the jump is handed to Havok as a **velocity delta toward a target**
+(`target − currentVelocity`, built at `0x10193cb3`) rather than assigned, and
+the normal `StepCheck` branch could not be traced — the decompiler loses those
+stack slots.
+
+### Consecutive jumps top out at the same height
+
+Observed in the original, and the binary says why: a jump can only fire on a
+grounded frame (`jumpHeld && !wasAirborne && !latched`), a press within
+`SecondsWhenYouCanBunnyHopBeforeLanding` is queued to the touchdown frame, and
+the launch speed is a constant. So every jump in a chain leaves from the floor
+at the same speed and reaches the same ceiling — it reads like a spring.
+
+### The stand-in
+
+Until the real rule is found, this port reproduces the SHAPE of that:
+
+| | launch | from |
+|---|---|---|
+| standing jump | formula × `kStandScale` (1.16) | the floor |
+| bunny hop | formula, unscaled | up to `kHopLift` (0.276 m) above the floor |
+
+`kHopLift` is chosen so both reach the same apex:
+`(1.16² − 1) × 5.6² / (2 × 19.62) = 0.276`. A hop fires from a downward probe
+finding floor within that window while falling.
+
+Measured apexes over a hop chain: **1.048, 1.000, 1.021, 0.997, 1.020** — the
+first standing, the rest hops, repeatable across runs. Hops land a little under
+the standing jump because the probe fires on the first frame it finds floor in
+reach, which is usually short of the full lift.
+
+**Both numbers are placeholders.** `PAINFUL_JUMPSCALE` overrides the standing
+scale. When the real rule turns up, both constants come out — a magic
+multiplier is a placeholder for an answer, not an answer.
+
+One lead worth recording: play-testing settled on **1.16**, and
+`PromodePlayerMove.JumpStrength` is **1.16** exactly. That block is not read by
+`PlayerAction` and its other values do not match (PlayerSpeed 9.0, gravity
+3×9.81), so this is not an explanation — but a play-tested multiplier landing
+on a shipped constant to two decimal places is a strange coincidence, and the
+next attempt should start by asking where else 1.16 could reach the campaign.
+
 ## What the player collides with
 
 `Tweak.PlayerMove.MaximalItemPushMass` (2500) is the line between what can be
