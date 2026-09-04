@@ -13,8 +13,9 @@
 namespace painful {
 
 // shotPath: capture one frame to a .tga and exit. exec: a Lua chunk run once
-// the world is up, or null.
+// the world is up, or null. devUI: the -dev launch flag - the debug overlay
+// and the F1-F4/F6 toggles, all off in a normal launch.
 int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
-            const std::string& shotPath, const char* exec);
+            const std::string& shotPath, const char* exec, bool devUI);
 
 }  // namespace painful

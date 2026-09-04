@@ -103,7 +103,7 @@ static bool ProjectToScreen(const float world[3], const float viewProj[16],
 // renderer and a free camera. The counterpart to `run`, which drives the
 // same subsystems by hand - as natives grow real, this path takes over.
 int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
-                   const std::string& shotPath, const char* exec) {
+                   const std::string& shotPath, const char* exec, bool devUI) {
     const std::string root = dataRoot;
     const std::string shaderDir = ShaderDirFor(exePath);
 
@@ -640,10 +640,18 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
         // dynamic-only view. Pressing either while the other is up switches
         // straight to it, so the two are one mode rather than two flags that
         // can disagree.
-        if (window.TakeDebugToggle(0)) geoWire = !geoWire;
-        if (window.TakeDebugToggle(1)) collisionWire = !collisionWire;
-        if (window.TakeDebugToggle(2)) nameplates = !nameplates;
-        if (window.TakeDebugToggle(3)) aiDisabled = !aiDisabled;
+        // Taken either way, so a press without -dev is swallowed rather than
+        // queued up and applied the moment dev mode arrives.
+        const bool f1 = window.TakeDebugToggle(0);
+        const bool f2 = window.TakeDebugToggle(1);
+        const bool f3 = window.TakeDebugToggle(2);
+        const bool f4 = window.TakeDebugToggle(3);
+        if (devUI) {
+            if (f1) geoWire = !geoWire;
+            if (f2) collisionWire = !collisionWire;
+            if (f3) nameplates = !nameplates;
+            if (f4) aiDisabled = !aiDisabled;
+        }
         // Applied from the state rather than from the keypress, so that
         // PAINFUL_NOAI takes effect on the first frame - the scripts have to
         // exist before there is a CAiBrain to stub, so it cannot happen at
@@ -655,7 +663,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
             aiApplied = aiDisabled;
             LogInfo("AI %s", aiDisabled ? "disabled" : "enabled");
         }
-        if (window.TakeDebugToggle(5)) devMode = !devMode;
+        if (window.TakeDebugToggle(5) && devUI) devMode = !devMode;
         if (devMode != devApplied) {
             // debugMarek is a plain global the scripts read directly, so
             // setting it is the whole of that half. IsFinalBuild is a native
@@ -1045,8 +1053,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 
         if (hudReady) hud.End();
 
-        // PAINFUL_QUIET drops the overlay, for captures of the menu's top edge.
-        if (!getenv("PAINFUL_QUIET")) {
+        // The overlay is -dev only; PAINFUL_QUIET drops it there too, for
+        // captures of the menu's top edge.
+        if (devUI && !getenv("PAINFUL_QUIET")) {
         renderer.DebugText(1, "PainfulEngine (script-driven)  -  %s  -  %.1f fps",
                            renderer.BackendName().c_str(), dt > 0.f ? 1.f / dt : 0.f);
         renderer.DebugText(2, "%s   map %s   %zu script entities (%zu created, %zu released)",

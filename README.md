@@ -19,7 +19,7 @@ distributed with this project.
 
 ## Why it's being made with AI
 
-The original **PainEngine** is closed source. Therefore the only viable way to recreate this engine and it's trademark feel is decompiling the original engine and reading huge chunks of unreadable decompiled code, in which AI is pretty good at. Ultimately it's just a passion project.
+The original **PainEngine** is closed source. Therefore the only viable way to recreate this engine and its trademark feel is decompiling the original engine and reading huge chunks of unreadable decompiled code, which AI is pretty good at. Ultimately it's just a passion project.
 
 ## Building
 
@@ -100,7 +100,7 @@ API by call count — the work queue. [`CLAUDE.md`](CLAUDE.md) has the conventio
 
 Copyright © 2026 Dmitry Karpukhin.
 
-PainfulEngine is **GPL-3.0-or-later** — see [`LICENSE`](LICENSE).
+Painful Engine is **GPL-3.0-or-later** — see [`LICENSE`](LICENSE).
 
 - Copyleft is deliberate, not a default: anyone may study, change and share
   this, and nobody may take it closed or sell it on.

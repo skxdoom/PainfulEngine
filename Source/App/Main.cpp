@@ -23,6 +23,7 @@ static int Usage() {
     LogInfo("");
     LogInfo("  flags: --shot <file>   capture one frame to a .tga and exit");
     LogInfo("         --exec <lua>    run a Lua chunk once the world is up");
+    LogInfo("         -dev            the debug overlay and the F1-F4 toggles");
     LogInfo("");
     LogInfo("  The level reports and the free-camera viewer are in PainfulTools.");
     return 1;
@@ -40,7 +41,7 @@ static int DefaultRun(const char* exePath) {
     MountRoot(root.c_str());
     // No level: the original's own start. Game:Init(true), the main menu up
     // over an empty world, and the map screen loads whatever is chosen.
-    return GameCmd(root.c_str(), "", exePath, "", nullptr);
+    return GameCmd(root.c_str(), "", exePath, "", nullptr, false);
 }
 
 int main(int argc, char** argv) {
@@ -51,14 +52,19 @@ int main(int argc, char** argv) {
     MountRoot(argv[2]);
     std::string shot;
     const char* exec = nullptr;
-    for (int i = 4; i < argc; ++i) {
+    bool devUI = false;
+    // argv[3] is the level name unless it is a flag: `game <root> -dev` has
+    // no level and boots to the menu.
+    const bool hasLevel = argc >= 4 && argv[3][0] != '-';
+    for (int i = hasLevel ? 4 : 3; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--shot" && i + 1 < argc) shot = argv[++i];
         else if (arg == "--exec" && i + 1 < argc) exec = argv[++i];
+        else if (arg == "-dev" || arg == "--dev") devUI = true;
     }
     // `game <root>` alone boots to the menu like a plain launch; a level name
     // goes straight into it, which is what the probes and the screenshots use.
-    return GameCmd(argv[2], argc >= 4 ? argv[3] : "", argv[0], shot, exec);
+    return GameCmd(argv[2], hasLevel ? argv[3] : "", argv[0], shot, exec, devUI);
 }
 
 #ifdef _WIN32
