@@ -3,14 +3,20 @@
 #   PakArchive  one .pak: directory parse, name de-obfuscation, inflate; PakWriter
 #   FileSystem  the mounted view: archives shadow loose files
 #   AppPaths    finding the game data and the executable's own resources
+#   CrashReport a symbolised stack on a fault, to stderr and a file
 add_library(Core STATIC
   Common.cpp      Common.h
   PakArchive.cpp  PakArchive.h
   FileSystem.cpp  FileSystem.h
   AppPaths.cpp    AppPaths.h
+  CrashReport.cpp CrashReport.h
                   Log.h
 )
 # Source/ is the include root: headers are reached as "../Core/Common.h".
 target_include_directories(Core PUBLIC ${PAINFUL_SOURCE})
+# dbghelp is the symbol lookup and the stack walk behind CrashReport.
 target_link_libraries(Core PRIVATE miniz PUBLIC EngineWarnings)
+if(WIN32)
+  target_link_libraries(Core PRIVATE dbghelp)
+endif()
 painful_layer(Core)

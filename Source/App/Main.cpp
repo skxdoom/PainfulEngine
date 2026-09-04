@@ -8,6 +8,7 @@
 #include "GameApp.h"
 
 #include "Core/AppPaths.h"
+#include "Core/CrashReport.h"
 #include "Core/FileSystem.h"
 #include "Core/Log.h"
 
@@ -43,6 +44,7 @@ static int DefaultRun(const char* exePath) {
 }
 
 int main(int argc, char** argv) {
+    InstallCrashHandler("PainfulEngine");
     if (argc < 2) return DefaultRun(argv[0]);
     if (std::string(argv[1]) != "game" || argc < 3) return Usage();
 

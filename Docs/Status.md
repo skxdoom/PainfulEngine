@@ -20,6 +20,7 @@ Source/
             PakArchive      one .pak: directory parse, name de-obfuscation, inflate
             FileSystem      the mounted view: archives shadow loose files
             AppPaths        finding the game data and the executable's resources
+            CrashReport     a symbolised stack on a fault, to stderr and a file
   Assets/   Mpk             world meshes, materials, per-slot UV transforms
             Dat             item mesh packs (the o.Pack containers)
             Pkmdl           models: geometry, skeleton, skin weights

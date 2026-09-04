@@ -278,7 +278,9 @@ int UsageMarkdown() {
 
 }  // namespace
 
+
 int main(int argc, char** argv) {
+    InstallCrashHandler("PainfulTools");
     if (argc < 2) return Usage();
     const std::string cmd = argv[1];
     if (cmd == "help" || cmd == "--help" || cmd == "-h")

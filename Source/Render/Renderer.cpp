@@ -109,10 +109,6 @@ bool Renderer::Init(Window& window) {
         LogWarn("bgfx::init failed");
         return false;
     }
-    // Which backend answered, so a bug report says so without being asked. The
-    // shaders are embedded per backend, and this names the set in use.
-    LogInfo("renderer: %s", bgfx::getRendererName(bgfx::getRendererType()));
-
     width_ = window.width();
     height_ = window.height();
     initialised_ = true;

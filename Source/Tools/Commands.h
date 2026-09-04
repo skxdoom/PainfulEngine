@@ -21,6 +21,7 @@
 #include "Assets/Waypoints.h"
 #include "Audio/AudioEngine.h"
 #include "Core/AppPaths.h"
+#include "Core/CrashReport.h"
 #include "Core/FileSystem.h"
 #include "Core/Log.h"
 #include "Game/PlayerPawn.h"
