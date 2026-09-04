@@ -2,6 +2,8 @@
 #include "../World/PhysicsWorld.h"
 #include "Input.h"
 
+#include <cmath>
+
 namespace painful {
 
 // The player's locomotion, rebuilt from the engine's own mover:
@@ -65,6 +67,8 @@ public:
         out[2] = head_[2];
     }
     bool onGround() const { return onGround_; }
+    // The body's widest half-width, for the region overlap in TickTriggers.
+    static constexpr float radius() { return kRadius; }
     // Whether the LAST Move actually performed a jump. ENTITY.PO_JumpedInLastAction
     // answers with this: CPlayer:Tick plays hero_jump on it, and inferring it
     // from "left the ground" made every stair play the sound.
@@ -75,6 +79,25 @@ public:
     // ENTITY.GetVelocity reports for the player.
     void Velocity(float out[3]) const {
         for (int c = 0; c < 3; ++c) out[c] = velocity_[c];
+    }
+
+    // ENTITY.SetVelocity on the player, which is a jump pad or a knockback.
+    // It has to reach the mover's own state - writing the entity store only
+    // fed the reader - so it takes off the way a jump does: vertical into
+    // velY_, horizontal into the air direction and speed the air branch
+    // steers with. jumpedThisMove_ stays false: a pad is not an input jump,
+    // and the scripts' jump sound hangs off that.
+    void SetVelocity(const float v[3]) {
+        velY_ = v[1];
+        const float h = std::sqrt(v[0] * v[0] + v[2] * v[2]);
+        speed_ = h;
+        airDir_[0] = h > 1e-4f ? v[0] / h : 0.f;
+        airDir_[1] = h > 1e-4f ? v[2] / h : 0.f;
+        takeoffMask_ = 0;   // the pad chose the direction, not held keys
+        if (v[1] > 0.f) {
+            onGround_ = false;
+            groundedTime_ = 0.f;
+        }
     }
 
     // The engine's own landing test, and the only authority for it.

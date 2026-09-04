@@ -283,6 +283,20 @@ Level triggers come in two shapes, and both work:
   `ScriptEngine::TickTriggers` posts **`REGION_ENTERED(region, enterer)`** /
   `REGION_LEFT` into `Game_GetMsg` on the transitions - `OnEnter` fires,
   which is teleports and checkpoints.
+
+  **Entry is a body overlap, not a point.** The engine builds these through
+  `PhysicsWorld::CreateRegionFromPoints`, so a region is a physics volume and
+  the player enters it by *touching* it. `TickTriggers` tests the pawn's
+  extent - feet to head, widened by its radius - against the region's AABB.
+
+  A single point at `feet + 1` (the script-side `CBox:IsInside(PX, PY+1, PZ)`
+  convention) is the wrong model, and the jump pads are what proved it.
+  `JumpPad:OnCreateEntity` sizes its region from the pad model and centres it
+  `0.8` above the pad, so on DM_Cursed it spans `-13.688 .. -11.409`; a player
+  standing on the pad has feet at `-12.397`, putting `feet + 1` at `-11.397`.
+  It missed the volume by **12 millimetres**, and every jump pad in the game
+  was inert. The pad's own dimensions were never the problem - they measure
+  correctly at load.
 - The pawn posts **`PLAYER_HIT_GROUND(player, fallSpeed)`** on landings
   above the engine's threshold of 20 - fall damage is script-side
   (`OnHitGround`).

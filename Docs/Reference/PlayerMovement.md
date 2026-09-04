@@ -230,6 +230,26 @@ plays `hero_jump_1/2` on it, which is where the sound on a stair came from.
 Measured: walking into an obstacle for 460 frames reports 0 jump frames, an
 actual jump reports 1.
 
+## `ENTITY.SetVelocity` on the player is a launch, not a store
+
+The player has no script physics body — it is the pawn — so the native needs
+the same special case `GetVelocity` already had. Writing `Entity::velocity`
+alone put the value where only the reader could see it, and the mover carried
+on as if nothing had happened.
+
+`PlayerPawn::SetVelocity` takes off the way a jump does: the vertical
+component into `velY_`, the horizontal into `airDir_`/`speed_` for the air
+branch to steer with, `takeoffMask_` cleared (the launcher chose the
+direction, not held keys), and `onGround_` released when the launch is
+upward. `jumpedThisMove_` deliberately stays false — a pad is not an input
+jump, and the scripts hang `hero_jump` off that flag.
+
+This is the whole of `JumpPad:OnEnter`, which sets `JumpStrength / 45` as the
+vertical velocity. DM_Cursed's first pad declares `1800`, so 40 m/s — an
+apex around 40 m at gravity 19.62, against 5.6 m/s and 0.8 m for a standing
+jump. The arithmetic is the shipped script's own; whether the original felt
+that high is untested here.
+
 ## What the player collides with
 
 `Tweak.PlayerMove.MaximalItemPushMass` (2500) is the line between what can be

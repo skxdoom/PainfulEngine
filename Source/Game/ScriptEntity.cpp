@@ -720,10 +720,19 @@ int ScriptEngine::L_GetVelocity(lua_State* L) {
 // the rocket jump lifts the player.
 int ScriptEngine::L_SetVelocity(lua_State* L) {
     ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
+    const int handle = HandleArg(L, 1);
+    float v[3];
+    for (int c = 0; c < 3; ++c) v[c] = float(luaL_optnumber(L, c + 2, 0));
+    // The player is the pawn, not a script body, so it needs the same special
+    // case GetVelocity has - JumpPad:OnEnter is nothing but this call, and
+    // writing the entity store alone left the pad inert.
+    if (self->pawn_ && handle == self->playerHandle_ && self->playerHandle_) {
+        self->pawn_->SetVelocity(v);
+        return 0;
+    }
+    Entity* e = self->Find(handle);
     if (!e) return 0;
-    for (int c = 0; c < 3; ++c)
-        e->velocity[c] = float(luaL_optnumber(L, c + 2, 0));
+    for (int c = 0; c < 3; ++c) e->velocity[c] = v[c];
     if (self->physics_ && e->physicsBody >= 0)
         self->physics_->SetScriptBodyVelocity(e->physicsBody, e->velocity);
     return 0;

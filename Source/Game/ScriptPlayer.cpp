@@ -315,23 +315,29 @@ void ScriptEngine::TickTriggers() {
     const Entity* player = Find(playerHandle_);
     if (!player) return;
 
-    // The test point follows the scripts' own convention: a metre above the
-    // feet, the same PY+1 every IsInside caller uses.
-    float at[3];
+    // A region is a PHYSICS volume - PhysicsWorld::CreateRegionFromPoints - so
+    // entry is the player's BODY overlapping it, not a point inside it. The
+    // pawn's extent stands in for the real overlap: feet to head, widened by
+    // its radius. Docs/Reference/LuaHost.md, "Triggers and events"
+    float lo[3], hi[3];
     if (pawn_) {
-        pawn_->FloorPos(at);
+        float feet[3];
+        pawn_->FloorPos(feet);
+        const float r = pawn_->radius();
+        lo[0] = feet[0] - r; hi[0] = feet[0] + r;
+        lo[1] = feet[1];     hi[1] = pawn_->headPos()[1];
+        lo[2] = feet[2] - r; hi[2] = feet[2] + r;
     } else {
-        for (int i = 0; i < 3; ++i) at[i] = player->pos[i];
+        for (int i = 0; i < 3; ++i) lo[i] = hi[i] = player->pos[i];
     }
-    at[1] += 1.f;
 
     for (auto& kv : entities_) {
         Entity& e = kv.second;
         if (!e.isRegion) continue;
         bool inside = true;
         for (int a = 0; a < 3 && inside; ++a)
-            inside = at[a] >= e.pos[a] + e.regionMin[a] &&
-                     at[a] <= e.pos[a] + e.regionMax[a];
+            inside = hi[a] >= e.pos[a] + e.regionMin[a] &&
+                     lo[a] <= e.pos[a] + e.regionMax[a];
         if (inside == e.playerInside) continue;
         e.playerInside = inside;
         const double args[2] = {double(kv.first), double(playerHandle_)};
