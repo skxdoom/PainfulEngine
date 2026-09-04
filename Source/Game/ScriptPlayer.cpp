@@ -2,6 +2,8 @@
 
 #include "ScriptEngineInternal.h"
 
+#include <algorithm>
+
 namespace painful {
 
 // ---------------------------------------------------------------- player
@@ -184,21 +186,53 @@ int ScriptEngine::L_GetDimensions(lua_State* L) {
 // PLAYER.GetDistanceFromPoint(e, x, y, z) - the pickup poll: every CItem
 // measures the player's distance against its takeDistance each tick, and
 // OnTake fires inside that radius.
+// PLAYER.GetDistanceFromPoint(e, x,y,z) - TO THE BODY'S AXIS, NOT ITS CENTRE.
+//
+// PhysicsObject::GetDistanceFromPoint (0x1018CF70) holds a second point at
+// PhysicsObject+0x5c, projects the query onto the segment between it and the
+// body position, clamps to the ends and measures to that. For the player the
+// segment is the body axis, feet to head.
+//
+// A single point cannot stand in for it. CItem:CheckDistFromPlayers asks about
+// self.Pos.Y - 1, so a coin lying on the floor asks about a point 0.9 BELOW
+// the floor: against the segment the nearest end is the feet, 0.9 away and
+// inside CoinG's takeDistance of 1.6; against a centre at +0.9 it is 1.8 away
+// and no coin in the game could ever be picked up.
+//
+// The engine answers 1e7 for a handle that is not a live player - "infinitely
+// far", so every distance test fails rather than passing on a zero.
 int ScriptEngine::L_PLAYER_GetDistanceFromPoint(lua_State* L) {
     ScriptEngine* self = From(L);
-    float from[3] = {0, 0, 0};
+    const float to[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+                         float(luaL_optnumber(L, 4, 0))};
+    float a[3], b[3];
     if (self->pawn_ && HandleArg(L, 1) == self->playerHandle_) {
-        // The pawn's body centre - between the head and the feet, which is
-        // what the item's own Pos.Y-1 adjustment expects to measure against.
-        self->pawn_->FloorPos(from);
-        from[1] += 0.9f;
+        self->pawn_->FloorPos(a);
+        const float* head = self->pawn_->headPos();
+        for (int c = 0; c < 3; ++c) b[c] = head[c];
     } else if (const Entity* e = self->Find(HandleArg(L, 1))) {
-        for (int i = 0; i < 3; ++i) from[i] = e->pos[i];
+        for (int c = 0; c < 3; ++c) a[c] = b[c] = e->pos[c];
+    } else {
+        lua_pushnumber(L, 1e7);
+        return 1;
     }
-    const float dx = from[0] - float(luaL_optnumber(L, 2, 0));
-    const float dy = from[1] - float(luaL_optnumber(L, 3, 0));
-    const float dz = from[2] - float(luaL_optnumber(L, 4, 0));
-    lua_pushnumber(L, std::sqrt(dx * dx + dy * dy + dz * dz));
+
+    // Nearest point on the segment a..b, then the distance to it.
+    float seg[3], rel[3];
+    float len2 = 0.f, dot = 0.f;
+    for (int c = 0; c < 3; ++c) {
+        seg[c] = b[c] - a[c];
+        rel[c] = to[c] - a[c];
+        len2 += seg[c] * seg[c];
+        dot += rel[c] * seg[c];
+    }
+    const float t = len2 > 1e-8f ? std::min(1.f, std::max(0.f, dot / len2)) : 0.f;
+    float d2 = 0.f;
+    for (int c = 0; c < 3; ++c) {
+        const float k = to[c] - (a[c] + seg[c] * t);
+        d2 += k * k;
+    }
+    lua_pushnumber(L, std::sqrt(d2));
     return 1;
 }
 

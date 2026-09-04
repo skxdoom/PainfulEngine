@@ -285,6 +285,26 @@ That is the semi-implicit step, not an error: velocity is decremented before
 the move, so the rise is `dt·Σ(v₀ − i·g·dt)` over the 17 rising steps, which
 is 0.753 exactly.
 
+## Reach is measured to the body's AXIS — `PLAYER.GetDistanceFromPoint`
+
+The native (`0x101393F0`, found through the `{name, fn}` table in `.rdata` at
+`0x102C2680` — Ghidra finds no code reference to the name string) forwards to
+`PhysicsObject::GetDistanceFromPoint` (`0x1018CF70`), and that is **not a
+point-to-point distance**. It holds a second point at `PhysicsObject+0x5c`,
+projects the query onto the segment between it and the body position, clamps
+to the ends, and measures to the nearest point on it. For the player that
+segment is the body axis, feet to head. A handle that is not a live player
+answers `1e7` — infinitely far, so every distance test fails rather than
+passing on a zero.
+
+That matters because `CItem:CheckDistFromPlayers` asks about
+`self.Pos.Y - 1`, so an item lying on the floor asks about a point 0.9 BELOW
+it. Against the segment the nearest end is the feet, 0.9 away, inside
+`CoinG.takeDistance` of 1.6. Measured from a single point at the body centre
+it is 1.8 away — and **no coin in the game can be picked up, from anywhere**,
+which is exactly what the port did. Every item is reached more easily now;
+the `-1` is there to meet a floor-level pickup, not to raise the bar.
+
 ## Not yet ported
 
 Ice, ladders, moving platforms, underwater (`UnderwaterSpeed` family),
