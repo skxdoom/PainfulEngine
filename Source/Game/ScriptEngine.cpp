@@ -194,5 +194,20 @@ void ScriptEngine::FlushToRenderer() {
     for (auto& kv : entities_) CreateRendererInstance(kv.second);
 }
 
+// PainMenu::PauseSounds (0x1004f730) resumes any set it still holds, takes a
+// fresh one, and keeps the token on the menu.
+// Docs/Reference/Sound.md, "Pausing"
+void ScriptEngine::SetGamePaused(bool p) {
+    if (p == gamePaused_) return;
+    gamePaused_ = p;
+    if (!audio_) return;
+    if (p) {
+        soundPauseToken_ = audio_->PauseCurrentlyPlaying();
+    } else if (soundPauseToken_) {
+        audio_->ResumeSounds(soundPauseToken_);
+        soundPauseToken_ = 0;
+    }
+}
+
 
 }  // namespace painful

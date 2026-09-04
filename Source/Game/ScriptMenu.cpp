@@ -415,7 +415,7 @@ int ScriptEngine::L_PMENU_LaunchURL(lua_State* L) {
 // engine owns the pause - the scripts only ask (PainKiller.lua guards its
 // tick on it). The menu sets it on the way in and clears it on the way out.
 int ScriptEngine::L_WORLD_SetGamePaused(lua_State* L) {
-    From(L)->gamePaused_ = lua_isnoneornil(L, 1) ? true : (lua_toboolean(L, 1) != 0);
+    From(L)->SetGamePaused(lua_isnoneornil(L, 1) ? true : (lua_toboolean(L, 1) != 0));
     return 0;
 }
 

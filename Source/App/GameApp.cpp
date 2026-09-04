@@ -754,7 +754,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
         // physics step, no animation. Rendering and the render callbacks carry
         // on below, so the HUD still draws behind the menu and the world stays
         // on screen rather than going black.
-        if (!engine.gamePaused()) audio.Advance(dt);
+        // The voice policy clock runs while paused - freezing it queued the
+        // menu's hover sounds instead of dropping the late ones.
+        // Docs/Reference/Sound.md, "Virtual voices"
+        audio.Advance(dt);
         audio.Update();
         if (!engine.gamePaused()) {
             engine.TickAnimations(dt);

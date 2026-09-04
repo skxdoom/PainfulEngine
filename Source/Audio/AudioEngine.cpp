@@ -468,6 +468,33 @@ void AudioEngine::Pause(Voice v, bool paused) {
     p.paused = paused;
 }
 
+int AudioEngine::PauseCurrentlyPlaying() {
+    std::lock_guard<std::mutex> guard(lock_);
+    std::vector<Voice> set;
+    for (size_t i = 0; i < voices_.size(); ++i) {
+        Playing& p = voices_[i];
+        // Already paused stays out of the set: a script paused it, and this
+        // resume is not the one that should undo that.
+        if (!p.used || !p.playing || p.paused) continue;
+        p.paused = true;
+        set.push_back(MakeHandle(i, p.generation));
+    }
+    const int token = nextPauseToken_++;
+    pauseSets_[token] = std::move(set);
+    return token;
+}
+
+void AudioEngine::ResumeSounds(int token) {
+    std::lock_guard<std::mutex> guard(lock_);
+    auto it = pauseSets_.find(token);
+    if (it == pauseSets_.end()) return;
+    // Resolve rejects a handle whose slot has since been reused, so a voice
+    // that ended and was recycled while paused is simply skipped.
+    for (Voice v : it->second)
+        if (Playing* p = Resolve(v)) p->paused = false;
+    pauseSets_.erase(it);
+}
+
 void AudioEngine::SetVolume(Voice v, float volume) {
     PAINFUL_VOICE(v)
     p.volume = volume;

@@ -77,11 +77,17 @@ public:
 
     // Recomputes every positional voice's gains and reaps finished ones. Called
     // once a frame so the mixing callback stays a memcpy-and-add.
-    // The clock the voice policy runs on: game time, advanced by the frame
-    // loop, so a paused game does not age its start intervals and a headless
-    // run that outpaces real time still spaces starts by simulated frames.
+    // The clock the voice policy runs on. Real time, and it keeps running
+    // while the game is paused - freezing it made the menu's hover sounds
+    // queue up instead of dropping the late ones. Docs/Reference/Sound.md
     void Advance(float dt) { clockMs_ += double(dt) * 1000.0; }
     void Update();
+
+    // What the menu does: pause everything audible right now and keep the
+    // token, then resume exactly that set. Sounds started after the pause -
+    // the menu's own clicks - are untouched. PainMenu::PauseSounds 0x1004f730
+    int PauseCurrentlyPlaying();
+    void ResumeSounds(int token);
 
     void SetMasterVolume(float v) { masterVolume_ = v; }
 
@@ -168,6 +174,11 @@ private:
     std::unordered_map<std::string, Sample> cache_;
     std::vector<Playing> voices_;
     mutable std::mutex lock_;      // guards voices_; the callback holds it briefly
+
+    // One entry per outstanding PauseCurrentlyPlaying, so nested pauses each
+    // resume only what they took.
+    std::unordered_map<int, std::vector<Voice>> pauseSets_;
+    int nextPauseToken_ = 1;
     std::vector<float> scratch_;
 
     float listener_[3] = {0, 0, 0};

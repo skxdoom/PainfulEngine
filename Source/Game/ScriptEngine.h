@@ -423,7 +423,7 @@ public:
         hud_ = hud;
         hudTextures_ = textures;
         menu_.Attach(hud, textures);
-        menu_.SetPauseHandler([this](bool p) { gamePaused_ = p; });
+        menu_.SetPauseHandler([this](bool p) { SetGamePaused(p); });
     }
 
     // Headless: the texture index alone, with no renderer behind it. The
@@ -446,7 +446,9 @@ public:
     // loop sets the global debugMarek alongside it.
     void SetDevMode(bool on) { devMode_ = on; }
     bool devMode() const { return devMode_; }
-    void SetGamePaused(bool p) { gamePaused_ = p; }
+    // Pausing also silences what is audible, and unpausing brings back exactly
+    // that set - the menu's own sounds keep playing. See ScriptEngine.cpp.
+    void SetGamePaused(bool p);
     // The screen size the scripts read back from R3D.ScreenSize, and the size
     // the font scale is measured against.
     void SetScreenSize(int w, int h) { screenW_ = w; screenH_ = h; }
@@ -1182,6 +1184,7 @@ private:
     // World object at +0x10. No shipped script ever calls SetGamePaused, so
     // the engine is what writes it - which is why the menu owns it here.
     bool gamePaused_ = false;
+    int soundPauseToken_ = 0;   // the set SetGamePaused(true) silenced
     bool devMode_ = false;
     // 1024x768 is what the shipped interface was authored at and what
     // HUD::SetFont measures its scale against. Until a window says otherwise

@@ -141,6 +141,40 @@ frame 1800 | 3 playing, 282 started, 143 reaped, 0 missing
 Started climbs, reaped tracks it, held stays flat. **0 missing** across every
 sample the game has named so far.
 
+## Pausing: the menu takes a token, it does not stop everything
+
+`PainMenu::PauseSounds` (0x1004f730) is the whole rule:
+
+```c
+if ((*(int *)(this + 0x3a8) != -1) && (*(MilesEngine **)(GEngine + 0xd8) != 0))
+    MilesEngine::ResumeSounds(*(MilesEngine **)(GEngine + 0xd8), *(int *)(this + 0x3a8));
+iVar1 = (GEngine + 0xd8 == 0) ? -1 : MilesEngine::PauseCurrentlyPlayingSounds(...);
+*(int *)(this + 0x3a8) = iVar1;      // the token lives on the menu
+```
+
+It resumes whatever set it is still holding, pauses everything **currently
+playing**, and keeps the token naming that set (`PainMenu+0x3a8`, -1 when it
+holds none). `PainMenu::ResumeSounds` is 0x1004f7c0;
+`MilesEngine::PauseCurrentlyPlayingSounds` is 0x101f4df0 and
+`MilesEngine::ResumeSounds` 0x101f5270. A separate pair exists for saving,
+`SaveGame_PauseSounds` / `SaveGame_ResumeSounds` (0x101f54f0 / 0x101f5500),
+which is why a token is kept rather than a single flag.
+
+Two consequences, and both match what the game does:
+
+- Sounds started *after* the pause are unaffected. The menu's own hover and
+  click sounds are started after it, so they stay audible; a global mute would
+  have silenced the menu too.
+- Resume only touches the captured set. A sound a script had already paused
+  itself stays paused, and a voice that ended while the menu was up is not
+  resurrected.
+
+The port mirrors this. `AudioEngine::PauseCurrentlyPlaying()` returns a token
+and `ResumeSounds(token)` restores that set, both driven from
+`ScriptEngine::SetGamePaused` - the one place the pause flag changes, so the
+menu handler and `WORLD.SetGamePaused` cannot drift apart. Voices already
+paused are left out of the set, for the reason above.
+
 ## Design
 
 One device stream at 44.1 kHz stereo float, mixed here rather than by SDL - SDL
@@ -293,6 +327,16 @@ moment, and that set is recomputed every tick:
 - A waiting sound is still "playing" to the scripts. A loop waits as long as
   it takes; a one-shot that waits past its own length just ends
   (0x101ee6e0). A demoted sound keeps its offset and resumes from there.
+- **The policy clock is REAL time and runs while the game is paused.** Both
+  rules above are clocked: a file's minimum start gap, and the length a waiting
+  one-shot outlives. Freezing that clock with the simulation stops both, and a
+  menu is exactly where it shows — the Options plates play a hover sound each,
+  and with `now` stuck no waiting one-shot ever expires and the gap never
+  elapses, so each hover is promoted only as the previous real voice ends. The
+  result is the hovers queueing up and playing back in the order they were
+  entered, one after another, instead of the later ones being dropped. Pause
+  freezes the SIMULATION; `MilesEngine::Tick` is not part of it.
+
 - **`Sound3D_Stop` does not free the record**; only `Sound3D_Delete` does.
   `FlameThrowerGas` creates one fire loop per burning patch, stops it on
   release and never deletes it - a leak the original has too, ten records a
