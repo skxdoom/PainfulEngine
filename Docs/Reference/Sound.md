@@ -326,7 +326,52 @@ moment, and that set is recomputed every tick:
   waiting sound while the pool has room.
 - A waiting sound is still "playing" to the scripts. A loop waits as long as
   it takes; a one-shot that waits past its own length just ends
-  (0x101ee6e0). A demoted sound keeps its offset and resumes from there.
+  (0x101ee6e0).
+- **A promoted sound starts where it would be by now, not from the top.**
+  `Start3DSample` (inner `FUN_101eed10`) and `Start2DSample` (inner
+  `FUN_101ed410`) seek the sample to `(now - startTick) mod length` and cut
+  the loop count by the passes already elapsed. So a sound that waited 80 ms
+  for a voice plays its last part only, and every instance of a burst ends
+  exactly when it would have had it been heard - nothing plays late.
+
+### The 2D path is a different policy
+
+Sources: `Miles2DSound::Play` (`FUN_101ed720`), `TryToPlayRealSound2D`
+0x101f44d0, `Find2DSoundToStart` 0x101f0e40, `Find2DSoundToStop`
+0x101f0b70, `GetLongestPlaying2DSoundForFile` 0x101f0bf0, `Start2DSample`
+0x101f4030, `Release2DSample` 0x101f42d0, `StopFinishedSounds` 0x101f4640.
+`Miles2DSound` layout: +0 flags (1 forget, 2 playing, 4 privileged, 8 same
+speed in bullet time), +8 priority, +0xc handle or -1, +0x14 file, +0x18
+loop count, +0x1c start tick, +0x20 expected length ms (-1 for a loop).
+
+`SOUND.Play2D` is `Sound2D_Create` + `Sound2D_PlayAndForget`, and `Play`
+calls `TryToPlayRealSound2D` once, right then:
+
+- The file's start gap is measured from the file's last START (`+0x3c`),
+  whether or not that instance is still audible. Inside the gap the sound
+  is left waiting.
+- Under the file's cap it takes a fresh handle. If Miles's 2D pool is
+  exhausted it takes the handle of the lowest-priority, OLDEST 2D sound
+  (`Find2DSoundToStop`), provided that one started earlier than the newcomer.
+- **At the file's cap it takes the handle of the file's OLDEST 2D instance**
+  (`GetLongestPlaying2DSoundForFile`), again if that one started earlier.
+  There is no score for a 2D sound and no 0.1 margin: the newest hover cuts
+  the oldest hover. A file whose real instances are all 3D yields no victim,
+  and the 2D newcomer waits.
+- Nothing retries a waiting 2D sound each tick - `Tick` only advances 2D
+  fades. It is promoted when a real 2D sample finishes or is stopped:
+  `StopFinishedSounds` hands the freed handle to `Find2DSoundToStart`, the
+  highest-priority, NEWEST waiting sound whose file is under its cap and which
+  still wants to play (`FUN_101ecfe0`: a one-shot within its own length).
+  That start is at the elapsed offset, as above.
+
+Together these bound a burst - the Options plates hovered in a sweep, the
+Painkiller blade held against a wall (`CObject:Snd2D`, one `Play2D` per tick)
+- to one sample length after the last request, with later requests trimming
+earlier instances instead of stacking behind them. The port had the cap rule
+score-based for 2D (never steals), promoted from sample offset 0 and retried
+the gap every frame, which is what made each hover play in full, one after
+another, after the pointer had stopped.
 - **The policy clock is REAL time and runs while the game is paused.** Both
   rules above are clocked: a file's minimum start gap, and the length a waiting
   one-shot outlives. Freezing that clock with the simulation stops both, and a
@@ -347,10 +392,14 @@ the ones being mixed, `TryToPlayReal` / `Demote` / `Update` are the three
 routines above, per-file properties live on the `Sample`, and the handle
 table grows instead of refusing (a stopped held record costs nothing to mix).
 The mixer's global budget is 64 real voices - the original's startup log
-reports Miles at `DIG_MIXER_CHANNELS: 64`. Two approximations, both marked in
-the code: 2D sounds always win (the original ranks them separately in
-`TryToPlayRealSound2D`, not recovered), and the priority byte is not carried
-(no shipped script passes one).
+reports Miles at `DIG_MIXER_CHANNELS: 64`. Three approximations, marked in the
+code: at the MIXER cap a 2D sound always wins (Miles keeps separate 2D and 3D
+sample pools, the port has one mixer, so a 2D newcomer takes the weakest 3D
+voice rather than the oldest 2D one); a waiting 2D sound is retried every frame
+through the start gap rather than only when a 2D sample ends (it starts at the
+elapsed offset either way, so the difference is where in a burst the fragments
+fall, not how long it lasts); and the priority byte is not carried (no shipped
+script passes one).
 
 Why this matters in play: the flamethrower drops a burning patch every 0.1 s
 and each starts its own `barrel-wood-fire-loop`; forty of them at random
@@ -363,3 +412,14 @@ properties six play and the rest wait their turn.
 `audio_` is null, every SOUND native is a silent no-op, and the mixer cannot be
 measured at all - which is why this went unnoticed: the report never exercised
 the sound path.
+
+The policy runs on the simulated clock (`Advance(1/60)` per frame) while the
+mixer runs on the device clock, and a headless run outpaces the wall clock a
+hundredfold - so a report that only counts `real` voices at its end sees them
+still mixing however long ago the clock says they started. `PAINFUL_REALTIME=1`
+paces the loop at 60 Hz wall time, which is what a question about when a sound
+ENDS needs. The hover-burst check that caught the queue: hook `Game_Tick` from
+the exec chunk, `SOUND.Play2D("menu/menu/option-light-on", 100, false, true)`
+on ticks 10-30, and run 65 frames (583 ms past the last request, the sample is
+514 ms). Correct is no instance of the file left, real or waiting; the
+queueing build still held six real and was promoting the rest.

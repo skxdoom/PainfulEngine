@@ -1,6 +1,9 @@
 // The script layer, and the assets it drives: animation, sound, waypoints.
 #include "Commands.h"
 
+#include <chrono>
+#include <thread>
+
 int LuaCmd(const char* dataRoot, int frames, const char* level,
                   const char* exec) {
     // Unbuffered: this command exists to find out what the scripts did, and a
@@ -42,6 +45,7 @@ int LuaCmd(const char* dataRoot, int frames, const char* level,
     AudioEngine audio;
     if (std::getenv("PAINFUL_AUDIO") && audio.Init(std::string(dataRoot) + "/Sounds"))
         engine.AttachAudio(&audio);
+    const bool realtime = std::getenv("PAINFUL_REALTIME") != nullptr;
     const bool ok = host.Boot();
     if (ok) {
         host.CallGameInit();
@@ -97,6 +101,10 @@ int LuaCmd(const char* dataRoot, int frames, const char* level,
             // wall clock a hundredfold.
             audio.Advance(1.f / 60.f);
             audio.Update();
+            // PAINFUL_REALTIME=1 paces the loop at 60 Hz wall time so the
+            // mixer, which runs on the device clock, keeps up with the policy
+            // clock - the only way to see a voice actually END.
+            if (realtime) std::this_thread::sleep_for(std::chrono::microseconds(16667));
         }
     }
     LogInfo("entities: %zu created, %zu released, %zu live; map \"%s\" scale %.2f",

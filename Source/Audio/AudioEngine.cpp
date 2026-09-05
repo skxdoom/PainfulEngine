@@ -382,27 +382,77 @@ AudioEngine::Playing* AudioEngine::WeakestReal(const Sample* sameFile, float& sc
     return worst;
 }
 
+// The 2D victim: the oldest real instance of the file that is itself 2D.
+// GetLongestPlaying2DSoundForFile (0x101f0bf0) ranks by priority then start
+// tick and looks only at 2D handles, so a file whose instances are all 3D
+// yields nothing and the 2D newcomer waits.
+AudioEngine::Playing* AudioEngine::OldestReal2D(const Sample* sameFile) {
+    Playing* oldest = nullptr;
+    for (Playing& p : voices_) {
+        if (!p.used || !p.real || p.positional || p.sample != sameFile) continue;
+        if (!oldest || p.startedMs < oldest->startedMs) oldest = &p;
+    }
+    return oldest;
+}
+
 void AudioEngine::Demote(Playing& p) {
     if (!p.real) return;
     p.real = false;
     if (p.sample && p.sample->real > 0) --p.sample->real;
 }
 
+// Where a sound stands now, measured from its start: Start2DSample /
+// Start3DSample seek the sample to (now - start) mod length and drop the
+// passes already elapsed (FUN_101ed410, FUN_101eed10). False = it is over.
+bool AudioEngine::Remaining(const Playing& p, uint32_t nowMs, double& cursor,
+                            int& loopsLeft) const {
+    const size_t total = p.sample->pcm.size() / size_t(p.sample->channels);
+    if (total == 0) return false;
+    const double elapsed =
+        double(nowMs - p.startedMs) / 1000.0 * double(rate_) * std::max(p.speed, 1e-3);
+    const double passes = std::floor(elapsed / double(total));
+    loopsLeft = p.loopsLeft;
+    if (p.loopsLeft >= 0) {
+        const int plays = p.loopsLeft > 1 ? p.loopsLeft : 1;
+        if (passes >= double(plays)) return false;
+        loopsLeft = plays - int(passes);
+    }
+    cursor = elapsed - passes * double(total);
+    return true;
+}
+
 void AudioEngine::TryToPlayReal(Playing& p, uint32_t nowMs) {
     if (!p.playing || p.real || !p.sample) return;
     const float score = Score(p);
     if (p.positional && score <= 0.f) return;              // out of range: waits
+    double cursor = 0.0;
+    int loopsLeft = p.loopsLeft;
+    if (!Remaining(p, nowMs, cursor, loopsLeft)) {
+        p.playing = false;                                  // waited itself out
+        return;
+    }
     Sample& file = *p.sample;
     const int maxInstances = file.maxInstances >= 0 ? file.maxInstances : defaultMaxInstances_;
     const int interval = file.minIntervalMs >= 0 ? file.minIntervalMs : defaultIntervalMs_;
-    if (file.real > 0 && nowMs - file.lastStartMs < uint32_t(interval)) return;
+    // The gap is measured from the file's last start whether or not that
+    // instance is still audible (TryToPlayRealSound2D 0x101f44d0, +0x3c/+0x40).
+    if (file.everStarted && nowMs - file.lastStartMs < uint32_t(interval)) return;
 
-    // The file's own cap first, then the mixer's. In both cases a newcomer
-    // takes a voice only from something it clearly outscores.
+    // The file's own cap first, then the mixer's. A 3D newcomer takes a voice
+    // only from something it clearly outscores; a 2D one always displaces the
+    // file's OLDEST 2D instance - the rule that keeps a burst of menu hovers or
+    // Painkiller wall hits from queueing up. Docs/Reference/Sound.md
     if (file.real >= maxInstances) {
-        float weakest = 0.f;
-        Playing* victim = WeakestReal(&file, weakest);
-        if (!victim || !(weakest < score - 0.1f)) return;
+        Playing* victim = nullptr;
+        if (p.positional) {
+            float weakest = 0.f;
+            victim = WeakestReal(&file, weakest);
+            if (victim && !(weakest < score - 0.1f)) victim = nullptr;
+        } else {
+            victim = OldestReal2D(&file);
+            if (victim && !(victim->startedMs < p.startedMs)) victim = nullptr;
+        }
+        if (!victim) return;
         Demote(*victim);
     }
     if (RealCount() >= kMaxPlaying) {
@@ -412,8 +462,11 @@ void AudioEngine::TryToPlayReal(Playing& p, uint32_t nowMs) {
         Demote(*victim);
     }
     p.real = true;
+    p.cursor = cursor;
+    p.loopsLeft = loopsLeft;
     ++file.real;
     file.lastStartMs = nowMs;
+    file.everStarted = true;
 }
 
 void AudioEngine::SetSoundProperties(const std::string& name, int maxInstances,

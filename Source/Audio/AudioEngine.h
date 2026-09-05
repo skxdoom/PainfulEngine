@@ -113,7 +113,8 @@ private:
         int maxInstances = -1;
         int minIntervalMs = -1;
         int real = 0;              // instances holding a real voice now
-        uint32_t lastStartMs = 0;
+        uint32_t lastStartMs = 0;  // MilesLoadedFile +0x3c; the gap is timed from it
+        bool everStarted = false;
     };
 
     struct Playing {
@@ -154,16 +155,20 @@ private:
 
     Voice Open(const std::string& name, bool positional, bool held);
     size_t PlayingCount() const;
-    // The virtual-voice policy (MilesEngine::TryToPlayRealSound, 0x101f43b0,
-    // and Tick, 0x101f49c0): a logical sound gets a real voice when it is in
-    // range, its file's start interval has passed, and either its file and
-    // the mixer have room or it outscores the weakest voice they hold by 0.1.
-    // Score is dist1 / distance for a 3D sound. Callers hold lock_.
+    // The virtual-voice policy (MilesEngine::TryToPlayRealSound 0x101f43b0,
+    // TryToPlayRealSound2D 0x101f44d0, Tick 0x101f49c0): a logical sound gets
+    // a real voice when it is in range, its file's start gap has passed, and
+    // its file and the mixer have room - or it displaces one: a 3D sound the
+    // weakest it outscores by 0.1, a 2D sound the file's oldest 2D instance.
+    // It then plays from where it would be by now, not from the top.
+    // Callers hold lock_.
     void TryToPlayReal(Playing& p, uint32_t nowMs);
     void Demote(Playing& p);
+    bool Remaining(const Playing& p, uint32_t nowMs, double& cursor, int& loopsLeft) const;
     float Score(const Playing& p) const;
     size_t RealCount() const;
     Playing* WeakestReal(const Sample* sameFile, float& score);
+    Playing* OldestReal2D(const Sample* sameFile);
     Sample* Load(const std::string& name);
     void Mix(float* out, int frames);
     void ComputeGains(Playing& p) const;
