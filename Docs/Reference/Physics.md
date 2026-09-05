@@ -840,13 +840,66 @@ rigid bodies at load:
 | `noclip` | never reaches physics at all | `SetupFlags` |
 | `pinned` | starts static; released by a blast, a group activation or a moving neighbour | `AddMesh` |
 | `concave` | a mesh body (type 8) rather than a convex one (type 7) | `AddMesh` |
-| `physdest` | the destructible-piece variant: angular damping 1.8, removed from the entity list | `AddMesh` |
+| `physdest` | a destructible's piece: angular damping 1.8, removed from the entity list until its twin's release ("Destructibles" below) | `AddMesh` |
+| `statdest` | a destructible's intact twin (not `phys`): static body of its own, hidden and removed at release | `AddMesh` |
 | `autodelete` | a deletion timer once released | `AddMesh` |
 | `actgrpNN` | active mesh group NN, `sscanf("actgrp%d")` | `LoadMeshPakFile`, into `WorldMesh+0x7e2` |
 
 Every such object is also an ENTITY in the world (`LoadMeshPakFile` calls
 `AddEntity` on the mesh), which is why they are lit like entities and not
 like the lightmapped world: they carry one UV set and no lightmap.
+
+### Destructibles: a "statdest" twin and its "physdest" pieces
+
+Recovered 2026-09-05 from `AddMesh` (0x1019AA00, both branches),
+`FUN_101BA530` (the post-load pairing pass), the release `FUN_101B5010`,
+`PhysicsWorld::ActiveMeshGroupActivate` = `FUN_101B9AE0`,
+`ActiveMeshGroupEnable` = `FUN_101B2580`, `ActiveMeshGroupStaticMeshEnable`
+= `FUN_101B25D0`, and `Game.lua:1150` (`EXPLODEMESH`).
+
+A destructible is TWO sets of objects that share a name stem:
+
+| name | what it is | at load |
+|---|---|---|
+| `statdest_<stem>shape` | the intact object, static world | `AddMesh` finds its group record, builds a STATIC body for it and a "static twin" record (`FUN_101A6AF0`, entry+0xc) |
+| `physdest_<stem>_<k>shape<n>` | the pieces it breaks into | `AddMesh` builds the dynamic body (angular damping 1.8), then `World::RemoveEntity`: no drawing, no ticking, until released |
+
+The pairing (`FUN_101BA530`) is by NAME: from "statdest" on, "stat" becomes
+"phys" and the first "shape"/"Shape" is cut, so `statdest_actgrp02_b_grob22shape`
+owns every `physdest_actgrp02_b_grob22...`. The matcher that applies that
+prefix is not located; the port gives each piece the LONGEST matching prefix
+(else Enclave's `grob2` takes `grob22`'s), which pairs every piece on Cemetery
+(223 for 22 twins) and Enclave (1523 for 381). What would settle it: the
+function that fills `WorldMesh+0x108/+0x10c` on the statdest mesh.
+
+**The release** (`FUN_101B5010`, one entry) for a statdest entry: disable the
+static twin, `World::RemoveEntity` the intact mesh, then for each piece
+`World::AddEntity` + `MeshesTableToSlotAdd`, zero velocity, release and
+`Activate`, a time-to-live (the group's activation params, else 10-19 s),
+optional collision callbacks by mass and chance, and the blast force if it is
+within range. The scripts get `EXPLODEMESH(actgrp, x, y, z)` -
+`Lev:OnExplodeMesh`, which Cemetery and Opera answer with a sound and a quake.
+For a pinned phys entry the same function is the plain unpin, with
+`EXPLOSION` posted instead.
+
+What calls it: the explosion (0x101B79F0) for every enabled entry within
+range + radius - which is how explosives AND the Giant break graves, its stomp
+being `WORLD.Explosion2` (Giant.lua:1182) - and `ActiveMeshGroupActivate`
+for a whole group (no shipped script calls it). `ActiveMeshGroupEnable(g,
+false)` only clears the "explosions may release" bit; `StaticMeshEnable`
+switches the twin bodies on and off (Alastor's floors, beside
+`WORLD.EnableDrawMeshGroup` for the drawing).
+
+The port: `MapObject::isStaticTwin/isDestructiblePiece/piecePrefix`,
+`PhysicsWorld::CreateStaticTwinBody` (an exact MeshShape, static, out of the
+world body), pieces created dynamic then `SetScriptBodyEnabled(false)` and
+hidden, `ScriptEngine::destructibles_` + `ReleaseDestructible`. Not ported:
+the time-to-live, the collision-callback lottery, `EnableDrawMeshGroup`, and
+saving the released state.
+
+Before this the pieces were ordinary active meshes - visible around the intact
+stone from the start, pushable, and doubled with it - on every level that
+ships destructibles.
 
 ### Drawing them costs GPU handles, and the pool is finite
 

@@ -430,6 +430,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
             world.Upload(*map, textures, MapNameWithoutExtension(info.mapFile), info,
                          &shaderScripts, /*skipActiveMeshes=*/true);
             worldReady = true;
+            engine.SetWorldObjectVisibility(
+                [&world](size_t object, bool visible) { world.SetObjectVisible(object, visible); });
         }
     } else if (!ws.loadRequested) {
         LogWarn("the scripts never asked for a map - is '%s' a level?", levelName.c_str());

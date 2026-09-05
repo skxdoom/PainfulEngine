@@ -35,6 +35,11 @@ public:
                 const LevelInfo& info, ShaderLibrary* shaders = nullptr,
                 bool skipActiveMeshes = false);
 
+    // Hides or shows one map object (by its index in MapMesh::objects). What a
+    // destructible's release does to its intact twin: World::RemoveEntity on
+    // the "statdest" mesh (FUN_101B5010). Docs/Reference/Physics.md
+    void SetObjectVisible(size_t object, bool visible);
+
     // ambient/fogColor are 0-255 as stored in the level file.
     void Draw(bgfx::ViewId view, const Camera& camera, int width, int height,
               const LevelInfo& info, float timeSeconds);
@@ -80,6 +85,8 @@ private:
         bool isWater = false;
         float aabbLo[3], aabbHi[3];      // world-space bounds, for culling
         std::vector<uint16_t> zones;     // every zone the chunk overlaps; empty = always drawn
+        size_t object = 0;               // index into MapMesh::objects
+        bool hidden = false;             // SetObjectVisible(false)
     };
 
     std::vector<Chunk> chunks_;

@@ -462,6 +462,11 @@ public:
     void SetVideoModeHandler(std::function<void(int, int, bool)> handler) {
         setVideoMode_ = std::move(handler);
     }
+    // The world renderer's per-object visibility, for a destructible's intact
+    // twin: hidden when the pieces take over. Headless runs leave it unset.
+    void SetWorldObjectVisibility(std::function<void(size_t, bool)> handler) {
+        worldObjectVisible_ = std::move(handler);
+    }
     // R3D.SetCameraFOV / GetCameraFOV: Cfg.FOV, the HORIZONTAL field of view
     // in degrees (Game:Init applies it; PainMenu:OpenMenu sets 90 for the
     // menu and restores it). The app derives the vertical angle for the
@@ -922,8 +927,17 @@ private:
     static int L_PHYSICS_ActiveMeshGroupStaticMeshEnable(lua_State* L);
     static int L_PHYSICS_ActiveMeshGroupSetActivationParams(lua_State* L);
     // Promotes every "phys" object of the loaded map into a body and an
-    // entity; called from WORLD.LoadMap once the mesh is in.
+    // entity; called from WORLD.LoadMap once the mesh is in. "physdest"
+    // pieces are held out of the world and "statdest" twins get static bodies
+    // of their own, paired by name (MapObject::piecePrefix).
     void CreateActiveMeshes();
+    // The release, FUN_101B5010 for a statdest entry: the twin goes (hidden,
+    // body removed), the pieces come in (visible, dynamic, at rest), and the
+    // scripts get EXPLODEMESH. `blast` is the explosion centre or null.
+    // Docs/Reference/Physics.md, "Destructibles".
+    void ReleaseDestructible(size_t index, const float* blast);
+    // Twin body slots that a blast or a group activation reported.
+    void ReleaseTwins(const std::vector<int>& twinSlots, const float* blast);
     // Level_GetActiveMeshesData(name), the Lua global the ENGINE calls per
     // active mesh; 1 means "use WORLD.Init's ActiveMeshesMassScale".
     float ActiveMeshMassScale(const std::string& objectName);
@@ -1192,6 +1206,18 @@ private:
     int screenW_ = 1024, screenH_ = 768;
     std::vector<std::string> resolutions_;
     std::function<void(int, int, bool)> setVideoMode_;
+    std::function<void(size_t, bool)> worldObjectVisible_;
+    // A destructible: the "statdest" object drawn by the world path with its
+    // own static body, and the "physdest" pieces (entity handles) held out
+    // of the world until a blast or a group activation swaps them in.
+    struct Destructible {
+        size_t object = 0;
+        int twinBody = -1;
+        int group = -1;
+        std::vector<int> pieces;
+        bool released = false;
+    };
+    std::vector<Destructible> destructibles_;
     float cameraFov_ = 90.f;
     // What HUD.SetFont selected. PrintXY overrides it per call, so this is
     // only what GetTextWidth / GetTextHeight measure against.

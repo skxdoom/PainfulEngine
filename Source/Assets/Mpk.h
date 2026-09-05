@@ -74,6 +74,14 @@ struct MapObject {
     // "actgrpNN": the active mesh group, -1 when the name gives none.
     bool isPinned() const { return nameHas("pinned"); }
     int activeGroup() const;
+    // A destructible: "statdest" is the intact static twin, "physdest" its
+    // pieces, held out of the world until a blast or a group activation swaps
+    // them in (AddMesh, the release FUN_101B5010). Docs/Reference/Physics.md
+    bool isStaticTwin() const { return !isActiveMesh() && nameHas("statdest"); }
+    bool isDestructiblePiece() const { return isActiveMesh() && nameHas("physdest"); }
+    // The pieces' name prefix, as FUN_101BA530 derives it: from "statdest"
+    // on, "statdest" -> "phys", the first "shape"/"Shape" removed.
+    std::string piecePrefix() const;
 };
 
 // PainEngine .mpk world mesh.

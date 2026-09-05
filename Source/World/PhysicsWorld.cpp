@@ -525,6 +525,7 @@ struct PhysicsWorld::Impl {
         bool activeMesh = false;
         int activeGroup = -1;
         bool activePinned = false;
+        bool activeTwin = false;          // a "statdest" intact twin: static, host-released
         bool activeEnabled = true;
         bool activeLevelScaled = false;   // Level_GetActiveMeshesData gave != 1
         float activeRadius = 0.f;
@@ -795,7 +796,9 @@ bool PhysicsWorld::BuildStaticWorld(const MapMesh& map, float worldScale,
 
     for (const MapObject& o : map.objects) {
         if (!o.isCollidable()) continue;
-        if (promoteActiveMeshes && o.isActiveMesh()) continue;   // CreateActiveMeshBody's
+        // CreateActiveMeshBody's, and CreateStaticTwinBody's: a destructible's
+        // intact twin is its own static body, so its release can remove it.
+        if (promoteActiveMeshes && (o.isActiveMesh() || o.isStaticTwin())) continue;
         const JPH::uint32 base = static_cast<JPH::uint32>(vertices.size());
         for (size_t v = 0; v < o.vertexCount(); ++v) {
             float p[3], w[3];
@@ -1503,6 +1506,67 @@ int PhysicsWorld::CreateActiveMeshBody(const MapObject& object, float worldScale
     return slot;
 }
 
+// AddMesh's "statdest" branch: the intact twin is fixed geometry of its own,
+// not part of the world body, so the release can take it out. Exact triangles,
+// wound the world's way (see BuildStaticWorld); pieces sit inside it.
+int PhysicsWorld::CreateStaticTwinBody(const MapObject& object, float worldScale, int group,
+                                       float outOrigin[3]) {
+    if (impl_->worldBody.IsInvalid() || object.vertexCount() == 0 || object.indices.size() < 3)
+        return -1;
+    MeshPoints mesh;
+    JPH::VertexList vertices;
+    for (size_t v = 0; v < object.vertexCount(); ++v) {
+        float p[3], w[3];
+        object.position(v, p);
+        object.transform.TransformPoint(p[0], p[1], p[2], w);
+        for (int c = 0; c < 3; ++c) w[c] *= worldScale;
+        mesh.Add(w);
+    }
+    float origin[3];
+    for (int c = 0; c < 3; ++c) origin[c] = (mesh.lo[c] + mesh.hi[c]) * 0.5f;
+    for (JPH::Vec3& p : mesh.points) {
+        p -= JPH::Vec3(origin[0], origin[1], origin[2]);
+        vertices.push_back(JPH::Float3(p.GetX(), p.GetY(), p.GetZ()));
+    }
+    JPH::IndexedTriangleList triangles;
+    for (size_t t = 0; t + 2 < object.indices.size(); t += 3) {
+        const uint32_t a = object.indices[t], b = object.indices[t + 1], c = object.indices[t + 2];
+        if (a >= object.vertexCount() || b >= object.vertexCount() || c >= object.vertexCount())
+            continue;
+        triangles.push_back(JPH::IndexedTriangle(a, c, b, 0));
+    }
+    if (triangles.empty()) return -1;
+    JPH::MeshShapeSettings settings(std::move(vertices), std::move(triangles));
+    settings.Sanitize();
+    settings.SetEmbedded();
+    JPH::ShapeSettings::ShapeResult shape = settings.Create();
+    if (shape.HasError()) return -1;
+
+    JPH::BodyCreationSettings body(shape.Get(), JPH::RVec3(origin[0], origin[1], origin[2]),
+                                   JPH::Quat::sIdentity(), JPH::EMotionType::Static,
+                                   Layers::kNonMoving);
+    body.mFriction = settings_.meshFriction;
+    body.mRestitution = settings_.meshRestitution;
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    const JPH::BodyID id = bodies.CreateAndAddBody(body, JPH::EActivation::DontActivate);
+    if (id.IsInvalid()) return -1;
+    Impl::ScriptBody sb;
+    sb.body = id;
+    sb.radius = mesh.radius();
+    sb.activeMesh = true;
+    sb.activeTwin = true;
+    sb.activeGroup = group;
+    sb.activeRadius = mesh.radius();
+    sb.activeLevelScaled = true;          // no mass to scale
+    impl_->scriptBodies.push_back(sb);
+    for (int c = 0; c < 3; ++c) outOrigin[c] = origin[c];
+    return int(impl_->scriptBodies.size() - 1);
+}
+
+bool PhysicsWorld::IsStaticTwin(int slot) const {
+    return ScriptBodyExists(slot) && impl_->scriptBodies[size_t(slot)].activeTwin;
+}
+
 void PhysicsWorld::ScaleUnscaledActiveMeshes(float massScale) {
     if (massScale == 1.f) return;
     for (Impl::ScriptBody& sb : impl_->scriptBodies) {
@@ -1523,12 +1587,14 @@ bool PhysicsWorld::IsActiveMesh(int slot) const {
     return ScriptBodyExists(slot) && impl_->scriptBodies[size_t(slot)].activeMesh;
 }
 
-void PhysicsWorld::ActivateActiveMeshGroup(int group) {
+void PhysicsWorld::ActivateActiveMeshGroup(int group, std::vector<int>& twinsOut) {
+    twinsOut.clear();
     for (size_t i = 0; i < impl_->scriptBodies.size(); ++i) {
         Impl::ScriptBody& sb = impl_->scriptBodies[i];
-        if (!sb.activeMesh || sb.activeGroup != group) continue;
+        if (!sb.activeMesh || sb.activeGroup != group || sb.body.IsInvalid()) continue;
         sb.activeEnabled = true;
-        if (sb.activePinned) SetScriptBodyPinned(int(i), false);
+        if (sb.activeTwin) twinsOut.push_back(int(i));
+        else if (sb.activePinned) SetScriptBodyPinned(int(i), false);
     }
 }
 
@@ -1543,7 +1609,8 @@ void PhysicsWorld::UnpinActiveMeshesNear(const float centre[3], float range,
     const JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
     for (size_t i = 0; i < impl_->scriptBodies.size(); ++i) {
         const Impl::ScriptBody& sb = impl_->scriptBodies[i];
-        if (!sb.activeMesh || !sb.activePinned || !sb.activeEnabled || sb.body.IsInvalid())
+        if (!sb.activeMesh || !(sb.activePinned || sb.activeTwin) || !sb.activeEnabled ||
+            sb.body.IsInvalid() || !sb.inWorld)
             continue;
         const JPH::RVec3 p = bodies.GetPosition(sb.body);
         const float d = std::sqrt(float((p.GetX() - centre[0]) * (p.GetX() - centre[0]) +
@@ -1551,7 +1618,8 @@ void PhysicsWorld::UnpinActiveMeshesNear(const float centre[3], float range,
                                         (p.GetZ() - centre[2]) * (p.GetZ() - centre[2])));
         if (d < range + sb.activeRadius) out.push_back(int(i));
     }
-    for (int slot : out) SetScriptBodyPinned(slot, false);
+    for (int slot : out)
+        if (!impl_->scriptBodies[size_t(slot)].activeTwin) SetScriptBodyPinned(slot, false);
 }
 
 bool PhysicsWorld::IsScriptBodyPinned(int slot) const {

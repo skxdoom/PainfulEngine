@@ -61,6 +61,11 @@ bool WorldRenderer::Init(const std::string& shaderDir) {
 
 // Drops the LEVEL and keeps the programs: what a level switch wants. Upload
 // sets every other per-level member itself.
+void WorldRenderer::SetObjectVisible(size_t object, bool visible) {
+    for (Chunk& c : chunks_)
+        if (c.object == object) c.hidden = !visible;
+}
+
 void WorldRenderer::Clear() {
     for (Chunk& c : chunks_) {
         if (bgfx::isValid(c.vbo)) bgfx::destroy(c.vbo);
@@ -124,7 +129,8 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
         detailOn_ = true;
     }
 
-    for (const MapObject& o : map.objects) {
+    for (size_t objectIndex = 0; objectIndex < map.objects.size(); ++objectIndex) {
+        const MapObject& o = map.objects[objectIndex];
         const size_t vertexCount = o.vertexCount();
         if (vertexCount == 0 || o.indices.empty()) continue;
         // Portals, antiportals and zone volumes are invisible helper geometry.
@@ -156,6 +162,7 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
         }
 
         Chunk chunk;
+        chunk.object = objectIndex;
         chunk.transform = o.transform;
         // The engine scales the static world by the level's o.Scale at load
         // (WORLD.LoadMap in CLevel.lua). Entities are authored in the scaled
@@ -377,6 +384,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
     }
 
     for (const Chunk& c : chunks_) {
+        if (c.hidden) continue;
         if (visCulling_) {
             // A chunk is culled by the graph only when it overlaps at least
             // one zone and none of them are visible.

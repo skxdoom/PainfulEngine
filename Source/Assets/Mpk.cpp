@@ -19,6 +19,19 @@ bool MapObject::isActiveMesh() const {
     return nameHas("phys") && !nameHas("noclip");
 }
 
+std::string MapObject::piecePrefix() const {
+    // strstr, so case-sensitive like the original: "statdest_x_actgrp02_shape"
+    // -> "physdest_x_actgrp02_", and the pieces are the "physdest" objects
+    // whose names start with that.
+    const size_t at = name.find("statdest");
+    if (at == std::string::npos) return {};
+    std::string s = "phys" + name.substr(at + 4);       // "stat" -> "phys", "dest" stays
+    size_t shape = s.find("Shape");
+    if (shape == std::string::npos) shape = s.find("shape");
+    if (shape != std::string::npos) s.erase(shape, 5);
+    return s;
+}
+
 int MapObject::activeGroup() const {
     // World::LoadMeshPakFile: sscanf(strstr(name, "actgrp"), "actgrp%d", &g).
     const size_t at = name.find("actgrp");

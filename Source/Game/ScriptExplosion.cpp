@@ -86,6 +86,9 @@ void ScriptEngine::Explosion(const float centre[3], float strength, float range,
     if (physics_) {
         static std::vector<int> released;
         physics_->UnpinActiveMeshesNear(centre, range, released);
+        // A destructible's twin in range is swapped for its pieces before the
+        // impulse loop, so they take the blast like the original's do.
+        ReleaseTwins(released, centre);
     }
     std::vector<float> parts;
     for (auto& kv : entities_) {

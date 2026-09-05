@@ -68,7 +68,9 @@ float ScriptEngine::ActiveMeshMassScale(const std::string& objectName) {
 
 void ScriptEngine::CreateActiveMeshes() {
     if (!physics_ || !mapLoaded_) return;
-    size_t made = 0, pinned = 0;
+    destructibles_.clear();
+    size_t made = 0, pinned = 0, held = 0;
+    std::vector<std::pair<size_t, int>> pieces;   // (object, handle) of every "physdest"
     for (size_t i = 0; i < map_.objects.size(); ++i) {
         const MapObject& o = map_.objects[i];
         if (!o.isActiveMesh() || o.vertexCount() == 0) continue;
@@ -87,6 +89,10 @@ void ScriptEngine::CreateActiveMeshes() {
         e.physicsBody = slot;
         e.collisionGroup = 3;   // AddMesh creates every one in group 3
         for (int c = 0; c < 3; ++c) e.pos[c] = e.activeOrigin[c] = origin[c];
+        // A piece waits for its twin's release: out of the simulation and
+        // unseen (AddMesh's physdest branch ends in World::RemoveEntity).
+        const bool piece = o.isDestructiblePiece();
+        if (piece) e.visible = false;
         const int handle = nextHandle_++;
         entities_.emplace(handle, e);
         bodyToEntity_[slot] = handle;
@@ -94,13 +100,95 @@ void ScriptEngine::CreateActiveMeshes() {
         ++made;
         if (o.isPinned()) ++pinned;
         CreateRendererInstance(entities_[handle]);
+        if (piece) {
+            physics_->SetScriptBodyEnabled(slot, false);
+            if (renderer_ && entities_[handle].rendererInstance >= 0)
+                renderer_->SetScriptVisible(entities_[handle].rendererInstance, false);
+            pieces.emplace_back(i, handle);
+            ++held;
+        }
     }
-    if (made) LogInfo("active meshes: %zu bodies, %zu pinned", made, pinned);
+    // The intact twins, paired with their pieces by name (FUN_101BA530's
+    // prefix). Each piece goes to the LONGEST matching prefix: Enclave's
+    // grob2 would otherwise take grob22's pieces. ASSUMED - the original's
+    // matcher is not located yet. Docs/Reference/Physics.md, "Destructibles".
+    std::vector<std::string> prefixes;
+    for (size_t i = 0; i < map_.objects.size(); ++i) {
+        const MapObject& o = map_.objects[i];
+        if (!o.isStaticTwin() || o.vertexCount() == 0) continue;
+        Destructible d;
+        d.object = i;
+        d.group = o.activeGroup();
+        float origin[3];
+        d.twinBody = physics_->CreateStaticTwinBody(o, world_.scale, d.group, origin);
+        if (d.twinBody < 0) continue;
+        destructibles_.push_back(std::move(d));
+        prefixes.push_back(o.piecePrefix());
+    }
+    size_t orphans = 0;
+    for (const auto& p : pieces) {
+        const std::string& name = map_.objects[p.first].name;
+        size_t best = SIZE_MAX, bestLen = 0;
+        for (size_t k = 0; k < prefixes.size(); ++k) {
+            const std::string& pre = prefixes[k];
+            if (pre.empty() || pre.size() <= bestLen) continue;
+            if (name.compare(0, pre.size(), pre) == 0) { best = k; bestLen = pre.size(); }
+        }
+        if (best == SIZE_MAX) ++orphans;
+        else destructibles_[best].pieces.push_back(p.second);
+    }
+    if (made)
+        LogInfo("active meshes: %zu bodies, %zu pinned, %zu pieces held for %zu destructibles"
+                " (%zu unpaired)",
+                made, pinned, held, destructibles_.size(), orphans);
+}
+
+void ScriptEngine::ReleaseDestructible(size_t index, const float* blast) {
+    if (index >= destructibles_.size()) return;
+    Destructible& d = destructibles_[index];
+    if (d.released) return;
+    d.released = true;
+    LogInfo("destructible: %s -> %zu pieces%s", map_.objects[d.object].name.c_str(),
+            d.pieces.size(), blast ? " (blast)" : "");
+    float at[3] = {0, 0, 0};
+    if (physics_ && d.twinBody >= 0) {
+        physics_->GetScriptBodyPosition(d.twinBody, at);
+        physics_->RemoveScriptBody(d.twinBody);
+    }
+    if (worldObjectVisible_) worldObjectVisible_(d.object, false);
+    for (int handle : d.pieces) {
+        auto it = entities_.find(handle);
+        if (it == entities_.end()) continue;
+        Entity& e = it->second;
+        e.visible = true;
+        if (renderer_ && e.rendererInstance >= 0)
+            renderer_->SetScriptVisible(e.rendererInstance, true);
+        if (physics_ && e.physicsBody >= 0) {
+            physics_->SetScriptBodyEnabled(e.physicsBody, true);
+            const float still[3] = {0, 0, 0};
+            physics_->SetScriptBodyVelocity(e.physicsBody, still);
+        }
+    }
+    // Lev:OnExplodeMesh(actgrp, x, y, z) - Cemetery plays the collapse and
+    // shakes the camera off it.
+    const double args[4] = {double(d.group), blast ? blast[0] : at[0],
+                            blast ? blast[1] : at[1], blast ? blast[2] : at[2]};
+    host_->PostMsg("EXPLODEMESH", args, 4);
+}
+
+void ScriptEngine::ReleaseTwins(const std::vector<int>& twinSlots, const float* blast) {
+    for (int slot : twinSlots)
+        for (size_t i = 0; i < destructibles_.size(); ++i)
+            if (destructibles_[i].twinBody == slot && !destructibles_[i].released)
+                ReleaseDestructible(i, blast);
 }
 
 int ScriptEngine::L_PHYSICS_ActiveMeshGroupActivate(lua_State* L) {
     ScriptEngine* self = From(L);
-    if (self->physics_) self->physics_->ActivateActiveMeshGroup(int(luaL_optnumber(L, 1, -1)));
+    if (!self->physics_) return 0;
+    std::vector<int> twins;
+    self->physics_->ActivateActiveMeshGroup(int(luaL_optnumber(L, 1, -1)), twins);
+    self->ReleaseTwins(twins, nullptr);
     return 0;
 }
 
@@ -112,9 +200,19 @@ int ScriptEngine::L_PHYSICS_ActiveMeshGroupEnable(lua_State* L) {
     return 0;
 }
 
-// The static twins of a group, on or off (FUN_101B25D0). Ours keeps the body
-// itself static while pinned, so there is nothing separate to switch.
-int ScriptEngine::L_PHYSICS_ActiveMeshGroupStaticMeshEnable(lua_State*) { return 0; }
+// The static twins of a group, on or off (FUN_101B25D0): the intact
+// "statdest" bodies leave or rejoin the simulation. Drawing is the scripts'
+// own WORLD.EnableDrawMeshGroup call beside it, so only the body moves here.
+int ScriptEngine::L_PHYSICS_ActiveMeshGroupStaticMeshEnable(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const int group = int(luaL_optnumber(L, 1, -1));
+    const bool on = lua_toboolean(L, 2) != 0;
+    if (!self->physics_) return 0;
+    for (const Destructible& d : self->destructibles_)
+        if (d.group == group && !d.released && d.twinBody >= 0)
+            self->physics_->SetScriptBodyEnabled(d.twinBody, on);
+    return 0;
+}
 
 // Collision reporting and time-to-live per group (FUN_101B9E60). The
 // collision callbacks arrive through ENTITY.EnableCollisionsToAll instead;

@@ -154,13 +154,22 @@ public:
     // level factor was 1 (AddMesh reads it from the world at creation; ours
     // arrive in that order too, but Init lands after LoadMap).
     void ScaleUnscaledActiveMeshes(float massScale);
-    // PHYSICS.ActiveMeshGroupActivate: releases every pinned member.
-    void ActivateActiveMeshGroup(int group);
+    // A destructible's intact "statdest" twin: a STATIC mesh body (exact
+    // triangles, not a hull) in the group, released like a pinned member but
+    // owned by the game host, which swaps it for its "physdest" pieces.
+    // Docs/Reference/Physics.md, "Destructibles".
+    int CreateStaticTwinBody(const MapObject& object, float worldScale, int group,
+                             float outOrigin[3]);
+    bool IsStaticTwin(int slot) const;
+    // PHYSICS.ActiveMeshGroupActivate: releases every pinned member. Twins are
+    // reported, not released - the host does that.
+    void ActivateActiveMeshGroup(int group, std::vector<int>& twinsOut);
     // PHYSICS.ActiveMeshGroupEnable: a disabled group's pinned members ignore
     // explosions (record flag bit 0 in FUN_101B2580).
     void EnableActiveMeshGroup(int group, bool enabled);
     // Releases every enabled pinned active mesh within range + its radius of
-    // a blast; the slots released go to `out`.
+    // a blast; the slots released go to `out`. Twins in range are listed too,
+    // left as they are.
     void UnpinActiveMeshesNear(const float centre[3], float range, std::vector<int>& out);
     // Pinned active meshes struck by a moving body during the last step,
     // released. Called by Update after each step.
