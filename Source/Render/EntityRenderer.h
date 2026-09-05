@@ -121,10 +121,17 @@ private:
         // checked and reported once at draw time instead.
         uint16_t maxBone = 0;
         bgfx::VertexBufferHandle vbo = BGFX_INVALID_HANDLE;
+        // ONE index buffer per mesh or object; each part draws its own range
+        // of it. A buffer per material run spent bgfx's 4096 index-buffer
+        // handles on the Enclave's 1585 active meshes, and every buffer made
+        // after that - the weapons included - came back invalid and drew with
+        // someone else's indices. Docs/Reference/Physics.md, "Active meshes".
         bgfx::IndexBufferHandle ibo = BGFX_INVALID_HANDLE;
         bgfx::TextureHandle diffuse = BGFX_INVALID_HANDLE;
+        uint32_t firstIndex = 0;
         uint32_t indexCount = 0;
         bool ownsVbo = true;               // parts of one pack object share a vbo
+        bool ownsIbo = true;               // and the index buffer, likewise
         // Which part owns the vertex buffer this one draws from. A model mesh
         // split across material slots shares one set of vertices and one posed
         // buffer; each slot brings only its own index run.

@@ -4,6 +4,7 @@
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
 #include "Frustum.h"
+#include "GpuBuffers.h"
 #include "MeshVertex.h"
 
 #include <algorithm>
@@ -130,7 +131,7 @@ void EntityRenderer::Shutdown() {
     for (GpuModel& model : models_) {
         for (Part& p : model.parts) {
             if (p.ownsVbo && bgfx::isValid(p.vbo)) bgfx::destroy(p.vbo);
-            if (bgfx::isValid(p.ibo)) bgfx::destroy(p.ibo);
+            if (p.ownsIbo && bgfx::isValid(p.ibo)) bgfx::destroy(p.ibo);
         }
     }
     models_.clear();
@@ -196,8 +197,10 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
         // run's texture, which on a monk reads as transparent holes: nun.pkmdl
         // paints 148 triangles with NUNtexture4 and the next 240 with
         // NUNtexture2, and apoc_zombie splits 7 of its 12 meshes this way.
-        const bgfx::VertexBufferHandle vbo = bgfx::createVertexBuffer(
-            bgfx::copy(verts.data(), uint32_t(verts.size() * sizeof(MeshVertex))), layout_);
+        const bgfx::VertexBufferHandle vbo = MakeVertexBuffer(
+            verts.data(), uint32_t(verts.size() * sizeof(MeshVertex)), layout_);
+        const bgfx::IndexBufferHandle ibo =
+            MakeIndexBuffer(mesh.indices.data(), uint32_t(mesh.indices.size()));
         const uint32_t ownerIndex = uint32_t(gpu.parts.size());
         const size_t slots = std::max<size_t>(mesh.materials.size(), 1);
         for (size_t s = 0; s < slots; ++s) {
@@ -223,9 +226,10 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
             part.vbo = vbo;
             part.ownsVbo = gpu.parts.size() == ownerIndex;
             part.vboOwner = ownerIndex;
+            part.ibo = ibo;
+            part.ownsIbo = part.ownsVbo;
+            part.firstIndex = first;
             part.indexCount = count;
-            part.ibo = bgfx::createIndexBuffer(
-                bgfx::copy(&mesh.indices[first], count * uint32_t(sizeof(uint16_t))));
             part.diffuse = s < mesh.materials.size()
                                ? textures.Get(mesh.materials[s].texture, "")
                                : textures.White();
@@ -335,12 +339,14 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
             lo[a] = std::min(lo[a], o.bboxMin[a]);
             hi[a] = std::max(hi[a], o.bboxMax[a]);
         }
-        const bgfx::VertexBufferHandle vbo = bgfx::createVertexBuffer(
-            bgfx::copy(verts.data(), uint32_t(verts.size() * sizeof(MeshVertex))), layout_);
+        const bgfx::VertexBufferHandle vbo = MakeVertexBuffer(
+            verts.data(), uint32_t(verts.size() * sizeof(MeshVertex)), layout_);
+        const bgfx::IndexBufferHandle ibo =
+            MakeIndexBuffer(o.indices.data(), uint32_t(o.indices.size()));
 
         // One part per material run; anything the runs leave uncovered is a
         // couple of stray triangles at most. Parts of one object share the
-        // vertex buffer; only the first part owns (and later destroys) it.
+        // vertex and index buffers; only the first part owns (and destroys) them.
         const size_t partsBefore = gpu.parts.size();
         for (const Material& m : o.materials) {
             const uint32_t first = m.firstIndex;
@@ -348,10 +354,10 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
             if (count == 0 || first + count > o.indices.size()) continue;
             Part part;
             part.vbo = vbo;
-            part.ownsVbo = gpu.parts.size() == partsBefore;
+            part.ibo = ibo;
+            part.ownsVbo = part.ownsIbo = gpu.parts.size() == partsBefore;
             part.vboOwner = uint32_t(partsBefore);
-            part.ibo = bgfx::createIndexBuffer(
-                bgfx::copy(o.indices.data() + first, count * sizeof(uint16_t)));
+            part.firstIndex = first;
             part.indexCount = count;
             part.diffuse = m.diffuse().empty() ? textures.White()
                                                : textures.Get(m.diffuse(), "");
@@ -361,8 +367,7 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
         if (gpu.parts.size() == partsBefore) {
             Part part;
             part.vbo = vbo;
-            part.ibo = bgfx::createIndexBuffer(bgfx::copy(
-                o.indices.data(), uint32_t(o.indices.size() * sizeof(uint16_t))));
+            part.ibo = ibo;
             part.indexCount = uint32_t(o.indices.size());
             part.diffuse = textures.White();
             gpu.parts.push_back(part);
@@ -532,18 +537,20 @@ int EntityRenderer::CreateWorldObject(const MapObject& o, float worldScale,
             hi[a] = std::max(hi[a], (&v.x)[a]);
         }
     }
-    const bgfx::VertexBufferHandle vbo = bgfx::createVertexBuffer(
-        bgfx::copy(verts.data(), uint32_t(verts.size() * sizeof(MeshVertex))), layout_);
+    const bgfx::VertexBufferHandle vbo = MakeVertexBuffer(
+        verts.data(), uint32_t(verts.size() * sizeof(MeshVertex)), layout_);
+    const bgfx::IndexBufferHandle ibo =
+        MakeIndexBuffer(o.indices.data(), uint32_t(o.indices.size()));
     for (const Material& m : o.materials) {
         const uint32_t first = m.firstIndex;
         const uint32_t count = uint32_t(m.triangleCount) * 3;
         if (count == 0 || first + count > o.indices.size()) continue;
         Part part;
         part.vbo = vbo;
-        part.ownsVbo = gpu.parts.empty();
+        part.ibo = ibo;
+        part.ownsVbo = part.ownsIbo = gpu.parts.empty();
         part.vboOwner = 0;
-        part.ibo = bgfx::createIndexBuffer(
-            bgfx::copy(o.indices.data() + first, count * sizeof(uint16_t)));
+        part.firstIndex = first;
         part.indexCount = count;
         part.diffuse = m.diffuse().empty() ? textures.White()
                                            : textures.Get(m.diffuse(), levelHint);
@@ -553,8 +560,7 @@ int EntityRenderer::CreateWorldObject(const MapObject& o, float worldScale,
     if (gpu.parts.empty()) {
         Part part;
         part.vbo = vbo;
-        part.ibo = bgfx::createIndexBuffer(
-            bgfx::copy(o.indices.data(), uint32_t(o.indices.size() * sizeof(uint16_t))));
+        part.ibo = ibo;
         part.indexCount = uint32_t(o.indices.size());
         part.diffuse = textures.White();
         part.material = gpu.material;
@@ -869,7 +875,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
                                   bgfx::isValid(instance.posed[owner]);
             if (usePosed) bgfx::setVertexBuffer(0, instance.posed[owner]);
             else          bgfx::setVertexBuffer(0, part.vbo);
-            bgfx::setIndexBuffer(part.ibo, 0, part.indexCount);
+            bgfx::setIndexBuffer(part.ibo, part.firstIndex, part.indexCount);
             bgfx::setTexture(0, sDiffuse_, part.diffuse, mat.sampler[0]);
             bgfx::setTexture(1, sLightmap_, white_);
             bgfx::setTexture(2, sDetail_, white_);

@@ -848,6 +848,28 @@ Every such object is also an ENTITY in the world (`LoadMeshPakFile` calls
 `AddEntity` on the mesh), which is why they are lit like entities and not
 like the lightmapped world: they carry one UV set and no lightmap.
 
+### Drawing them costs GPU handles, and the pool is finite
+
+The port draws each active mesh through the entity path with its own vertex
+and index buffer (`EntityRenderer::CreateWorldObject`), and the static world
+keeps one pair per object. Enclave is the extreme: 2367 objects, 1585 of them
+`phys` (none pinned - the level itself calls `ENTITY.EnableCollisionsToAll`
+and sets activation params for group 2), with 8235 material runs across the
+map. Until 2026-09-05 every material run got an index buffer of its own,
+which asked bgfx for more than its default 4096 index-buffer handles. bgfx
+hands back an INVALID handle in that case and, in a release build, says
+nothing; a draw with one uses whatever indices are bound, so every model
+created after the pool ran dry - the active meshes themselves, then the
+weapons - rendered as spikes and streaks ("vertex explosion" on every
+surface, from frame 1, with the world floor intact). The Giant's own few
+exploded vertices in the original are unrelated.
+
+Now: one index buffer per mesh or object with parts drawing ranges of it
+(`Part::firstIndex`), the pools are 16384 (`CMake/Dependencies.cmake`), and
+`MakeIndexBuffer` / `MakeVertexBuffer` (`Render/GpuBuffers.h`) log the first
+invalid handle. `PainfulTools level` prints the active-mesh and material-run
+counts so a map's demand can be read off before it is loaded.
+
 `AddMesh` builds the body in collision group 3 with the level's
 `DefaultMeshFriction` / `DefaultMeshRestitution`, a hard deactivator, and a
 mass scaled by `Level_GetActiveMeshesData(name)` when that returns anything

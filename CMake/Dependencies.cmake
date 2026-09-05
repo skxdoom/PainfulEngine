@@ -28,6 +28,12 @@ set(BGFX_BUILD_TOOLS_GEOMETRY OFF CACHE BOOL "" FORCE)
 set(BGFX_BUILD_TOOLS_TEXTURE  OFF CACHE BOOL "" FORCE)
 set(BGFX_AMALGAMATED    ON  CACHE BOOL "" FORCE)
 set(BX_AMALGAMATED      ON  CACHE BOOL "" FORCE)
+# Handle pools. bgfx's default of 4096 each is under what one buffer per world
+# object needs on a map that turns most of itself into active meshes (Enclave:
+# 2367 objects, 1585 of them bodies), and an exhausted pool fails silently.
+# Docs/Reference/Physics.md, "Active meshes".
+set(BGFX_CONFIG_MAX_VERTEX_BUFFERS 16384 CACHE STRING "" FORCE)
+set(BGFX_CONFIG_MAX_INDEX_BUFFERS  16384 CACHE STRING "" FORCE)
 # Not EXCLUDE_FROM_ALL: we need the shaderc target addressable for shader builds.
 add_subdirectory(${PAINFUL_ROOT}/External/bgfx ${CMAKE_BINARY_DIR}/External/bgfx)
 

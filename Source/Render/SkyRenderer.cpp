@@ -3,6 +3,7 @@
 #include "../Core/Common.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
+#include "GpuBuffers.h"
 #include "MeshVertex.h"
 
 #include <bx/math.h>
@@ -111,10 +112,9 @@ bool SkyRenderer::LoadDome(const std::string& path) {
         part.layer = LayerFromName(o.name);
         part.blend = IsTransparentShell(o.name);
         part.indexCount = uint32_t(o.indices.size());
-        part.vbo = bgfx::createVertexBuffer(
-            bgfx::copy(verts.data(), uint32_t(verts.size() * sizeof(MeshVertex))), layout_);
-        part.ibo = bgfx::createIndexBuffer(
-            bgfx::copy(o.indices.data(), uint32_t(o.indices.size() * sizeof(uint16_t))));
+        part.vbo = MakeVertexBuffer(verts.data(),
+                                    uint32_t(verts.size() * sizeof(MeshVertex)), layout_);
+        part.ibo = MakeIndexBuffer(o.indices.data(), uint32_t(o.indices.size()));
         parts_.push_back(part);
     }
     return !parts_.empty();

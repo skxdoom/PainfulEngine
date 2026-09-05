@@ -2,6 +2,7 @@
 #include "ShaderLoad.h"
 #include "../Core/Common.h"
 #include "../Core/Log.h"
+#include "GpuBuffers.h"
 #include "MeshVertex.h"
 
 #include <algorithm>
@@ -258,10 +259,9 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
         }
         chunk.isWater = isWater && bgfx::isValid(waterProgram_);
         if (chunk.isWater) ++waterChunks_;
-        chunk.vbo = bgfx::createVertexBuffer(
-            bgfx::copy(verts.data(), uint32_t(verts.size() * sizeof(MeshVertex))), layout_);
-        chunk.ibo = bgfx::createIndexBuffer(
-            bgfx::copy(o.indices.data(), uint32_t(o.indices.size() * sizeof(uint16_t))));
+        chunk.vbo = MakeVertexBuffer(verts.data(),
+                                     uint32_t(verts.size() * sizeof(MeshVertex)), layout_);
+        chunk.ibo = MakeIndexBuffer(o.indices.data(), uint32_t(o.indices.size()));
 
         if (o.materials.empty()) {
             Batch b;

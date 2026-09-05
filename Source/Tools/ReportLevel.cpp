@@ -30,6 +30,9 @@ int LevelCmd(const char* levelDir, const char* dataRoot) {
         LogInfo("  world mesh   : %zu objects, %zu verts, %zu tris, %zu materials",
                 s.objects, s.verts, s.tris, s.materials);
         LogInfo("  collidable   : %zu objects (excludes noclip/portal/zone volumes)", s.collidable);
+        LogInfo("  active meshes: %zu objects (%zu pinned), %zu material runs; "
+                "%zu GPU buffers with the world's",
+                s.active, s.activePinned, s.activeRuns, 2 * s.objects);
     }
     return 0;
 }
