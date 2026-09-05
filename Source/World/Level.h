@@ -75,6 +75,9 @@ struct LevelInfo {
     float dirLightDir[3] = {-0.7f, -0.7f, -0.7f};
     float dirLightIntensity = 1.f;
     float fogColor[3] = {0, 0, 0};
+    // o.BloomFX - CLevel class defaults. With Cfg.Bloom on (the default) and
+    // Multiplier > 0, sprites are drawn at DimScale. Particles.md, "Bloom dims".
+    float bloomMultiplier = 1.f, bloomDimScale = 0.8f;
     float fogDensity = 0.f, fogStart = 0.f;
     float fogEnd = 90.f;             // Fog.End, class default 90
     int   fogMode = 0;               // 0=none, 1=exp, 2=exp2, 3=linear (CLevel.lua)

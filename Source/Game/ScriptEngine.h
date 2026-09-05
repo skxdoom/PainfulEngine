@@ -385,6 +385,12 @@ public:
         float fogColor[3] = {0, 0, 0};          // 0-255
         float farClip = 1024.f;
         float ambient[3] = {128, 128, 128};     // 0-255
+        // Cfg.Bloom (R3D.EnableBloom / ApplyVideoSettings, render flag 8) and
+        // CLevel.BloomFX via WORLD.BloomFXParams. With bloom on and Multiplier
+        // > 0 every particle and corona is drawn at DimScale. Particles.md.
+        bool bloom = true;
+        float bloomThreshold = 0.25f, bloomMultiplier = 1.f, bloomDimScale = 0.8f;
+        uint32_t bloomOverlay = 0x808080;
         std::string detailTex;
         float detailTileU = 8.2f, detailTileV = 7.1f;
 
@@ -951,6 +957,8 @@ private:
     // active mesh; 1 means "use WORLD.Init's ActiveMeshesMassScale".
     float ActiveMeshMassScale(const std::string& objectName);
     static int L_WORLD_SetupFog(lua_State* L);
+    static int L_WORLD_BloomFXParams(lua_State* L);
+    static int L_R3D_EnableBloom(lua_State* L);
     static int L_WORLD_SetFarClipDist(lua_State* L);
     static int L_WORLD_AmbientColor(lua_State* L);
     static int L_WORLD_LoadSky(lua_State* L);

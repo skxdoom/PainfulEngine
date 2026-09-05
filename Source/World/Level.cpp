@@ -68,6 +68,8 @@ bool Level::LoadSettings(const std::string& levelDir) {
     p.Vector3("DirLight.Dir", info_.dirLightDir);
     info_.dirLightIntensity = static_cast<float>(p.Number("DirLight.Intensity", 1.0));
     p.Vector3("Fog.Color", info_.fogColor);
+    info_.bloomMultiplier = static_cast<float>(p.Number("BloomFX.Multiplier", 1.0));
+    info_.bloomDimScale = static_cast<float>(p.Number("BloomFX.DimScale", 0.8));
     p.Vector3("Pos", info_.startPos);
     p.Vector3("Ang", info_.angles);
     info_.skyMap = p.String("SkyDome.LowQuality.Map");

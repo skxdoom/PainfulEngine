@@ -73,6 +73,15 @@ public:
     // way EntityRenderer applies it to placed models.
     void SetScaleMultiplier(float k);
     float scaleMultiplier() const { return scaleMultiplier_; }
+    // RGB multiplier on placed coronas and billboards: the level's
+    // BloomFX.DimScale while bloom is on (Billboard::Draw). Particles.md, "Bloom dims".
+    void SetColorScale(float k) { colorScale_ = k; }
+    // The level fog, applied to sprite colour as the original's vertex fog did.
+    void SetFog(int mode, float start, float end, float density, const float color255[3]) {
+        fog_[0] = float(mode); fog_[1] = start; fog_[2] = end; fog_[3] = density;
+        for (int i = 0; i < 3; ++i) fogColor_[i] = color255[i] / 255.f;
+        fogColor_[3] = 1.f;
+    }
 
     size_t placed() const { return sprites_.size(); }
     size_t coronas() const { return coronas_; }
@@ -107,6 +116,7 @@ private:
 
         bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
         uint64_t blendState = 0;
+        int blendMode = 1;              // material enum, for the fog colour
         // Script-driven sprites are created and released at runtime; slots
         // stay put so handles remain stable.
         bool alive = true;
@@ -137,6 +147,11 @@ private:
 
     std::vector<Sprite> sprites_;
     float scaleMultiplier_ = 1.f;
+    float colorScale_ = 1.f;
+    float fog_[4] = {0, 0, 90.f, 0};
+    float fogColor_[4] = {0, 0, 0, 1.f};
+    bgfx::UniformHandle uFog_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle uFogColor_ = BGFX_INVALID_HANDLE;
     size_t coronas_ = 0, visible_ = 0, traces_ = 0, drawCalls_ = 0;
 
     bgfx::VertexLayout layout_;

@@ -91,6 +91,8 @@ bool BillboardRenderer::Init(const std::string& shaderDir) {
     }
     program_ = bgfx::createProgram(vs, fs, true);
     sDiffuse_ = bgfx::createUniform("s_diffuse", bgfx::UniformType::Sampler);
+    uFog_ = bgfx::createUniform("u_fog", bgfx::UniformType::Vec4);
+    uFogColor_ = bgfx::createUniform("u_fogColor", bgfx::UniformType::Vec4);
 
     layout_.begin()
         .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
@@ -103,6 +105,8 @@ bool BillboardRenderer::Init(const std::string& shaderDir) {
 void BillboardRenderer::Shutdown() {
     if (bgfx::isValid(program_)) bgfx::destroy(program_);
     if (bgfx::isValid(sDiffuse_)) bgfx::destroy(sDiffuse_);
+    if (bgfx::isValid(uFog_)) { bgfx::destroy(uFog_); uFog_ = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(uFogColor_)) { bgfx::destroy(uFogColor_); uFogColor_ = BGFX_INVALID_HANDLE; }
     program_ = BGFX_INVALID_HANDLE;
     sDiffuse_ = BGFX_INVALID_HANDLE;
     sprites_.clear();
@@ -166,7 +170,8 @@ void BillboardRenderer::Build(const Level& level, TemplateCache& templates,
             }
         }
 
-        s.blendState = BlendModeState(RemapBlendMode(blendMode));
+        s.blendMode = RemapBlendMode(blendMode);
+    s.blendState = BlendModeState(s.blendMode);
         s.texture = textures.Get("Particles/" + texture, level.name());
 
         for (int i = 0; i < 3; ++i) s.pos[i] = entity.pos[i] * scaleMultiplier_;
@@ -260,7 +265,8 @@ int BillboardRenderer::SetupScriptCorona(int slot, const float args[9],
     s.r = uint8_t((packedColor >> 16) & 0xFF);
     s.g = uint8_t((packedColor >> 8) & 0xFF);
     s.b = uint8_t(packedColor & 0xFF);
-    s.blendState = BlendModeState(RemapBlendMode(blendMode));
+    s.blendMode = RemapBlendMode(blendMode);
+    s.blendState = BlendModeState(s.blendMode);
     s.texture = textures.Get(texture, levelHint);
     s.curSize = s.size;
     // Coronas start hidden and fade in; plain sprites sit at their target.
@@ -396,9 +402,12 @@ void BillboardRenderer::Draw(bgfx::ViewId view, const Camera& camera) {
         uint16_t* idx = reinterpret_cast<uint16_t*>(tib.data);
 
         const int a = static_cast<int>(s.curAlpha * 255.f + 0.5f);
+        auto dim = [this](uint8_t c) {
+            const int v = static_cast<int>(c * colorScale_ + 0.5f);
+            return static_cast<uint32_t>(v < 0 ? 0 : (v > 255 ? 255 : v));
+        };
         const uint32_t abgr = (static_cast<uint32_t>(a < 0 ? 0 : (a > 255 ? 255 : a)) << 24) |
-                              (static_cast<uint32_t>(s.b) << 16) |
-                              (static_cast<uint32_t>(s.g) << 8) | static_cast<uint32_t>(s.r);
+                              (dim(s.b) << 16) | (dim(s.g) << 8) | dim(s.r);
 
         float rx[3], uy[3];
         for (int k = 0; k < 3; ++k) {
@@ -429,6 +438,10 @@ void BillboardRenderer::Draw(bgfx::ViewId view, const Camera& camera) {
         bgfx::setState(state);
         bgfx::setVertexBuffer(0, &tvb, 0, 4);
         bgfx::setIndexBuffer(&tib, 0, 6);
+        float fogColor[4];
+        FogColorForBlend(s.blendMode, fogColor_, fogColor);
+        bgfx::setUniform(uFog_, fog_);
+        bgfx::setUniform(uFogColor_, fogColor);
         bgfx::setTexture(0, sDiffuse_, s.texture);
         bgfx::submit(view, program_);
         ++drawCalls_;
@@ -479,6 +492,10 @@ void BillboardRenderer::Draw(bgfx::ViewId view, const Camera& camera) {
                        BlendModeState(kBlendAlpha));
         bgfx::setVertexBuffer(0, &tvb);
         bgfx::setIndexBuffer(&tib);
+        // Immediate sprites and beams draw with the alpha blend: fog to black.
+        const float fogBlack[4] = {0.f, 0.f, 0.f, 1.f};
+        bgfx::setUniform(uFog_, fog_);
+        bgfx::setUniform(uFogColor_, fogBlack);
         bgfx::setTexture(0, sDiffuse_, s.texture);
         bgfx::submit(view, program_);
         ++drawCalls_;
@@ -545,6 +562,10 @@ void BillboardRenderer::Draw(bgfx::ViewId view, const Camera& camera) {
                        BlendModeState(kBlendAlpha));
         bgfx::setVertexBuffer(0, &tvb);
         bgfx::setIndexBuffer(&tib);
+        // Immediate sprites and beams draw with the alpha blend: fog to black.
+        const float fogBlack[4] = {0.f, 0.f, 0.f, 1.f};
+        bgfx::setUniform(uFog_, fog_);
+        bgfx::setUniform(uFogColor_, fogBlack);
         bgfx::setTexture(0, sDiffuse_, beam.texture);
         bgfx::submit(view, program_);
         ++drawCalls_;

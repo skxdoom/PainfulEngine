@@ -158,6 +158,72 @@ turns each value into these D3D render states:
 source alpha; `translucent` is the ordinary one. Across the emitters: 527 use
 `alpha`, 237 `translucent`, 57 `add`, 1 `filter`.
 
+## Bloom dims the sprites
+
+Particles and coronas are NOT drawn at their authored colour when bloom is on.
+The packer behind every particle sprite (FUN_101e4080, called per particle by
+the sprite builder FUN_101e6040) and `Billboard::Draw` (0x101CCAE0) both do
+
+```
+scale = 255
+if (renderFlags & 8) && World.BloomFX.Multiplier > 0:   # render flag 8 = bloom
+    scale = 255 * World.BloomFX.DimScale
+R,G,B = round(colour * scale);  A = round(alpha * 255)    # alpha is NOT scaled
+```
+
+Render flag 8 is `Cfg.Bloom`: `R3D.EnableBloom` (0x101237C0) sets exactly that
+bit and `R3D.ApplyVideoSettings` (0x1013F610) reads it from the Cfg table;
+`Cfg.lua` defaults it to true. The World fields are the `CLevel.BloomFX` block
+pushed by `WORLD.BloomFXParams(LuminanceThreshold, Multiplier, OverlayColor,
+DimScale)` - class defaults 0.25, 1, (128,128,128), 0.8 (`World` constructor
+0x10061340 initialises +0x6cc..+0x6d8 to the same). 30 levels override some of
+it: Catacombs sets `DimScale 0.65` and `LuminanceThreshold 0.05`, seven levels
+set `Multiplier 0`, which switches the dimming off.
+
+So in the shipped game a Catacombs torch flame or corona reaches the screen at
+65% of its authored colour, and the bloom pass adds a glow on top. The port had
+no dimming at all, which is "particles and billboards are quite a bit brighter
+than the original" (2026-09-05). `ParticleRenderer::SetColorScale` and
+`BillboardRenderer::SetColorScale` now take the factor, from `WorldState`
+(`bloom`, `bloomMultiplier`, `bloomDimScale`) in the game and from `LevelInfo`
+in the viewer. The bloom post-process itself is not implemented, so a dimmed
+sprite is slightly darker here than the original's dimmed-then-bloomed one.
+
+## Fog reaches the sprites
+
+The second half of "brighter than the original" was fog. Every sprite draw -
+`ParticleSystem::RenderSprites`, `ParticleEffect::Draw`, `Billboard::Draw` -
+first hands the world fog block (`World+0x1608`, what `WORLD.SetupFog` fills)
+to the device (D3Dev vtable slot 0xb0, which sets `D3DRS_FOGVERTEXMODE` from
+the mode byte and FOGSTART/FOGEND/FOGCOLOR from the rest), then selects the
+`simple` vertex shader (slot 0x98 with type 1) and no pixel shader. `simple.vso`
+ends with `mad oFog, r0.z, c9.y, c9.x`: it WRITES the fog output, so D3D fogs
+the sprite colour toward the fog colour before the blend, alpha untouched.
+Under an additive blend that is a dimming with distance whenever the fog colour
+is dark - Cemetery's is (18,19,24), Catacombs' (98,98,70) - and it is what makes
+a far corona in the original softer and less blocky than ours was. Confirmed
+in play on Cemetery from the spawn (2026-09-05). `fs_particle.sc` now applies
+the same fog term as the world and entity shaders, fed through
+`ParticleRenderer::SetFog` / `BillboardRenderer::SetFog`. The fog COLOUR itself
+is not touched by the bloom dim: `SetupFog` (0x10136EA0) round-trips it through
+byte-to-float-and-back under the bloom gate with no multiply.
+
+**The fog colour depends on the blend mode.** Fogging an additive sprite toward
+the level's fog colour paints the whole quad - `sflare1.dds`, the corona texture
+77 of Cemetery's 78 billboards use, is DXT1 with no alpha, so every texel adds -
+and the first port of this drew every corona as a grey rectangle. The device
+avoids it: D3Dev's state apply (FUN_10002050, vtable slot 0xa0) sets
+`D3DRS_FOGCOLOR` from the material's blend mode before each draw:
+
+| blend modes | fog colour |
+|---|---|
+| 0 none, 5 translucent, 9 desttranslucent | the level's (`SetFog`'s, cached at device +0x79c) |
+| 1 alpha, 2 add, 6 invmodulate, 7 subtract, 8 revsubtract, 10 destalpha | black |
+| 3 modulate, 4 filter, 11 modulate2x | white |
+
+`FogColorForBlend` in `MaterialState.cpp` is that table; both sprite renderers
+pick the colour per draw from the emitter's or corona's blend mode.
+
 ## Emitter transform
 
 From `SetupTransform`:

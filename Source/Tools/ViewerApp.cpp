@@ -258,7 +258,15 @@ int RunCmd(const char* levelDir, const char* dataRoot,
                            elapsed);
         }
         // Particles last in the world view: they are blended and write no
-        // depth, so everything solid has to be down first.
+        // depth, so everything solid has to be down first. Cfg.Bloom defaults
+        // on, so sprites take the level's BloomFX.DimScale here as in the game.
+        if (level) {
+            const float dim = level->info().bloomMultiplier > 0.f ? level->info().bloomDimScale : 1.f;
+            if (particles) particles->SetColorScale(dim);
+            if (billboards) billboards->SetColorScale(dim);
+            if (particles) particles->SetFog(info.fogMode, info.fogStart, info.fogEnd, info.fogDensity, info.fogColor);
+            if (billboards) billboards->SetFog(info.fogMode, info.fogStart, info.fogEnd, info.fogDensity, info.fogColor);
+        }
         if (particles && !skyOnly) {
             particles->Tick(dt);
             particles->Draw(Renderer::kWorldView, camera, window.width(), window.height());

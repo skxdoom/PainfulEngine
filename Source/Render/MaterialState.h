@@ -45,5 +45,9 @@ struct MaterialState {
 // enum in Assets/Emitter.h). Particles and billboards both feed their mode
 // straight into the same D3Dev state field, so they share one translation.
 uint64_t BlendModeState(int mode);
+// The D3D fog colour the device applies for a blend mode (D3Dev state apply,
+// FUN_10002050): the level's colour for none/translucent/desttranslucent, BLACK
+// for the additive family, WHITE for the modulate family. Particles.md, "Fog".
+void FogColorForBlend(int mode, const float levelFog[4], float out[4]);
 
 } // namespace painful

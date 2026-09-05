@@ -935,6 +935,16 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
         // from the render section is what let them keep running when the rest
         // of the world had already stopped.
         const float simDt = engine.gamePaused() ? 0.f : dt;
+        // Bloom on: sprites are packed at the level's BloomFX.DimScale, the
+        // way FUN_101e4080 and Billboard::Draw do. Particles.md, "Bloom dims".
+        {
+            const ScriptEngine::WorldState& wsNow = engine.world();
+            const float dim = (wsNow.bloom && wsNow.bloomMultiplier > 0.f) ? wsNow.bloomDimScale : 1.f;
+            particles.SetColorScale(dim);
+            billboards.SetColorScale(dim);
+            particles.SetFog(info.fogMode, info.fogStart, info.fogEnd, info.fogDensity, info.fogColor);
+            billboards.SetFog(info.fogMode, info.fogStart, info.fogEnd, info.fogDensity, info.fogColor);
+        }
         if (particlesReady) {
             particles.Tick(simDt);
             particles.Draw(Renderer::kWorldView, camera, window.width(), window.height());

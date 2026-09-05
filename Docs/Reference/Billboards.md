@@ -86,6 +86,12 @@ Both push a **signed** int, so anything at or above `0x80000000` reaches the
 script as a negative number; every native that reads a colour round-trips it
 through `int64` on the way back.
 
+`Billboard::Draw` (0x101CCAE0) packs the vertex colour from the RGB bytes at
++0x68c..0x68e and the faded alpha at +0x69c, and multiplies the RGB - not the
+alpha - by the level's `BloomFX.DimScale` when bloom is on, exactly as the
+particle packer does. See [`Particles.md`](Particles.md), "Bloom dims the
+sprites"; `BillboardRenderer::SetColorScale` carries the factor.
+
 ## Behaviour
 
 A **plain billboard** (`Corona.Enabled = false`) is a fixed-size, depth-tested,

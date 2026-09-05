@@ -126,6 +126,18 @@ MaterialState MaterialState::FromPass(const ShaderPass& pass, std::string* warni
     return out;
 }
 
+void FogColorForBlend(int mode, const float levelFog[4], float out[4]) {
+    float v = 0.f;
+    bool level = false;
+    switch (mode) {
+        case kBlendNone: case kBlendTranslucent: case kBlendDestTranslucent: level = true; break;
+        case kBlendModulate: case kBlendFilter: case kBlendModulate2x: v = 1.f; break;
+        default: v = 0.f; break;                  // alpha, add, subtract, destalpha...
+    }
+    for (int i = 0; i < 3; ++i) out[i] = level ? levelFog[i] : v;
+    out[3] = 1.f;
+}
+
 uint64_t BlendModeState(int mode) {
     // Translated one for one from the D3D render states D3Dev.dll's state
     // setter issues for each value; the table is in Docs/Reference/Particles.md.

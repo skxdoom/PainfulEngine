@@ -308,6 +308,18 @@ int ScriptEngine::L_WORLD_SetupFog(lua_State* L) {
     return 0;
 }
 
+// WORLD.BloomFXParams(threshold, multiplier, overlayColor, dimScale) - the
+// CLevel.BloomFX block (World+0x6cc..0x6d8). DimScale is what the sprite
+// packers (FUN_101e4080, Billboard::Draw) multiply RGB by when bloom is on.
+int ScriptEngine::L_WORLD_BloomFXParams(lua_State* L) {
+    WorldState& w = From(L)->world_;
+    w.bloomThreshold = float(luaL_optnumber(L, 1, 0.25));
+    w.bloomMultiplier = float(luaL_optnumber(L, 2, 1.0));
+    w.bloomOverlay = uint32_t(int64_t(luaL_optnumber(L, 3, 0x808080)));
+    w.bloomDimScale = float(luaL_optnumber(L, 4, 0.8));
+    return 0;
+}
+
 int ScriptEngine::L_WORLD_SetFarClipDist(lua_State* L) {
     From(L)->world_.farClip = float(luaL_optnumber(L, 1, 1024));
     return 0;

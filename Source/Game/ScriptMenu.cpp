@@ -920,6 +920,22 @@ int ScriptEngine::L_R3D_ApplyVideoSettings(lua_State* L) {
     int w = 0, h = 0;
     if (std::sscanf(res.c_str(), "%d%*[xX]%d", &w, &h) == 2 && w > 0 && h > 0 && self->setVideoMode_)
         self->setVideoMode_(w, h, fullscreen);
+    // The engine's version (0x1013F610) reads Cfg.Bloom into render flag 8.
+    lua_pushstring(L, "Cfg");
+    lua_gettable(L, LUA_GLOBALSINDEX);
+    if (lua_istable(L, -1)) {
+        lua_pushstring(L, "Bloom");
+        lua_gettable(L, -2);
+        if (!lua_isnil(L, -1)) self->world_.bloom = lua_toboolean(L, -1) != 0;
+        lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+    return 0;
+}
+
+// R3D.EnableBloom(on) - render flag 8 (0x101237C0); Cfg.Bloom defaults to true.
+int ScriptEngine::L_R3D_EnableBloom(lua_State* L) {
+    From(L)->world_.bloom = lua_toboolean(L, 1) != 0;
     return 0;
 }
 

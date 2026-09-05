@@ -72,6 +72,16 @@ public:
     // o.Scale that the world mesh is drawn at.
     void SetScaleMultiplier(float k);
     float scaleMultiplier() const { return scaleMultiplier_; }
+    // RGB multiplier on every packed particle colour: the level's
+    // BloomFX.DimScale while bloom is on (FUN_101e4080). Particles.md, "Bloom dims".
+    void SetColorScale(float k) { colorScale_ = k; }
+    // The level fog, applied to sprite colour the way D3D vertex fog did with
+    // the original's `simple` vertex shader. Colour is 0-255 as authored.
+    void SetFog(int mode, float start, float end, float density, const float color255[3]) {
+        fog_[0] = float(mode); fog_[1] = start; fog_[2] = end; fog_[3] = density;
+        for (int i = 0; i < 3; ++i) fogColor_[i] = color255[i] / 255.f;
+        fogColor_[3] = 1.f;
+    }
 
     size_t effects() const { return effects_; }
     size_t emitters() const { return emitters_.size(); }
@@ -153,6 +163,11 @@ private:
 
     std::vector<Emitter> emitters_;
     float scaleMultiplier_ = 1.f;
+    float colorScale_ = 1.f;
+    float fog_[4] = {0, 0, 90.f, 0};
+    float fogColor_[4] = {0, 0, 0, 1.f};
+    bgfx::UniformHandle uFog_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle uFogColor_ = BGFX_INVALID_HANDLE;
     size_t effects_ = 0, unresolved_ = 0, live_ = 0, drawCalls_ = 0;
     // The original draws with C rand(); this keeps the same uniform shape
     // without disturbing any other rand() user in the process.

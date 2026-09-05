@@ -102,21 +102,10 @@ Copyright © 2026 Dmitry Karpukhin.
 
 Painful Engine is **GPL-3.0-or-later** — see [`LICENSE`](LICENSE).
 
-- Copyleft is deliberate, not a default: anyone may study, change and share
-  this, and nobody may take it closed or sell it on.
-- The licence covers this project's own code. It grants nothing over
-  *Painkiller*, which remains its rights holders'.
-- No game data, assets or binaries are included. Running the engine requires
-  your own copy of the game.
-- *Painkiller* was made by People Can Fly. This project is not affiliated with
-  them or with the game's current rights holders.
-
-## Credits
-
-Written by Dmitry Karpukhin, in collaboration with **Claude** (Anthropic),
-which wrote a substantial share of the engine, the Ghidra analysis behind it
-and these docs. Per-commit authorship is recorded in `Co-Authored-By`
-trailers throughout the history.
+- The licence covers this project's own code. It grants nothing over *Painkiller*, which remains its rights holders'.
+- No game data, assets or binaries are included. Running the engine requires your own copy of the game.
+- *Painkiller* was made by People Can Fly. This project is not affiliated with them or with the game's current rights holders.
+- Anyone may study, change and share this, and nobody may take it closed or sell it on.
 
 ## Third-party
 

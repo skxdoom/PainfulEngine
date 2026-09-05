@@ -91,6 +91,8 @@ bool ParticleRenderer::Init(const std::string& shaderDir) {
     }
     program_ = bgfx::createProgram(vs, fs, true);
     sDiffuse_ = bgfx::createUniform("s_diffuse", bgfx::UniformType::Sampler);
+    uFog_ = bgfx::createUniform("u_fog", bgfx::UniformType::Vec4);
+    uFogColor_ = bgfx::createUniform("u_fogColor", bgfx::UniformType::Vec4);
 
     layout_.begin()
         .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
@@ -103,6 +105,8 @@ bool ParticleRenderer::Init(const std::string& shaderDir) {
 void ParticleRenderer::Shutdown() {
     if (bgfx::isValid(program_)) bgfx::destroy(program_);
     if (bgfx::isValid(sDiffuse_)) bgfx::destroy(sDiffuse_);
+    if (bgfx::isValid(uFog_)) { bgfx::destroy(uFog_); uFog_ = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(uFogColor_)) { bgfx::destroy(uFogColor_); uFogColor_ = BGFX_INVALID_HANDLE; }
     program_ = BGFX_INVALID_HANDLE;
     sDiffuse_ = BGFX_INVALID_HANDLE;
     emitters_.clear();
@@ -537,7 +541,9 @@ void ParticleRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, 
         const bool spark = e.params->type == 2;
         for (size_t i = 0; i < n; ++i) {
             const Particle& p = e.particles[i];
-            const uint32_t abgr = PackAbgr(p.color, p.alpha);
+            const float rgb[3] = {p.color[0] * colorScale_, p.color[1] * colorScale_,
+                                  p.color[2] * colorScale_};
+            const uint32_t abgr = PackAbgr(rgb, p.alpha);
             float a[3], b[3], c[3], d[3];
 
             if (spark) {
@@ -611,6 +617,10 @@ void ParticleRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, 
         bgfx::setState(state);
         bgfx::setVertexBuffer(0, &tvb, 0, vertexCount);
         bgfx::setIndexBuffer(&tib, 0, indexCount);
+        float fogColor[4];
+        FogColorForBlend(e.params->blendMode, fogColor_, fogColor);
+        bgfx::setUniform(uFog_, fog_);
+        bgfx::setUniform(uFogColor_, fogColor);
         bgfx::setTexture(0, sDiffuse_, e.texture);
         bgfx::submit(view, program_);
         ++drawCalls_;
