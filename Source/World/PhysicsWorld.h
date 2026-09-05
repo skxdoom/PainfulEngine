@@ -200,9 +200,10 @@ public:
     // Rule, constants and the evidence: Docs/Reference/MonsterMovement.md.
     //
     // The shape: three stacked spheres (BodyTypes.Fatter) with k the sizer's
-    // working scalar (0.2 * bodyScale) and rootOffsetY where the stack's origin
-    // sits above the entity position - see ScriptEngine::MonsterBodyScale.
-    void MakeScriptBodyCharacter(int slot, float k, float rootOffsetY);
+    // working scalar (0.2 * bodyScale), centred at the entity's height and
+    // shifted sideways by rootOffset onto the ROOOT joint - see
+    // ScriptEngine::MonsterBodyScale.
+    void MakeScriptBodyCharacter(int slot, float k, const float rootOffset[3]);
     bool IsScriptBodyCharacter(int slot) const;
     // ENTITY.PO_Move: the velocity the AI asks for (PhysicsObject+0x34).
     void SetCharacterWish(int slot, const float v[3]);

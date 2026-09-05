@@ -566,8 +566,10 @@ public:
     // itself is PhysicsWorld::StepCharacters.
     void TickMonsters(float dt);
 
-    // The sizer's working scalar k and the root offset, from the ROOOT joint.
-    bool MonsterBodyScale(Entity& e, float& k, float& rootOffsetY);
+    // The sizer's working scalar k (0.2 * bodyScale, from the origin's height
+    // above the model's lowest point) and the stack's sideways offset onto
+    // the ROOOT joint; rootOffset[1] is always 0.
+    bool MonsterBodyScale(Entity& e, float& k, float rootOffset[3]);
 
     // Advances every entity's animation clock. Call once per frame BEFORE
     // the tick chain: CActor:Tick reads the time the same frame.

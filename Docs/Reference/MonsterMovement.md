@@ -66,17 +66,69 @@ floor" means ground within 1.5 of the soles, which is generous by design.
 
 `CreatePhysicsObject` for anything that is not a mesh, a ragdoll or the player:
 
-- the sizer builds the shape from `bodyScale`, which for a scale argument <= 0
-  is `(root.y - Entity+0x58) * 10/11` off the `ROOOT` joint (flag 0x10 marks
-  that case). **`Entity+0x54` is the entity's LOCAL bounding box**
-  (`RenderLocalBoundingBox` 0x101D0A90 draws it), so `+0x58` is its minimum Y,
-  the model's lowest point: bodyScale is the hip's height above the soles
-  times 10/11, and the sizer's unit k is 0.2 of that. Identified 2026-09-02;
-  until then the port sized k = height / 10.3 and stood the stack on the
-  soles. The Fatter stack (case 2 of 0x101B3E20, constants 0x102C8CDC..):
-  spheres at -2.2k r 2.6k, +1.0k r 3.0k, +4.0k r 1.5k about the hip.
+- the sizer builds the shape from `bodyScale`. For a scale argument <= 0
+  (flag 0x10 marks that case), `PhysicsWorld::CreatePhysicsObject`
+  (0x101999F0) does, in this order (disassembly 0x10199B17..B91):
 
-  What that gives, per rig (height and hip in world units, k old = height/10.3):
+  ```
+  pivot     = FUN_1000B250(Entity+0x54)         = (box.min + box.max) / 2, the entity's
+                                                  LOCAL bounding box (min +0x54, max +0x60,
+                                                  as CreatePhysicsObjectFromMesh reads them)
+  pivot.x/z = ROOOT joint's translation           joint +0x30 / +0x38; its Y is NEVER read
+  bodyScale = (pivot.y - box.min.y) * 10/11       = half the model's height * 10/11
+  ```
+
+  So **k = 0.2 * bodyScale = height / 11, and the stack is centred at the
+  model's mid-height** (sideways on the root joint when the rig has one
+  spelled `ROOOT`). Its floor point (centre - 5.5k = 1.1 * bodyScale) is then
+  exactly the soles and its top (+5.5k) exactly the top of the head; every rig
+  gets a body proportional to its height. Two earlier readings here were
+  wrong in turn: 2026-09-02 took the pivot from the ROOOT joint including
+  its Y and measured from the hip (right only where the origin is the hip;
+  several times too big for zombie, nun, vamp); 2026-09-05 morning read the
+  constructor as zeroing and measured from the entity origin (zombie k
+  0.056, the Giant no body at all, since its bind pose floats 0.48 above
+  its origin). Both were "the monsters' radius is bigger than the
+  original" and the arches a monk's model fit but its stack did not.
+  The box is the POSED model's; the port takes the idle pose's first frame
+  (`SkeletonCache::Entry::poseLo/poseHi`, `PainfulTools posebounds` lists
+  every animation's extent) and falls back to the bind pose. A template's
+  own `BodyScale` (Bat, Tank, Panzer, Winged Demon, Alastor King) goes to the
+  sizer as given, pivot zero. Sizer constants re-read 2026-09-05
+  (0x102C8CDC..): spheres at -2.2k r 2.6k, +1.0k r 3.0k, +4.0k r 1.5k; the
+  object also stores -4.8k (sphere bottom) and -5.5k (floor point);
+  k = 0.2 * bodyScale (0x102B3B80), mass k^3 * 10000, head +4.5k.
+
+  Measured after (Cemetery, `ground.lua`): monk height 2.23, k 0.202, radii
+  0.53/0.61/0.30; biker 3.34, k 0.304, 0.79/0.91/0.46; zombie 2.89, k 0.263,
+  0.68/0.79/0.39; the Giant 94.35, k 8.58. Soles 0.000 from the ground on
+  monk and biker, 0.033 on the zombie; a standing monk's height is constant
+  to four decimals over 61 frames; 15 of 16 monks walking, 10-11 reaching
+  (`monster_stats.lua`, unchanged from before).
+
+- **Where it stands - a 0.7k shift, ASSUMED.** The lowest sphere's bottom is
+  -4.8k, the floor point -5.5k: a rigid body resting on the sphere puts the
+  soles 0.7k (0.064 of the height) under the floor - 0.15 on a monk, 0.22 on
+  a biker, which is what the port measured and what play showed, feet cut
+  off at the ankles. The original does not do that: its actors stand on
+  their soles (compared screenshot for screenshot) and `CActor.lua:926`
+  traces DOWN from `_groundy` every update, which only finds a floor if that
+  point is on or above it. So `MakeScriptBodyCharacter` shifts the three
+  spheres down 0.7k: the bottom lands on the floor point, the top 0.7k under
+  the head. Holding the unshifted stack up off a floor ray was tried first
+  and was a 0.027 sawtooth every three frames (the ray ended at the target
+  height, so it only saw the floor after the body had fallen to it). What
+  moves the body in Havok is not recovered - `PhysicsObject::Tick`,
+  `MonsterFloorCheck`, `SetPosition`, `UpdateEntity` and the static mesh
+  (radius 0.05, FUN_101B3850+0x20) have all been read and none lifts. What
+  would settle it: the shape FUN_10211E50 builds from the three records and
+  its contact behaviour.
+
+  The table below is the 2026-09-02 HIP reading, kept for its measurements;
+  its "k engine" column is the hip rule, wrong except where the origin is the
+  hip. Its "k old" column - the port's first guess, height / 10.3 - was
+  within 7% of the truth (height / 11) on every rig. Per rig (height and hip
+  in world units):
 
   | rig | height | hip above soles | k engine | k old | radii | lowest sphere above soles | top above head |
   |---|---:|---:|---:|---:|---|---:|---:|
@@ -95,8 +147,9 @@ floor" means ground within 1.5 of the soles, which is generous by design.
   original's player is a body that can press into a monster under load and
   ours is a sweep that stops at the hull, and that the shove (halved on the
   earlier play test) moves an attacking monster away as you walk into it.
-- the Havok body is placed at `entity + root`, with `PhysicsObject+4..0xc` =
-  `-root` as the pivot offset, so `GetPosition` still reports the entity;
+- the Havok body is placed at `entity + pivot` (box centre, root X/Z), with
+  `PhysicsObject+4..0xc` = `-pivot` as the pivot offset, so `GetPosition`
+  still reports the entity (`GetPivotOffset` 0x1018BA70 returns it as is);
 - `SetFreedomOfRotation(1, 1.0)`: an inertia of FLT_MAX about X and Z and 10
   about Y. The body cannot pitch or roll, and its yaw is written by
   `SetOrientation` (0x10189F70, `setRotation` on the body);

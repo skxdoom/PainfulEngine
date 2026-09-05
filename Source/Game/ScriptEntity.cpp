@@ -931,9 +931,9 @@ int ScriptEngine::L_PO_SetMonsterType(lua_State* L) {
         //
         // A k of 0 keeps whatever shape the body already has; only the sizing
         // depends on the joint.
-        float k = 0.f, rootOffsetY = 0.f;
-        self->MonsterBodyScale(*e, k, rootOffsetY);
-        self->physics_->MakeScriptBodyCharacter(e->physicsBody, k, rootOffsetY);
+        float k = 0.f, rootOffset[3] = {0.f, 0.f, 0.f};
+        self->MonsterBodyScale(*e, k, rootOffset);
+        self->physics_->MakeScriptBodyCharacter(e->physicsBody, k, rootOffset);
         // Whatever the scripts set before the flag arrived.
         self->physics_->SetCharacterMovement(e->physicsBody, e->monsterMoveConst,
                                              e->monsterMoveFlag);

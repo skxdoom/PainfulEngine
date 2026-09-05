@@ -1736,7 +1736,7 @@ void PhysicsWorld::SetScriptBodyEnabled(int slot, bool enabled) {
     sb.inWorld = enabled;
 }
 
-void PhysicsWorld::MakeScriptBodyCharacter(int slot, float k, float rootOffsetY) {
+void PhysicsWorld::MakeScriptBodyCharacter(int slot, float k, const float rootOffset[3]) {
     if (!ScriptBodyExists(slot)) return;
     JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
     Impl::ScriptBody& sb = impl_->scriptBodies[size_t(slot)];
@@ -1766,9 +1766,18 @@ void PhysicsWorld::MakeScriptBodyCharacter(int slot, float k, float rootOffsetY)
 
         JPH::StaticCompoundShapeSettings compound;
         compound.SetEmbedded();
+        // Shifted DOWN 0.7k, so the lowest sphere's bottom (-4.8k) lands on the
+        // floor point (-5.5k) - the model's soles - and the top sits under the
+        // head (4.8k) instead of 0.7k above it. That is where the original's
+        // body evidently is: actors stand on their soles and monks fit the
+        // arches their models fit. ASSUMED - the sizer centres the records on
+        // the entity, and what moves them in Havok is not recovered.
+        // Docs/Reference/MonsterMovement.md, "The body".
+        constexpr float kStackShift = -0.7f;
         for (const Ball& ball : kBalls) {
             JPH::SphereShapeSettings* sphere = new JPH::SphereShapeSettings(ball.r * k);
-            compound.AddShape(JPH::Vec3(0.f, ball.y * k + rootOffsetY, 0.f),
+            compound.AddShape(JPH::Vec3(rootOffset[0], (ball.y + kStackShift) * k + rootOffset[1],
+                                        rootOffset[2]),
                               JPH::Quat::sIdentity(), sphere);
         }
         JPH::ShapeSettings::ShapeResult shape = compound.Create();
@@ -1791,7 +1800,7 @@ void PhysicsWorld::MakeScriptBodyCharacter(int slot, float k, float rootOffsetY)
     }
     Impl::Character& ch = impl_->characters[size_t(sb.character)];
     ch.k = sb.radius;
-    ch.rootOffsetY = rootOffsetY;
+    ch.rootOffsetY = rootOffset[1];
 
     // DYNAMIC, translation only. CreatePhysicsObject (0x101999F0) ends with
     // SetFreedomOfRotation(1, 1.0): pitch and roll inertia FLT_MAX, yaw 10 -
@@ -1852,7 +1861,10 @@ void PhysicsWorld::StandCharacterOnFloor(int slot, float maxLift, float minLift)
     JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
     const JPH::BodyID id = impl_->scriptBodies[size_t(slot)].body;
     const JPH::RVec3 p = bodies.GetPosition(id);
-    const float bottom = float(p.GetY()) + ch->rootOffsetY - 4.8f * ch->k;
+    // The stack's physical bottom: the lowest sphere is shifted 0.7k down in
+    // MakeScriptBodyCharacter, so it ends at the floor point (-5.5k), the
+    // model's soles. Docs/Reference/MonsterMovement.md, "The body".
+    const float bottom = float(p.GetY()) + ch->rootOffsetY - 5.5f * ch->k;
     const float top = float(p.GetY()) + ch->rootOffsetY + 5.5f * ch->k;
     // From a unit above the head down to the stack's lowest point: a floor in
     // that span has the body inside it. A downward-facing hit is a ceiling
@@ -1992,7 +2004,9 @@ void PhysicsWorld::StepCharacters() {
         if (bodies.GetMotionType(sb.body) != JPH::EMotionType::Dynamic) continue;
         // The two-sided-mesh stand-in, a step's worth at a time - and only for
         // a real embedding. Lifting the resting slop too kept the bodies
-        // airborne 49% of their steps and cost speed on every landing.
+        // airborne 49% of their steps and cost speed on every landing, and
+        // holding them at an exact height off a ray that ended there was a
+        // 0.027 sawtooth every three frames.
         StandCharacterOnFloor(ch.slot, 0.1f, 0.05f);
 
         const JPH::RVec3 p = bodies.GetPosition(sb.body);

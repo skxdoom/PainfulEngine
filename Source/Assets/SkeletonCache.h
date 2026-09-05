@@ -29,6 +29,12 @@ public:
         // rather than the skeleton - a character radius is the horizontal
         // half-extent, and a T-posed humanoid's widest axis is its ARMS.
         float lo[3] = {0, 0, 0}, hi[3] = {0, 0, 0};
+        // The lowest vertex in the idle pose (first frame of idle / idle1),
+        // or lo[1] when there is none. The body sizer measures from the
+        // entity's local box, which is the POSED model's: the Giant's bind
+        // pose floats 0.48 above its origin while every animation plants its
+        // feet below it. Docs/Reference/MonsterMovement.md, "The body".
+        float poseLo = 0.f, poseHi = 0.f;
     };
 
     void SetRoot(const std::string& modelsRoot) { root_ = modelsRoot; }

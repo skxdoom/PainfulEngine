@@ -139,6 +139,10 @@ const Command kCommands[] = {
  "meshes, skeleton, bounds",
  [](int, char** argv) { return ModelCmd(argv[2]); }},
 
+{"posebounds", 3, Root::kFromPath, "geometry", "<file.pkmdl>",
+ "posed vertical extent per animation vs the bind pose",
+ [](int, char** argv) { return PoseBoundsCmd(argv[2]); }},
+
 {"bones", 3, Root::kFromPath, "geometry", "<file.pkmdl> [anim] [time] [joint:ax,ay,az]",
  "skeleton hierarchy",
  [](int argc, char** argv) {

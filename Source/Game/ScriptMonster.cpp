@@ -11,104 +11,55 @@
 
 namespace painful {
 
-// The monster's BODY: three stacked spheres, standing on its soles. k is the
-// sizer's working unit (0.2 * bodyScale) and rootOffsetY where the stack's
-// origin sits above the entity position.
-bool ScriptEngine::MonsterBodyScale(Entity& e, float& k, float& rootOffsetY) {
-    // THE RIG SIZES THE BODY, NOT THE MESH BOUNDS.
+// The monster's BODY: three stacked spheres. k is the sizer's working unit
+// (0.2 * bodyScale) and rootOffset where the stack's centre sits relative to
+// the entity position.
+bool ScriptEngine::MonsterBodyScale(Entity& e, float& k, float rootOffset[3]) {
+    // PhysicsWorld::CreatePhysicsObject (0x101999F0) for a scale argument <= 0:
     //
-    // PhysicsWorld::CreatePhysicsObject (0x101999F0) looks up the joint named
-    // "ROOOT" and, when the model has one, sizes and places the shape from it
-    // alone:
+    //     pivot     = centre of the entity's local box (FUN_1000B250 = (min+max)/2),
+    //                 X and Z then replaced by the ROOOT joint's (0x10199B56..B64)
+    //     bodyScale = (pivot.y - box.min.y) * 10/11       = half the height * 10/11
     //
-    //     param_5 = (root.y - entity.y) * 0.909090;   // 10/11
-    //     FUN_101b3e20(&local_78, param_5, bodyType, group);
-    //     local_78 = -root.x;  local_74 = -root.y;  local_70 = -root.z;
-    //
-    // One scalar out of the skeleton drives the whole shape, and the shape is
-    // then offset by the NEGATED root position. No mesh extents are consulted
-    // anywhere in that path - which is why sizing from them, as this used to,
-    // put the body in a different place on every rig depending on where its
-    // author had left the origin.
+    // So k = 0.2 * bodyScale = height / 11, the stack is centred at the
+    // model's mid-height, its floor point (-5.5k) is exactly the soles and its
+    // top (+5.5k) exactly the head. Every rig gets a body proportional to its
+    // height. Docs/Reference/MonsterMovement.md, "The body".
+    for (int c = 0; c < 3; ++c) rootOffset[c] = 0.f;
+    // A template's own BodyScale (Bat, Tank, Panzer, Winged Demon, Alastor
+    // King) goes to the sizer as given, pivot zero.
+    if (e.bodyArgScale > 0.f) {
+        k = 0.2f * e.bodyArgScale;
+        return true;
+    }
     const SkeletonCache::Entry* skel = skeletons_.Get(e.source);
     if (!skel || skel->bones.empty()) return false;
 
-    // THE HIP JOINT, WHATEVER THIS RIG CALLS IT.
-    //
-    // The engine looks up "ROOOT", and six of ten shipped rigs have exactly
-    // that. The other four spell the same joint differently and sit it at the
-    // same kind of height:
-    //
-    //     zombie      root      y = 8.59
-    //     vamp_small  root      y = 6.43
-    //     raven       root      y = 2.37   (under a big_root at the origin)
-    //
-    // So it is one joint under two names, not two different things - and
-    // matching only the first spelling left those rigs with no measure at all,
-    // which is why they were the ones still sunk through the floor. "ROOOT"
-    // wins where both exist; raven is why "root" is preferred over bone 0,
-    // whose big_root sits at the origin and measures nothing.
-    int root = -1;
-    for (const char* name : {"ROOOT", "root"}) {
-        for (size_t i = 0; i < skel->bones.size(); ++i)
-            if (EqualsCI(skel->bones[i].name, name)) { root = int(i); break; }
-        if (root >= 0) break;
+    // The box is the POSED model's: the idle pose's first frame here
+    // (SkeletonCache::Entry::poseLo/poseHi), the bind pose when there is none.
+    const float height = (skel->poseHi - skel->poseLo) * e.scale;
+    if (height <= 0.f) return false;
+    k = 0.2f * (0.5f * height) * (10.f / 11.f);
+    rootOffset[0] = 0.5f * (skel->lo[0] + skel->hi[0]) * e.scale;
+    rootOffset[1] = 0.5f * (skel->poseLo + skel->poseHi) * e.scale;
+    rootOffset[2] = 0.5f * (skel->lo[2] + skel->hi[2]) * e.scale;
+    // Model::GetJointIndex("ROOOT") - that spelling only; a rig with "root"
+    // and no "ROOOT" keeps the box centre sideways too.
+    for (size_t i = 0; i < skel->bones.size(); ++i) {
+        if (!EqualsCI(skel->bones[i].name, "ROOOT") || i >= skel->bindWorld.size()) continue;
+        float rootPos[3];
+        skel->bindWorld[i].TransformPoint(0.f, 0.f, 0.f, rootPos);
+        rootOffset[0] = rootPos[0] * e.scale;
+        rootOffset[2] = rootPos[2] * e.scale;
+        break;
     }
-    if (root < 0 || size_t(root) >= skel->bindWorld.size()) return false;
-
-    // The root in MODEL space; the engine's (root.y - entity.y) is the same
-    // quantity once the entity's own scale is applied, since the root is
-    // measured from the entity's origin.
-    float rootPos[3];
-    skel->bindWorld[size_t(root)].TransformPoint(0.f, 0.f, 0.f, rootPos);
-
-    // ROOOT MARKS THE HIP, AND THE MEASURE IS ITS HEIGHT ABOVE THE SOLES.
-    //
-    // Read across the rigs, the joint's own translation is not comparable -
-    // banshee has it at 8.34 and evilmonkv2 at 0.00 - because the two put the
-    // model ORIGIN in different places: banshee's is at the feet, evilmonkv2's
-    // at mid-body. Subtract the model's lowest point and they agree:
-    //
-    //     banshee     8.34 - (-2.84) = 11.18
-    //     nun         8.12 - (-3.79) = 11.91
-    //     evilmonkv2  0.00 - (-12.80) = 12.80
-    //     DevilMonkv2 0.00 - (-12.85) = 12.85
-    //
-    // One number for a humanoid, whatever its author did with the origin. That
-    // is the quantity the engine's (root.y - entity.y) is after, and taking it
-    // from the origin instead gave 0 for half the bestiary.
-    const float hipAboveSoles = (rootPos[1] - skel->lo[1]) * e.scale;
-    if (hipAboveSoles <= 0.f) return false;
-
-    // THE ENGINE'S RULE, NOW THAT ITS REFERENCE IS IDENTIFIED.
-    //
-    // Entity+0x54 is the entity's LOCAL BoundingBox (RenderLocalBoundingBox
-    // 0x101D0A90 draws it), so the (root.y - Entity+0x58) in
-    // CreatePhysicsObject is the hip's height above the model's lowest
-    // point. bodyScale = that * 10/11, and the sizer's unit is 0.2 * bodyScale.
-    // The stack is built about the hip: CreatePhysicsObject places the body at
-    // entity + root and keeps -root as the pivot.
-    //
-    // This is NOT a body that spans the model. On a monk the lowest sphere
-    // ends 0.19 above the soles and the top one clears the head; on a rig
-    // whose root sits high (banshee, 0.70 of height) the stack is 1.3x the
-    // model, on one whose root sits low (vamp, 0.245) it is half - and that
-    // is what the player walks into in the original. An earlier version here
-    // sized k = height / 10.3 and stood the stack on the soles, which made
-    // every rig the same relative size and put its lowest sphere 0.19 lower.
-    // Per-rig numbers: Docs/Reference/MonsterMovement.md.
-    k = 0.2f * hipAboveSoles * (10.f / 11.f);
-    rootOffsetY = rootPos[1] * e.scale;
     {
         static std::set<std::string> logged;
-        if (logged.insert(e.source).second) {
-            const float height = (skel->hi[1] - skel->lo[1]) * e.scale;
-            LogInfo("monster body %-14s height %.2f hip %.2f  k %.3f (was %.3f)  radii %.2f/%.2f/%.2f  "
-                    "bottom %+.2f above soles, top %+.2f above head",
-                    e.source.c_str(), height, hipAboveSoles, k, height / 10.3f, 2.6f * k, 3.0f * k,
-                    1.5f * k, hipAboveSoles - 4.8f * k,
-                    (hipAboveSoles + 5.5f * k) - height);
-        }
+        if (logged.insert(e.source).second)
+            LogInfo("monster body %-14s height %.2f  centre %+.2f above origin  k %.3f  "
+                    "radii %.2f/%.2f/%.2f  soles %+.2f, head %+.2f above origin",
+                    e.source.c_str(), height, rootOffset[1], k, 2.6f * k, 3.0f * k, 1.5f * k,
+                    skel->poseLo * e.scale, skel->poseHi * e.scale);
     }
     return k > 0.f;
 }

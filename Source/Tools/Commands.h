@@ -94,6 +94,7 @@ int MapCmd(const char* path);
 int MatsCmd(const char* path, const char* nameFilter);
 int HitboxesCmd(const char* modelPath);
 int ModelCmd(const char* path);
+int PoseBoundsCmd(const char* path);
 
 // ---------------------------------------------------------------- textures
 int SkyDumpCmd(const char* path);

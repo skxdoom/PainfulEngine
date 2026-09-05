@@ -48,6 +48,81 @@ int DatCmd(const char* path) {
 // path names one. The .pak table of contents is hashed, so there is otherwise
 // no way to see what the game data actually contains.
 
+// The posed mesh's vertical extent per animation, against the bind pose. The
+// original sizes a monster's body from its entity's local bounding-box
+// minimum Y (PhysicsWorld::CreatePhysicsObject 0x101999F0, Entity+0x58);
+// which pose that box reflects decides the body's size and where it stands.
+// Docs/Reference/MonsterMovement.md, "The body".
+int PoseBoundsCmd(const char* path) {
+    namespace fs = std::filesystem;
+    Model m;
+    if (!Model::Load(path, m)) { LogInfo("failed"); return 2; }
+    std::string dir = path, base = path;
+    const size_t slash = base.find_last_of("/\\");
+    if (slash != std::string::npos) { dir = base.substr(0, slash); base = base.substr(slash + 1); }
+    else dir = ".";
+    const size_t dot = base.find_last_of('.');
+    if (dot != std::string::npos) base = base.substr(0, dot);
+    auto lower = [](std::string s) {
+        for (char& c : s) c = char(std::tolower(static_cast<unsigned char>(c)));
+        return s;
+    };
+    const std::string baseLower = lower(base);
+
+    double bindLo = 1e30, bindHi = -1e30;
+    for (const ModelMesh& mesh : m.meshes)
+        for (size_t i = 0; i < mesh.vertexCount(); ++i) {
+            bindLo = std::min(bindLo, double(mesh.verts[i * 8 + 1]));
+            bindHi = std::max(bindHi, double(mesh.verts[i * 8 + 1]));
+        }
+    LogInfo("%s: bind mesh y[%.2f..%.2f]", path, bindLo, bindHi);
+
+    std::vector<Bone> bones = m.bones;
+    BuildHierarchy(bones);
+    std::vector<Mat4> bw, ib;
+    ComputeBindWorld(bones, bw, ib);
+    AnimationCache cache;
+    cache.SetRoot(dir);
+    double allLo = bindLo, allHi = bindHi;
+    std::vector<std::string> names;
+    for (const auto& entry : fs::directory_iterator(dir)) {
+        const std::string fn = lower(entry.path().filename().string());
+        if (fn.size() <= baseLower.size() + 5 || fn.compare(0, baseLower.size() + 1, baseLower + ".") != 0 ||
+            fn.compare(fn.size() - 4, 4, ".ani") != 0)
+            continue;
+        names.push_back(fn.substr(baseLower.size() + 1, fn.size() - baseLower.size() - 5));
+    }
+    std::sort(names.begin(), names.end());
+    std::vector<Mat4> posed, skin;
+    std::vector<float> verts;
+    for (const std::string& animName : names) {
+        const Animation* anim = cache.Get(base, animName);
+        if (!anim) continue;
+        std::vector<const AnimTrack*> tracks;
+        ResolveAnimTracks(bones, *anim, tracks);
+        double lo = 1e30, hi = -1e30;
+        const int samples = 12;
+        for (int s = 0; s <= samples; ++s) {
+            const float t = anim->duration() * float(s) / float(samples);
+            ComputeBoneWorldAtTime(bones, tracks, t, posed);
+            BoneWorldToSkinning(ib, posed, skin);
+            for (const ModelMesh& mesh : m.meshes) {
+                if (!mesh.hasSkin()) continue;
+                SkinMeshVertices(mesh, skin, verts);
+                for (size_t i = 0; i < mesh.vertexCount(); ++i) {
+                    lo = std::min(lo, double(verts[i * 8 + 1]));
+                    hi = std::max(hi, double(verts[i * 8 + 1]));
+                }
+            }
+        }
+        LogInfo("  %-16s y[%7.2f..%6.2f]", animName.c_str(), lo, hi);
+        allLo = std::min(allLo, lo);
+        allHi = std::max(allHi, hi);
+    }
+    LogInfo("  all poses y[%.2f..%.2f]  (bind %.2f..%.2f)", allLo, allHi, bindLo, bindHi);
+    return 0;
+}
+
 int BonesCmd(const char* path, const char* animName, const char* timeArg,
                     const char* rotArg) {
     Model m;

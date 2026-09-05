@@ -287,9 +287,9 @@ void ScriptEngine::RebuildEntity(int handle, Entity& src) {
             if (e.bodyAngDamp >= 0.f) physics_->SetScriptBodyAngularDamping(slot, e.bodyAngDamp);
             if (e.bodyGravity >= 0) physics_->SetScriptBodyGravityFactor(slot, float(e.bodyGravity));
             if (e.isMonster) {
-                float k = 0.f, rootOffsetY = 0.f;
-                MonsterBodyScale(e, k, rootOffsetY);
-                physics_->MakeScriptBodyCharacter(slot, k, rootOffsetY);
+                float k = 0.f, rootOffset[3] = {0.f, 0.f, 0.f};
+                MonsterBodyScale(e, k, rootOffset);
+                physics_->MakeScriptBodyCharacter(slot, k, rootOffset);
                 physics_->SetCharacterMovement(slot, e.monsterMoveConst, e.monsterMoveFlag);
                 physics_->SetCharacterFlying(slot, e.monsterFlying);
                 physics_->SetCharacterWish(slot, e.moveWish);
