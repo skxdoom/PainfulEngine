@@ -339,6 +339,9 @@ public:
         // creates it; while it exists the SOLVER owns the pose and the
         // animation does not, which is what PosedBones checks.
         int ragdollSlot = -1;
+        // MDL.SetRagdoll*Damping, kept for a ragdoll not yet created: the
+        // bridge items set both BEFORE EnableRagdoll. -1 = never set.
+        float ragdollLinearDamping = -1.f, ragdollAngularDamping = -1.f;
         // MDL.SetRagdollMovedByExplosions: bit 0x10 of the Ragdoll's flag byte
         // (Ragdoll::IsMovedByExplosions 0x1019CBB0). FUN_101B0DC0 tests it
         // before doing ANYTHING to a ragdoll - push or damage - so a corpse
@@ -865,6 +868,7 @@ private:
     static int L_INP_SetTimeMultiplier(lua_State* L);
     static int L_SetPosAndRotRelativeToCamera(lua_State* L);
     static int L_GetType(lua_State* L);
+    static int L_GetName(lua_State* L);
     static int L_PARTICLE_SetEvolve(lua_State* L);
     static int L_PARTICLE_Die(lua_State* L);
     static int L_MDL_SetAnim(lua_State* L);

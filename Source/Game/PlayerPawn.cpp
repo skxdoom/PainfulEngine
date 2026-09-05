@@ -332,6 +332,9 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
     }
     onGround_ = grounded;
     if (onGround_ && velY_ < 0.f) velY_ = 0.f;
+    // Standing on a dynamic body - a bridge plank - presses the player's
+    // weight on it. Physics.md, "Ragdoll items: the Catacombs bridge".
+    if (onGround_) physics.PressGround(feet, kRadius, kPlayerMass * gravity);
     // A ceiling stops upward motion.
     if (velY_ > 0.f) {
         const float risen = feet[1] - (head_[1] - kEyeAboveFloor + kRadius);

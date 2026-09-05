@@ -360,6 +360,17 @@ int PhysicsCmd(const char* levelDir, const char* dataRoot) {
 // Diagnostic: the highest world vertex below a point, within a radius.
 // Diagnostic: dump the zone/portal graph, and which zones contain a point.
 
+int HkeTextCmd(const char* path) {
+    std::string text, error;
+    if (!Hke::DecodeToText(path, text, error)) {
+        LogInfo("%s: %s", path, error.c_str());
+        if (text.empty()) return 1;
+        LogInfo("--- decoded up to the failure ---");
+    }
+    fwrite(text.data(), 1, text.size(), stdout);
+    return error.empty() ? 0 : 1;
+}
+
 int RagdollCmd(const char* path, const char* modelsRoot) {
     namespace fs = std::filesystem;
     std::error_code ec;
@@ -382,11 +393,12 @@ int RagdollCmd(const char* path, const char* modelsRoot) {
         for (const fs::path& f : files) {
             Hke hke;
             if (!Hke::Load(f.string(), hke)) {
-                if (hke.binary) ++binary;
-                else { ++failed; LogInfo("  FAILED %s: %s", f.filename().string().c_str(),
-                                         hke.error.c_str()); }
+                ++failed;
+                LogInfo("  FAILED %s%s: %s", f.filename().string().c_str(),
+                        hke.binary ? " (binary)" : "", hke.error.c_str());
                 continue;
             }
+            if (hke.binary) ++binary;
             ++ascii;
             bodies += hke.bodies.size();
             constraints += hke.constraints.size();
@@ -449,7 +461,7 @@ int RagdollCmd(const char* path, const char* modelsRoot) {
             if (any) ++withDetached;
         }
 
-        LogInfo("%zu .hke: %zu text parsed, %zu binary (not decoded), %zu failed",
+        LogInfo("%zu .hke: %zu parsed (%zu of them binary, decoded), %zu failed",
                 files.size(), ascii, binary, failed);
         LogInfo("  %zu rigid bodies, %zu hulls (%zu vertices), %zu dangling hull refs",
                 bodies, hulls, hullVerts, danglingGeom);
@@ -523,8 +535,11 @@ int RagdollCmd(const char* path, const char* modelsRoot) {
             const HkeBody* ba = hke.Body(c.bodyA);
             const HkeBody* bb = hke.Body(c.bodyB);
             if (ba == nullptr || bb == nullptr) continue;
-            const float* la = (c.kind == HkeConstraint::kHinge) ? c.hingePosA : c.csToRef[3];
-            const float* lb = (c.kind == HkeConstraint::kHinge) ? c.hingePosB : c.csToAtt[3];
+            const bool spring = c.kind == HkeConstraint::kStiffSpring;
+            const float* la = spring ? c.localPointA
+                            : (c.kind == HkeConstraint::kHinge) ? c.hingePosA : c.csToRef[3];
+            const float* lb = spring ? c.localPointB
+                            : (c.kind == HkeConstraint::kHinge) ? c.hingePosB : c.csToAtt[3];
             Mat4 ra, rb;
             ba->RestMatrix(ra.m);
             bb->RestMatrix(rb.m);
@@ -533,6 +548,13 @@ int RagdollCmd(const char* path, const char* modelsRoot) {
             rb.TransformPoint(lb[0], lb[1], lb[2], wb);
             float d2 = 0.f;
             for (int k = 0; k < 3; ++k) d2 += (wa[k] - wb[k]) * (wa[k] - wb[k]);
+            // A stiff spring holds its two points a LENGTH apart, not together.
+            if (spring) {
+                LogInfo("  stiff spring %s: %s->%s authored %.3f, SPRING_LENGTH %.3f",
+                        c.name.c_str(), c.bodyA.c_str(), c.bodyB.c_str(), std::sqrt(d2),
+                        c.springLength);
+                continue;
+            }
             ++checked;
             if (std::sqrt(d2) > worst) { worst = std::sqrt(d2); worstPair = c.bodyA + "->" + c.bodyB; }
         }

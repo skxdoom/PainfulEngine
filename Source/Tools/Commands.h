@@ -90,7 +90,11 @@ int ScaleCmd(const char* levelDir, const char* dataRoot);
 int DatCmd(const char* path);
 int BonesCmd(const char* path, const char* animName, const char* timeArg,
              const char* rotArg);
-int MapCmd(const char* path);
+int MapCmd(const char* path, const char* nameFilter = nullptr);
+// Copies one file out of the mounted view (a pak entry or a loose file).
+int ExtractCmd(const char* dataRoot, const char* path, const char* outPath);
+// Prints an .hke as text - a binary one decoded.
+int HkeTextCmd(const char* path);
 int MatsCmd(const char* path, const char* nameFilter);
 int HitboxesCmd(const char* modelPath);
 int ModelCmd(const char* path);

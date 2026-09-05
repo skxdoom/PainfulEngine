@@ -473,6 +473,20 @@ through `PHYSICS.GetHavokBodyVelocity` and stores the relative speed as
 handles as well as entities: without them the handler has nothing to measure.
 `Game:ExecMsgQueue`, at the end of `Game:Tick2`, is what drains it.
 
+**A receiver with no Lua object goes to the level.** `ExecMsgQueue` hands a
+contact whose `e_me` has no `EntityToObject` entry - a `phys` world mesh, which
+is an entity but not an object - to `Lev:OnCollision(x,y,z, e_other, h_me,
+e_me)`, and `CLevel:OnCollision` looks the mesh up by `ENTITY.GetName(e_me)` in
+the level's `_MeshesCollisions` table for its impact sound. The port had no
+`GetName`, the missing-native stub returned nil, and the concatenation in
+`CLevel.lua:530` raised every tick a released piece of debris touched
+anything. A Lua error there aborts `Game:Tick2` for the frame - every later
+object's `Tick`, including each rocket's own world line trace - so after one
+rocket blast near the Catacombs ledge (which unpins the wood debris there),
+rockets stopped exploding on the static world until the debris settled.
+Found 2026-09-05 with `bridge_rocket2.lua`; `GetName` now returns the mesh
+object's name, or the script's own name, and never nil.
+
 Four things about this were easy to get wrong, and three of them were:
 
 - **Sample the velocities inside the contact callback, mid-step.** Read after
@@ -750,54 +764,121 @@ the live skeleton makes the gib at death and the joint spread grows from
 3200/8 blast at the corpse takes `_HealthAfterDeath` to -99.5 and gibs it.
 Whether the burst FEELS right is a play test.
 
-### STAND-IN: gibs with a binary .hke
+### The binary .hke
 
-69 of the 93 `_gib.hke` files are the binary 'B' form, which is not decoded
-(`Hke.h`). For those, `RagdollDef` builds the gib from the LIVE model's text
-ragdoll, cut where the GIB MESH is cut: a constraint survives exactly when
-some mesh of the `_gib.pkmdl` is skinned (at least 1% of its weight) to bones
-on both sides of it, and goes when no mesh spans it. The 24 text gib files
-are the ground truth - the same bodies as the live ragdoll with some
-constraints removed - and the rule reproduces `deto`, `hellbiker` and `nun`
-exactly: hips and shoulders and neck off, elbows and knees on, the nun's spine
-off and her cloth anchors on. The first attempt cut by constraint KIND
-(every ball-and-socket off) and split the monk's pelvis from its thighs; the
-skirt skinned across both then stretched between the flying pieces - what a
-gib "still connected" looks like. With the mesh rule the monk keeps 10 of 14
-(the lower body stays one chunk under the skirt). A model whose live `.hke`
-is binary too (templar, vamp_v2) still cannot gib. Decoding the binary form
-replaces this.
+132 of the 324 shipped `.hke` files start with `B` instead of `A` (69 of the
+93 gibs, templar, vamp_v2, and every level item with a ragdoll - doors, lamps,
+chains, both bridges). It is the SAME grammar as the text form with the words
+replaced by numbers, and `Hke.cpp` decodes it back to text so one parser reads
+both. Recovered from the reader in `Engine.dll` (FUN_101c02f0 and its word
+lookup, FUN_102641C0 hashing into the table at DAT_103E70F4):
 
-### STAND-IN: JointsLinked with a binary .hke
+| element | encoding |
+|---|---|
+| keyword or value word (`TRUE`, `Ragdoll`, `Inline`...) | u32 = ELF hash of the word, mod 0x7fffffff |
+| `END_*` keywords | preceded by the marker u32 `0x12ABCDEF` |
+| int, float | 4 bytes |
+| string (names) | NUL-terminated |
+| boolean | ONE byte - the first decoder read four and slid off the grammar at `default_subspace` |
+| geometry block | kind word, name, u32 nverts, 3 floats each, u32 ntris, 3 u32 each |
 
-`MDL.JointsLinked` asks whether a bone reaches the root THROUGH THE RAGDOLL, and
-`Stake`, `BoltStick` and `PainHead` all ask it before dealing damage: a "no"
-means the hit landed on a detachable element, so they take that body out of the
-traces and shoot again. With no decoded ragdoll the honest answer is the
-SKELETON's, which is yes; returning false instead is not a neutral default, it
-is the detachable-element answer.
+The word table is `kHkeWords` in `Hke.cpp`. It has to carry every word the
+text form ever uses: `RESTITUTION` (Spring actions), `TWO_BODIES` and the
+`Dashpot` action type turned up only in binary files and were found by hashing
+every identifier in `Engine.dll` (`HkeStrings.java` in the session
+scratchpad; `HkeHash.java` checks one word). The census (`PainfulTools
+ragdoll <dir>`) parses 324 of 324 with 0 unknown keywords, which is the check
+that the table is complete. `PainfulTools hketext <file.hke>` prints any file
+as text.
 
-That is what it did, and it made **19 monster models unhittable by those three
-weapons** - leper, bones, dead_body, apoc_zombie, zombieapo_v2, vamp, vamp_cat,
-vamp_v2, witch, templar, executioner (+_v2), beast, Beast2, hellangel_rl,
-Lucyfer, leper_Monk, tank, military_base_gun. Every hit re-traced the same
-0.17 m sweep with the one body it had hit suppressed, found nothing, and
-returned before `OnDamage`. Measured on a leper: 4 contacts, 0 damage, health
-90 throughout; with the stand-in, `OnDamage(150)` on the first contact and
-health 0. The Painkiller's released head shows it most plainly - spinning, it
-is meant to pass through a body and cut it on the way, and it passed through
-doing nothing.
+Before the decoder, a gib with a binary file was built from the live model's
+ragdoll cut where the gib MESH is cut (a constraint survives when some
+`_gib.pkmdl` mesh is skinned to bones on both sides of it; verified against
+the 24 text gibs). That rule is kept in `RagdollDef` only as the fallback for
+a file that will not parse, and none shipped does. `MDL.JointsLinked` likewise
+answered from the skeleton (yes) when a model had no decoded ragdoll: with
+the wrong answer (no) the stake, bolt and Painkiller head had treated every
+hit on 19 monster models as a hit on a detachable element and done no damage.
+Both answers now come from the real ragdoll.
 
-The cost of the other error is one case: a hit on a prop the monster carries
-damages the monster instead of passing through it. `MDL.EnableJoint` names four
-such bones in the whole game. Text ragdolls are untouched - amputee and
-evilmonk still answer for 11 bodies and refuse the head, jaw and weapon roots.
-Decoding the binary form replaces this.
+One file carries a `Dashpot` action (`C2L2_Door2`, an `hkLinearDashpotAction`
+between the fixed `joint1` and the door) and 17 a `Spring` action; both are
+parsed and neither is simulated yet.
 
 Still stubs: `SetRagdollRestitution`, `SetRagdollCollisionGroup`,
 `EnableCollisionsToRagdoll` (the gib-splash collision sounds), and the
 `ApplyVelocitiesToJoint` / `ApplyRotationToJoint` joint-level family.
 
+
+## Ragdoll items: the Catacombs bridge
+
+`Cat_bridge1` is a `CItem` (scale 3.2, `Mass = 250` on the physics object)
+whose `OnCreateEntity` calls `MDL.SetRagdollLinearDamping(1)`,
+`SetRagdollAngularDamping(1)` and then `MDL.EnableRagdoll(true,
+RagdollNonColliding)`: the bridge IS its ragdoll, eight bodies in a row and
+nothing else. Until the binary `.hke` decoded there was no ragdoll and the
+player fell through the drawn planks. Three rules came out of making it stand.
+
+### Fixed bodies
+
+A rigid body with `MASS 0` (and `ACTIVE FALSE`) is Havok's fixed body. 34
+shipped ragdolls have one: the wall end of every hanging lamp, chain, gate and
+door, the roots of Catacombs' `korzenie` and `uapka`, and both ends of each
+bridge (`joint1_getmass` / `joint8_getmass` here; `most.hke` has three). The
+port had let Jolt compute a mass from the hull, so every one of these fell.
+`CreateRagdoll` now makes a mass-0 part KINEMATIC and `SetRagdollPose` never
+switches it to dynamic; it is seeded at its authored place with the rest and
+stays there. The other six planks are 300 each.
+
+### Stiff springs
+
+`hkStiffSpringConstraint` (`BEGIN_CONSTRAINT StiffSpring`) holds one point on
+each body a fixed distance apart, and that distance is `SPRING_LENGTH`, not
+the authored gap. In beast2, C1L4_TrupA and flagatest the two are equal to
+three decimals; the bridge is the exception - its ropes are 3.5 model units
+against planks authored 1.3-2.5 apart, so the chain lengthens on activation
+and the deck hangs deeper than it was drawn, which is a rope bridge doing what
+a rope bridge does. The reader in `Engine.dll` agrees: FUN_1026ee30 reads
+`LOCAL_POINT_A/B` and `SPRING_LENGTH`, transforms the points by their bodies,
+and stores the length it READ into the constraint info (`local_f0`) as the
+last thing before constructing the constraint (FUN_10201810); nothing
+recomputes it from the points. `BuildConstraint` sets Jolt's
+`DistanceConstraint` min and max to `SPRING_LENGTH * scale`. The `ragdoll <file>` report prints each stiff
+spring's authored distance beside its length; the anchor-gap check skips them,
+since a rod is not a coincident pair (the 26.9-unit "gap" it used to report on
+the bridge was that).
+
+### Damping set before the ragdoll exists
+
+`MDL.SetRagdollLinearDamping` / `AngularDamping` used to require a live
+ragdoll slot and the bridge calls both BEFORE `EnableRagdoll`, so they did
+nothing and the deck swung for the whole 15-second headless run without
+settling (joint5 between -40.7 and -42.0). The values are now kept on the
+entity and applied when the ragdoll is created.
+
+### The player's weight
+
+The player is a swept sphere with no mass, so standing on the deck did not
+move it - only flying through in noclip did, via the pusher. Havok's character
+proxy presses its `characterMass` on the bodies it stands on, so
+`PlayerPawn::Move` now calls `PhysicsWorld::PressGround` while grounded: a
+downward force of `kPlayerMass * gravity` (80 x 19.62) on every dynamic,
+non-character body whose contact point is under the feet sphere. Measured:
+with the player on the middle plank it hangs 0.8 lower than with nobody on it
+(-43.6 against -42.8) and the neighbours shift by 0.3-0.5.
+
+### The culling box follows the pose
+
+`EntityRenderer` culled an instance by its bind-pose box under the entity
+transform, and the sagging deck leaves that box by five units, so a plank in
+plain view could vanish. `SetScriptSkinning` now grows the box to every bone's
+posed centre padded by the model's half-diagonal; it can only get larger.
+
+Measured headlessly (`bridge_stand.lua`, player dropped 1.5 above the middle
+plank): the player lands 0.9 above the plank and stays; the plank under the
+player creeps 0.03 between 5 s and 25 s and then holds. The two `noclip_decha`
+world meshes at the bridge ends are non-collidable, as `noclip` says ("Active
+meshes", the `noclip` row).
 
 ## Collision groups: what collides with what
 
@@ -837,7 +918,7 @@ rigid bodies at load:
 | in the name | meaning | where |
 |---|---|---|
 | `phys` | this object is a body, not static world | `SetupFlags` sets bit 24 of `WorldMesh+0x18`, which `AddMesh` branches on |
-| `noclip` | never reaches physics at all | `SetupFlags` |
+| `noclip` | NO body. `SetupFlags` (0x101D7050) sets `WorldMesh+0x1a` bit 0x40, which is bit 0x400000 of the flag dword at +0x18, and `ReloadWorld` (0x1019B180) skips `AddMesh` for any mesh with that bit (unless 0x8000000 is also set). The editor doc ("excluded from Havok physics - player can walk through") is exactly right. A wrong reading on 2026-09-05 had it collidable for a few hours: `FindImm 0x400000` cannot see a byte-wide `OR [+0x1a],0x40`, so the flag looked unset by anything but `EnableDynamic`. Catacombs' `noclip_decha01/02` are the two deck ends at the bridge anchors (world x 160 and 209); the bridge the player walks is the `Cat_bridge1` ragdoll, "Fixed bodies" below | `SetupFlags` |
 | `pinned` | starts static; released by a blast, a group activation or a moving neighbour | `AddMesh` |
 | `concave` | a mesh body (type 8) rather than a convex one (type 7) | `AddMesh` |
 | `physdest` | a destructible's piece: angular damping 1.8, removed from the entity list until its twin's release ("Destructibles" below) | `AddMesh` |

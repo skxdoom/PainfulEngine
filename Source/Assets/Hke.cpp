@@ -1,8 +1,11 @@
 #include "Hke.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <cmath>
+#include <unordered_map>
 
 namespace painful {
 
@@ -254,10 +257,30 @@ void ParseSpring(Tokens& k, Hke& out) {
     out.springs.push_back(std::move(s));
 }
 
+// BEGIN_ACTION Dashpot - hkLinearDashpotAction; C2L2_Door2 only.
+void ParseDashpot(Tokens& k, Hke& out) {
+    HkeDashpot d;
+    while (!k.done()) {
+        const std::string key = k.next();
+        if (key == "END_ACTION") break;
+        else if (key == "COLLECTION")     k.next();
+        else if (key == "BODY_A")         d.bodyA = k.next();
+        else if (key == "BODY_B")         d.bodyB = k.next();
+        else if (key == "LOCAL_POINT_A")  k.vec3(d.pointA);
+        else if (key == "LOCAL_POINT_B")  k.vec3(d.pointB);
+        else if (key == "TWO_BODIES")     d.twoBodied = k.b();
+        else if (key == "STRENGTH")       d.strength = k.f();
+        else if (key == "DAMPING")        d.damping = k.f();
+        else Note(out, key);
+    }
+    out.dashpots.push_back(std::move(d));
+}
+
 void ParseAction(Tokens& k, Hke& out) {
-    const std::string kind = k.next();   // Drag, FastConstraintSolver or Spring
+    const std::string kind = k.next();   // Drag, FastConstraintSolver, Spring or Dashpot
     k.next();                            // name
     if (kind == "Spring") { ParseSpring(k, out); return; }
+    if (kind == "Dashpot") { ParseDashpot(k, out); return; }
     while (!k.done()) {
         const std::string key = k.next();
         if (key == "END_ACTION") return;
@@ -310,6 +333,181 @@ void ParseSubspace(Tokens& k, Hke& out) {
 
 } // namespace
 
+// ---------------------------------------------------------------- binary form
+//
+// The 'B' form is the same token stream as the text form, written by Havok 2's
+// hke exporter and read by the engine's importer (FUN_10262F20, FUN_10264240):
+// every keyword and every word-valued argument (TRUE, Inline, Hinge, ...) is a
+// u32 id = ELF hash of the word modulo 0x7fffffff (FUN_102641C0, DAT_103E70F4);
+// an END_* keyword is preceded by the marker 0x12ABCDEF; ints and floats are
+// four bytes; strings are NUL-terminated. Decoded back into text here and
+// parsed by the text path. Docs/Reference/Physics.md, "The binary .hke".
+namespace {
+
+uint32_t HkeWordId(const char* s) {
+    uint32_t h = 0;
+    for (; *s; ++s) {
+        h = h * 16u + uint32_t(uint8_t(*s));
+        const uint32_t g = h & 0xF0000000u;
+        if (g) h ^= g >> 24;
+        h &= ~g;
+    }
+    return h % 0x7fffffffu;
+}
+
+// Argument shape per keyword: S string, I int, F float, T word, G the geometry
+// body (vertex count, vertices, triangle count, triangles). Words without a
+// shape are values (TRUE, Inline, ...) and block ends.
+struct HkeWord {
+    const char* name;
+    const char* args;
+};
+const HkeWord kHkeWords[] = {
+    {"BEGIN_WORLD", "S"}, {"END_WORLD", ""}, {"VERSION", "I"}, {"WORLD_SCALE", "F"},
+    {"FAST_SUBSPACE", "B"}, {"BEGIN_GEOMETRY", "TSG"}, {"END_GEOMETRY", ""},
+    {"BEGIN_SUBSPACE", "S"}, {"END_SUBSPACE", ""}, {"GRAVITY", "FFF"}, {"TOLERANCE", "F"},
+    {"HAS_DEACTIVATOR", "B"}, {"DEACTIVATOR_SHORT_FREQUENCY", "F"},
+    {"DEACTIVATOR_LONG_FREQUENCY", "F"}, {"DEACTIVATION_THRESHOLD", "F"}, {"RESOLVER", "T"},
+    {"BEGIN_COLLECTION", "TS"}, {"END_COLLECTION", ""}, {"ODE_SOLVER", "T"},
+    {"REFRESH_RATE", "F"}, {"BEGIN_RIGID_BODY", "S"}, {"END_RIGID_BODY", ""},
+    {"ELLASTICITY", "F"}, {"STATIC_FRICTION", "F"}, {"DYNAMIC_FRICTION", "F"},
+    {"ROTATION", "FFFF"}, {"TRANSLATION", "FFF"}, {"LINEAR_VELOCITY", "FFF"},
+    {"ANGULAR_VELOCITY", "FFF"}, {"COLLISIONS_DISABLED", "B"}, {"ACTIVE", "B"},
+    {"DISPLACEMENT", "FFF"}, {"BEGIN_PRIMITIVE", "TS"}, {"END_PRIMITIVE", ""}, {"MASS", "F"},
+    {"COLLISION_MASK", "I"}, {"GEOMETRY", "S"}, {"CONVEX", "B"}, {"BEGIN_ACTION", "TS"},
+    {"END_ACTION", ""}, {"LINEAR_DRAG", "F"}, {"ANGULAR_DRAG", "F"}, {"BEGIN_CONSTRAINT", "TS"},
+    {"END_CONSTRAINT", ""}, {"TWO_BODIED", "B"}, {"HAS_TWO_BODIES", "B"}, {"TWO_BODIES", "B"}, {"RIGID_BODY_A", "S"},
+    {"RIGID_BODY_B", "S"}, {"RIGID_BODY_REFERENCE", "S"}, {"RIGID_BODY_ATTACHED", "S"},
+    {"BODY_A", "S"}, {"BODY_B", "S"}, {"HINGE_POS_IN_A", "FFF"}, {"HINGE_POS_IN_B", "FFF"},
+    {"HINGE_DIR_IN_A", "FFF"}, {"HINGE_DIR_IN_B", "FFF"}, {"HINGE_DIR_PERP_IN_A", "FFF"},
+    {"HINGE_DIR_PERP_IN_B", "FFF"}, {"IS_BREAKABLE", "B"}, {"STRENGTH", "F"}, {"TAU", "F"},
+    {"IS_LIMITED", "B"}, {"LIMIT_MIN_ANGLE", "F"}, {"LIMIT_MAX_ANGLE", "F"},
+    {"LIMIT_FRICTION", "F"}, {"CS_TO_REF_TM_COL0", "FFF"}, {"CS_TO_REF_TM_COL1", "FFF"},
+    {"CS_TO_REF_TM_COL2", "FFF"}, {"CS_TO_REF_TM_COL3", "FFF"}, {"CS_TO_ATT_TM_COL0", "FFF"},
+    {"CS_TO_ATT_TM_COL1", "FFF"}, {"CS_TO_ATT_TM_COL2", "FFF"}, {"CS_TO_ATT_TM_COL3", "FFF"},
+    {"TWIST_MIN", "F"}, {"TWIST_MAX", "F"}, {"CONE_MIN", "F"}, {"CONE_MAX", "F"},
+    {"PLANE_MIN", "F"}, {"PLANE_MAX", "F"}, {"WORLD_PIVOT_POINT", "FFF"}, {"TWIST_AXIS", "FFF"},
+    {"PLANE_AXIS", "FFF"}, {"WORLD_HINGE_POS", "FFF"}, {"WORLD_HINGE_DIR", "FFF"},
+    {"LOCAL_POINT_A", "FFF"}, {"LOCAL_POINT_B", "FFF"}, {"SPRING_LENGTH", "F"},
+    {"LINEAR_STRENGTH", "F"}, {"ANGULAR_STRENGTH", "F"}, {"POINT_A", "FFF"}, {"POINT_B", "FFF"},
+    {"RESTITUTION", "F"}, {"REST_LENGTH", "F"}, {"DAMPING", "F"}, {"ON_COMPRESSION", "B"}, {"ON_EXTENSION", "B"},
+    {"BEGIN_ENABLED_COLLISION_GROUPS", "S"}, {"END_ENABLED_COLLISION_GROUPS", ""},
+    {"RB_COLLECTION", "S"}, {"COLLECTION", "S"}, {"BEGIN_MARKER_LIST", ""},
+    {"END_MARKER_LIST", ""}, {"BEGIN_DISPLAY_WORLD", "S"}, {"END_DISPLAY_WORLD", ""},
+    // Word values.
+    {"TRUE", nullptr}, {"FALSE", nullptr}, {"Inline", nullptr}, {"Euler", nullptr},
+    {"RK4", nullptr}, {"ComplexFriction", nullptr}, {"SimpleFriction", nullptr},
+    {"RBCollection", nullptr}, {"GeometricPrimitive", nullptr}, {"Hinge", nullptr},
+    {"Ragdoll", nullptr}, {"StiffSpring", nullptr}, {"BallAndSocket", nullptr},
+    {"Prismatic", nullptr}, {"PointToPlane", nullptr}, {"Wheel", nullptr}, {"Pulley", nullptr},
+    {"Spring", nullptr}, {"Dashpot", nullptr}, {"Drag", nullptr}, {"FastConstraintSolver", nullptr},
+    {"ConstraintSolver", nullptr}, {"Mesh", nullptr},
+};
+
+const HkeWord* FindHkeWord(uint32_t id) {
+    static std::unordered_map<uint32_t, const HkeWord*> table;
+    if (table.empty())
+        for (const HkeWord& w : kHkeWords) table[HkeWordId(w.name)] = &w;
+    const auto it = table.find(id);
+    return it == table.end() ? nullptr : it->second;
+}
+
+bool DecodeBinaryHke(const std::vector<uint8_t>& data, std::string& text, std::string& error) {
+    size_t pos = 1;                                 // past the 'B'
+    char buf[64];
+    const auto u32 = [&](uint32_t& v) {
+        if (pos + 4 > data.size()) return false;
+        std::memcpy(&v, data.data() + pos, 4);
+        pos += 4;
+        return true;
+    };
+    const auto emitInt = [&]() {
+        uint32_t v; if (!u32(v)) return false;
+        std::snprintf(buf, sizeof buf, " %d", int(v)); text += buf; return true;
+    };
+    const auto emitFloat = [&]() {
+        uint32_t v; if (!u32(v)) return false;
+        float f; std::memcpy(&f, &v, 4);
+        std::snprintf(buf, sizeof buf, " %.6f", double(f)); text += buf; return true;
+    };
+    const auto emitString = [&]() {
+        const size_t end = std::find(data.begin() + ptrdiff_t(pos), data.end(), uint8_t(0)) -
+                           data.begin();
+        if (end >= data.size()) return false;
+        text += ' ';
+        text.append(reinterpret_cast<const char*>(data.data() + pos), end - pos);
+        pos = end + 1;
+        return true;
+    };
+    const auto emitWord = [&]() {
+        uint32_t v; if (!u32(v)) return false;
+        if (const HkeWord* w = FindHkeWord(v)) { text += ' '; text += w->name; }
+        else { std::snprintf(buf, sizeof buf, " WORD_%08x", v); text += buf; }
+        return true;
+    };
+    text = "A\n";
+    while (pos + 4 <= data.size()) {
+        uint32_t id;
+        u32(id);
+        if (id == 0x12abcdefu && !u32(id)) break;   // the END marker, then the keyword
+        const HkeWord* w = FindHkeWord(id);
+        if (!w || !w->args) {
+            std::snprintf(buf, sizeof buf, "unknown keyword id %08x at offset %zu", id, pos - 4);
+            error = buf;
+            return false;
+        }
+        text += w->name;
+        for (const char* a = w->args; *a; ++a) {
+            bool ok = true;
+            switch (*a) {
+                case 'S': ok = emitString(); break;
+                case 'I': ok = emitInt(); break;
+                case 'F': ok = emitFloat(); break;
+                case 'T': ok = emitWord(); break;
+                case 'B':                           // a boolean is ONE byte
+                    if (pos >= data.size()) ok = false;
+                    else text += data[pos++] ? " TRUE" : " FALSE";
+                    break;
+                case 'G': {
+                    uint32_t nv = 0, nt = 0;
+                    ok = u32(nv);
+                    if (ok) { std::snprintf(buf, sizeof buf, "\n%u\n", nv); text += buf; }
+                    for (uint32_t i = 0; ok && i < nv; ++i) {
+                        ok = emitFloat() && emitFloat() && emitFloat();
+                        text += '\n';
+                    }
+                    if (ok) ok = u32(nt);
+                    if (ok) { std::snprintf(buf, sizeof buf, "%u\n", nt); text += buf; }
+                    for (uint32_t i = 0; ok && i < nt; ++i) {
+                        ok = emitInt() && emitInt() && emitInt();
+                        text += '\n';
+                    }
+                    break;
+                }
+                default: break;
+            }
+            if (!ok) {
+                std::snprintf(buf, sizeof buf, "truncated after %s at offset %zu", w->name, pos);
+                error = buf;
+                return false;
+            }
+        }
+        text += '\n';
+        if (std::strcmp(w->name, "END_WORLD") == 0) break;
+    }
+    return true;
+}
+
+} // namespace
+
+bool Hke::DecodeToText(const std::string& path, std::string& text, std::string& error) {
+    std::vector<uint8_t> data;
+    if (!ReadFile(path, data) || data.empty()) { error = "cannot read file"; return false; }
+    if (data[0] == 'B') return DecodeBinaryHke(data, text, error);
+    text.assign(reinterpret_cast<const char*>(data.data()), data.size());
+    return true;
+}
+
 bool Hke::Load(const std::string& path, Hke& out) {
     std::vector<uint8_t> data;
     if (!ReadFile(path, data)) {
@@ -320,19 +518,19 @@ bool Hke::Load(const std::string& path, Hke& out) {
         out.error = "empty file";
         return false;
     }
-    // 'A' is the text form, 'B' a binary one. Say which rather than failing to
-    // find any keyword in a binary file and calling that a parse error.
+    // 'A' is the text form, 'B' the binary one - the same token stream, decoded
+    // above into text so one parser reads both.
+    std::string text;
     if (data[0] == 'B') {
         out.binary = true;
-        out.error = "binary .hke (encoding not decoded)";
-        return false;
-    }
-    if (data[0] != 'A') {
+        if (!DecodeBinaryHke(data, text, out.error)) return false;
+    } else if (data[0] != 'A') {
         out.error = "not an .hke (bad leading byte)";
         return false;
+    } else {
+        text.assign(reinterpret_cast<const char*>(data.data()), data.size());
     }
 
-    const std::string text(reinterpret_cast<const char*>(data.data()), data.size());
     Tokens k;
     Tokenize(text, k);
     k.next();                       // the leading 'A'

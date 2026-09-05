@@ -95,6 +95,10 @@ const Command kCommands[] = {
  "list a directory through the mounted view",
  [](int, char** argv) { return FilesCmd(argv[2], argv[3]); }},
 
+{"extract", 5, Root::kArgv2, "level", "<DataRoot> <path> <out>",
+ "copy one file out of the mounted view (a pak entry or a loose file)",
+ [](int, char** argv) { return ExtractCmd(argv[2], argv[3], argv[4]); }},
+
 {"pakcheck", 3, Root::kArgv2, "level", "<DataRoot>",
  "pak name seed formula vs brute-force decode, per archive",
  [](int, char** argv) { return PakCheckCmd(argv[2]); }},
@@ -127,9 +131,9 @@ const Command kCommands[] = {
      return LightingCmd(argv[2], argv[3], at, eye);
  }},
 
-{"map", 3, Root::kFromPath, "geometry", "<file.mpk>",
- "objects, materials, bounds",
- [](int, char** argv) { return MapCmd(argv[2]); }},
+{"map", 3, Root::kFromPath, "geometry", "<file.mpk> [nameFilter]",
+ "objects, materials, bounds; with a filter, each matching object's bounds",
+ [](int argc, char** argv) { return MapCmd(argv[2], argc >= 4 ? argv[3] : nullptr); }},
 
 {"mats", 3, Root::kFromPath, "geometry", "<file.mpk> [filter]",
  "material/lightmap sanity report",
@@ -197,6 +201,9 @@ const Command kCommands[] = {
 {"ragdoll", 3, Root::kFromPath, "physics", "<file.pkmdl> [modelsRoot]",
  "the .hke ragdoll, joint by joint",
  [](int argc, char** argv) { return RagdollCmd(argv[2], argc >= 4 ? argv[3] : nullptr); }},
+{"hketext", 3, Root::kFromPath, "physics", "<file.hke>",
+ "the .hke as text (a binary one decoded)",
+ [](int, char** argv) { return HkeTextCmd(argv[2]); }},
 
 {"ragdolldrop", 5, Root::kArgv3, "physics", "<levelDir> <DataRoot> <model>",
  "drop a ragdoll into the level and settle it",

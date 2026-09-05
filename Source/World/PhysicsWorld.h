@@ -227,6 +227,11 @@ public:
     // tick then decays it.
     void ShoveCharacters(const float pos[3], float radius, const float dir[3],
                          float speed, float pusherMass);
+    // The player's weight on what it stands on: `force` straight down on every
+    // dynamic body under a sphere of `radius` at `feet`, at the contact point.
+    // Havok's character proxy presses its characterMass on bodies; a swept
+    // sphere has no mass, so a bridge deck never felt the player.
+    void PressGround(const float feet[3], float radius, float force);
     // ENTITY.SetVelocity / GetVelocity. Setting one wakes the body: a
     // projectile is created, given its velocity and expected to fly.
     void SetScriptBodyVelocity(int slot, const float v[3]);

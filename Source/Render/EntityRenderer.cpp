@@ -616,6 +616,30 @@ void EntityRenderer::SetScriptSkinning(int slot, const Mat4* skin, size_t count)
     Instance& inst = instances_[slot];
     if (!skin || count == 0) { inst.skin.clear(); return; }
     inst.skin.assign(skin, skin + count);
+
+    // A posed model leaves its bind-pose box - the Catacombs bridge sags five
+    // units below it - so grow the culling bounds to every bone's posed
+    // centre, padded by the model's half-diagonal.
+    const GpuModel& model = models_[inst.model];
+    UpdateBounds(inst, model);
+    const float centre[3] = {(model.bboxLo[0] + model.bboxHi[0]) * 0.5f,
+                             (model.bboxLo[1] + model.bboxHi[1]) * 0.5f,
+                             (model.bboxLo[2] + model.bboxHi[2]) * 0.5f};
+    float pad = 0.f;
+    for (int a = 0; a < 3; ++a) {
+        const float half = (model.bboxHi[a] - model.bboxLo[a]) * 0.5f;
+        pad += half * half;
+    }
+    pad = std::sqrt(pad) * inst.scale * scaleMultiplier_;
+    for (const Mat4& bone : inst.skin) {
+        float posed[3], w[3];
+        bone.TransformPoint(centre[0], centre[1], centre[2], posed);
+        inst.transform.TransformPoint(posed[0], posed[1], posed[2], w);
+        for (int a = 0; a < 3; ++a) {
+            inst.aabbLo[a] = std::min(inst.aabbLo[a], w[a] - pad);
+            inst.aabbHi[a] = std::max(inst.aabbHi[a], w[a] + pad);
+        }
+    }
 }
 
 void EntityRenderer::SetScriptVisible(int slot, bool visible) {

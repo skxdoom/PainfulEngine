@@ -426,6 +426,15 @@ int ScriptEngine::L_PARTICLE_SetEvolve(lua_State* L) {
 }
 
 // ENTITY.GetType(e) -> the ETypes value it was created with.
+// ENTITY.GetName(e): an active mesh's object name, else the script's own name.
+// Always a string - CLevel:OnCollision concatenates it, and the nil from the
+// missing-native stub aborted the message queue every tick. Physics.md, "Contacts".
+int ScriptEngine::L_GetName(lua_State* L) {
+    const Entity* e = From(L)->Find(HandleArg(L, 1));
+    lua_pushstring(L, e ? e->name.c_str() : "");
+    return 1;
+}
+
 int ScriptEngine::L_GetType(lua_State* L) {
     const Entity* e = From(L)->Find(HandleArg(L, 1));
     lua_pushnumber(L, e ? e->type : 0);

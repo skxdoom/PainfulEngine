@@ -22,8 +22,10 @@ namespace painful {
 // in all 220 files means "take the mass from here".
 //
 // TWO ENCODINGS. The first byte is 'A' for the text form (192 files) and 'B'
-// for a binary one (132, including templar and vamp_v2). Only the text form is
-// read here; a 'B' file reports so rather than being guessed at.
+// for a binary one (132, including templar, vamp_v2 and the Catacombs bridge).
+// The binary form is the same grammar with each keyword replaced by its ELF
+// hash; Hke.cpp decodes it back to text and both go through one parser.
+// Docs/Reference/Physics.md, "The binary .hke".
 //
 // UNITS ARE THE MODEL'S OWN, ten times the world's. The file declares
 // GRAVITY 0 -98.099998 0 against Tweak.lua's 19.62, matching the *0.1 rule
@@ -146,6 +148,16 @@ struct HkeSpring {
     bool onCompression = true, onExtension = true;
 };
 
+// BEGIN_ACTION Dashpot - hkLinearDashpotAction, a damped pull between two
+// points. One file (C2L2_Door2, between the fixed post and the door).
+struct HkeDashpot {
+    std::string bodyA, bodyB;
+    float pointA[3] = {0, 0, 0}, pointB[3] = {0, 0, 0};
+    bool twoBodied = true;
+    float strength = 1.f;
+    float damping = 0.f;
+};
+
 struct Hke {
     int version = 0;
     float worldScale = 1.f;
@@ -156,8 +168,9 @@ struct Hke {
     std::vector<HkeBody> bodies;
     std::vector<HkeConstraint> constraints;
     std::vector<HkeSpring> springs;
+    std::vector<HkeDashpot> dashpots;
 
-    bool binary = false;            // a 'B' file: recognised, not parsed
+    bool binary = false;            // a 'B' file, decoded to text before parsing
     std::string error;
     // Keywords the parser did not know. Empty across the shipped set is the
     // check that the format is fully covered rather than merely accepted.
@@ -178,6 +191,9 @@ struct Hke {
     bool Linked(const std::string& a, const std::string& b) const;
 
     static bool Load(const std::string& path, Hke& out);
+    // The file as text: a 'B' file decoded (see Hke.cpp, "binary form"), an
+    // 'A' file as it is. For the hketext report.
+    static bool DecodeToText(const std::string& path, std::string& text, std::string& error);
 };
 
 } // namespace painful

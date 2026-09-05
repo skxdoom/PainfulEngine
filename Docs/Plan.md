@@ -291,8 +291,8 @@ needs it to know what a blast may push), `EnableCollisionsToRagdoll` (25),
 **Gibbing landed 2026-09-02**: `MDL.MakeGib`, `RagdollSelfExplosion`,
 `SetRagdollMovedByExplosions`, `ApplyVelocitiesToAllJoints`,
 `GetVelocitiesFromJoint`, and blasts reaching corpses
-([`Physics.md`](Reference/Physics.md), "Gibs"). Open under it: the binary
-`.hke` form (69 of 93 gib ragdolls use a stand-in), and the rest of this list:
+([`Physics.md`](Reference/Physics.md), "Gibs"). Open under it: the rest of
+this list:
 `SetRagdollRestitution`, `SetRagdollBreakablesThreshold`, `SetRagdollHardDeactivator`,
 `GetRagdollJointPos` / `GetRagdollJointRotation`, `BreakConstraintsForJoint`,
 `ApplyVelocitiesToJoint` / `ToJointLinked`, `ApplyPositionToJoint`,

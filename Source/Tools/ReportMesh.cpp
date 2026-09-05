@@ -243,9 +243,30 @@ int BonesCmd(const char* path, const char* animName, const char* timeArg,
 
 // Diagnostic: do all four textures of every sky layer resolve to a file?
 
-int MapCmd(const char* path) {
+int MapCmd(const char* path, const char* nameFilter) {
     MapMesh m;
     MapMesh::Load(path, m);
+    // With a filter: every object whose name contains it, with its raw bounds -
+    // the way to find WHERE a named piece of the world is.
+    if (nameFilter && nameFilter[0]) {
+        size_t shown = 0;
+        for (const MapObject& o : m.objects) {
+            if (!o.nameHas(nameFilter)) continue;
+            float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+            for (size_t i = 0; i < o.vertexCount(); ++i) {
+                float p[3];
+                o.position(i, p);
+                for (int c = 0; c < 3; ++c) { lo[c] = std::min(lo[c], p[c]); hi[c] = std::max(hi[c], p[c]); }
+            }
+            LogInfo("  %-40s %5zu verts  x[%8.2f..%8.2f] y[%8.2f..%8.2f] z[%8.2f..%8.2f]%s",
+                    o.name.c_str(), o.vertexCount(), lo[0], hi[0], lo[1], hi[1], lo[2], hi[2],
+                    o.isCollidable() ? "" : "  (not collidable)");
+            ++shown;
+        }
+        LogInfo("%zu objects match '%s' (raw mesh units; times the level scale for world)",
+                shown, nameFilter);
+        return 0;
+    }
     size_t verts = 0, tris = 0;
     for (const MapObject& o : m.objects) { verts += o.vertexCount(); tris += o.triangleCount(); }
 

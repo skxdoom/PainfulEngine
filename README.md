@@ -51,7 +51,7 @@ numbered patch archives layered the way the original engine mounts them.
 
 `PainfulTools.exe` is the diagnostics: every subsystem has a command that
 resolves its data and prints what it found, so a change can be checked without
-opening a window. `PainfulTools help` lists all 33 — generated from the same
+opening a window. `PainfulTools help` lists all 37 — generated from the same
 table it dispatches on, so it cannot fall out of date.
 
 ```

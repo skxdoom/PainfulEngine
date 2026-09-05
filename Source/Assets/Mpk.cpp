@@ -16,7 +16,8 @@ static bool ContainsNoCase(const std::string& hay, const char* needle) {
 bool MapObject::nameHas(const char* token) const { return ContainsNoCase(name, token); }
 
 bool MapObject::isActiveMesh() const {
-    return nameHas("phys") && !nameHas("noclip");
+    // SetupFlags: "phys" sets the bit AddMesh branches on.
+    return nameHas("phys");
 }
 
 std::string MapObject::piecePrefix() const {
@@ -42,10 +43,11 @@ int MapObject::activeGroup() const {
 }
 
 bool MapObject::isCollidable() const {
-    // "noclip" is explicitly excluded from physics; portals/antiportals/zones and
-    // volumetrics are non-solid helper volumes.
-    return !nameHas("noclip") && !nameHas("portal") && !nameHas("antyp") &&
-           !nameHas("vollight") && !nameHas("volfog") && !nameHas("zone");
+    // Portals, antiportals, zones and volumetrics are non-solid helper
+    // volumes; "noclip" sets flag 0x400000 (SetupFlags 0x101D7050) and
+    // ReloadWorld (0x1019B180) skips AddMesh for it. Physics.md, "noclip".
+    return !nameHas("portal") && !nameHas("antyp") && !nameHas("vollight") &&
+           !nameHas("volfog") && !nameHas("zone") && !nameHas("noclip");
 }
 
 static bool HeaderAt(const Reader& r, size_t p) {

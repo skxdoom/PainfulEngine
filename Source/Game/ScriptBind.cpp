@@ -177,6 +177,7 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"INP", "GetTimeMultiplier", L_INP_GetTimeMultiplier},
         {"INP", "SetTimeMultiplier", L_INP_SetTimeMultiplier},
         {"ENTITY", "GetType", L_GetType},
+        {"ENTITY", "GetName", L_GetName},
         {"ENTITY", "SetPosAndRotRelativeToCamera", L_SetPosAndRotRelativeToCamera},
         {"MOUSE", "Lock", L_MOUSE_Lock},
         {"MOUSE", "IsLocked", L_MOUSE_IsLocked},

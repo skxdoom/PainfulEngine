@@ -29,7 +29,7 @@ int LevelCmd(const char* levelDir, const char* dataRoot) {
         const LevelStats s = Summarise(level);
         LogInfo("  world mesh   : %zu objects, %zu verts, %zu tris, %zu materials",
                 s.objects, s.verts, s.tris, s.materials);
-        LogInfo("  collidable   : %zu objects (excludes noclip/portal/zone volumes)", s.collidable);
+        LogInfo("  collidable   : %zu objects (excludes portal/zone/volumetric helpers)", s.collidable);
         LogInfo("  active meshes: %zu objects (%zu pinned), %zu material runs; "
                 "%zu GPU buffers with the world's",
                 s.active, s.activePinned, s.activeRuns, 2 * s.objects);
@@ -301,6 +301,24 @@ int PakCheckCmd(const char* dataRoot) {
     LogInfo("%d archives, %zu entries, %zu decode differently", archives, totalEntries,
             totalMismatch);
     return totalMismatch == 0 ? 0 : 1;
+}
+
+int ExtractCmd(const char* dataRoot, const char* path, const char* outPath) {
+    FileSystem::Get().MountData(dataRoot);
+    std::vector<uint8_t> data;
+    if (!ReadFile(path, data)) {
+        LogInfo("%s: not found in the mounted view", path);
+        return 2;
+    }
+    FILE* f = std::fopen(outPath, "wb");
+    if (!f) {
+        LogInfo("cannot write %s", outPath);
+        return 3;
+    }
+    std::fwrite(data.data(), 1, data.size(), f);
+    std::fclose(f);
+    LogInfo("%s: %zu bytes -> %s", path, data.size(), outPath);
+    return 0;
 }
 
 int FilesCmd(const char* dataRoot, const char* dir) {

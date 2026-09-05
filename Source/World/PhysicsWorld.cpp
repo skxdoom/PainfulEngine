@@ -2115,6 +2115,32 @@ void PhysicsWorld::ShoveCharacters(const float pos[3], float radius, const float
     }
 }
 
+void PhysicsWorld::PressGround(const float feet[3], float radius, float force) {
+    if (!loaded() || force <= 0.f) return;
+    // A little below the feet, so a body the sphere rests on (skin 0.02) is
+    // inside the query.
+    const JPH::SphereShape sphere(radius + 0.06f);
+    sphere.SetEmbedded();
+    JPH::CollideShapeSettings settings;
+    settings.mBackFaceMode = JPH::EBackFaceMode::CollideWithBackFaces;
+    settings.mCollectFacesMode = JPH::ECollectFacesMode::NoFaces;
+    JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> collector;
+    impl_->system.GetNarrowPhaseQuery().CollideShape(
+        &sphere, JPH::Vec3::sOne(),
+        JPH::RMat44::sTranslation(JPH::RVec3(feet[0], feet[1], feet[2])), settings,
+        JPH::RVec3::sZero(), collector, {}, kSweepLayer, {});
+    if (collector.mHits.empty()) return;
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    for (const JPH::CollideShapeResult& hit : collector.mHits) {
+        const JPH::BodyID id = hit.mBodyID2;
+        if (impl_->characterBodies.count(id.GetIndexAndSequenceNumber()) != 0) continue;
+        if (bodies.GetMotionType(id) != JPH::EMotionType::Dynamic) continue;
+        // Only what is UNDER the feet, not a wall the sphere brushes.
+        if (float(hit.mContactPointOn2.GetY()) > feet[1] - 0.5f * radius) continue;
+        bodies.AddForce(id, JPH::Vec3(0.f, -force, 0.f), JPH::RVec3(hit.mContactPointOn2));
+    }
+}
+
 float PhysicsWorld::ScriptBodyRadius(int slot) const {
     return ScriptBodyExists(slot) ? impl_->scriptBodies[slot].radius : 0.f;
 }
@@ -2318,6 +2344,11 @@ JPH::Ref<JPH::TwoBodyConstraintSettings> BuildConstraint(const HkeConstraint& c,
         d->mSpace = JPH::EConstraintSpace::WorldSpace;
         d->mPoint1 = restA * (V3(c.localPointA) * scale);
         d->mPoint2 = restB * (V3(c.localPointB) * scale);
+        // hkStiffSpringConstraint holds its points SPRING_LENGTH apart, which
+        // is the authored distance everywhere but Cat_bridge1, where the
+        // planks are authored closer than the rope. Physics.md, "Stiff springs".
+        if (c.springLength > 0.f)
+            d->mMinDistance = d->mMaxDistance = c.springLength * scale;
         return d;
     }
 
@@ -2473,11 +2504,15 @@ int PhysicsWorld::CreateRagdoll(const std::string& model, const Hke& def, float 
             part.mLinearDamping = def.linearDrag;
             part.mAngularDamping = def.angularDrag;
             // The .hke mass is the authority; the .rde says -1 everywhere,
-            // which is what "take it from here" looks like.
+            // which is what "take it from here" looks like. MASS 0 is Havok's
+            // FIXED body - the wall end of a lamp, chain, door or bridge - so
+            // it is kinematic here and never moves. Physics.md, "Fixed bodies".
             if (b.mass > 0.f) {
                 part.mOverrideMassProperties =
                     JPH::EOverrideMassProperties::CalculateInertia;
                 part.mMassPropertiesOverride.mMass = b.mass;
+            } else {
+                part.mMotionType = JPH::EMotionType::Kinematic;
             }
             if (par >= 0 && edge[size_t(visitOrder[p])] >= 0) {
                 const HkeConstraint& c = def.constraints[size_t(edge[size_t(visitOrder[p])])];
@@ -2763,8 +2798,14 @@ void PhysicsWorld::SetRagdollPose(int slot, const float* boneMatrices, bool kine
     // Alive, the limbs are hitboxes and nothing else; dead, they are a
     // corpse that lies on the floor and bumps into things.
     const JPH::ObjectLayer layer = kinematic ? Layers::kHitbox : Layers::kMoving;
-    for (JPH::BodyID id : inst.ragdoll->GetBodyIDs()) {
-        if (bodies.GetMotionType(id) != want)
+    const JPH::Array<JPH::BodyID>& ids = inst.ragdoll->GetBodyIDs();
+    const JPH::RagdollSettings* settings = inst.ragdoll->GetRagdollSettings();
+    for (size_t i = 0; i < ids.size(); ++i) {
+        const JPH::BodyID id = ids[i];
+        // A fixed part (mass 0) stays kinematic whatever the rest becomes.
+        const bool fixed = settings != nullptr && i < settings->mParts.size() &&
+                           settings->mParts[i].mMotionType == JPH::EMotionType::Kinematic;
+        if (!fixed && bodies.GetMotionType(id) != want)
             bodies.SetMotionType(id, want, JPH::EActivation::Activate);
         if (bodies.GetObjectLayer(id) != layer) bodies.SetObjectLayer(id, layer);
     }

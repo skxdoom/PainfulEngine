@@ -180,6 +180,8 @@ bool ScriptEngine::EnableRagdoll(Entity& e, bool enable, const std::vector<Mat4>
         for (int i = 0; i < 16; ++i) pose[p * 16 + i] = m.m[i];
     }
     physics_->SetRagdollPose(slot, pose.data(), /*kinematic=*/false);
+    if (e.ragdollLinearDamping >= 0.f || e.ragdollAngularDamping >= 0.f)
+        physics_->SetRagdollDamping(slot, e.ragdollLinearDamping, e.ragdollAngularDamping);
 
     // Does the solver hold what it was handed? Straight back out again, with
     // no step in between, so a seed that does not round-trip is separated from
@@ -222,6 +224,7 @@ bool ScriptEngine::EnableRagdoll(Entity& e, bool enable, const std::vector<Mat4>
             std::string worstPair;
             for (const HkeConstraint& c : def->constraints) {
                 if (c.worldSpace) continue;         // stated in world terms, no pair to compare
+                if (c.kind == HkeConstraint::kStiffSpring) continue;   // holds a distance, not a point
                 const int pa = partIndex(c.bodyA), pb = partIndex(c.bodyB);
                 if (pa < 0 || pb < 0) continue;
                 const float* la = (c.kind == HkeConstraint::kHinge) ? c.hingePosA : c.csToRef[3];
@@ -536,19 +539,25 @@ int ScriptEngine::L_ENTITY_RemoveRagdoll(lua_State* L) {
     return 0;
 }
 
+// Both dampings are remembered on the entity and applied to a ragdoll made
+// later: Cat_bridge1:OnCreateEntity sets them before EnableRagdoll.
 int ScriptEngine::L_MDL_SetRagdollLinearDamping(lua_State* L) {
     ScriptEngine* self = From(L);
-    const Entity* e = self->Find(HandleArg(L, 1));
-    if (e && e->ragdollSlot >= 0 && self->physics_)
-        self->physics_->SetRagdollDamping(e->ragdollSlot, float(luaL_optnumber(L, 2, 0)), -1.f);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (e == nullptr) return 0;
+    e->ragdollLinearDamping = float(luaL_optnumber(L, 2, 0));
+    if (e->ragdollSlot >= 0 && self->physics_)
+        self->physics_->SetRagdollDamping(e->ragdollSlot, e->ragdollLinearDamping, -1.f);
     return 0;
 }
 
 int ScriptEngine::L_MDL_SetRagdollAngularDamping(lua_State* L) {
     ScriptEngine* self = From(L);
-    const Entity* e = self->Find(HandleArg(L, 1));
-    if (e && e->ragdollSlot >= 0 && self->physics_)
-        self->physics_->SetRagdollDamping(e->ragdollSlot, -1.f, float(luaL_optnumber(L, 2, 0)));
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (e == nullptr) return 0;
+    e->ragdollAngularDamping = float(luaL_optnumber(L, 2, 0));
+    if (e->ragdollSlot >= 0 && self->physics_)
+        self->physics_->SetRagdollDamping(e->ragdollSlot, -1.f, e->ragdollAngularDamping);
     return 0;
 }
 
@@ -572,27 +581,14 @@ const Hke* ScriptEngine::RagdollDef(const std::string& model) {
 
     Hke& slot = ragdolls_[model];
     if (!Hke::Load(dataRoot_ + "/Models/" + model + ".hke", slot)) {
-        // Say so once. A binary .hke is a KNOWN model with an undecoded
-        // encoding, which is a different thing from a model with no ragdoll,
-        // and the difference matters when a monster behaves oddly.
-        const bool binary = slot.binary;
-        if (binary) LogInfo("ragdoll: %s is a binary .hke, not decoded", model.c_str());
+        // Say so once: a file that exists but will not parse is a different
+        // thing from a model with no ragdoll.
+        if (!slot.error.empty() && slot.error.find("cannot read") == std::string::npos)
+            LogInfo("ragdoll: %s: %s", model.c_str(), slot.error.c_str());
 
-        // A GIB WHOSE .hke IS BINARY - 69 of the 93 shipped. STAND-IN: the
-        // live model's ragdoll, cut where the GIB MESH is cut.
-        //
-        // The 24 text gib files say what a gib is: the SAME bodies as the
-        // live ragdoll, with some constraints removed. Which ones follows
-        // from the gib .pkmdl itself: a constraint survives exactly when some
-        // mesh of the gib model is skinned to bones on BOTH sides of it - the
-        // artist left that piece in one chunk - and goes when no mesh spans
-        // it. Checked against deto, hellbiker and nun: all three reproduced
-        // exactly (hips and shoulders off, elbows and knees on, the nun's
-        // spine off and her cloth anchors on). Cutting by constraint KIND
-        // instead split the monk's pelvis from its thighs, and the skirt
-        // skinned across both stretched between the flying pieces.
-        // Decoding the binary form would replace this.
-        // Docs/Reference/Physics.md, "Gibs".
+        // A gib whose .hke will not parse (none shipped, now that the binary
+        // form decodes): the live ragdoll cut where the gib MESH is cut - a
+        // constraint survives when a gib mesh spans it. Physics.md, "Gibs".
         const size_t n = model.size();
         if (n > 4 && model.compare(n - 4, 4, "_gib") == 0) {
             const Hke* base = RagdollDef(model.substr(0, n - 4));   // may rehash
@@ -644,9 +640,8 @@ const Hke* ScriptEngine::RagdollDef(const std::string& model) {
                     stand.constraints.end());
                 Hke& gibSlot = ragdolls_[model];
                 gibSlot = std::move(stand);
-                LogInfo("ragdoll: %s stands in for %s (%s) - %zu bodies, %zu of %zu constraints kept by the mesh cuts",
-                        model.substr(0, n - 4).c_str(), model.c_str(),
-                        binary ? "binary" : "missing", gibSlot.bodies.size(),
+                LogInfo("ragdoll: %s stands in for %s (no usable .hke) - %zu bodies, %zu of %zu constraints kept by the mesh cuts",
+                        model.substr(0, n - 4).c_str(), model.c_str(), gibSlot.bodies.size(),
                         gibSlot.constraints.size(), base->constraints.size());
                 return &gibSlot;
             }

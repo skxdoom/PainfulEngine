@@ -360,8 +360,9 @@ The ordered work queue, with the evidence behind each item, is
   `PO_Activate`. `CreateScriptBody` switches on groups 1 and 7 only.
 - **The ragdoll joint API.** The `ApplyVelocitiesToJoint` /
   `ApplyRotationToJoint` family, `SetRagdollRestitution`,
-  `EnableCollisionsToRagdoll`. Gibs whose `_gib.hke` is binary use a stand-in
-  built from the live ragdoll ([`Physics.md`](Reference/Physics.md), "Gibs").
+  `EnableCollisionsToRagdoll`. The `Spring` and `Dashpot` actions in the
+  `.hke` are parsed but not simulated ([`Physics.md`](Reference/Physics.md),
+  "The binary .hke").
 - **Lifetime and world state.** `WORLD.SetWorldSpeed` (slow motion),
   `WORLD.RemoveEntity` / `DeleteDyingEntities`, `PHYSICS.SetGravity`.
   `PARTICLE.Restart` and `SetImmortal` are still stubs.
