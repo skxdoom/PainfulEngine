@@ -295,6 +295,9 @@ public:
     // ENTITY.PO_Hit on a corpse, and RagdollSelfExplosion: an impulse at a
     // world point, applied to whichever limb is nearest it.
     void AddRagdollImpulse(int slot, const float at[3], const float impulse[3]);
+    // WORLD.HitPhysicObject on a LIMB handle: the impulse lands on the part the
+    // trace reported, not the nearest one - a stake in the head flips the corpse.
+    void AddRagdollPartImpulse(int slot, int part, const float at[3], const float impulse[3]);
     // Ragdoll::SetVelocities (0x1019C8E0): the same linear and angular
     // velocity on every limb. World::GibModel hands a fresh gib whatever the
     // body it replaces was doing, so it keeps flying rather than dropping.
@@ -302,6 +305,12 @@ public:
     // Ragdoll::Joint_GetLinearVelocity / Joint_GetAngularVelocity, for one
     // part by index in RagdollBones order.
     bool GetRagdollPartVelocity(int slot, int part, float linear[3], float angular[3]) const;
+    // PHYSICS.GetHavokBodyPosition / SetHavokBodyPosition / PinHavokBody on one
+    // part: the stake reads where the limb it struck is, drags it, and pins it
+    // (kinematic, at rest) when the corpse is nailed to a wall.
+    bool GetRagdollPartPosition(int slot, int part, float out[3]) const;
+    void SetRagdollPartPosition(int slot, int part, const float pos[3]);
+    void PinRagdollPart(int slot, int part);
     // Ragdoll::SelfExplosion (0x1019CC40 -> FUN_101B0DC0): every limb inside
     // `range` is pushed away from the centre by (strength / limbCount) *
     // (1 - d / range). This is the law a blast applies to a whole ragdoll,

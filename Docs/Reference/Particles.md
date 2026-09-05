@@ -241,6 +241,10 @@ are scale-invariant — a shrunken flame burns for just as long.
 
 ### Bound effects: where `entity.orientation` comes from
 
+A ParticleFX entity is NAMED after its effect - `AddPFX` passes it as the third
+argument of `ENTITY.Create` - which is what `ENTITY.KillAllChildrenByName(se,
+"stakeflame")` finds a bound flame by (Physics.md, "The stake").
+
 `ParticleEffect::Tick` (0x101e59a0) places an effect that `RegisterChild` +
 `PARTICLE.SetParentOffset` bound to a parent, every frame:
 

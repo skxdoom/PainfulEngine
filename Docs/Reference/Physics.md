@@ -1209,6 +1209,71 @@ grenade leaves at (19.0, 6.1, 0.4), arcs, meets the floor at 59 frames with
 explodes on its 69-tick timeout. A rocket leaves at 40.0, keeps it to three
 decimals, and `Rocket:Tick`'s own trace finds the Slab at frame 106.
 
+### The stake
+
+`Stake:Tick` traces its own path each frame and decides by hand what a hit
+means; four things went wrong in the port and each was a native, not physics
+(2026-09-05, probes `stake_mobs.lua` / `stake_arc.lua` in the session
+scratchpad: two zombies at 14 units, one given 1000 health, shot at spawn).
+
+- **It flew through every enemy, and never attached on a kill.** On a kill the
+  script reads `PHYSICS.GetHavokBodyPosition(he)` to keep the struck limb at a
+  fixed offset from the stake. The native was missing, the nil arithmetic
+  raised, and the Lua error left `Tick` before `PO_Enable(false)` - so the
+  stake kept its velocity, hit the same corpse again next frame, and sailed on
+  to the far wall. `GetHavokBodyPosition`, `SetHavokBodyPosition` and
+  `PinHavokBody` now resolve a limb handle to its ragdoll part (position,
+  teleport, and kinematic-at-rest respectively); a script-body handle answers
+  with the body's position.
+- **A hit on a bone without a body read as "detachable".** The trace lands on
+  the `.rde` hitboxes, which sit on more bones than the `.hke` gives bodies
+  to; `MDL.JointsLinked` on such a bone found no body and answered false, and
+  the script then took the fly-through branch meant for scythes and pauldrons.
+  `RagdollBoneForJoint` walks up the skeleton to the nearest bone that has a
+  body, for both ends of the test and for the three PHYSICS natives. ASSUMED:
+  that this is what Havok's body-for-a-hit reported; it is what a body
+  covering a limb means, and the decompile of the hit path was not pursued.
+- **The attach itself.** `ENTITY.ComputeChildMatrix(child, parent, joint)`
+  (0x1012FCE0) re-expresses the child's transform relative to the parent's
+  joint - `Model::GetJointTransform` inverted, or the parent's own transform
+  when there is no joint or no model - and stores it as the child's relative
+  matrix; the `ENTITY.RegisterChild(parent, child, flag, joint, dieWithParent)`
+  that follows (0x1012FAD0: argument 4 is an index when a number and a name
+  when a string, `Entity::RegisterChild(child, bool, char)` at 0x101D3250)
+  hangs it on that joint. The port had neither the native nor the joint
+  argument; both exist now and drive `PlaceAttached`. Measured: the stake
+  stays in the corpse's limb as it falls (its y follows the joint from -2.8 to
+  -4.1 over two seconds).
+- **The arc lean was inverted.** `SetAngularVelocity(dz*a, 0, -dx*a)` at 0.35
+  rad/s should pitch the nose down as gravity bends the flight. The integration
+  composed the step with the vector part un-negated, and the nose rose at 0.35
+  rad/s instead (nose.y +0.29 at 0.8 s against a velocity pitching to -0.08).
+  In the engine's q^-1*v*q convention a rotation by +angle about n is
+  (cos, -n sin); with the vector part negated the nose reads -0.12 at the same
+  moment, a little ahead of the velocity, as authored.
+- **The flame outlived the stake.** `Stake:OnHitSomething` kills the bound
+  effect with `ENTITY.KillAllChildrenByName(se, "stakeflame")`; a ParticleFX
+  entity carried no name in the port, so nothing matched and the flame stayed.
+  `ENTITY.Create(ETypes.ParticleFX, "", effect)` now names the entity after
+  the effect, the flame dies on the hit and the puff of smoke the script adds
+  in its place appears.
+
+- **The corpse never took the hit.** Every stake hit ends with
+  `WORLD.HitPhysicObject(he, tx,ty,tz, dx*800, rand(1,700), dz*800)`, and `he`
+  is the LIMB handle the trace reported. The port treated every handle as a
+  script-body slot, so a limb handle did nothing and a kill left the corpse
+  merely folding. A limb handle now lands the impulse on that ragdoll part
+  (`AddRagdollPartImpulse`), under PO_Hit's own 0.01..10000 magnitude gate.
+- **The player stood on grenades.** The grenade is a group-5 (Missile) body,
+  and the recovered Havok filter disables 5 against both the player body (23)
+  and the actors (4). The sweep every walker moves with (`SweepLayerFilter`)
+  now skips the missile layer; the pusher already did.
+
+A wounding hit already broke the stake (`CItem.DestroyItemFX` -> `ExplodeItem`
+with `kolek_zlom.dat`), so that path was left alone. Nailing a corpse to a
+wall - the `r_BindedActor` drag and `PinHavokBody` - has its natives now but
+was not exercised; that is the next item.
+
 ## What is missing
 
 Since this list was written the player controller and ragdolls have both

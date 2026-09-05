@@ -679,8 +679,10 @@ bool ScriptEngine::JointsLinked(Entity& e, int a, int b) {
     // monster has thrown the weapon that bone carried.
     for (int d : e.disabledJoints)
         if (d == a || d == b) return false;
+    // Both ends resolve to the body covering the bone, since a hitbox on a
+    // hand or a finger has no body of its own and would read as detached.
     if (const Hke* def = RagdollDef(e.source))
-        return def->Linked(JointName(e, a), JointName(e, b));
+        return def->Linked(RagdollBoneForJoint(e, *def, a), RagdollBoneForJoint(e, *def, b));
 
     // NO DECODED RAGDOLL: answer as the SKELETON does, yes. False here is not
     // a neutral default but the DETACHABLE-ELEMENT answer, which made the 19
@@ -738,6 +740,88 @@ int ScriptEngine::L_PHYSICS_RemoveHavokBodyFromIS(lua_State* L) {
     const auto at = std::find(v.begin(), v.end(), handle);
     if (remove) { if (at == v.end()) v.push_back(handle); }
     else        { if (at != v.end()) v.erase(at); }
+    return 0;
+}
+
+// A hit joint's ragdoll body: its own, else the nearest ancestor's. The trace
+// lands on the .rde hitboxes, which sit on more bones than the .hke gives
+// bodies to; Havok reported the body that covered the limb.
+std::string ScriptEngine::RagdollBoneForJoint(Entity& e, const Hke& def, int joint) {
+    const SkeletonCache::Entry* skel = skeletons_.Get(e.source);
+    if (!skel) return JointName(e, joint);
+    int b = joint;
+    for (int guard = 0; guard < 64 && b >= 0 && size_t(b) < skel->bones.size(); ++guard) {
+        if (def.Body(skel->bones[size_t(b)].name)) return skel->bones[size_t(b)].name;
+        b = skel->bones[size_t(b)].parent;
+    }
+    return JointName(e, joint);
+}
+
+int ScriptEngine::RagdollPartForJoint(Entity& e, int joint) {
+    if (e.ragdollSlot < 0 || !physics_ || joint < 0) return -1;
+    const Hke* def = RagdollDef(e.source);
+    const std::string bone = def ? RagdollBoneForJoint(e, *def, joint) : JointName(e, joint);
+    const std::vector<std::string>& parts = physics_->RagdollBones(e.ragdollSlot);
+    for (size_t p = 0; p < parts.size(); ++p)
+        if (parts[p] == bone) return int(p);
+    return -1;
+}
+
+// PHYSICS.GetHavokBodyPosition(he) -> x, y, z of the body a trace reported: a
+// ragdoll part for a limb handle, the script body otherwise. Stake:Tick reads
+// it on a kill to keep the corpse's limb at a fixed offset from the stake.
+int ScriptEngine::L_PHYSICS_GetHavokBodyPosition(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (!lua_isnumber(L, 1)) return 0;
+    const int handle = int(lua_tonumber(L, 1));
+    float p[3] = {0, 0, 0};
+    bool ok = false;
+    int entity = 0, joint = -1;
+    if (self->LimbFromHandle(handle, entity, joint)) {
+        if (Entity* e = self->Find(entity)) {
+            const int part = self->RagdollPartForJoint(*e, joint);
+            if (part >= 0) ok = self->physics_->GetRagdollPartPosition(e->ragdollSlot, part, p);
+            if (!ok) {
+                const float zero[3] = {0, 0, 0};
+                ok = self->JointToWorld(*e, joint, zero, p);
+            }
+            if (!ok) { for (int c = 0; c < 3; ++c) p[c] = e->pos[c]; ok = true; }
+        }
+    } else if (handle >= 0 && self->physics_) {
+        ok = self->physics_->GetScriptBodyPosition(handle, p);
+    }
+    if (!ok) return 0;
+    for (int c = 0; c < 3; ++c) lua_pushnumber(L, p[c]);
+    return 3;
+}
+
+// PHYSICS.SetHavokBodyPosition(he, x, y, z) - a limb dragged behind the stake.
+int ScriptEngine::L_PHYSICS_SetHavokBodyPosition(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (!lua_isnumber(L, 1) || !self->physics_) return 0;
+    int entity = 0, joint = -1;
+    if (!self->LimbFromHandle(int(lua_tonumber(L, 1)), entity, joint)) return 0;
+    Entity* e = self->Find(entity);
+    if (!e) return 0;
+    const int part = self->RagdollPartForJoint(*e, joint);
+    if (part < 0) return 0;
+    const float p[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+                        float(luaL_optnumber(L, 4, 0))};
+    self->physics_->SetRagdollPartPosition(e->ragdollSlot, part, p);
+    return 0;
+}
+
+// PHYSICS.PinHavokBody(he) - the limb stops where it is and the rest of the
+// corpse hangs from it: a stake has nailed it to a wall.
+int ScriptEngine::L_PHYSICS_PinHavokBody(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (!lua_isnumber(L, 1) || !self->physics_) return 0;
+    int entity = 0, joint = -1;
+    if (!self->LimbFromHandle(int(lua_tonumber(L, 1)), entity, joint)) return 0;
+    Entity* e = self->Find(entity);
+    if (!e) return 0;
+    const int part = self->RagdollPartForJoint(*e, joint);
+    if (part >= 0) self->physics_->PinRagdollPart(e->ragdollSlot, part);
     return 0;
 }
 

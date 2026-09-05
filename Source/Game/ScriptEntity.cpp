@@ -22,6 +22,10 @@ int ScriptEngine::L_Create(lua_State* L) {
         // Argument 3 is the "Name:Tag" identity for models, not a mesh name.
         e.name = e.mesh;
         e.mesh.clear();
+    } else if (e.type == kParticleFX) {
+        // AddPFX passes the effect name as argument 3, and that is the name
+        // KillAllChildrenByName(se, "stakeflame") finds a bound effect by.
+        e.name = e.mesh;
     }
     const int handle = self->nextHandle_++;
     auto it = self->entities_.emplace(handle, e).first;
@@ -244,7 +248,26 @@ int ScriptEngine::L_PO_ScaleInertiaTensor(lua_State* L) {
 int ScriptEngine::L_WORLD_HitPhysicObject(lua_State* L) {
     ScriptEngine* self = From(L);
     // -1 is what a trace reports for the world itself, which cannot be moved.
-    ApplyHitImpulse(L, self->physics_, int(luaL_optnumber(L, 1, -1)));
+    const int handle = int(luaL_optnumber(L, 1, -1));
+    // A LIMB handle lands on that ragdoll part: Stake:Tick ends every hit with
+    // HitPhysicObject(he, ..., dx*800, rand(1,700), dz*800), and a stake in
+    // the head is what flips a corpse. Physics.md, "The stake".
+    int entity = 0, joint = -1;
+    if (self->physics_ && self->LimbFromHandle(handle, entity, joint)) {
+        Entity* e = self->Find(entity);
+        if (!e || e->ragdollSlot < 0) return 0;
+        const float at[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+                             float(luaL_optnumber(L, 4, 0))};
+        const float imp[3] = {float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
+                              float(luaL_optnumber(L, 7, 0))};
+        const float mag = std::sqrt(imp[0]*imp[0] + imp[1]*imp[1] + imp[2]*imp[2]);
+        if (!(mag > kMinHitImpulse && mag < kMaxHitImpulse)) return 0;
+        const int part = self->RagdollPartForJoint(*e, joint);
+        if (part >= 0) self->physics_->AddRagdollPartImpulse(e->ragdollSlot, part, at, imp);
+        else           self->physics_->AddRagdollImpulse(e->ragdollSlot, at, imp);
+        return 0;
+    }
+    ApplyHitImpulse(L, self->physics_, handle);
     return 0;
 }
 
@@ -971,6 +994,54 @@ int ScriptEngine::L_ENTITY_RegisterChild(lua_State* L) {
     childEntity->parent = HandleArg(L, 1);
     // Fifth argument, default true - see Entity::dieWithParent.
     childEntity->dieWithParent = lua_isnone(L, 5) || lua_toboolean(L, 5) != 0;
+    // Fourth argument: the parent's joint the child hangs on - an index when a
+    // number, a name when a string (0x1012FAD0 branches on the Lua type). The
+    // stake gives the joint it struck, after ComputeChildMatrix set its offset.
+    if (lua_isnumber(L, 4)) {
+        childEntity->parentJointIndex = int(lua_tonumber(L, 4));
+        childEntity->parentJoint.clear();
+        childEntity->parentBound = true;
+    } else if (lua_isstring(L, 4)) {
+        childEntity->parentJoint = lua_tostring(L, 4);
+        childEntity->parentJointIndex = -2;
+        childEntity->parentBound = true;
+    }
+    return 0;
+}
+
+// ENTITY.ComputeChildMatrix(child, parent, joint) - 0x1012FCE0: the child's
+// transform is re-expressed relative to the parent's joint (or the parent
+// itself when there is no joint or no model), so a RegisterChild that follows
+// keeps the child exactly where it is. This is how a stake stays in the limb
+// it struck while the corpse falls. Physics.md, "The stake".
+int ScriptEngine::L_ENTITY_ComputeChildMatrix(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* child = self->Find(HandleArg(L, 1));
+    Entity* parent = self->Find(HandleArg(L, 2));
+    if (!child || !parent) return 0;
+    int joint = int(luaL_optnumber(L, 3, -1));
+    float basePos[3], baseRot[4];
+    bool ok = false;
+    if (joint >= 0 && parent->type == kModel) {
+        const float zero[3] = {0, 0, 0};
+        ok = self->JointToWorld(*parent, joint, zero, basePos) &&
+             self->JointWorldRotation(*parent, joint, baseRot);
+    }
+    if (!ok) {
+        for (int c = 0; c < 3; ++c) basePos[c] = parent->pos[c];
+        for (int c = 0; c < 4; ++c) baseRot[c] = parent->rotWXYZ[c];
+        joint = -1;
+    }
+    // Inverse of a unit quaternion is its conjugate in any convention.
+    const float inv[4] = {baseRot[0], -baseRot[1], -baseRot[2], -baseRot[3]};
+    const float delta[3] = {child->pos[0] - basePos[0], child->pos[1] - basePos[1],
+                            child->pos[2] - basePos[2]};
+    EngineQuatRotate(inv, delta, child->parentOffset);
+    EngineQuatMul(inv, child->rotWXYZ, child->parentRotWXYZ);
+    child->parentRotBound = true;
+    child->parentBound = true;
+    child->parentJointIndex = joint;
+    child->parentJoint.clear();
     return 0;
 }
 

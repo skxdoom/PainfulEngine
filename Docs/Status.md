@@ -358,6 +358,10 @@ The ordered work queue, with the evidence behind each item, is
 - **Collision-group plumbing.** `PO_SetCollisionGroup` (91 sites),
   `PO_SetMovedByExplosions`, `EnableCollisionsToRagdoll` / `ToAll`,
   `PO_Activate`. `CreateScriptBody` switches on groups 1 and 7 only.
+- **Nailing a corpse to a wall with the stake.** The natives exist
+  (`PinHavokBody`, `SetHavokBodyPosition`), the drag-and-pin path in
+  `Stake:Tick` has not been exercised ([`Physics.md`](Reference/Physics.md),
+  "The stake").
 - **The ragdoll joint API.** The `ApplyVelocitiesToJoint` /
   `ApplyRotationToJoint` family, `SetRagdollRestitution`,
   `EnableCollisionsToRagdoll`. The `Spring` and `Dashpot` actions in the

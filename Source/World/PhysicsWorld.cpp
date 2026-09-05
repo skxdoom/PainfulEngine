@@ -196,8 +196,11 @@ private:
 class SweepLayerFilter final : public JPH::ObjectLayerFilter {
 public:
     bool ShouldCollide(JPH::ObjectLayer layer) const override {
+        // Missiles too: group 5 is disabled against the player body (23) and
+        // the actors (4) in the Havok filter (colgroup3.log), so nothing that
+        // walks stands on a grenade. Physics.md, "Collision groups".
         return layer != Layers::kNoCollide && layer != Layers::kProbe &&
-               layer != Layers::kHitbox;
+               layer != Layers::kHitbox && layer != Layers::kMissile;
     }
 };
 const SweepLayerFilter kSweepLayer;
@@ -2711,6 +2714,19 @@ void PhysicsWorld::AddRagdollImpulse(int slot, const float at[3], const float im
     bodies.AddImpulse(best, JPH::Vec3(impulse[0], impulse[1], impulse[2]), point);
 }
 
+void PhysicsWorld::AddRagdollPartImpulse(int slot, int part, const float at[3],
+                                         const float impulse[3]) {
+    if (!RagdollExists(slot) || part < 0) return;
+    const auto& ids = impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs();
+    if (size_t(part) >= ids.size()) return;
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    const JPH::BodyID id = ids[size_t(part)];
+    if (bodies.GetMotionType(id) != JPH::EMotionType::Dynamic) return;
+    if (!bodies.IsActive(id)) bodies.ActivateBody(id);
+    bodies.AddImpulse(id, JPH::Vec3(impulse[0], impulse[1], impulse[2]),
+                      JPH::RVec3(at[0], at[1], at[2]));
+}
+
 void PhysicsWorld::SetRagdollVelocity(int slot, const float linear[3], const float angular[3]) {
     if (!RagdollExists(slot)) return;
     JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
@@ -2761,6 +2777,35 @@ void PhysicsWorld::RagdollSelfExplosion(int slot, const float centre[3], float s
         if (!bodies.IsActive(id)) bodies.ActivateBody(id);
         bodies.AddImpulse(id, impulse);
     }
+}
+
+bool PhysicsWorld::GetRagdollPartPosition(int slot, int part, float out[3]) const {
+    if (!RagdollExists(slot) || part < 0) return false;
+    const auto& ids = impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs();
+    if (size_t(part) >= ids.size()) return false;
+    const JPH::RVec3 p = impl_->system.GetBodyInterfaceNoLock().GetPosition(ids[size_t(part)]);
+    out[0] = float(p.GetX()); out[1] = float(p.GetY()); out[2] = float(p.GetZ());
+    return true;
+}
+
+void PhysicsWorld::SetRagdollPartPosition(int slot, int part, const float pos[3]) {
+    if (!RagdollExists(slot) || part < 0) return;
+    const auto& ids = impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs();
+    if (size_t(part) >= ids.size()) return;
+    impl_->system.GetBodyInterface().SetPosition(ids[size_t(part)],
+                                                 JPH::RVec3(pos[0], pos[1], pos[2]),
+                                                 JPH::EActivation::Activate);
+}
+
+void PhysicsWorld::PinRagdollPart(int slot, int part) {
+    if (!RagdollExists(slot) || part < 0) return;
+    const auto& ids = impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs();
+    if (size_t(part) >= ids.size()) return;
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    const JPH::BodyID id = ids[size_t(part)];
+    bodies.SetLinearAndAngularVelocity(id, JPH::Vec3::sZero(), JPH::Vec3::sZero());
+    if (bodies.GetMotionType(id) != JPH::EMotionType::Kinematic)
+        bodies.SetMotionType(id, JPH::EMotionType::Kinematic, JPH::EActivation::Activate);
 }
 
 void PhysicsWorld::RagdollPartPositions(int slot, std::vector<float>& outXYZ) const {

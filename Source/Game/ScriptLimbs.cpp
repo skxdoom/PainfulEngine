@@ -442,15 +442,15 @@ void ScriptEngine::TickProjectiles(float dt) {
 
         for (int c = 0; c < 3; ++c) e.pos[c] += e.velocity[c] * dt;
 
-        // The tumble. The axis is in WORLD space, so the step composes on the
-        // side that applies it after the current orientation - which under the
-        // engine's q^-1*v*q convention is the right-hand side, the opposite of
-        // the textbook order. Renormalised because this integrates every frame
-        // for the whole flight and a drifting quaternion shears the model.
+        // The tumble. The axis is in WORLD space, composed on the right under
+        // the engine's q^-1*v*q convention - in which a rotation by +angle
+        // about n is (cos, -n sin), so the vector part is NEGATED. Measured:
+        // the stake's nose rose 0.35 rad/s while it fell with the other sign.
+        // Physics.md, "Projectiles". Renormalised: this integrates every frame.
         if (spinSq > 1e-12f) {
             const float w = std::sqrt(spinSq);
             const float half = 0.5f * w * dt;
-            const float s = std::sin(half) / w;
+            const float s = -std::sin(half) / w;
             const float step[4] = {std::cos(half), e.angVel[0] * s,
                                    e.angVel[1] * s, e.angVel[2] * s};
             float out[4];

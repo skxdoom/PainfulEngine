@@ -858,6 +858,14 @@ private:
     static int L_MDL_EnableJoint(lua_State* L);
     // PHYSICS.RemoveHavokBodyFromIS(he, on) - one BODY out of the traces.
     static int L_PHYSICS_RemoveHavokBodyFromIS(lua_State* L);
+    static int L_PHYSICS_GetHavokBodyPosition(lua_State* L);
+    static int L_PHYSICS_SetHavokBodyPosition(lua_State* L);
+    static int L_PHYSICS_PinHavokBody(lua_State* L);
+    // The ragdoll part a hit joint belongs to: the joint's own body, or the
+    // nearest ancestor bone that has one (a hitbox on a hand is the forearm's
+    // body in Havok terms). -1 when the entity has no ragdoll.
+    int RagdollPartForJoint(Entity& e, int joint);
+    std::string RagdollBoneForJoint(Entity& e, const Hke& def, int joint);
     static int L_PHYSICS_IsHavokBodyInWorld(lua_State* L);
     static int L_PHYSICS_GetHavokBodyVelocity(lua_State* L);
     static int L_ENTITY_EnableCollisions(lua_State* L);
@@ -1026,6 +1034,7 @@ private:
     static int L_R3D_RGBA(lua_State* L);
     static int L_ENTITY_GetPtrByIndex(lua_State* L);
     static int L_ENTITY_RegisterChild(lua_State* L);
+    static int L_ENTITY_ComputeChildMatrix(lua_State* L);
     static int L_ENTITY_GetChildByName(lua_State* L);
     static int L_ENTITY_KillAllChildrenByName(lua_State* L);
     static int L_ENTITY_KillAllChildren(lua_State* L);
