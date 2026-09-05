@@ -135,6 +135,8 @@ public:
         // MDL.SetMeshVisibility, kept so it survives the renderer instance
         // being rebuilt. name -> shown.
         std::map<std::string, bool> hiddenMeshes;
+        // MDL.SetMaterial, kept for the same reason as hiddenMeshes.
+        std::string materialName;
         // What this entity is bound to, and where on it.
         //
         // ENTITY.RegisterChild names the parent; PARTICLE.SetParentOffset gives
@@ -873,6 +875,7 @@ private:
     static int L_PARTICLE_Die(lua_State* L);
     static int L_MDL_SetAnim(lua_State* L);
     static int L_MDL_SetMeshVisibility(lua_State* L);
+    static int L_MDL_SetMaterial(lua_State* L);
     static int L_MDL_GetAnimLength(lua_State* L);
     static int L_MDL_GetAnimTime(lua_State* L);
     static int L_MDL_SetAnimTime(lua_State* L);

@@ -688,4 +688,21 @@ int ScriptEngine::L_MDL_SetMeshVisibility(lua_State* L) {
     return 0;
 }
 
+// MDL.SetMaterial(entity, name) - swap the model to another material family.
+// CActor hands every gib its template's gibShader ("palskinned_bloody" in 64
+// of them) and the freeze effect swaps the whole actor.
+int ScriptEngine::L_MDL_SetMaterial(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e) return 0;
+    const char* name = luaL_optstring(L, 2, "");
+    if (!name || !*name) return 0;
+    // Kept on the entity as well: a rebuilt renderer instance would otherwise
+    // fall back to the plain skin, the way hiddenMeshes would.
+    e->materialName = name;
+    if (self->renderer_ && self->textures_ && e->rendererInstance >= 0)
+        self->renderer_->SetScriptMaterial(e->rendererInstance, name, *self->textures_);
+    return 0;
+}
+
 }  // namespace painful

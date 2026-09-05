@@ -13,6 +13,10 @@ $input v_texcoord0, v_normal, v_viewdist
 #include <bgfx_shader.sh>
 
 SAMPLER2D(s_diffuse, 0);
+// The second stage the model materials layer over the lit result - the blood
+// on gibs, the freeze rime. Its own UV: palskinned_bloody says `notexmatrix`,
+// so the stage-0 pan/tile do not reach it.
+SAMPLER2D(s_stage1, 1);
 
 uniform vec4 u_params;      // y: alpha-test ref (<0 off)
 uniform vec4 u_uvanim;      // xy: stage-0 scroll offset
@@ -27,6 +31,7 @@ uniform vec4 u_lightColor[4];   // rgb: colour x intensity x attenuation
 uniform vec4 u_lightDir[4];     // xyz: direction to the light, w: slot used
 uniform vec4 u_lightHalf[4];    // xyz: half-vector, w: diffuse weight (0 = specular-only)
 uniform vec4 u_specular;        // x: exponent, y: strength, z: N.L gate softening
+uniform vec4 u_stage1;          // x: op - 0 off, 1 modulate, 2 add, 3 modulatealphaadd
 
 void main()
 {
@@ -82,6 +87,17 @@ void main()
 	// specular is NOT modulated by the texture, which is what makes it read as
 	// a sheen sitting over the material rather than part of it.
 	vec3 color = base.rgb * diffuse + specular * u_specular.y;
+
+	// The second stage combines with what is already there ("previous"), which
+	// is why it sits after the lighting rather than being mixed into the
+	// albedo: blood on a gib darkens the lit skin, it is not part of it.
+	if (u_stage1.x > 0.5)
+	{
+		vec4 s1 = texture2D(s_stage1, v_texcoord0);
+		if (u_stage1.x < 1.5)       color *= s1.rgb;              // modulate
+		else if (u_stage1.x < 2.5)  color += s1.rgb;              // add
+		else                        color = s1.rgb + s1.a * color; // modulatealphaadd
+	}
 
 	float fog = 1.0;
 	if (u_fog.x > 2.5)

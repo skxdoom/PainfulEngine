@@ -126,6 +126,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
     // a hole made by wrong winding from a hole made by missing geometry.
     entities.SetCullMode(getenv("PAINFUL_ECULL") ? atoi(getenv("PAINFUL_ECULL")) : 1);
     if (!entities.Init(shaderDir)) return 3;
+    // Models take their material from the same scripts the world does. Set
+    // before the level loads, since the scripts create entities as they go.
+    entities.SetShaders(&shaderScripts);
 
     EmitterLibrary emitterScripts;
     emitterScripts.Init(root + "/Scripts");

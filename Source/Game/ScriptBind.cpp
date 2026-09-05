@@ -39,6 +39,7 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"PARTICLE", "Die", L_PARTICLE_Die},
         {"MDL", "SetAnim", L_MDL_SetAnim},
         {"MDL", "SetMeshVisibility", L_MDL_SetMeshVisibility},
+        {"MDL", "SetMaterial", L_MDL_SetMaterial},
         {"MDL", "GetAnimLength", L_MDL_GetAnimLength},
         {"MDL", "GetAnimTime", L_MDL_GetAnimTime},
         {"MDL", "SetAnimTime", L_MDL_SetAnimTime},

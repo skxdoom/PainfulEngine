@@ -121,6 +121,8 @@ bool EntityRenderer::Init(const std::string& shaderDir) {
     uUv1_      = bgfx::createUniform("u_uv1",      bgfx::UniformType::Vec4);
     uTile_     = bgfx::createUniform("u_tile",     bgfx::UniformType::Vec4);
     uSpecular_ = bgfx::createUniform("u_specular", bgfx::UniformType::Vec4);
+    sStage1_   = bgfx::createUniform("s_stage1",   bgfx::UniformType::Sampler);
+    uStage1_   = bgfx::createUniform("u_stage1",   bgfx::UniformType::Vec4);
     uLightColor_ = bgfx::createUniform("u_lightColor", bgfx::UniformType::Vec4, kMaxEntityLights);
     uLightDir_   = bgfx::createUniform("u_lightDir",   bgfx::UniformType::Vec4, kMaxEntityLights);
     uLightHalf_  = bgfx::createUniform("u_lightHalf",  bgfx::UniformType::Vec4, kMaxEntityLights);
@@ -146,6 +148,8 @@ void EntityRenderer::Shutdown() {
     if (bgfx::isValid(uUvAnim_))   { bgfx::destroy(uUvAnim_);   uUvAnim_   = BGFX_INVALID_HANDLE; }
     if (bgfx::isValid(uDetail_))   { bgfx::destroy(uDetail_);   uDetail_   = BGFX_INVALID_HANDLE; }
     if (bgfx::isValid(sDetail_))   { bgfx::destroy(sDetail_);   sDetail_   = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(sStage1_))   { bgfx::destroy(sStage1_);   sStage1_   = BGFX_INVALID_HANDLE; }
+    if (bgfx::isValid(uStage1_))   { bgfx::destroy(uStage1_);   uStage1_   = BGFX_INVALID_HANDLE; }
     if (bgfx::isValid(uUv0_))      { bgfx::destroy(uUv0_);      uUv0_      = BGFX_INVALID_HANDLE; }
     if (bgfx::isValid(uUv1_))      { bgfx::destroy(uUv1_);      uUv1_      = BGFX_INVALID_HANDLE; }
     if (bgfx::isValid(uTile_))     { bgfx::destroy(uTile_);     uTile_     = BGFX_INVALID_HANDLE; }
@@ -251,6 +255,8 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
             std::string family = "palskinned";
             if (mesh.nameHas("2sided")) family += "2sided";
             part.material = LookupMaterial(shaders_, family, true, mesh.name);
+            if (!part.material.map1.empty())
+                part.stage1 = textures.Get(part.material.map1, "");
             gpu.parts.push_back(std::move(part));
         }
         // Every slot was empty or out of range: the vertices have no owner.
@@ -650,6 +656,24 @@ void EntityRenderer::SetScriptVisible(int slot, bool visible) {
 // One named mesh of one instance. A model mesh split across material slots is
 // several parts under the SAME name, so every match is set - hiding "blades"
 // must take all of it, not just its first material run.
+// MDL.SetMaterial(entity, name). CActor gives every gib the template's
+// gibShader ("palskinned_bloody" in 64 of them) and the freeze effect swaps
+// the whole actor, so this has to be per instance rather than per model.
+void EntityRenderer::SetScriptMaterial(int slot, const std::string& name,
+                                       TextureCache& textures) {
+    if (slot < 0 || size_t(slot) >= instances_.size() || name.empty()) return;
+    Instance& inst = instances_[slot];
+    if (!shaders_ || !shaders_->Find(name)) {
+        LogWarn("MDL.SetMaterial: no material %s", name.c_str());
+        return;
+    }
+    inst.material = LookupMaterial(shaders_, name, true);
+    bgfx::TextureHandle tex = BGFX_INVALID_HANDLE;
+    if (!inst.material.map1.empty()) tex = textures.Get(inst.material.map1, "");
+    inst.stage1 = tex;
+    inst.materialOverride = true;
+}
+
 void EntityRenderer::SetScriptMeshVisibility(int slot, const std::string& meshName,
                                              bool visible) {
     if (slot < 0 || size_t(slot) >= instances_.size() || meshName.empty()) return;
@@ -860,7 +884,12 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
                 continue;
             // Material is per part: one model can mix an ordinary skinned mesh
             // with a scrolling water surface.
-            const MaterialState& mat = part.material;
+            // MDL.SetMaterial overrides the whole model, parts included: the
+            // engine swaps the material, not one slot of it.
+            const MaterialState& mat =
+                instance.materialOverride ? instance.material : part.material;
+            const bgfx::TextureHandle stage1Tex =
+                instance.materialOverride ? instance.stage1 : part.stage1;
             // No lightmaps on entities, so u_ambient.w (the lightmap scale) is
             // never sampled; alpha test comes from the material scripts.
             //
@@ -889,6 +918,9 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
             bgfx::setUniform(uUv0_, identityUv);
             bgfx::setUniform(uUv1_, identityUv);
             bgfx::setUniform(uTile_, tile);
+            const float stage1[4] = {
+                bgfx::isValid(stage1Tex) ? float(mat.stage1Op) : 0.f, 0.f, 0.f, 0.f};
+            bgfx::setUniform(uStage1_, stage1);
             bgfx::setTransform(instance.transform.m);
             // The posed buffer when there is one, the shared bind-pose buffer
             // otherwise. Indices never change: skinning moves vertices, it
@@ -901,7 +933,11 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
             else          bgfx::setVertexBuffer(0, part.vbo);
             bgfx::setIndexBuffer(part.ibo, part.firstIndex, part.indexCount);
             bgfx::setTexture(0, sDiffuse_, part.diffuse, mat.sampler[0]);
-            bgfx::setTexture(1, sLightmap_, white_);
+            // Stage 1 when the material has one; white through the off path so
+            // the sampler is always bound.
+            bgfx::setTexture(1, sStage1_,
+                                          bgfx::isValid(stage1Tex) ? stage1Tex : white_,
+                             mat.sampler[1]);
             bgfx::setTexture(2, sDetail_, white_);
             bgfx::setState(state);
             bgfx::submit(view, program_);

@@ -83,6 +83,9 @@ public:
     // instance. The Painkiller hides nine of them so the gun reads as empty
     // while its head is away; monsters hide gib parts the same way.
     void SetScriptMeshVisibility(int slot, const std::string& meshName, bool visible);
+    // MDL.SetMaterial(entity, name) - swaps this instance to another material
+    // from the shader scripts. Unknown names are left alone and reported.
+    void SetScriptMaterial(int slot, const std::string& name, TextureCache& textures);
     void ReleaseScript(int slot);
     // World-space size of the instance's model (bind-pose bounds times its
     // scale) - what ENTITY.GetDimensions reports.
@@ -102,6 +105,10 @@ public:
 
     // Diagnostic override: 0 = CCW, 1 = CW, 2 = none.
     void SetCullMode(int mode) { cullMode_ = mode; }
+    // The material scripts. Build() sets these for the viewer; the script-driven
+    // game never calls Build, so without this every model fell back to plain
+    // opaque state - no alpha test, no 2sided, no stage 1.
+    void SetShaders(ShaderLibrary* shaders) { shaders_ = shaders; }
 
     // Live multiplier applied on top of every resolved entity scale (the run
     // command binds it to the + and - keys). Rebuilds the cached transforms.
@@ -128,6 +135,8 @@ private:
         // someone else's indices. Docs/Reference/Physics.md, "Active meshes".
         bgfx::IndexBufferHandle ibo = BGFX_INVALID_HANDLE;
         bgfx::TextureHandle diffuse = BGFX_INVALID_HANDLE;
+        // The material's stage-1 texture, when it has one (blood, freeze).
+        bgfx::TextureHandle stage1 = BGFX_INVALID_HANDLE;
         uint32_t firstIndex = 0;
         uint32_t indexCount = 0;
         bool ownsVbo = true;               // parts of one pack object share a vbo
@@ -161,6 +170,12 @@ private:
     };
     struct Instance {
         size_t model = 0;
+        // MDL.SetMaterial: this instance draws with another material family
+        // (gibs turn palskinned_bloody). Per instance, since the GpuModel and
+        // its parts are shared by every entity using that model.
+        bool materialOverride = false;
+        MaterialState material;
+        bgfx::TextureHandle stage1 = BGFX_INVALID_HANDLE;
         Mat4 transform;
         float aabbLo[3] = {0, 0, 0}, aabbHi[3] = {0, 0, 0};   // world bounds
         // Basis kept so the transform can be rebuilt when the live scale
@@ -238,6 +253,8 @@ private:
     bgfx::UniformHandle uLightDir_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle uLightHalf_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle uSpecular_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle sStage1_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle uStage1_ = BGFX_INVALID_HANDLE;
     EntityLighting lighting_;
     float lastTime_ = 0.f;
     bgfx::TextureHandle white_ = BGFX_INVALID_HANDLE;

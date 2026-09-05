@@ -28,6 +28,14 @@ struct MaterialState {
     float tile0[2] = {1, 1};
     float tile1[2] = {1, 1};
 
+    // Stage 1, for the model materials that layer a second texture over the
+    // lit result: palskinned_bloody, _freeze, palskinnedemissive.
+    //   1 modulate         texop[1] = texture modulate previous
+    //   2 add              texop[1] = texture add previous
+    //   3 modulatealphaadd texop[1] = texture modulatealphaadd texture
+    int stage1Op = 0;                  // 0 = no second stage
+    std::string map1;                  // map[1], empty when it is a $variable
+
     // Builds the state from a resolved pass. Unknown values fall back to the
     // most common defaults and are reported through *warning when given.
     static MaterialState FromPass(const ShaderPass& pass, std::string* warning = nullptr);
