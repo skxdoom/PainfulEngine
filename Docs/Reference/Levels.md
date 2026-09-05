@@ -94,6 +94,35 @@ volumetrics are all encoded as substrings in the object's *name* - see
 plain name means plain solid geometry. A level with no zone objects falls
 through to drawing everything, which the visibility code handles.
 
+## Lighting defaults: what an entity gets when the level says nothing
+
+Models are lit at runtime from an ambient plus up to four lights (the vertex
+shader `palskin.bones<N>.lights<M>.vso`: `c11` ambient, `c12..c23` the lights;
+`Entity::ComputeVSLights` 0x101D1DC0 fills them). Where the ambient comes from
+is `Entity::GetEnvironmentAmbient` (0x101D0CA0), a three-step fallback:
+
+1. the entity's own ambient, if `SetEnvironmentAmbient` gave it one;
+2. the `CEnvironment` box it stands in, if that box's `Ambient.Overwrite` is set
+   (flag 2 at +0x674; the colour at +0xe88);
+3. otherwise the **world ambient** at `World+0x1604`, which is whatever
+   `CLevel:Apply` pushed through `WORLD.AmbientColor(self.Ambient...)`.
+
+The bytes go to `c11` times 1/255 (`_DAT_102ae5b4`). Step 3 is the one that
+matters for a level file: `C1L3_Catacombs.CLevel` states `DirLight.Color` and
+`DirLight.Intensity` and NO `Ambient`, so the original lights every monster and
+pickup there with the **CLevel class default**, `Ambient = Color:New(50,50,50)`
+(`Classes/CLevel.lua`). The class also defaults `DirLight.Dir` to
+`(-0.7,-0.7,-0.7)`, `DirLight.Color` to `(150,150,100)` and `Intensity` to 1.
+
+`LevelInfo` now starts from those defaults, and the game path additionally
+hands `EntityLighting` the ambient the scripts actually set
+(`ScriptEngine::WorldState::ambient`, from `WORLD.AmbientColor`). Before this
+the loader defaulted ambient to black: at Catacombs' ArmorMedium a camera-facing
+white texel came out at 0.19/0.15/0.10 from the torches alone, against
+0.36/0.32/0.27 with the ambient - the "entities almost black" report of
+2026-09-05. `PainfulTools lighting <levelDir> <DataRoot> x y z` prints the
+breakdown at a point.
+
 ## The `mklevel` command
 
 ```bash

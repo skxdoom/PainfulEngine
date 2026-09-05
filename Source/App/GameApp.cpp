@@ -388,6 +388,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
             lightingTemplates.Init(std::string(dataRoot) + "/LScripts/Templates");
             lightingTemplates.SetLevelOverlay(levelDir + "/Templates");
             entities.BuildLighting(lightingLevel, lightingTemplates);
+            // The ambient the scripts actually set (CLevel:Apply -> WORLD.AmbientColor),
+            // class default 50,50,50 included - the level file alone may omit it.
+            entities.SetLevelAmbient(engine.world().ambient);
             LogInfo("entity lighting: %zu lights, %zu environment boxes",
                     entities.lightCount(), entities.environmentCount());
         } else {

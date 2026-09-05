@@ -64,12 +64,15 @@ struct LevelInfo {
     bool overbright = false;     // o.Overbright - selects the x2 lightmap material set
     std::string detailTex = "special/detail";   // DetailMap.Tex
     float detailTileU = 8.2f, detailTileV = 7.1f;
-    float ambient[3] = {0, 0, 0};
+    // CLevel.lua's class defaults: a level that states no Ambient gets 50,50,50
+    // (Catacombs does), and Entity::GetEnvironmentAmbient (0x101D0CA0) falls
+    // back to exactly that world ambient. Docs/Reference/Levels.md, "Lighting defaults".
+    float ambient[3] = {50, 50, 50};
     // o.DirLight - the level's own directional light, which every entity gets
     // unless a CEnvironment it stands in overwrites it. The world mesh does not
     // use this: its lighting is baked. Colour is 0..255 as authored.
-    float dirLightColor[3] = {0, 0, 0};
-    float dirLightDir[3] = {0, -1, 0};
+    float dirLightColor[3] = {150, 150, 100};
+    float dirLightDir[3] = {-0.7f, -0.7f, -0.7f};
     float dirLightIntensity = 1.f;
     float fogColor[3] = {0, 0, 0};
     float fogDensity = 0.f, fogStart = 0.f;

@@ -34,6 +34,7 @@ public:
     // does this too; the script-driven path has no Level to pass to Build
     // and calls this on its own.
     void BuildLighting(const Level& level, TemplateCache& templates);
+    void SetLevelAmbient(const float rgb255[3]) { lighting_.SetLevelAmbient(rgb255); }
     size_t lightCount() const { return lighting_.lightCount(); }
     size_t environmentCount() const { return lighting_.environmentCount(); }
 

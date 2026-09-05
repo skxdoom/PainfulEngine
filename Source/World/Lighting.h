@@ -71,6 +71,11 @@ public:
     // light with Range 10.
     void Build(const Level& level, TemplateCache& templates);
     void Clear();
+    // The world ambient the scripts set through WORLD.AmbientColor (0-255),
+    // which is what Entity::GetEnvironmentAmbient falls back to.
+    void SetLevelAmbient(const float rgb255[3]) {
+        for (int i = 0; i < 3; ++i) levelAmbient_[i] = rgb255[i] / 255.f;
+    }
 
     // Lights the entity at pos, seen from camPos. fade carries the environment
     // cross-fade between calls; dt is the frame time in seconds. Pass a fade
