@@ -253,6 +253,7 @@ void ScriptEngine::Bind(LuaHost& host) {
         {"R3D", "RGB", L_R3D_RGB},
         {"R3D", "RGBA", L_R3D_RGBA},
         {"ENTITY", "GetPtrByIndex", L_ENTITY_GetPtrByIndex},
+        {"ENTITY", "GetIndex", L_ENTITY_GetIndex},
         {"ENTITY", "RegisterChild", L_ENTITY_RegisterChild},
         {"ENTITY", "ComputeChildMatrix", L_ENTITY_ComputeChildMatrix},
         {"ENTITY", "GetChildByName", L_ENTITY_GetChildByName},

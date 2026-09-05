@@ -169,7 +169,17 @@ bool ScriptEngine::TraceRay(const float from[3], const float to[3],
         exclude = traceExclude_.data();
         count = traceExclude_.size();
     }
-    return physics_->RayCast(from, to, hit, staticOnly, exclude, count);
+    // A corpse taken out of the solver is a RAGDOLL, not a script body, so
+    // its limbs are passed through here: Stake:Tick removes the actor it just
+    // killed and traces behind it for the wall to nail it to.
+    std::vector<int> ignoreRagdolls;
+    if (!staticOnly)
+        for (const auto& kv : entities_)
+            if (kv.second.ragdollSlot >= 0 && !kv.second.ragdollInSolver)
+                ignoreRagdolls.push_back(kv.second.ragdollSlot);
+    return physics_->RayCast(from, to, hit, staticOnly, exclude, count,
+                             ignoreRagdolls.empty() ? nullptr : ignoreRagdolls.data(),
+                             ignoreRagdolls.size());
 }
 
 int ScriptEngine::EntityForBody(int bodySlot) const {
@@ -324,8 +334,11 @@ int ScriptEngine::L_IsFixedMesh(lua_State* L) {
         lua_pushboolean(L, 1);
         return 1;
     }
+    // 0x10136110: a Mesh-type entity whose map-object index (Mesh+0x7e0, set
+    // by LoadMeshPak, -1 otherwise) is valid - a WORLD MESH from the .mpk,
+    // body or no body. A .dat item mesh is not one. Physics.md, "The stake".
     const Entity* e = self->Find(handle);
-    lua_pushboolean(L, e != nullptr && e->type != kModel && e->physicsBody < 0);
+    lua_pushboolean(L, e != nullptr && e->type != kModel && e->worldObject);
     return 1;
 }
 

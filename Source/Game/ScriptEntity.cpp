@@ -994,10 +994,16 @@ int ScriptEngine::L_ENTITY_RegisterChild(lua_State* L) {
     childEntity->parent = HandleArg(L, 1);
     // Fifth argument, default true - see Entity::dieWithParent.
     childEntity->dieWithParent = lua_isnone(L, 5) || lua_toboolean(L, 5) != 0;
-    // Fourth argument: the parent's joint the child hangs on - an index when a
-    // number, a name when a string (0x1012FAD0 branches on the Lua type). The
-    // stake gives the joint it struck, after ComputeChildMatrix set its offset.
-    if (lua_isnumber(L, 4)) {
+    // Third argument, default true: the child FOLLOWS the parent. PainKiller
+    // releases its head with RegisterChild(player, head, false, -1, false) -
+    // owned, so the beam has an anchor, but flying free; bound to the player
+    // it sat at the feet. Fourth: the joint it hangs on - an index when a
+    // number, a name when a string (0x1012FAD0 branches on the Lua type) -
+    // which is how the stake rides the limb it struck. Physics.md, "The stake".
+    const bool follows = lua_isnone(L, 3) || lua_toboolean(L, 3) != 0;
+    if (!follows) {
+        childEntity->parentBound = false;
+    } else if (lua_isnumber(L, 4) && lua_tonumber(L, 4) >= 0) {
         childEntity->parentJointIndex = int(lua_tonumber(L, 4));
         childEntity->parentJoint.clear();
         childEntity->parentBound = true;
@@ -1061,6 +1067,16 @@ int ScriptEngine::L_ENTITY_ComputeChildMatrix(lua_State* L) {
 // so the electro shuriken detonated on its FIRST tick, every time, with the
 // timer never reaching zero because nothing waited for it. BoltStick and Stake
 // ask the same question.
+// ENTITY.GetIndex(e) -> the entity's table index (0x1012F5F0), which the
+// stake keeps as BindedActorIndex and hands back to GetPtrByIndex every tick
+// while it drags a corpse to a wall. The handle is that index here.
+int ScriptEngine::L_ENTITY_GetIndex(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const int handle = HandleArg(L, 1);
+    lua_pushnumber(L, self->Find(handle) ? handle : 0);
+    return 1;
+}
+
 int ScriptEngine::L_ENTITY_GetPtrByIndex(lua_State* L) {
     ScriptEngine* self = From(L);
     const int handle = HandleArg(L, 1);

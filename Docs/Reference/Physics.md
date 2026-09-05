@@ -1237,11 +1237,16 @@ scratchpad: two zombies at 14 units, one given 1000 health, shot at spawn).
   (0x1012FCE0) re-expresses the child's transform relative to the parent's
   joint - `Model::GetJointTransform` inverted, or the parent's own transform
   when there is no joint or no model - and stores it as the child's relative
-  matrix; the `ENTITY.RegisterChild(parent, child, flag, joint, dieWithParent)`
-  that follows (0x1012FAD0: argument 4 is an index when a number and a name
-  when a string, `Entity::RegisterChild(child, bool, char)` at 0x101D3250)
-  hangs it on that joint. The port had neither the native nor the joint
-  argument; both exist now and drive `PlaceAttached`. Measured: the stake
+  matrix; the `ENTITY.RegisterChild(parent, child, follows, joint,
+  dieWithParent)` that follows (0x1012FAD0: argument 4 is an index when a
+  number and a name when a string, `Entity::RegisterChild(child, bool, char)`
+  at 0x101D3250) hangs it on that joint. Argument 3 is whether the child
+  FOLLOWS the parent at all: `PainKiller.lua:412` registers the released head
+  to the player with `(false, -1, false)` - owned, so the beam has an anchor,
+  but flying free - and the first cut of this, which bound every child given a
+  numeric joint, parked the Painkiller's head at the player's feet
+  (2026-09-06). The port had neither the native nor the joint argument; both
+  exist now and drive `PlaceAttached`. Measured: the stake
   stays in the corpse's limb as it falls (its y follows the joint from -2.8 to
   -4.1 over two seconds).
 - **The arc lean was inverted.** `SetAngularVelocity(dz*a, 0, -dx*a)` at 0.35
@@ -1270,9 +1275,53 @@ scratchpad: two zombies at 14 units, one given 1000 health, shot at spawn).
   now skips the missile layer; the pusher already did.
 
 A wounding hit already broke the stake (`CItem.DestroyItemFX` -> `ExplodeItem`
-with `kolek_zlom.dat`), so that path was left alone. Nailing a corpse to a
-wall - the `r_BindedActor` drag and `PinHavokBody` - has its natives now but
-was not exercised; that is the next item.
+with `kolek_zlom.dat`), so that path was left alone.
+
+### Nailing a corpse to the wall
+
+The script does all of it, in the kill branch of `Stake:Tick`: it moves the
+stake half a unit back along its flight, reads the struck limb's position and
+keeps the offset, takes the actor out of the intersection solver, traces up to
+10 units on from the hit point, and if that lands on a fixed mesh it halves the
+stake's speed, remembers the actor (`r_BindedActor`, `BindedActorIndex =
+ENTITY.GetIndex(e)`, `self.he`) and returns. Every later tick, while the actor
+is not yet `Pinned`, it gives every limb 0.7 of the stake's velocity
+(`MDL.ApplyVelocitiesToAllJoints`) and teleports the struck limb to the stake
+plus the kept offset (`PHYSICS.SetHavokBodyPosition`). When the stake reaches
+the wall it pins the limb (`PHYSICS.PinHavokBody`), sets `Pinned`, and goes on
+to the ordinary wall hit. A second stake into a pinned corpse shortens the wall
+search to 1.8 units, does not drag (the actor is `Pinned`), and pins the limb
+it struck when it reaches the wall - which is how one body ends up held by
+several stakes.
+
+Three natives stood between the port and that (2026-09-06):
+
+- `ENTITY.GetIndex` (0x1012F5F0) was missing, so `BindedActorIndex` was nil,
+  `GetPtrByIndex(nil)` said the actor was gone, and the stake killed itself on
+  the tick after binding. The handle is the index here.
+- The wall check hit the corpse itself. `RemoveFromIntersectionSolver` on a
+  dead actor cleared its ragdoll flag, but the ray cast only ever skipped
+  script bodies and live hitboxes, not a corpse's Jolt limbs. `RayCast` now
+  takes the ragdoll slots to pass through and `TraceRay` lists every entity
+  with a ragdoll and the flag cleared.
+- `ENTITY.IsFixedMesh` (0x10136110) is TRUE for a Mesh-type entity whose
+  map-object index (`Mesh+0x7e0`, written by `LoadMeshPak`, -1 otherwise) is
+  valid: a world mesh from the `.mpk`, with or without a body - Cathedral's
+  `Slab_Room1` behind the test corpse is one. The port had answered by "has no
+  body", which refused every active mesh and accepted every bodiless `.dat`
+  item; it now answers by the world-object flag, and the world itself (entity
+  0) stays true.
+
+Measured (`stake_nail.lua`: zombie 3.4 units before the bare wall behind
+Cathedral's spawn, player 13 units back): the kill binds the corpse, three
+ticks of drag teleport the struck limb along, `PinHavokBody` fires when the
+stake meets the wall, `Pinned` is set and the limb stays at the wall for the
+rest of the run. A second stake into the hanging corpse read a limb 2.9 units
+off the wall, outside the script's 1.8-unit search for an already-pinned
+actor, and so attached to the limb without pinning - the script's own rule,
+not a port limit. Cathedral's far wall is fronted by `Slab_Room1`, a `.dat`
+item with a fixed body, which `IsFixedMesh` rightly refuses; the original
+would not nail there either.
 
 ## What is missing
 

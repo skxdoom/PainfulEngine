@@ -1034,6 +1034,7 @@ private:
     static int L_R3D_RGBA(lua_State* L);
     static int L_ENTITY_GetPtrByIndex(lua_State* L);
     static int L_ENTITY_RegisterChild(lua_State* L);
+    static int L_ENTITY_GetIndex(lua_State* L);
     static int L_ENTITY_ComputeChildMatrix(lua_State* L);
     static int L_ENTITY_GetChildByName(lua_State* L);
     static int L_ENTITY_KillAllChildrenByName(lua_State* L);

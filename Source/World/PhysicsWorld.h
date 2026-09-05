@@ -363,9 +363,13 @@ public:
     // straight through: the scripts keep that set themselves through
     // ENTITY.Add/RemoveFromIntersectionSolver, so a projectile does not hit
     // the thing that fired it.
+    // `ignoreRagdolls` lists ragdoll slots whose every limb the ray passes
+    // through: an entity taken out of the intersection solver while it has a
+    // corpse - the stake's wall check behind the body it just killed.
     bool RayCast(const float from[3], const float to[3], RayHit& out,
                  bool staticOnly = false, const int* exclude = nullptr,
-                 size_t excludeCount = 0) const;
+                 size_t excludeCount = 0, const int* ignoreRagdolls = nullptr,
+                 size_t ignoreRagdollCount = 0) const;
 
     // Pushes a sphere out of anything it is inside, and reports how many
     // overlaps it had to resolve. SlideSphere does this before every move:

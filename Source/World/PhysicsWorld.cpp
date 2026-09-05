@@ -2993,7 +2993,8 @@ const SolidLayerFilter kSolidLayer;
 
 bool PhysicsWorld::RayCast(const float from[3], const float to[3], RayHit& out,
                            bool staticOnly, const int* exclude,
-                           size_t excludeCount) const {
+                           size_t excludeCount, const int* ignoreRagdolls,
+                           size_t ignoreRagdollCount) const {
     out = RayHit{};
     if (!loaded()) return false;
 
@@ -3018,6 +3019,13 @@ bool PhysicsWorld::RayCast(const float from[3], const float to[3], RayHit& out,
         if (slot >= 0 && size_t(slot) < impl_->scriptBodies.size() &&
             !impl_->scriptBodies[slot].body.IsInvalid())
             bodies.IgnoreBody(impl_->scriptBodies[slot].body);
+    }
+    // A corpse out of the solver: every one of its limbs is passed through.
+    for (size_t i = 0; i < ignoreRagdollCount; ++i) {
+        const int slot = ignoreRagdolls[i];
+        if (!RagdollExists(slot)) continue;
+        for (JPH::BodyID id : impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs())
+            bodies.IgnoreBody(id);
     }
 
     JPH::RRayCast ray(start, span);
