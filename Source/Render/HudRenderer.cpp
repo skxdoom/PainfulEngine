@@ -125,6 +125,64 @@ void HudRenderer::Begin(bgfx::ViewId view, int screenW, int screenH) {
     bgfx::setViewTransform(view, nullptr, ortho);
     bgfx::setViewRect(view, 0, 0, uint16_t(screenW), uint16_t(screenH));
     bgfx::setViewMode(view, bgfx::ViewMode::Sequential);
+
+    // The canvas: the window's height and 4/3 of it wide, on a window wider
+    // than 4:3; otherwise the window itself, and every mapping below is the
+    // identity - which is also what stretch mode asks for.
+    canvasW_ = screenW;
+    canvasH_ = screenH;
+    if (aspect_ != Aspect::kStretch) {
+        const int fourThree = int(std::lround(double(screenH) * 4.0 / 3.0));
+        if (fourThree < screenW) canvasW_ = fourThree;
+    }
+}
+
+float HudRenderer::OffsetFor(float centreX) const {
+    if (!useCanvas_ || canvasW_ >= screenW_) return 0.f;
+    if (grouped_) return groupOffset_;
+    const float extra = float(screenW_ - canvasW_);
+    if (!anchoring_ || aspect_ != Aspect::kAnchored) return extra * 0.5f;
+    // The outer fifths anchor, the middle centres. Thirds took the soul and
+    // gold counters, at 0.25 and 0.68 of the width, away from the top panel
+    // they sit on; the corner readouts live within 0.05 of the edges.
+    const float band = float(canvasW_) * 0.2f;
+    if (centreX < band) return 0.f;
+    if (centreX > float(canvasW_) - band) return extra;
+    return extra * 0.5f;
+}
+
+float HudRenderer::CanvasOffsetX() const {
+    if (canvasW_ >= screenW_) return 0.f;
+    return float(screenW_ - canvasW_) * 0.5f;
+}
+
+void HudRenderer::BeginGroup(float centreX) {
+    grouped_ = false;
+    groupOffset_ = OffsetFor(centreX);
+    grouped_ = true;
+}
+
+void HudRenderer::FillOutsideCanvas(uint32_t abgr) {
+    if (canvasW_ >= screenW_) return;
+    const float side = CanvasOffsetX();
+    const bool was = useCanvas_;
+    useCanvas_ = false;
+    Quad(0, 0.f, 0.f, side, float(screenH_), abgr);
+    Quad(0, float(screenW_) - side, 0.f, side, float(screenH_), abgr);
+    useCanvas_ = was;
+}
+
+void HudRenderer::Cover(Material handle, uint32_t abgr) {
+    int tw = 0, th = 0;
+    if (!MaterialSize(handle, tw, th) || tw <= 0 || th <= 0) return;
+    // Scale to cover the window, keep the aspect, crop the overflow evenly.
+    const float scale = std::max(float(screenW_) / float(tw), float(screenH_) / float(th));
+    const float w = float(tw) * scale, h = float(th) * scale;
+    const float x = (float(screenW_) - w) * 0.5f, y = (float(screenH_) - h) * 0.5f;
+    const bool was = useCanvas_;
+    useCanvas_ = false;
+    Quad(handle, x, y, w, h, abgr);
+    useCanvas_ = was;
 }
 
 void HudRenderer::Push(bgfx::TextureHandle tex, const Vertex* quad,
@@ -159,6 +217,18 @@ void HudRenderer::Quad(Material handle, float x, float y, float w, float h, uint
         const Mat& m = materials_[size_t(handle) - 1];
         if (m.used) tex = m.texture;
     }
+    // A quad as wide as the canvas is a screen overlay - a fade, a damage
+    // flash, a tint - and stretches over the whole window; anything narrower
+    // is a layout element and is anchored. Only while anchoring: the menus'
+    // full-canvas backgrounds are layout, the map and the board sit on them.
+    if (useCanvas_ && anchoring_ && !grouped_ && canvasW_ > 0 && canvasW_ < screenW_ &&
+        w >= float(canvasW_) - 1.f) {
+        const float s = float(screenW_) / float(canvasW_);
+        x *= s;
+        w *= s;
+    } else {
+        x += OffsetFor(x + w * 0.5f);
+    }
     const Vertex quad[4] = {
         {x,     y,     0.f, abgr, u1, v1},
         {x + w, y,     0.f, abgr, u2, v1},
@@ -178,11 +248,14 @@ void HudRenderer::QuadRotated(Material handle, float x, float y, float w, float 
     // Centred on the PIVOT, turned in the authored 1024x768, then stretched
     // like the dial behind it - which is why x,y does not place the quad and
     // the width is not rigid on screen. Docs/Reference/Hud.md
-    const float ax = screenW_ > 0 ? float(screenW_) / 1024.f : 1.f;
-    const float ay = screenH_ > 0 ? float(screenH_) / 768.f : 1.f;
+    // The authored space is the canvas the scripts laid out against.
+    const int cw = useCanvas_ ? canvasW_ : screenW_, chh = useCanvas_ ? canvasH_ : screenH_;
+    const float ax = cw > 0 ? float(cw) / 1024.f : 1.f;
+    const float ay = chh > 0 ? float(chh) / 768.f : 1.f;
     const float hw = (ax > 1e-6f ? w / ax : w) * 0.5f;
     const float hh = (ay > 1e-6f ? h / ay : h) * 0.5f;
-    const float px = ax > 1e-6f ? pivotX / ax : pivotX;
+    const float offset = OffsetFor(pivotX);
+    const float px = ax > 1e-6f ? (pivotX + offset) / ax : pivotX + offset;
     const float py = ay > 1e-6f ? pivotY / ay : pivotY;
 
     // Negated: the script's bearing turns the opposite way to a y-down screen.
@@ -214,9 +287,10 @@ void HudRenderer::QuadCorners(Material handle, const float xy[8], uint32_t abgr)
         if (m.used) tex = m.texture;
     }
     const float uv[4][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+    const float offset = OffsetFor((xy[0] + xy[2] + xy[4] + xy[6]) * 0.25f);
     Vertex quad[4];
     for (int i = 0; i < 4; ++i) {
-        quad[i].x = xy[i * 2];
+        quad[i].x = xy[i * 2] + offset;
         quad[i].y = xy[i * 2 + 1];
         quad[i].z = 0.f;
         quad[i].abgr = abgr;
@@ -261,7 +335,9 @@ float HudRenderer::Text(const std::string& fontName, int size, float x, float y,
     const float width = FontCache::Measure(*font, text);
     // The scripts pass -1 to mean "centre this on the screen", which is how
     // every banner and every menu title is positioned.
-    if (x < 0.f) x = (float(screenW_) - width) * 0.5f;
+    if (x < 0.f) x = (float(useCanvas_ ? canvasW_ : screenW_) - width) * 0.5f;
+    // One anchor for the whole string, by its centre, so it never splits.
+    x += OffsetFor(x + width * 0.5f);
 
     // y is the TOP of the line: the scripts lay out from the top edge, so the
     // baseline sits an ascent below it.

@@ -256,3 +256,60 @@ pointed at whatever it is meant to show. The frame report prints
 cheapest thing in the game that exercises the text path end to end -
 `GetTextWidth` for the right-alignment, `SetFont` for the size, `PrintXY` twice
 for the drop shadow.
+
+## Widescreen
+
+The interface is a 4:3 composition and the scripts scale it themselves, `x *
+w / 1024` and `y * h / 768` off `R3D.ScreenSize`. Reporting a wide window
+there stretches every element sideways: 1.33x at 16:9, 1.75x at 21:9. That
+is the original's behaviour, and it is what `HudAspect = 0` in
+`painful_config.ini` still gives.
+
+The default, `HudAspect = 2` (anchored), hands the scripts a **4:3 canvas**
+instead: the
+window's height, and 4/3 of it wide (`ScriptEngine::SetHudCanvas`, from
+`HudRenderer::Begin`). The layout comes back undistorted in canvas pixels,
+and the font formula above collapses to `h/768` for both terms, so text
+scales evenly too. `HudRenderer` then maps each draw from canvas to window
+(`OffsetFor`):
+
+| what | where it lands |
+|---|---|
+| a quad, string or rotated quad whose centre is in the left fifth of the canvas | flush with the left window edge, at its authored inset |
+| centre in the right fifth | flush with the right edge |
+| centre in the middle | centred |
+| a quad as wide as the canvas, while anchoring | stretched over the whole window - a fade, a damage flash, the screen tint |
+
+The decision is per draw, by the element's centre, and a string is one
+element (`Text` anchors once, not per glyph). Fifths, not thirds: the soul
+and gold counters sit at 0.25 and 0.68 of the width and belong to the top
+panel, and thirds pulled them to the edges; the corner readouts are within
+0.05 of the edges. `HUD.DrawBorder` is one element too (`BeginGroup` /
+`EndGroup` fix one offset for its four edges), or the score panel's sides
+went to the window edges while its top and bottom stayed centred.
+`HUD.PrintXY`'s `-1` centres on the canvas, not the window. Nothing is ever
+split; a multi-piece panel straddling a band boundary would still come
+apart, and the shipped HUD has none. `HudAspect = 1` uses the middle rule
+for everything.
+
+The pointer roams the whole window. The menu hit-tests and `MOUSE.GetPos`
+answers in canvas pixels, so the centred canvas's left margin
+(`HudRenderer::CanvasOffsetX`) comes off the window position first; while a
+menu is up the window outside the canvas is painted black
+(`FillOutsideCanvas`).
+
+Three things draw differently: the menus (`UseAnchoring(false)`, everything
+centred - they are one 4:3 picture, and their full-canvas background is
+layout rather than an overlay, since the map screen and the board place
+their pieces against it; it is centred with them, not stretched or cropped),
+the console (`UseCanvas(false)`, window pixels, so its panel spans the
+width), and the `-dev` nameplates (projected window pixels). The loading
+art alone is scaled to **cover** the window (`HudRenderer::Cover`); nothing
+is laid out against it. `R3D.ScreenSize` is the canvas; the video options
+read the real window through the engine's own size.
+
+Measured with `--shot` at 1920x1080 and 3440x1440 on City on Water and the
+Cathedral: health and armour bottom-left, ammo bottom-right, the compass,
+score and timer centred, the screen tint over the full width, the menu
+centred over a cropped background. At 4:3 all three anchors coincide and
+the canvas is the window, so nothing changes there.

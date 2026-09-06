@@ -11,6 +11,7 @@
 #include "Assets/Waypoints.h"
 #include "Audio/AudioEngine.h"
 #include "Core/AppPaths.h"
+#include "Core/Config.h"
 #include "Core/FileSystem.h"
 #include "Core/Log.h"
 #include "Game/Input.h"
@@ -178,6 +179,14 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
     // loading screen is itself a HUD script.
     HudRenderer hud;
     const bool hudReady = hud.Init(shaderDir, root + "/Fonts");
+    // painful_config.ini: HudAspect = 0 stretched (the original), 1 centred
+    // 4:3, 2 anchored by thirds.
+    {
+        const int aspect = Settings().GetInt("HudAspect", 2);
+        hud.SetAspect(aspect == 0   ? HudRenderer::Aspect::kStretch
+                      : aspect == 1 ? HudRenderer::Aspect::kCentered
+                                    : HudRenderer::Aspect::kAnchored);
+    }
     if (hudReady) engine.AttachHud(&hud, &textures);
 
     // The debug overlays: F1 collision wireframe, F2 the same without the
@@ -490,11 +499,13 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
             loadingArt = hud.CreateMaterial("HUD/loading/loading", textures, root + "/Textures");
         if (loadingSketch > 0) hud.ReleaseMaterial(loadingSketch);
         loadingSketch = sketch.empty() ? 0 : hud.CreateMaterial(sketch, textures, root + "/Textures");
-        const float w = float(window.width()), h = float(window.height());
-        const float sx = w / 1024.f, sy = h / 768.f;
         renderer.BeginFrame();
         hud.Begin(Renderer::kHudView, window.width(), window.height());
-        if (loadingArt > 0) hud.Quad(loadingArt, 0.f, 0.f, w, h, 0xffffffffu);
+        // The art covers the window; the sketch and the name are laid out on
+        // the 4:3 canvas like everything the scripts draw.
+        const float w = float(hud.canvasWidth()), h = float(hud.canvasHeight());
+        const float sx = w / 1024.f, sy = h / 768.f;
+        if (loadingArt > 0) hud.Cover(loadingArt);
         if (loadingSketch > 0)
             hud.Quad(loadingSketch, (512.f - 128.f) * sx, 160.f * sy, 256.f * sx, 256.f * sy,
                      0xffffffffu);
@@ -833,7 +844,13 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
         // Opened before the render callbacks and closed after the world is
         // drawn: everything the scripts ask for lands in one batch, in the
         // order they asked, and is submitted over the finished 3D frame.
-        if (hudReady) hud.Begin(Renderer::kHudView, window.width(), window.height());
+        if (hudReady) {
+            hud.Begin(Renderer::kHudView, window.width(), window.height());
+            // The scripts lay out against the 4:3 canvas, anchored by thirds.
+            hud.UseCanvas(true);
+            hud.UseAnchoring(true);
+            engine.SetHudCanvas(hud.canvasWidth(), hud.canvasHeight(), hud.CanvasOffsetX());
+        }
         host.CallGlobal("Game_Render", d, 1);
         host.CallGlobal("Game_PostRender", d, 1);
 
@@ -897,7 +914,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
             // seat it on the first row so the keyboard works immediately.
             engine.menu().FocusFirst();
             engine.menu().SetMouseDown(vk[1]);        // VK_LBUTTON, for slider drags
-            engine.menu().Update(window.mouseX(), window.mouseY(), window.TakeLeftClick());
+            // The pointer roams the whole window; the menu hit-tests in
+            // canvas pixels, so the centred canvas's left margin comes off.
+            engine.menu().Update(window.mouseX() - hud.CanvasOffsetX(), window.mouseY(),
+                                 window.TakeLeftClick());
             // Every key and mouse-button edge, for a key capture. After Update
             // so the click that opened one is not also the key it binds.
             {
@@ -909,14 +929,21 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
                     anyHeld[k] = down;
                 }
             }
-            engine.menu().Draw(window.width(), window.height());
+            // The menu is one 4:3 composition: centred on the canvas, not
+            // anchored by thirds. Its background covers the window.
+            hud.UseAnchoring(false);
+            engine.menu().Draw(hud.canvasWidth(), hud.canvasHeight());
+            hud.UseAnchoring(true);
         }
         // The console over everything, and its message strip when it is
-        // down. The frame is the menu's border, drawn in authoring units, so
-        // the menu has to know the screen even while it is not up.
+        // down, in window pixels. The frame is the menu's border, drawn in
+        // authoring units, so the menu has to know the canvas even while it
+        // is not up.
         if (hudReady) {
-            engine.menu().SetScreenSize(window.width(), window.height());
+            engine.menu().SetScreenSize(hud.canvasWidth(), hud.canvasHeight());
+            hud.UseCanvas(false);
             con.Draw(hud, engine.menu(), window.width(), window.height(), elapsed);
+            hud.UseCanvas(true);
         }
         host.CallGlobal("Game_GC", nullptr, 0);
         // Entities the scripts spawned this frame get their renderer slots.
@@ -1034,6 +1061,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
         // asked for. Sorted so the labels stack far-to-near and the closest
         // thing ends up on top.
         if (nameplates && hudReady) {
+            hud.UseCanvas(false);    // projected window pixels, not layout
             float viewProj[16];
             BuildViewProj(camera, window.width(), window.height(), viewProj);
 
@@ -1088,7 +1116,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
             }
         }
 
-        if (hudReady) hud.End();
+        if (hudReady) {
+            hud.UseCanvas(true);
+            hud.End();
+        }
 
         // The overlay is -dev only; PAINFUL_QUIET drops it there too, for
         // captures of the menu's top edge.

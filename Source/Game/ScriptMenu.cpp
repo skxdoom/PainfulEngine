@@ -606,7 +606,8 @@ int ScriptEngine::L_MOUSE_GetPos(lua_State* L) {
         lua_pushnumber(L, 0);
         return 2;
     }
-    lua_pushnumber(L, self->input_->mouseX());
+    // In canvas pixels: the scripts compare it with their own layout.
+    lua_pushnumber(L, self->input_->mouseX() - self->hudCanvasOffsetX_);
     lua_pushnumber(L, self->input_->mouseY());
     return 2;
 }

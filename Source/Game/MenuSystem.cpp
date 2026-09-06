@@ -321,6 +321,9 @@ void MenuSystem::Draw(int screenW, int screenH) {
     if (!active_ || !hud_) return;
     screenW_ = screenW;
     screenH_ = screenH;
+    // A wide window's sides go black around the 4:3 canvas; the world
+    // showing beside a menu is not a look the original ever had.
+    hud_->FillOutsideCanvas(0xff000000u);
     if (boardMode_) {
         DrawBoard();
         if (showMouse_) DrawCursor();
@@ -332,8 +335,10 @@ void MenuSystem::Draw(int screenW, int screenH) {
         return;
     }
 
-    // The background covers the whole screen regardless of its aspect: it is
-    // artwork, not a layout element.
+    // The background fills the CANVAS, in whatever mode the HUD is in: the
+    // map screen and the board place their pieces against it, so it has to
+    // stay in the same space they are laid out in. Covering the window
+    // instead misaligned them. Docs/Reference/Menu.md, "Widescreen".
     if (backgroundMaterial_ > 0)
         hud_->Quad(backgroundMaterial_, 0.f, 0.f, float(screenW), float(screenH), 0xffffffffu);
 

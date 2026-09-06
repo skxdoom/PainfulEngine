@@ -91,7 +91,7 @@ int ScriptEngine::HudFontPixels(int size) const {
     // round(size * (H/768 + W/1024) * 0.5), which is 1:1 at the 1024x768 the
     // interface was authored at.
     const float scale =
-        (float(screenH_) / 768.f + float(screenW_) / 1024.f) * 0.5f;
+        (float(hudCanvasH_) / 768.f + float(hudCanvasW_) / 1024.f) * 0.5f;
     const int px = int(std::lround(double(size) * double(scale)));
     return px > 0 ? px : 1;
 }
@@ -186,13 +186,16 @@ int ScriptEngine::L_HUD_PrintXY(lua_State* L) {
     int pixels = 0;
     self->HudResolveFont(font, size, fontName, pixels);
 
+    // -1 centres on the CANVAS the scripts laid out against, not the window:
+    // centring on the window and then anchoring pushed every centred title a
+    // half-margin to the right.
     float x = float(rawX), y = float(rawY);
     if (rawX < 0)
-        x = std::floor((float(self->screenW_) -
+        x = std::floor((float(self->hudCanvasW_) -
                         self->hud_->TextWidth(fontName, pixels, StripColorCodes(text))) *
                        0.5f);
     if (rawY < 0)
-        y = std::floor((float(self->screenH_) - self->hud_->TextHeight(fontName, pixels)) * 0.5f);
+        y = std::floor((float(self->hudCanvasH_) - self->hud_->TextHeight(fontName, pixels)) * 0.5f);
 
     // `#<hex digit>` switches colour mid-string and is not itself drawn, so a
     // run is emitted per colour and the pen carries across.
@@ -315,9 +318,13 @@ int ScriptEngine::L_HUD_DrawRect(lua_State* L) {
 int ScriptEngine::L_HUD_DrawBorder(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!self->hud_) return 0;
-    self->menu_.DrawFrame(float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
-                          float(luaL_optnumber(L, 3, 1024)),
-                          float(luaL_optnumber(L, 4, 768)));
+    // The four edges are one element: anchored together by the frame's
+    // centre, or the score panel's sides went to the window edges while its
+    // top and bottom stayed with the panel.
+    const float x = float(luaL_optnumber(L, 1, 0)), w = float(luaL_optnumber(L, 3, 1024));
+    self->hud_->BeginGroup(x + w * 0.5f);
+    self->menu_.DrawFrame(x, float(luaL_optnumber(L, 2, 0)), w, float(luaL_optnumber(L, 4, 768)));
+    self->hud_->EndGroup();
     return 0;
 }
 
@@ -433,8 +440,9 @@ int ScriptEngine::L_HUD_ColorSubstr(lua_State* L) {
 // layout from.
 int ScriptEngine::L_R3D_ScreenSize(lua_State* L) {
     ScriptEngine* self = From(L);
-    lua_pushnumber(L, self->screenW_);
-    lua_pushnumber(L, self->screenH_);
+    // The 4:3 canvas on a wide window, so the layout stays undistorted.
+    lua_pushnumber(L, self->hudCanvasW_);
+    lua_pushnumber(L, self->hudCanvasH_);
     return 2;
 }
 

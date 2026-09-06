@@ -25,13 +25,13 @@ struct Known {
     const char* comment;
 };
 const Known kKnown[] = {
-    {"HudAspect", "anchored",
+    {"HudAspect", "2",
      "How the 4:3 interface is laid onto a wider screen.\n"
-     "#   anchored - the left third of the interface sticks to the left edge, the right\n"
-     "#              third to the right edge, the middle stays centred (health left,\n"
-     "#              ammo right, crosshair centred)\n"
-     "#   centered - the whole interface centred in a 4:3 area\n"
-     "#   stretch  - the original's behaviour: stretched to the window"},
+     "#   0 - as the original: stretched to the window\n"
+     "#   1 - the whole interface centred in a 4:3 area\n"
+     "#   2 - anchored: the left third of the interface sticks to the left edge, the\n"
+     "#       right third to the right edge, the middle stays centred (health left,\n"
+     "#       ammo right, crosshair centred)"},
 };
 
 }  // namespace

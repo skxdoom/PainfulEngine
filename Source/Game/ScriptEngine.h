@@ -481,6 +481,14 @@ public:
     // The screen size the scripts read back from R3D.ScreenSize, and the size
     // the font scale is measured against.
     void SetScreenSize(int w, int h) { screenW_ = w; screenH_ = h; }
+    // What R3D.ScreenSize reports and the HUD font scale uses: the 4:3
+    // canvas the interface is laid out on, not the window (which the video
+    // options still read). Hud.md, "Widescreen".
+    void SetHudCanvas(int w, int h, float offsetX) {
+        hudCanvasW_ = w;
+        hudCanvasH_ = h;
+        hudCanvasOffsetX_ = offsetX;
+    }
     // The modes R3D.GetAvailableResolutions reports; the VideoOptions screen
     // builds its resolution row straight out of this and dies on a nil.
     void SetResolutions(std::vector<std::string> modes) {
@@ -1288,6 +1296,8 @@ private:
     // HUD::SetFont measures its scale against. Until a window says otherwise
     // this is also what R3D.ScreenSize answers.
     int screenW_ = 1024, screenH_ = 768;
+    int hudCanvasW_ = 1024, hudCanvasH_ = 768;
+    float hudCanvasOffsetX_ = 0.f;   // where canvas x 0 sits in the window
     std::vector<std::string> resolutions_;
     std::function<void(int, int, bool)> setVideoMode_;
     std::function<void(size_t, bool)> worldObjectVisible_;

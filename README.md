@@ -7,7 +7,7 @@ You need your own copy of the game. This project ships no game assets or
 binaries.
 
 **The project is at an early stage.** It launches the game and the game is
-playable, with many bugs and occasional crashes. See
+playable, with some bugs and occasional crashes. See
 [`Docs/Status.md`](Docs/Status.md). The next milestone is a first alpha.
 
 ## Goals (all on-going)

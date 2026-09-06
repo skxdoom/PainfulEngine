@@ -65,6 +65,42 @@ public:
     void Begin(bgfx::ViewId view, int screenW, int screenH);
     void End();
 
+    // Widescreen. The interface is authored for 4:3 and the scripts lay it
+    // out against R3D.ScreenSize, so on a wider window they are handed a 4:3
+    // CANVAS - the window's height, and 4/3 of it wide - and every draw is
+    // mapped from canvas to screen here. Docs/Reference/Hud.md, "Widescreen".
+    enum class Aspect {
+        kStretch,    // the original: canvas = window, stretched
+        kCentered,   // the canvas centred, empty sides
+        kAnchored,   // left third to the left edge, right third to the right,
+                     // the middle centred - decided per draw by its centre
+    };
+    void SetAspect(Aspect a) { aspect_ = a; }
+    Aspect aspect() const { return aspect_; }
+    // The canvas the scripts should see for the current window.
+    int canvasWidth() const { return canvasW_; }
+    int canvasHeight() const { return canvasH_; }
+    // Whether coordinates are canvas (true) or raw window pixels (false).
+    // The console and the debug overlay draw in window pixels.
+    void UseCanvas(bool on) { useCanvas_ = on; }
+    // Anchoring off: everything centred, for the menus, which are one 4:3
+    // composition rather than corner-anchored readouts.
+    void UseAnchoring(bool on) { anchoring_ = on; }
+    // Full-window artwork: scaled to cover the window, cropped, never
+    // stretched - the loading art.
+    void Cover(Material m, uint32_t abgr = 0xffffffffu);
+    // The window outside the canvas, in a flat colour: the sides of a wide
+    // window while a menu is up.
+    void FillOutsideCanvas(uint32_t abgr);
+    // One anchor for several draws - a frame's four edges, a panel and its
+    // border - decided once from the group's centre, so the pieces stay
+    // together whichever third each one falls in.
+    void BeginGroup(float centreX);
+    void EndGroup() { grouped_ = false; }
+    // Where canvas x 0 lands in the window when everything is centred: what
+    // a window-pixel mouse position needs taken off to become a canvas one.
+    float CanvasOffsetX() const;
+
     size_t quadsThisFrame() const { return quads_; }
     size_t drawCalls() const { return drawCalls_; }
     const FontCache& fonts() const { return fonts_; }
@@ -88,6 +124,16 @@ private:
               bgfx::TextureHandle pattern = BGFX_INVALID_HANDLE, float patternW = 1.f,
               float patternH = 1.f);
     void Flush();
+    // The screen x offset a canvas draw centred at `centreX` gets. Zero when
+    // the canvas is the window (stretch mode, or a window no wider than 4:3).
+    float OffsetFor(float centreX) const;
+
+    Aspect aspect_ = Aspect::kAnchored;
+    int canvasW_ = 0, canvasH_ = 0;
+    bool useCanvas_ = true;
+    bool anchoring_ = true;
+    bool grouped_ = false;
+    float groupOffset_ = 0.f;
 
     bgfx::VertexLayout layout_;
     bgfx::ProgramHandle program_ = BGFX_INVALID_HANDLE;

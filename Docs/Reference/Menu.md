@@ -736,3 +736,13 @@ nobody is looking at.
 
 The `run` diagnostic viewer keeps the old click-to-capture and
 Escape-to-release, because it has no menu to hand the mouse to.
+
+## Widescreen
+
+The menu is drawn on the HUD's 4:3 canvas with anchoring off, so every
+element is centred in the window, and so is its background: it fills the
+canvas in whatever mode `HudAspect` is in, because the map screen and the
+board place their pieces against it. Scaling it to cover the window instead
+(tried first) misaligned the level markers on the map. In modes 1 and 2 the
+sides of a wide window stay black; mode 0 stretches everything as the
+original did. Docs/Reference/Hud.md, "Widescreen".
