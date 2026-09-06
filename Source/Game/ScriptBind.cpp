@@ -155,7 +155,8 @@ void ScriptEngine::Bind(LuaHost& host) {
         // The AI's shot test against the player. Ours is the same trace: the
         // player has no simulated body to hit yet, so it can only report the
         // world, which reads as "the shot was blocked".
-        {"WORLD", "LineTraceHitPlayerBalls", L_WORLD_LineTrace},
+        {"WORLD", "LineTraceHitPlayerBalls", L_WORLD_LineTraceHitPlayerBalls},
+        {"ENTITY", "PO_SetCollisionGroup", L_PO_SetCollisionGroup},
         {"ENTITY", "AddToIntersectionSolver", L_AddToIntersectionSolver},
         {"ENTITY", "RemoveFromIntersectionSolver", L_RemoveFromIntersectionSolver},
         // The ragdoll variants are NOT the same call: they switch only the

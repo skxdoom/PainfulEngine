@@ -196,12 +196,18 @@ void ScriptEngine::TickCollisions(float dt) {
             }
 
             int otherEntity = 0, otherHandle = otherSlot;
+            const bool otherPawn = side == 0 ? c.pawnB : c.pawnA;
             if (otherSlot >= 0) {
                 auto other = bodyToEntity_.find(otherSlot);
                 if (other != bodyToEntity_.end()) otherEntity = other->second;
             } else if (otherRagdoll >= 0) {
                 int joint = -1;
                 otherHandle = limbSide(otherRagdoll, otherPart, otherEntity, joint);
+            } else if (otherPawn) {
+                // The player's pusher: the original's player body (group 23)
+                // is what a can, a flung barrel or a landing corpse reports.
+                otherEntity = playerHandle_;
+                otherHandle = -1;
             }
             // Game_GetMsg reads both handles back through GetHavokBodyVelocity.
             contactVelocity_[myHandle] = {vMe[0], vMe[1], vMe[2]};

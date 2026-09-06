@@ -357,9 +357,12 @@ The ordered work queue, with the evidence behind each item, is
   honours, but `PO_MaintainVelocity` / `MaintainLinearMovement` /
   `MaintainPosition` and `PO_EnableSpeedDamping` behind it are stubs, so
   Alastor and the ravens still have no mover.
-- **Collision-group plumbing.** `PO_SetCollisionGroup` (91 sites),
-  `PO_SetMovedByExplosions`, `EnableCollisionsToAll`, `PO_Activate`.
-  `CreateScriptBody` switches on groups 1 and 7 only.
+- **Collision-group plumbing.** `EnableCollisionsToAll`, `PO_Activate`.
+  `PO_SetCollisionGroup` applies the layer/motion rule to a live body (the
+  thrown cans and fireballs), and the player is hit by the AI's traces,
+  by contacts and by blasts ([`Physics.md`](Reference/Physics.md), "The
+  player takes hits"); the finer group pairs of the original's filter are
+  still not modelled.
   `EnableCollisionsToRagdoll` is real: a corpse's armed joints report their
   landing, which is the fall sound and the blood ([`Physics.md`](Reference/Physics.md),
   "Ragdoll limbs report too").

@@ -141,6 +141,140 @@ int ScriptEngine::L_WORLD_LineTrace(lua_State* L) {
     return TraceCommon(L, false);
 }
 
+// The player's body, for the traces that may hit it: a capsule of the pawn's
+// radius from the feet sphere's centre to the head sphere's, standing in for
+// the sizer's four stacked spheres. t is the fraction along the segment.
+bool ScriptEngine::TracePlayer(const float from[3], const float to[3], float& t,
+                               float point[3], float normal[3]) const {
+    if (pawn_ == nullptr || playerHandle_ == 0) return false;
+    float floor[3];
+    pawn_->FloorPos(floor);
+    const float r = PlayerPawn::Radius();
+    const float a[3] = {floor[0], floor[1] + r, floor[2]};
+    const float b[3] = {floor[0], floor[1] + PlayerPawn::EyeAboveFloor() - r, floor[2]};
+    // Closest approach between the segment and the capsule axis (both
+    // parametrised 0..1), then the entry point of a sphere of radius r there.
+    float d[3], e[3], w[3];
+    for (int c = 0; c < 3; ++c) { d[c] = to[c] - from[c]; e[c] = b[c] - a[c]; w[c] = from[c] - a[c]; }
+    auto dot = [](const float* x, const float* y) { return x[0]*y[0] + x[1]*y[1] + x[2]*y[2]; };
+    // Solve for the ray parameter against the infinite cylinder, then clamp
+    // the axis parameter and refine against the end spheres. A short axis
+    // (a crouched pawn) degrades to a sphere test.
+    const float ee = dot(e, e);
+    float best = 2.f;
+    auto sphere = [&](const float* c0) {
+        float m[3];
+        for (int k = 0; k < 3; ++k) m[k] = from[k] - c0[k];
+        const float A = dot(d, d), B = 2.f * dot(m, d), C = dot(m, m) - r * r;
+        const float disc = B * B - 4.f * A * C;
+        if (A <= 1e-12f || disc < 0.f) return;
+        const float s = (-B - std::sqrt(disc)) / (2.f * A);
+        if (s >= 0.f && s <= 1.f && s < best) best = s;
+    };
+    if (ee > 1e-8f) {
+        // Perpendicular components against the axis.
+        float dp[3], wp[3];
+        const float de = dot(d, e) / ee, we = dot(w, e) / ee;
+        for (int k = 0; k < 3; ++k) { dp[k] = d[k] - e[k] * de; wp[k] = w[k] - e[k] * we; }
+        const float A = dot(dp, dp), B = 2.f * dot(wp, dp), C = dot(wp, wp) - r * r;
+        const float disc = B * B - 4.f * A * C;
+        if (A > 1e-12f && disc >= 0.f) {
+            const float s = (-B - std::sqrt(disc)) / (2.f * A);
+            if (s >= 0.f && s <= 1.f) {
+                const float axis = we + s * de;      // where along the axis it lands
+                if (axis >= 0.f && axis <= 1.f && s < best) best = s;
+            }
+        }
+    }
+    sphere(a);
+    sphere(b);
+    if (best > 1.f) return false;
+    t = best;
+    for (int c = 0; c < 3; ++c) point[c] = from[c] + d[c] * t;
+    // Normal: out from the nearest point of the axis.
+    float axisT = ee > 1e-8f ? dot(point, e) - dot(a, e) : 0.f;
+    axisT = ee > 1e-8f ? std::max(0.f, std::min(1.f, axisT / ee)) : 0.f;
+    for (int c = 0; c < 3; ++c) normal[c] = point[c] - (a[c] + e[c] * axisT);
+    const float n2 = dot(normal, normal);
+    if (n2 > 1e-12f) {
+        const float inv = 1.f / std::sqrt(n2);
+        for (int c = 0; c < 3; ++c) normal[c] *= inv;
+    } else {
+        const float len = std::sqrt(dot(d, d));
+        for (int c = 0; c < 3; ++c) normal[c] = len > 0.f ? -d[c] / len : 0.f;
+    }
+    return true;
+}
+
+// WORLD.LineTraceHitPlayerBalls: the same trace with the player's body in it
+// (PhysicsWorld::LineTraceHitPlayer, 0x10197560, differs from LineTrace only
+// in the cast's filter). The AI's guns use it; the ordinary trace leaves the
+// player out so its own shots and probes never land on it.
+int ScriptEngine::L_WORLD_LineTraceHitPlayerBalls(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const float from[3] = {float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
+                           float(luaL_optnumber(L, 3, 0))};
+    const float to[3] = {float(luaL_optnumber(L, 4, 0)), float(luaL_optnumber(L, 5, 0)),
+                         float(luaL_optnumber(L, 6, 0))};
+    const float span[3] = {to[0] - from[0], to[1] - from[1], to[2] - from[2]};
+    const float length = std::sqrt(span[0] * span[0] + span[1] * span[1] + span[2] * span[2]);
+    if (length < 1e-6f) { lua_pushboolean(L, 0); return 1; }
+
+    // The shooter: the muzzle is in or against its own limb boxes, which the
+    // port's limb test counts as a hit and Havok's own body did not. An
+    // actor whose limb is struck within 0.6 of the start, standing within
+    // 2.5 of it, is the one firing and is left out of the limb test.
+    int shooter = 0;
+    {
+        LimbHit first;
+        if (self->TraceLimbs(from, to, -1.f, first) && first.distance < 0.6f) {
+            if (const Entity* owner = self->Find(first.entity)) {
+                float d2 = 0.f;
+                for (int c = 0; c < 3; ++c) d2 += (owner->pos[c] - from[c]) * (owner->pos[c] - from[c]);
+                if (d2 < 2.5f * 2.5f) shooter = first.entity;
+            }
+        }
+    }
+
+    // Nearest of: the world (script bodies included), any other actor's
+    // limbs, and the player's capsule.
+    PhysicsWorld::RayHit hit;
+    const bool gotWorld = self->TraceRay(from, to, hit, false);
+    float best = gotWorld ? hit.distance : 1e30f;
+    LimbHit limb;
+    const bool gotLimb = self->TraceLimbs(from, to, gotWorld ? hit.distance : -1.f, limb, shooter);
+    if (gotLimb) best = std::min(best, limb.distance);
+    float t = 0.f, point[3], normal[3];
+    const bool gotPlayer = self->TracePlayer(from, to, t, point, normal) && t * length < best;
+
+    if (gotPlayer) {
+        lua_pushboolean(L, 1);
+        lua_pushnumber(L, t * length);
+        for (int c = 0; c < 3; ++c) lua_pushnumber(L, point[c]);
+        for (int c = 0; c < 3; ++c) lua_pushnumber(L, normal[c]);
+        lua_pushnumber(L, -1);
+        lua_pushnumber(L, self->playerHandle_);
+        return 10;
+    }
+    if (gotLimb && (!gotWorld || limb.distance <= hit.distance)) {
+        lua_pushboolean(L, 1);
+        lua_pushnumber(L, limb.distance);
+        for (int c = 0; c < 3; ++c) lua_pushnumber(L, limb.point[c]);
+        for (int c = 0; c < 3; ++c) lua_pushnumber(L, limb.normal[c]);
+        lua_pushnumber(L, self->LimbHandle(limb.entity, limb.joint));
+        lua_pushnumber(L, limb.entity);
+        return 10;
+    }
+    if (!gotWorld) { lua_pushboolean(L, 0); return 1; }
+    lua_pushboolean(L, 1);
+    lua_pushnumber(L, hit.distance);
+    for (int c = 0; c < 3; ++c) lua_pushnumber(L, hit.point[c]);
+    for (int c = 0; c < 3; ++c) lua_pushnumber(L, hit.normal[c]);
+    lua_pushnumber(L, hit.bodySlot);
+    lua_pushnumber(L, self->EntityForBody(hit.bodySlot));
+    return 10;
+}
+
 // ENTITY.PO_LineTrace(e, x1,y1,z1, x2,y2,z2) - the same ten values, against
 // ONE entity: a world mesh through PhysicsWorld::LineTraceStaticMesh, anything
 // with a body through PhysicsObject::LineTrace (0x101318B0). The stake and the

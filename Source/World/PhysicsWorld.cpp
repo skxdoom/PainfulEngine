@@ -597,6 +597,8 @@ struct PhysicsWorld::Impl {
     JPH::BodyID pawnProbe;
     float pawnProbePos[3] = {0, 0, 0};
     float pawnProbeRadius = 0.f;
+    float pawnProbeHeight = 0.f;     // > 2r: a capsule of this height
+    float pawnProbeCentre = 0.f;     // the probe position's height above the feet
     float probePos[3] = {0, 0, 0};
     bool probePush = false;
 
@@ -651,6 +653,12 @@ void PhysicsWorld::Clear() {
     settings_ = PhysicsSettings();
 }
 
+void PhysicsWorld::SetProbeEnabled(bool on) {
+    if (on == probeEnabled_) return;
+    probeEnabled_ = on;
+    CreateProbe();
+}
+
 void PhysicsWorld::SetProbeRadius(float radius) {
     if (radius == probeRadius_) return;
     probeRadius_ = radius;
@@ -665,7 +673,7 @@ void PhysicsWorld::CreateProbe() {
         bodies.DestroyBody(impl_->probe);
         impl_->probe = JPH::BodyID();
     }
-    if (probeRadius_ <= 0.f) return;
+    if (probeRadius_ <= 0.f || !probeEnabled_) return;
 
     JPH::SphereShapeSettings shape(probeRadius_);
     shape.SetEmbedded();
@@ -696,21 +704,48 @@ void PhysicsWorld::CreatePawnProbe() {
         impl_->pawnProbe = JPH::BodyID();
     }
     if (impl_->pawnProbeRadius <= 0.f) return;
-    JPH::SphereShapeSettings shape(impl_->pawnProbeRadius);
-    shape.SetEmbedded();
-    JPH::ShapeSettings::ShapeResult result = shape.Create();
-    if (result.HasError()) return;
+    const float r = impl_->pawnProbeRadius;
+    JPH::Ref<JPH::Shape> shape;
+    if (impl_->pawnProbeHeight > 2.f * r) {
+        // A capsule from the feet to the head, hung below the probe position
+        // by however far the centre sits above the pawn's mid-height.
+        JPH::CapsuleShapeSettings capsule(impl_->pawnProbeHeight * 0.5f - r, r);
+        capsule.SetEmbedded();
+        JPH::ShapeSettings::ShapeResult inner = capsule.Create();
+        if (inner.HasError()) return;
+        JPH::RotatedTranslatedShapeSettings placed(
+            JPH::Vec3(0.f, impl_->pawnProbeHeight * 0.5f - impl_->pawnProbeCentre, 0.f),
+            JPH::Quat::sIdentity(), inner.Get());
+        placed.SetEmbedded();
+        JPH::ShapeSettings::ShapeResult result = placed.Create();
+        if (result.HasError()) return;
+        shape = result.Get();
+    } else {
+        JPH::SphereShapeSettings sphere(r);
+        sphere.SetEmbedded();
+        JPH::ShapeSettings::ShapeResult result = sphere.Create();
+        if (result.HasError()) return;
+        shape = result.Get();
+    }
     JPH::BodyCreationSettings body(
-        result.Get(),
+        shape,
         JPH::RVec3(impl_->pawnProbePos[0], impl_->pawnProbePos[1], impl_->pawnProbePos[2]),
         JPH::Quat::sIdentity(), JPH::EMotionType::Kinematic, Layers::kProbe);
     body.mMotionQuality = JPH::EMotionQuality::LinearCast;
     impl_->pawnProbe = bodies.CreateAndAddBody(body, JPH::EActivation::Activate);
 }
 
-void PhysicsWorld::SetPawnProbeRadius(float radius) {
+void PhysicsWorld::SetPawnProbeRadius(float radius, float height, float centreAboveFloor) {
     impl_->pawnProbeRadius = radius;
+    impl_->pawnProbeHeight = height;
+    impl_->pawnProbeCentre = centreAboveFloor;
     CreatePawnProbe();
+}
+
+void PhysicsWorld::SetScriptBodyAngularVelocity(int slot, const float w[3]) {
+    if (!ScriptBodyExists(slot) || !impl_->scriptBodies[size_t(slot)].inWorld) return;
+    impl_->system.GetBodyInterface().SetAngularVelocity(impl_->scriptBodies[size_t(slot)].body,
+                                                        JPH::Vec3(w[0], w[1], w[2]));
 }
 
 // Same contract as MoveProbe: aimed here, driven inside the fixed step, and
@@ -1328,6 +1363,8 @@ int PhysicsWorld::CreateScriptBody(int bodyType, const std::string& modelName,
     body.mRestitution = 0.9f;
     body.mLinearDamping = 0.f;
     body.mAngularDamping = 0.f;
+    // PO_SetCollisionGroup turns a driven projectile into a dynamic body.
+    body.mAllowDynamicOrKinematic = true;
 
     JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
     const JPH::BodyID id = bodies.CreateAndAddBody(body, JPH::EActivation::Activate);
@@ -1393,6 +1430,8 @@ void PhysicsWorld::CollectScriptContacts(std::vector<ScriptContact>& out) {
         c.slotB = b == slotOf.end() ? -1 : b->second;
         if (la != limbOf.end()) { c.ragdollA = la->second.first; c.partA = la->second.second; }
         if (lb != limbOf.end()) { c.ragdollB = lb->second.first; c.partB = lb->second.second; }
+        c.pawnA = !impl_->pawnProbe.IsInvalid() && p.a == impl_->pawnProbe;
+        c.pawnB = !impl_->pawnProbe.IsInvalid() && p.b == impl_->pawnProbe;
         for (int k = 0; k < 3; ++k) {
             c.point[k] = p.point[k];
             c.normal[k] = p.normal[k];
@@ -1738,6 +1777,26 @@ void PhysicsWorld::SetScriptBodyPose(int slot, const float pos[3],
     impl_->scriptBodies[size_t(slot)].hist = false;
 }
 
+
+void PhysicsWorld::SetScriptBodyCollisionGroup(int slot, int collisionGroup) {
+    if (!ScriptBodyExists(slot)) return;
+    Impl::ScriptBody& sb = impl_->scriptBodies[size_t(slot)];
+    if (!sb.inWorld || sb.character >= 0) return;
+    // CreateScriptBody's rule: 7 driven and touching nothing, 1 kinematic,
+    // 5/8 a missile, anything else an ordinary dynamic body.
+    const bool projectile = collisionGroup == 7;
+    const bool fixedRigid = collisionGroup == 1;
+    const bool missile = collisionGroup == 5 || collisionGroup == 8;
+    const JPH::EMotionType motion = (projectile || fixedRigid) ? JPH::EMotionType::Kinematic
+                                                               : JPH::EMotionType::Dynamic;
+    const JPH::ObjectLayer layer =
+        projectile ? Layers::kNoCollide : (missile ? Layers::kMissile : Layers::kMoving);
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    if (bodies.GetMotionType(sb.body) != motion)
+        bodies.SetMotionType(sb.body, motion, JPH::EActivation::Activate);
+    if (bodies.GetObjectLayer(sb.body) != layer) bodies.SetObjectLayer(sb.body, layer);
+    bodies.ActivateBody(sb.body);
+}
 
 void PhysicsWorld::SetScriptBodyVelocity(int slot, const float v[3]) {
     if (!ScriptBodyExists(slot)) return;

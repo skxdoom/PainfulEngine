@@ -22,9 +22,10 @@ int LuaCmd(const char* dataRoot, int frames, const char* level,
     // drawing is missing.
     PhysicsWorld physics;
     physics.SetProbeRadius(kCameraRadius);
+    physics.SetProbeEnabled(false);   // no free camera here; it would sit on the player
     // The player's own pusher: the widest of the four spheres the shape factory
     // builds for BodyTypes.Player at bodyScale 1.0 (Engine.dll 0x101b3e20).
-    physics.SetPawnProbeRadius(0.4f);
+    physics.SetPawnProbeRadius(0.4f, 2.0f, 1.1f);   // the four-sphere player body as a capsule
     PlayerPawn pawn;
     Input input;
     ScriptEngine engine;
@@ -86,6 +87,15 @@ int LuaCmd(const char* dataRoot, int frames, const char* level,
                 for (int c = 0; c < 3; ++c) centre[c] = h[c];
                 centre[1] -= 0.9f;      // head is centre + 0.9, per GetPawnHeadPos
                 physics.MovePawnProbe(centre, true);
+            }
+            // The landing message the game loop posts, negated as PlayerAction
+            // does (Physics.md, "The player takes hits"), so falls hurt here too.
+            {
+                const float impact = pawn.TakeGroundHit();
+                if (impact > 0.f && engine.playerHandle()) {
+                    const double hitArgs[2] = {double(engine.playerHandle()), double(-impact)};
+                    host.PostMsg("PLAYER_HIT_GROUND", hitArgs, 2);
+                }
             }
             engine.TickTriggers();
             engine.TickLifetimes(1.f / 60.f);

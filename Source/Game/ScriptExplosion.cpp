@@ -90,6 +90,30 @@ void ScriptEngine::Explosion(const float centre[3], float strength, float range,
         // impulse loop, so they take the blast like the original's do.
         ReleaseTwins(released, centre);
     }
+    // The player is a real body in the original (group 23) and the blast
+    // reaches it like any other: damage by the sine falloff, and the impulse
+    // over its 80 kg mass - which is the rocket jump. Physics.md, "The player takes hits".
+    if (pawn_ != nullptr && playerHandle_ != 0) {
+        if (Entity* pe = Find(playerHandle_)) {
+            float floor[3], at[3];
+            pawn_->FloorPos(floor);
+            for (int c = 0; c < 3; ++c) at[c] = floor[c];
+            at[1] += 1.1f;                       // GetPawnFloorPos = centre - 1.1
+            float away[3];
+            for (int c = 0; c < 3; ++c) away[c] = at[c] - centre[c];
+            const float distance =
+                std::sqrt(away[0] * away[0] + away[1] * away[1] + away[2] * away[2]);
+            if (distance < range) {
+                const float falloff = ExplosionFalloff(distance, range);
+                reached.push_back({playerHandle_, falloff});
+                if (pe->movedByExplosions && falloff > 0.f && distance > 0.001f) {
+                    const float scale = falloff * strength / distance / PlayerPawn::Mass();
+                    const float dv[3] = {away[0] * scale, away[1] * scale, away[2] * scale};
+                    pawn_->AddVelocity(dv);
+                }
+            }
+        }
+    }
     std::vector<float> parts;
     for (auto& kv : entities_) {
         Entity& e = kv.second;

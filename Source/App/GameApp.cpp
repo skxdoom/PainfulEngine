@@ -149,7 +149,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
     physics.SetProbeRadius(kCameraRadius);
     // The player's own pusher: the widest of the four spheres the shape factory
     // builds for BodyTypes.Player at bodyScale 1.0 (Engine.dll 0x101b3e20).
-    physics.SetPawnProbeRadius(0.4f);
+    physics.SetPawnProbeRadius(0.4f, 2.0f, 1.1f);   // the four-sphere player body as a capsule
     PlayerPawn pawn;
     Input input;
     LuaHost host;
@@ -732,6 +732,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
             delta[1] += up;
             physics.SlideSphere(camera.pos, delta, kCameraRadius);
         }
+        // The camera's pusher is a free-camera affordance; in play the pawn's
+        // capsule is the player's body and the camera is only its eye.
+        physics.SetProbeEnabled(!scriptView);
         physics.MoveProbe(camera.pos, !noclip);
 
         // While the free camera owns the view, the CAM.* reads have to mirror
@@ -743,9 +746,12 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 
         // A hard landing is fall damage, script-side: the same
         // PLAYER_HIT_GROUND PlayerAction queues, on the pawn's own test.
+        // PlayerAction (0x101925BF) NEGATES the speed before queueing, and
+        // CPlayer:OnHitGround tests `speed < -collisionMinSpeed`; a positive
+        // number was a landing the script never saw.
         const float impact = pawn.TakeGroundHit();
         if (impact > 0.f && engine.playerHandle()) {
-            const double hitArgs[2] = {double(engine.playerHandle()), double(impact)};
+            const double hitArgs[2] = {double(engine.playerHandle()), double(-impact)};
             host.PostMsg("PLAYER_HIT_GROUND", hitArgs, 2);
         }
 

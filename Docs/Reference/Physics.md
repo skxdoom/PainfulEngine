@@ -1345,6 +1345,58 @@ not a port limit. Cathedral's far wall is fronted by `Slab_Room1`, a `.dat`
 item with a fixed body, which `IsFixedMesh` rightly refuses; the original
 would not nail there either.
 
+## The player takes hits
+
+In the original the player is a real Havok body — `BodyTypes.Player`, group
+23 — so everything that finds bodies finds it. The port's pawn is a query
+mover plus a kinematic pusher sphere, which nothing identified as the player,
+and four kinds of damage were silently missing. Each has its own rule:
+
+- **Hitscan.** `CAiBrain` fires through `WORLD.LineTraceHitPlayerBalls`
+  (`0x1011E700` → `PhysicsWorld::LineTraceHitPlayer` `0x10197560`), which
+  differs from `LineTrace` only in the cast's filter: the player's body is in
+  it. `L_WORLD_LineTraceHitPlayerBalls` tests a capsule of the pawn's radius
+  from the feet sphere's centre to the head sphere's (the sizer's four stacked
+  spheres, `GetPawnFloorPos = centre − 1.1`, `GetPawnHeadPos = centre + 0.9`)
+  and answers with the player entity when nothing solid is nearer; the plain
+  trace still leaves the player out, so its own shots and probes never land
+  on it. The shooter's own limb boxes are skipped too: the gun hand starts
+  inside them, and Havok reports no hit for a ray born inside a shape,
+  whereas the port's limb test counts an inside start as a point-blank hit
+  (the shotgun in a chest). Whoever contains the start point is ignored.
+- **The camera's pusher is not the player.** The free camera's 1.2-radius
+  kinematic sphere followed the camera in scripted play too, where the
+  camera is the player's eye; every thrown thing stopped a foot short of the
+  player against it and the contact reported the world. It is disabled while
+  the scripts own the view (`SetProbeEnabled`) and headlessly.
+- **Contacts.** The pawn's pusher is a capsule of the player's height now
+  (`SetPawnProbeRadius(0.4, 2.0, 1.1)`), not a chest-high sphere, so a can
+  at the shins or an axe at the head touches it. `CollectScriptContacts` flags
+  it as a side (`ScriptContact::pawnA/B`) and `TickCollisions` names the
+  player entity as `e_other` for it. That is what `StdOnCollision` (a flung barrel),
+  `StdRagdollOnCollision` (a landing corpse, `RagdollCollDamage`) and a thrown
+  can's handler look up.
+- **Thrown things become bodies.** A can, a fireball, a molotov is born
+  `Noncolliding` (7, driven) and calls `ENTITY.PO_SetCollisionGroup(e, Normal
+  / HCGNormalNCWithSelf)` a few ticks out of the hand. The native was a stub.
+  It now applies CreateScriptBody's layer and motion rule to the live body
+  (`SetScriptBodyCollisionGroup`; bodies are created
+  `mAllowDynamicOrKinematic`), hands the script mover's velocity and the
+  `SetAngularVelocity` spin to the solver on the way out of group 7 (the
+  monk's axe kept spinning in the original because it always was a body),
+  gravity on unless `PO_EnableGravity(false)` said otherwise, and reads the
+  solver's velocity back on the way in.
+- **Explosions.** `Explosion()` reaches the player at its body centre with the
+  same sine falloff, posts the `EXPLOSION` message, and adds
+  `impulse / kPlayerMass` (80) to the pawn's velocity when
+  `IsMovedByExplosions` holds — the rocket jump.
+- **Falls.** `PhysicsObject::PlayerAction` queues `PLAYER_HIT_GROUND` with the
+  landing speed **negated** and scaled by the world speed (`FCHS` at
+  `0x101925BF`, `FUN_10188DF0` returns the stored fall speed as a positive
+  magnitude, gate `> 20` at `0x102C8690`), and `CPlayer:OnHitGround` tests
+  `speed < -collisionMinSpeed` (25; damage ramps to 255 at 70, a landing sound
+  below). The port posted a positive number, which the script never saw.
+
 ## Interpolated poses
 
 The original has no fixed step. `PhysicsWorld::Tick(dt)` (`0x1019BB70` →

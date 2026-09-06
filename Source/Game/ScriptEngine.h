@@ -720,8 +720,10 @@ private:
     // maxDistance clamps the search to whatever the world trace already found,
     // so a shot that stops at a wall cannot reach the monster behind it. Pass
     // a NEGATIVE maxDistance for the whole segment.
+    // ignoreEntity: skip that actor's limbs - the shooter, whose gun hand is
+    // inside its own box (Havok reports no hit for a ray born inside a shape).
     bool TraceLimbs(const float from[3], const float to[3], float maxDistance,
-                    LimbHit& out);
+                    LimbHit& out, int ignoreEntity = 0);
 
     // An opaque body handle naming one limb of one actor - what the scripts
     // carry as `he` out of a trace and hand back to PHYSICS.GetHavokBodyInfo.
@@ -887,6 +889,15 @@ private:
     static int L_ENTITY_EnableCollisions(lua_State* L);
     static int L_ENTITY_EnableCollisionsToRagdoll(lua_State* L);
     static int L_ENTITY_PO_LineTrace(lua_State* L);
+    // ENTITY.PO_SetCollisionGroup: a live body changes layer and motion.
+    static int L_PO_SetCollisionGroup(lua_State* L);
+    // WORLD.LineTraceHitPlayerBalls: LineTrace that also tests the player's
+    // body (PhysicsWorld::LineTraceHitPlayer, 0x10197560) - the AI's guns.
+    static int L_WORLD_LineTraceHitPlayerBalls(lua_State* L);
+    // The player's shape for that trace: a capsule of the pawn's radius from
+    // the feet sphere to the head sphere. Reports the fraction along the segment.
+    bool TracePlayer(const float from[3], const float to[3], float& t, float point[3],
+                     float normal[3]) const;
     // Decals (ScriptDecal.cpp). Docs/Reference/Decals.md.
     static int L_ENTITY_SpawnDecal(lua_State* L);
     static int L_ENTITY_SpawnOrientedDecal(lua_State* L);

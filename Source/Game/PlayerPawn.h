@@ -89,6 +89,22 @@ public:
         for (int c = 0; c < 3; ++c) out[c] = velocity_[c];
     }
 
+    // A blast's impulse over the player's mass, added to what the pawn is
+    // already doing: the rocket jump. Goes through SetVelocity so it reaches
+    // the mover's own state.
+    // The shape and mass, for the traces and blasts that treat the pawn as
+    // the original's player body.
+    static float Radius() { return kRadius; }
+    static float EyeAboveFloor() { return kEyeAboveFloor; }
+    static float Mass() { return kPlayerMass; }
+
+    void AddVelocity(const float dv[3]) {
+        float v[3];
+        Velocity(v);
+        for (int c = 0; c < 3; ++c) v[c] += dv[c];
+        SetVelocity(v);
+    }
+
     // ENTITY.SetVelocity on the player, which is a jump pad or a knockback.
     // It has to reach the mover's own state - writing the entity store only
     // fed the reader - so it takes off the way a jump does: vertical into

@@ -81,7 +81,7 @@ bool SegmentNearPoint(const float from[3], const float span[3], const float p[3]
 } // namespace
 
 bool ScriptEngine::TraceLimbs(const float from[3], const float to[3], float maxDistance,
-                              LimbHit& out) {
+                              LimbHit& out, int ignoreEntity) {
     float span[3];
     for (int c = 0; c < 3; ++c) span[c] = to[c] - from[c];
     const float length =
@@ -97,6 +97,7 @@ bool ScriptEngine::TraceLimbs(const float from[3], const float to[3], float maxD
 
     for (auto& kv : entities_) {
         Entity& e = kv.second;
+        if (kv.first == ignoreEntity) continue;
         if (e.type != kModel || !e.visible) continue;
         // WHAT IS SHOOTABLE BY LIMB IS NOT THE SAME SET AS WHAT HAS A BODY.
         //

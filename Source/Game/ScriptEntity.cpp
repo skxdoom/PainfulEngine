@@ -786,6 +786,9 @@ int ScriptEngine::L_SetAngularVelocity(lua_State* L) {
     if (!e) return 0;
     for (int c = 0; c < 3; ++c)
         e->angVel[c] = float(luaL_optnumber(L, c + 2, 0));
+    // A live body takes it now; a driven projectile spins in TickProjectiles.
+    if (self->physics_ && e->physicsBody >= 0 && !e->isProjectile)
+        self->physics_->SetScriptBodyAngularVelocity(e->physicsBody, e->angVel);
     return 0;
 }
 
@@ -830,6 +833,39 @@ int ScriptEngine::L_PO_GetCollisionGroup(lua_State* L) {
     const Entity* e = self->Find(HandleArg(L, 1));
     lua_pushnumber(L, e ? e->collisionGroup : kCollisionFixed);
     return 1;
+}
+
+// ENTITY.PO_SetCollisionGroup(e, group). A driven projectile (Noncolliding, 7)
+// that becomes a real group takes its script velocity into the solver; a body
+// made Noncolliding keeps its solver velocity for the script mover. Cans,
+// fireballs and molotovs are born 7 and switch a few ticks out of the hand.
+int ScriptEngine::L_PO_SetCollisionGroup(lua_State* L) {
+    ScriptEngine* self = From(L);
+    Entity* e = self->Find(HandleArg(L, 1));
+    if (!e || !lua_isnumber(L, 2)) return 0;
+    const int group = int(lua_tonumber(L, 2));
+    const bool wasProjectile = e->isProjectile;
+    e->collisionGroup = group;
+    e->isProjectile = group == 7;
+    if (!self->physics_ || e->physicsBody < 0) return 0;
+    if (wasProjectile && !e->isProjectile) {
+        self->physics_->SetScriptBodyCollisionGroup(e->physicsBody, group);
+        self->physics_->SetScriptBodyPose(e->physicsBody, e->pos, e->rotWXYZ);
+        self->physics_->SetScriptBodyVelocity(e->physicsBody, e->velocity);
+        // The thrown axe keeps spinning: its SetAngularVelocity goes to the solver.
+        self->physics_->SetScriptBodyAngularVelocity(e->physicsBody, e->angVel);
+        // A Havok body falls unless PO_EnableGravity(false) said otherwise;
+        // gravityOn is the driven mover's own flag and defaults off.
+        self->physics_->SetScriptBodyGravityFactor(e->physicsBody, e->bodyGravity == 0 ? 0.f : 1.f);
+        e->bodyNonColliding = false;
+    } else if (!wasProjectile && e->isProjectile) {
+        self->physics_->GetScriptBodyVelocity(e->physicsBody, e->velocity);
+        self->physics_->SetScriptBodyCollisionGroup(e->physicsBody, group);
+        e->bodyNonColliding = true;
+    } else {
+        self->physics_->SetScriptBodyCollisionGroup(e->physicsBody, group);
+    }
+    return 0;
 }
 
 // PainHead sticks into a fixed mesh and bounces off one that only LOOKS fixed:

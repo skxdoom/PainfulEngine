@@ -40,6 +40,10 @@ struct ScriptContact {
     // slot and the part index (RagdollBones order). -1 when it is not one.
     int ragdollA = -1, partA = -1;
     int ragdollB = -1, partB = -1;
+    // The PLAYER's pusher body as a side: what a thrown can, a rocket-flung
+    // barrel or a landing corpse struck. The original's player is a real
+    // body (group 23) and its contacts name the player entity.
+    bool pawnA = false, pawnB = false;
     float point[3] = {0, 0, 0};
     float normal[3] = {0, 0, 0};   // pointing from A toward B
     // The two velocities AS THE CONTACT WAS RECORDED, mid-step and before the
@@ -140,6 +144,11 @@ public:
     // saying a thing is driven rather than simulated - the rocket asks for it
     // explicitly, having been created in the Particles group.
     void MakeScriptBodyNonColliding(int slot);
+    // ENTITY.PO_SetCollisionGroup: the same layer and motion rule CreateScriptBody
+    // applies, on a live body. A thrown can is born Noncolliding (driven) and
+    // becomes a real body three ticks later. Docs/Reference/Physics.md,
+    // "The player takes hits".
+    void SetScriptBodyCollisionGroup(int slot, int collisionGroup);
 
     // --- active meshes: world objects that are rigid bodies ---
     //
@@ -395,6 +404,10 @@ public:
     // wakes them, and being kinematic it is not itself pushed back, so the
     // camera keeps flying exactly as it did.
     void SetProbeRadius(float radius);
+    // The camera's pusher exists for the FREE camera. In scripted play the
+    // camera is the player's eye, and a 1.2 sphere there blocked every thrown
+    // thing a foot short of the player and reported it as the world.
+    void SetProbeEnabled(bool on);
     float probeRadius() const { return probeRadius_; }
     // Aims the body at a position; Update drives it there. It is deliberately
     // NOT moved here: a kinematic body moves by having a velocity during a
@@ -418,7 +431,13 @@ public:
     // Radius comes from the recovered player shape: EngineGame::CreatePlayer
     // asks for BodyTypes.Player at bodyScale 1.0 and the sizer builds four
     // spheres of which the widest is 0.4.
-    void SetPawnProbeRadius(float radius);
+    // height > 2 * radius makes it a capsule of that height standing on the
+    // floor, with the probe's position centreAboveFloor above the feet: the
+    // original's four-sphere player body, which thrown things and debris
+    // strike anywhere from ankle to head.
+    void SetPawnProbeRadius(float radius, float height = 0.f, float centreAboveFloor = 0.f);
+    // ENTITY.SetAngularVelocity handed to a live body (PhysicsObject::SetAngularVel).
+    void SetScriptBodyAngularVelocity(int slot, const float w[3]);
     void MovePawnProbe(const float pos[3], bool push);
 
     // Where the simulation has put the props. With activeOnly (the default)
@@ -489,6 +508,7 @@ private:
     PhysicsSettings settings_;
     Tweaks tweaks_;
     float probeRadius_ = 0.f;
+    bool probeEnabled_ = true;
     // Tweak.PlayerMove.MaximalItemPushMass: the engine's own line between what
     // the player walks through and what stops it.
     float maxPushMass_ = 2500.f;
