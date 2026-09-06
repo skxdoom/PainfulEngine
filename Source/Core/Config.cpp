@@ -32,6 +32,12 @@ const Known kKnown[] = {
      "#   2 - anchored: the left third of the interface sticks to the left edge, the\n"
      "#       right third to the right edge, the middle stays centred (health left,\n"
      "#       ammo right, crosshair centred)"},
+    {"WindowMode", "0",
+     "The window mode, kept whenever a resolution is applied in the video options.\n"
+     "#   0 - as the original: config.ini's Fullscreen decides, fullscreen or a window\n"
+     "#   1 - always a window, at the chosen resolution\n"
+     "#   2 - always borderless: fills the desktop at its own size; the resolution\n"
+     "#       setting is not used"},
 };
 
 }  // namespace

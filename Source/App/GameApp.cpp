@@ -296,9 +296,21 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
     // The video mode, from config.ini once Cfg is loaded, and again whenever
     // the Video Options screen applies. PAINFUL_WINDOWED=1 keeps a diagnostic
     // run out of fullscreen; PAINFUL_RES=WxH overrides the size.
-    engine.SetVideoModeHandler([&window](int w, int h, bool fullscreen) {
+    // painful_config.ini WindowMode decides the mode every time a resolution
+    // is applied: 0 follows Cfg.Fullscreen as the original did, 1 is always
+    // a window, 2 always borderless. A resolution change from the Video
+    // Options screen keeps the mode.
+    auto windowMode = [](bool fullscreen) {
         const char* windowed = getenv("PAINFUL_WINDOWED");
-        window.SetMode(w, h, fullscreen && !(windowed && *windowed && *windowed != '0'));
+        if (windowed && *windowed && *windowed != '0') return Window::Mode::kWindowed;
+        switch (Settings().GetInt("WindowMode", 0)) {
+        case 1: return Window::Mode::kWindowed;
+        case 2: return Window::Mode::kBorderless;
+        default: return fullscreen ? Window::Mode::kFullscreen : Window::Mode::kWindowed;
+        }
+    };
+    engine.SetVideoModeHandler([&window, windowMode](int w, int h, bool fullscreen) {
+        window.SetMode(w, h, windowMode(fullscreen));
     });
     {
         int w = 0, h = 0;
@@ -306,11 +318,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
         bool have = std::sscanf(res.c_str(), "%d%*[xX]%d", &w, &h) == 2 && w > 0 && h > 0;
         if (const char* over = getenv("PAINFUL_RES"))
             have = std::sscanf(over, "%d%*[xX]%d", &w, &h) == 2 && w > 0 && h > 0;
-        if (have) {
-            const bool fullscreen = host.GetBoolField("Cfg", "Fullscreen", false);
-            const char* windowed = getenv("PAINFUL_WINDOWED");
-            window.SetMode(w, h, fullscreen && !(windowed && *windowed && *windowed != '0'));
-        }
+        if (have)
+            window.SetMode(w, h, windowMode(host.GetBoolField("Cfg", "Fullscreen", false)));
     }
 
     // --- the level session ------------------------------------------------

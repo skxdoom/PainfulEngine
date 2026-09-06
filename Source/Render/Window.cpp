@@ -110,23 +110,36 @@ bool Window::Open(const std::string& title, int width, int height) {
     return true;
 }
 
-void Window::SetMode(int width, int height, bool fullscreen) {
+void Window::SetMode(int width, int height, Mode mode) {
     if (!window_ || width <= 0 || height <= 0) return;
-    if (fullscreen) {
-        SDL_DisplayMode mode;
+    switch (mode) {
+    case Mode::kFullscreen: {
+        SDL_DisplayMode found;
         const SDL_DisplayID display = SDL_GetDisplayForWindow(window_);
-        if (SDL_GetClosestFullscreenDisplayMode(display, width, height, 0.f, false, &mode)) {
-            SDL_SetWindowFullscreenMode(window_, &mode);
+        if (SDL_GetClosestFullscreenDisplayMode(display, width, height, 0.f, false, &found)) {
+            SDL_SetWindowFullscreenMode(window_, &found);
         } else {
             LogWarn("window: no fullscreen mode near %dx%d, using the desktop", width, height);
             SDL_SetWindowFullscreenMode(window_, nullptr);
         }
         SDL_SetWindowFullscreen(window_, true);
-    } else {
+        break;
+    }
+    case Mode::kBorderless:
+        // SDL's desktop fullscreen: no mode switch, the window fills the
+        // display at the desktop's size. The requested size is not used.
+        SDL_SetWindowFullscreenMode(window_, nullptr);
+        SDL_SetWindowFullscreen(window_, true);
+        break;
+    case Mode::kWindowed:
         SDL_SetWindowFullscreen(window_, false);
         SDL_SetWindowSize(window_, width, height);
+        break;
     }
-    LogInfo("window: %dx%d %s", width, height, fullscreen ? "fullscreen" : "windowed");
+    LogInfo("window: %dx%d %s", width, height,
+            mode == Mode::kFullscreen ? "fullscreen"
+            : mode == Mode::kBorderless ? "borderless"
+                                        : "windowed");
 }
 
 void Window::Close() {

@@ -100,10 +100,12 @@ public:
     int  height() const { return height_; }
     // True for one poll after the window changed size.
     bool TakeResized();
-    // Cfg.Resolution / Cfg.Fullscreen, at boot and from the Video Options
+    // Cfg.Resolution and the window mode, at boot and from the Video Options
     // screen. Fullscreen takes the display's closest real mode; windowed
-    // resizes in place. The size change comes back through TakeResized.
-    void SetMode(int width, int height, bool fullscreen);
+    // resizes in place; borderless covers the desktop at its own size and
+    // ignores the resolution. The size change comes back through TakeResized.
+    enum class Mode { kFullscreen, kWindowed, kBorderless };
+    void SetMode(int width, int height, Mode mode);
 
 private:
     SDL_Window* window_ = nullptr;
