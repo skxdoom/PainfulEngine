@@ -86,6 +86,34 @@ void ComputeBoneWorldBlended(const std::vector<Bone>& bones,
                              const JointOverride* overrides = nullptr,
                              size_t overrideCount = 0);
 
+// The cross-fade's LOCAL poses, one per bone, without script rotations: a
+// snapshot of the blend in flight, for a fade that is interrupted by another
+// SetAnim and has to continue from the pose on screen rather than from either
+// animation alone.
+void ComputeBoneLocalBlended(const std::vector<Bone>& bones,
+                             const std::vector<const AnimTrack*>& tracksA, float timeA,
+                             const std::vector<const AnimTrack*>& tracksB, float timeB,
+                             float u,
+                             std::vector<Mat4>& outLocal);
+
+// The same fade's local poses, for re-freezing a snapshot-based fade that is
+// itself interrupted.
+void ComputeBoneLocalFromLocals(const std::vector<Bone>& bones,
+                                const std::vector<Mat4>& localsA,
+                                const std::vector<const AnimTrack*>& tracksB, float timeB,
+                                float u,
+                                std::vector<Mat4>& outLocal);
+
+// A cross-fade whose A side is such a snapshot: u = 0 is the snapshot, u = 1
+// entirely animation B.
+void ComputeBoneWorldFromLocals(const std::vector<Bone>& bones,
+                                const std::vector<Mat4>& localsA,
+                                const std::vector<const AnimTrack*>& tracksB, float timeB,
+                                float u,
+                                std::vector<Mat4>& outWorld,
+                                const JointOverride* overrides = nullptr,
+                                size_t overrideCount = 0);
+
 // One bone's model-space position at a playback time, walking only its own
 // ancestors. Root motion asks this twice per actor per tick and reads a single
 // bone, so posing the whole skeleton for it would cost more than the animation

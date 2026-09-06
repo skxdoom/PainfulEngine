@@ -390,6 +390,27 @@ read by `PlayerAction` and are not ported. `PAINFUL_PAWN_TRACE=1` prints one
 line per move — start, delta, where the sweep ended, whether it rests and on
 what normal, the final centre — which is how the corner wedge was seen.
 
+Two port choices sit on top of the recovered law:
+
+- **The walk factor is doubled, 0.4 instead of the binary's 0.2**, for both
+  setting off and stopping. The original's stop read as instant in play,
+  which the impulse alone does not give — Havok's contact friction on the
+  body did the rest, and the body's coefficient is not recovered — and 0.4
+  is what felt right without it: the coast after a release is about 0.3
+  units instead of 0.67, and the walk reaches 90% in four frames instead of
+  ten. `PAINFUL_WALK_FACTOR` overrides it. It does not touch a slope steep
+  enough to slide, where the creep is still balanced against the recovered
+  0.2, nor the step rungs, the jump or the air.
+- **The velocity the scripts read is the COMMANDED one**, the impulse law's
+  result before the sweep's contacts take their share. A kerb's kick
+  commands 0.3 of the walk, so `CPlayer`'s "moving faster than 2" holds
+  through the climb; read after the contact it dipped to 0.5–1.9 for two or
+  three frames at every kerb, and the weapon's walk animation restarted
+  each time — the jitter on the Bridge's spawn strafing across its gutters.
+  A wall halves the command itself, so pressing into one still reads as
+  standing. Measured strafing left 2 s and right 4 s from the Bridge spawn:
+  the only sub-2 frames left are the presses into the gutter wall.
+
 Measured on `TestFloor` (`mklevel` with steps
 `0.07,0.14,0.25,0.42,0.60,0.80,0.86,1.00`, walking +X at 8):
 
@@ -434,11 +455,33 @@ grounded.
 
 The port has the counter, the random ray and the ladder. The slide itself
 is a **stand-in**: Coulomb friction at the level's `DefaultMeshFriction`
-(0.7 on the shipped levels, so a slope holds to 35°), the excess of gravity
-along the slope spent as downhill acceleration; the body's own coefficient
-(`hkpRigidBodyCinfo` in the sizer, `FUN_101b3e20`) is not recovered, and
-Havok combines the two. Standing still, the 0.2 walk impulse toward zero
-balances it at a creep — about `a / 12` m/s, the slow slide of play.
+(0.7 on every shipped level checked, so a slope holds to 35°), the excess of
+gravity along the slope spent as downhill acceleration; the body's own
+coefficient (`hkpRigidBodyCinfo` in the sizer, `FUN_101b3e20`) is not
+recovered, and Havok combines the two. Standing still, the 0.2 walk impulse
+toward zero balances it at a creep — about `a / 12` m/s, the slow slide of
+play. It runs on the floor ray's face normal when the axis ray hit, and on
+the resting probe's contact normal otherwise (a ledge's corner).
+
+Measured on `mklevel` ramps (`r<degrees>` in the step list; a 4-unit wedge)
+after walking onto each and releasing:
+
+| slope | standing still |
+|---:|---|
+| 10° / 20° / 30° | holds, 0.000 m/s |
+| 40° | slides at 0.13 m/s |
+| 50° | slides at 0.33 m/s |
+
+Before two fixes every slope slid — 0.07 m/s at 10°, 0.37 at 20°, 0.70 at
+30° — and a ledge edge pushed the body off, both from **position
+corrections read back as velocity**. The resting probe was a full slide
+(three iterations): its remaining travel was projected along the slope
+and took the probe down the face, the body was set into the slope by that
+much, and the next frame's depenetration pushed it out along the tilted
+normal — 0.005 downhill per frame at 30°. The probe is now a single cast
+(`SlidePlayer(..., iterations = 1)`), and the depenetration and unstick
+displacements are subtracted before the velocity is read from the frame's
+displacement: a correction is not motion.
 
 ### Jump is a LATCH, not an input edge
 

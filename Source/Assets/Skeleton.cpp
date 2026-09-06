@@ -280,6 +280,53 @@ void ComputeBoneWorldBlended(const std::vector<Bone>& bones,
     }
 }
 
+void ComputeBoneLocalBlended(const std::vector<Bone>& bones,
+                             const std::vector<const AnimTrack*>& tracksA, float timeA,
+                             const std::vector<const AnimTrack*>& tracksB, float timeB,
+                             float u,
+                             std::vector<Mat4>& outLocal) {
+    u = std::min(1.f, std::max(0.f, u));
+    outLocal.assign(bones.size(), Mat4{});
+    for (size_t i = 0; i < bones.size(); ++i) {
+        const Mat4 a = LocalAtTime(bones, tracksA, i, timeA, nullptr, 0);
+        const Mat4 b = LocalAtTime(bones, tracksB, i, timeB, nullptr, 0);
+        outLocal[i] = BlendPose(a, b, u);
+    }
+}
+
+void ComputeBoneLocalFromLocals(const std::vector<Bone>& bones,
+                                const std::vector<Mat4>& localsA,
+                                const std::vector<const AnimTrack*>& tracksB, float timeB,
+                                float u,
+                                std::vector<Mat4>& outLocal) {
+    u = std::min(1.f, std::max(0.f, u));
+    outLocal.assign(bones.size(), Mat4{});
+    for (size_t i = 0; i < bones.size(); ++i) {
+        const Mat4 a = i < localsA.size() ? localsA[i] : bones[i].bind;
+        const Mat4 b = LocalAtTime(bones, tracksB, i, timeB, nullptr, 0);
+        outLocal[i] = BlendPose(a, b, u);
+    }
+}
+
+void ComputeBoneWorldFromLocals(const std::vector<Bone>& bones,
+                                const std::vector<Mat4>& localsA,
+                                const std::vector<const AnimTrack*>& tracksB, float timeB,
+                                float u,
+                                std::vector<Mat4>& outWorld,
+                                const JointOverride* overrides,
+                                size_t overrideCount) {
+    u = std::min(1.f, std::max(0.f, u));
+    outWorld.assign(bones.size(), Mat4{});
+    for (size_t i = 0; i < bones.size(); ++i) {
+        const Mat4 a = i < localsA.size() ? localsA[i] : bones[i].bind;
+        const Mat4 b = LocalAtTime(bones, tracksB, i, timeB, nullptr, 0);
+        Mat4 local = BlendPose(a, b, u);
+        local = ApplyJointOverride(local, i, overrides, overrideCount);
+        const int par = bones[i].parent;
+        outWorld[i] = (par >= 0) ? Mat4::Mul(local, outWorld[par]) : local;
+    }
+}
+
 bool ComputeBonePositionAtTime(const std::vector<Bone>& bones,
                                const std::vector<const AnimTrack*>& tracks,
                                int bone, float time, float outPos[3]) {

@@ -3497,7 +3497,8 @@ int PhysicsWorld::Depenetrate(float pos[3], float radius, int iterations,
 void PhysicsWorld::SlideSphere(float pos[3], const float delta[3], float radius,
                                bool solidProps, int ignoreSlot,
                                bool collideWithPlayer,
-                               bool* separatedFromCharacter, float* hitNormal) const {
+                               bool* separatedFromCharacter, float* hitNormal,
+                               int iterations) const {
     const JPH::BodyID self = ScriptBodyExists(ignoreSlot)
                                  ? impl_->scriptBodies[ignoreSlot].body
                                  : JPH::BodyID();
@@ -3537,7 +3538,7 @@ void PhysicsWorld::SlideSphere(float pos[3], const float delta[3], float radius,
 
     // Three planes is enough for a corner; anything past that is a crack, and
     // stopping there is better than squeezing through the world.
-    for (int iteration = 0; iteration < 3; ++iteration) {
+    for (int iteration = 0; iteration < iterations; ++iteration) {
         if (remaining.IsNearZero()) break;
 
         // `at` is the shape's ORIGIN. A ShapeCast wants the centre of mass,

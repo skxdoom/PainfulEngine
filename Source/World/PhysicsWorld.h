@@ -356,9 +356,11 @@ public:
     // PlayerMovement.md, "What the player collides with".
     // hitNormal, when given, receives the first contact's normal (toward the
     // body) - the support under a resting stack, corner or slope alike.
+    // iterations 1 is a plain cast: stop at the first contact, no sliding
+    // along it - what a probe measuring a drop wants.
     void SlidePlayer(float centre[3], const float delta[3], bool solidProps = true,
-                     float* hitNormal = nullptr) const {
-        SlideSphere(centre, delta, -1.f, solidProps, -1, false, nullptr, hitNormal);
+                     float* hitNormal = nullptr, int iterations = 3) const {
+        SlideSphere(centre, delta, -1.f, solidProps, -1, false, nullptr, hitNormal, iterations);
     }
     // What the player's blocked walk does to the props in its way: the
     // rigid-body contact law of an 80 kg body re-commanded at `speed`, every
@@ -370,7 +372,7 @@ public:
                      bool solidProps = false, int ignoreSlot = -1,
                      bool collideWithPlayer = false,
                      bool* separatedFromCharacter = nullptr,
-                     float* hitNormal = nullptr) const;
+                     float* hitNormal = nullptr, int iterations = 3) const;
 
     // True when a sphere at this position overlaps anything solid.
     bool SphereOverlaps(const float pos[3], float radius) const;

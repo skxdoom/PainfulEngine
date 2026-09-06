@@ -234,6 +234,7 @@ void ScriptEngine::RebuildEntity(int handle, Entity& src) {
     src.pose = Entity::Pose();
     src.blendFrom = nullptr;
     src.blendFromTracks.clear();
+    src.blendFromLocal.clear();
     src.blendLeft = src.blendTotal = 0.f;
     for (auto& s : src.animSlots) { s.anim = nullptr; s.length = 0.f; s.curveBoneIndex = -2; }
     std::vector<Mat4> ragdollPose;

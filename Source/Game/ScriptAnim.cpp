@@ -49,6 +49,17 @@ int ScriptEngine::L_MDL_SetAnim(lua_State* L) {
     }
 
     const Animation* anim = self->animations_.Get(e->source, name);
+    // PAINFUL_ANIM_TRACE=1: every SetAnim, with the entity, its model and
+    // the state it interrupts.
+    static const bool kTrace = std::getenv("PAINFUL_ANIM_TRACE") != nullptr;
+    if (kTrace) {
+        std::printf("anim: SetAnim e=%d (%s) \"%s\" loop=%d speed=%.2f blend=%.3f found=%d "
+                    "was index %d time %.3f\n",
+                    HandleArg(L, 1), e->source.c_str(), name,
+                    lua_isnil(L, 3) || lua_isnone(L, 3) ? 1 : lua_toboolean(L, 3),
+                    luaL_optnumber(L, 4, 1.0), luaL_optnumber(L, 5, 0.201), anim != nullptr,
+                    e->animIndex, e->animTime);
+    }
     if (!anim) {
         lua_pushnumber(L, -1);
         return 1;
@@ -76,9 +87,44 @@ int ScriptEngine::L_MDL_SetAnim(lua_State* L) {
             ? e->animSlots[size_t(e->animIndex)].anim
             : nullptr;
     if (previous && previous != anim) {
+        // A fade still in flight is not thrown away: the new fade starts from
+        // the pose on screen, frozen as local matrices. Starting it from the
+        // outgoing animation alone snapped the mesh to that animation's pose
+        // - a weapon toggled walk/idle/walk jumped at every toggle.
+        const SkeletonCache::Entry* skel = self->skeletons_.Get(e->source);
+        std::vector<Mat4> snapshot;
+        float snapshotOffset[3] = {0.f, 0.f, 0.f};
+        if (e->blendFrom && e->blendLeft > 0.f && e->blendTotal > 1e-6f && skel &&
+            !skel->bones.empty()) {
+            const float u = 1.f - e->blendLeft / e->blendTotal;
+            if (e->pose.tracks.size() != skel->bones.size() || e->pose.anim != previous)
+                ResolveAnimTracks(skel->bones, *previous, e->pose.tracks);
+            float at[3];
+            self->CurveOffset(*e, skel, e->animIndex, e->pose.tracks, e->animTime, at);
+            if (!e->blendFromLocal.empty()) {
+                ComputeBoneLocalFromLocals(skel->bones, e->blendFromLocal, e->pose.tracks,
+                                           e->animTime, u, snapshot);
+                for (int c = 0; c < 3; ++c)
+                    snapshotOffset[c] = e->blendFromOffset[c] * (1.f - u) + at[c] * u;
+            } else {
+                if (e->blendFromTracks.size() != skel->bones.size())
+                    ResolveAnimTracks(skel->bones, *e->blendFrom, e->blendFromTracks);
+                ComputeBoneLocalBlended(skel->bones, e->blendFromTracks, e->blendFromTime,
+                                        e->pose.tracks, e->animTime, u, snapshot);
+                int fromSlot = -1;
+                for (size_t i = 0; i < e->animSlots.size(); ++i)
+                    if (e->animSlots[i].anim == e->blendFrom) fromSlot = int(i);
+                float from[3];
+                self->CurveOffset(*e, skel, fromSlot, e->blendFromTracks, e->blendFromTime, from);
+                for (int c = 0; c < 3; ++c)
+                    snapshotOffset[c] = from[c] * (1.f - u) + at[c] * u;
+            }
+        }
         e->blendFrom = previous;
         e->blendFromTime = e->animTime;
         e->blendFromTracks.clear();      // resolved lazily against the skeleton
+        e->blendFromLocal.swap(snapshot);
+        for (int c = 0; c < 3; ++c) e->blendFromOffset[c] = snapshotOffset[c];
         e->blendTotal = float(luaL_optnumber(L, 5, 0.201));
         e->blendLeft = e->blendTotal;
     }
@@ -344,7 +390,12 @@ const std::vector<Mat4>* ScriptEngine::PosedBones(Entity& e) {
 
     if (e.pose.time != e.animTime || e.pose.rotVersion != e.jointRotVersion ||
         e.pose.blendU != blendU || e.pose.boneWorld.size() != skel->bones.size()) {
-        if (e.blendFrom && blendU < 1.f) {
+        if (e.blendFrom && blendU < 1.f && !e.blendFromLocal.empty()) {
+            // Fading from a frozen pose - an interrupted fade's snapshot.
+            ComputeBoneWorldFromLocals(skel->bones, e.blendFromLocal, e.pose.tracks, e.animTime,
+                                       blendU, e.pose.boneWorld, e.jointRot.data(),
+                                       e.jointRot.size());
+        } else if (e.blendFrom && blendU < 1.f) {
             if (e.blendFromTracks.size() != skel->bones.size())
                 ResolveAnimTracks(skel->bones, *e.blendFrom, e.blendFromTracks);
             ComputeBoneWorldBlended(skel->bones, e.blendFromTracks, e.blendFromTime,
@@ -384,8 +435,11 @@ const std::vector<Mat4>* ScriptEngine::PosedBones(Entity& e) {
             CurveOffset(e, skel, e.animIndex, e.pose.tracks, e.animTime, at);
             if (e.blendFrom && blendU < 1.f) {
                 float from[3] = {0.f, 0.f, 0.f};
-                CurveOffset(e, skel, SlotOfAnim(e, e.blendFrom), e.blendFromTracks,
-                            e.blendFromTime, from);
+                if (!e.blendFromLocal.empty())
+                    for (int c = 0; c < 3; ++c) from[c] = e.blendFromOffset[c];
+                else
+                    CurveOffset(e, skel, SlotOfAnim(e, e.blendFrom), e.blendFromTracks,
+                                e.blendFromTime, from);
                 for (int c = 0; c < 3; ++c)
                     at[c] = from[c] * (1.f - blendU) + at[c] * blendU;
             }
@@ -636,6 +690,7 @@ void ScriptEngine::TickAnimations(float dt) {
                 e.blendLeft = 0.f;
                 e.blendFrom = nullptr;
                 e.blendFromTracks.clear();
+                e.blendFromLocal.clear();
             }
         }
 

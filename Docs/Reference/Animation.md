@@ -522,6 +522,33 @@ distance from its parent reads **2.5932 at every weight**. That constant is the
 real test: a blend that lerped the matrices entry by entry would shorten the
 bone through the middle of the fade, and going through the quaternion does not.
 
+### An interrupted fade continues from the pose on screen
+
+Reported from play: the held weapon's walk animation "reset" with no fade when
+walking was toggled forward/backward quickly. The chain is all in the shipped
+scripts: `CPlayer:Steps` decides `_Walking` from `PLAYER.FloorCheck`, the
+movement keys and `ENTITY.GetVelocity > 2`, and at a reversal the velocity
+passes through zero for a frame, so `_Walking` drops for that frame;
+`CWeapon:Tick` then sets `idle`, and `walk` again the frame after. The
+original does the same. What differed was the fade's SOURCE: the port froze
+the *outgoing animation* and its time, so the second `SetAnim` — arriving one
+frame into the walk-to-idle fade — started fading from the idle pose, while
+the pose on screen was still almost entirely the walk. The mesh jumped to
+idle and faded back.
+
+`SetAnim` now notices a fade still in flight and freezes the **blended local
+poses** themselves (`Entity::blendFromLocal`, with the root-motion offset the
+blend carried in `blendFromOffset`); the new fade runs from that snapshot
+(`ComputeBoneWorldFromLocals`), and a snapshot-based fade interrupted again is
+re-frozen the same way (`ComputeBoneLocalFromLocals`). The snapshot is taken
+without script joint rotations, which go on after the blend as before.
+
+Measured on the Bridge spawn through the real path (`Game.CameraFromPlayer`
+on, `INP.Action` fed, forward/backward every 10 frames): the weapon's
+`Bip01 R Hand` moves at most 0.0064 per frame, and that is the walk cycle
+itself; the frames around each idle/walk switch step 0.002–0.004. Before, the
+switch frame jumped by the whole walk-to-idle distance, about 0.05.
+
 ## A `.ani` is a slice of a longer take, and keeps that take's clock
 
 Reported as "the Painkiller's blades spin up and then freeze on the last

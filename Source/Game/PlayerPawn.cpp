@@ -208,8 +208,21 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
                 applyRung(rung, wish[0], wish[1]);
             } else {
                 // The walk closes a fifth of the gap to the wish per frame
-                // (0x102b3b80); the vertical is left alone.
-                const float b = blend(0.2f);
+                // (0x102b3b80); the vertical is left alone. The binary's 0.2
+                // is DOUBLED here by play-test choice - the original's Havok
+                // friction on the body made stops read as instant, which the
+                // impulse alone does not give, and 0.4 is what felt right
+                // without it - except on a slope steep enough to slide, where
+                // the creep is balanced against the recovered 0.2.
+                // PAINFUL_WALK_FACTOR overrides. PlayerMovement.md, "The port".
+                static const float kWalkFactor = [] {
+                    const char* e = std::getenv("PAINFUL_WALK_FACTOR");
+                    return e ? float(std::atof(e)) : 0.4f;
+                }();
+                const float nh = std::sqrt(floorNormal_[0] * floorNormal_[0] +
+                                           floorNormal_[2] * floorNormal_[2]);
+                const bool steep = nh > physics.settings().meshFriction * floorNormal_[1];
+                const float b = blend(steep ? 0.2f : kWalkFactor);
                 velX_ += b * (targetX - velX_);
                 velZ_ += b * (targetZ - velZ_);
                 stepping_ = false;
@@ -276,7 +289,25 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
     else velY_ -= gravity * dt;
     velY_ = std::max(velY_, -60.f);
 
+    // Position CORRECTIONS are not motion: the depenetration push (along a
+    // slope's or a corner's tilted normal, every frame the body sits within
+    // its gap) and the unstick are kept out of the velocity read back below.
+    // Counting them turned a 10-degree slope into a steady slide and pushed
+    // the body off ledge corners.
+    float corr[3] = {0.f, 0.f, 0.f};
+    {
+        const float pre[3] = {centre[0], centre[1], centre[2]};
+        physics.Depenetrate(centre, -1.f, 4, true);
+        for (int c = 0; c < 3; ++c) corr[c] = centre[c] - pre[c];
+    }
     const float delta[3] = {velX_ * dt, velY_ * dt, velZ_ * dt};
+    // What the scripts read back is the COMMANDED velocity, before the
+    // sweep's contacts take their share: a kerb's kick still commands 0.3 of
+    // the walk, so CPlayer's "moving faster than 2" holds through the climb
+    // and the weapon's walk animation is not restarted at every kerb; a wall
+    // halves the command itself, so pressing into one still reads as
+    // standing. PlayerMovement.md, "The port".
+    const float commandedX = velX_, commandedZ = velZ_;
     physics.SlidePlayer(centre, delta, true);
     // PAINFUL_PAWN_TRACE=1: one line per move with the sweep's result.
     static const bool kTrace = std::getenv("PAINFUL_PAWN_TRACE") != nullptr;
@@ -306,8 +337,11 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
     const float down[3] = {0.f, -(kHover + 0.06f), 0.f};
     // The support's normal: a slope's face, or a ledge's corner under a
     // sphere hanging over it, which a body slides off just the same.
+    // A plain cast (one iteration): letting it slide along the contact took
+    // the probe down a slope's face and set the body into the slope, which
+    // the next depenetration pushed back out - a creep of 0.3 m/s at 30°.
     float support[3] = {0.f, 0.f, 0.f};
-    physics.SlidePlayer(probe, down, true, support);
+    physics.SlidePlayer(probe, down, true, support, 1);
     const float dropped = centre[1] - probe[1];
     resting_ = velY_ <= 0.f && dropped < kHover + 0.045f;
     if (resting_) {
@@ -336,8 +370,11 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
         if (len > 1e-4f && len < 3.f) {
             PhysicsWorld::RayHit hit;
             if (physics.RayCast(lastCentre_, centre, hit, true) && hit.distance > 0.4f * len) {
-                for (int c = 0; c < 3; ++c)
-                    centre[c] = hit.point[c] + hit.normal[c] * (kRadius + 0.02f);
+                for (int c = 0; c < 3; ++c) {
+                    const float fixed = hit.point[c] + hit.normal[c] * (kRadius + 0.02f);
+                    corr[c] += fixed - centre[c];
+                    centre[c] = fixed;
+                }
             }
         }
     }
@@ -349,13 +386,16 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
     // impulse rebuilds from there.
     if (kTrace) {
         std::printf("pawn: start %.4f %.4f %.4f delta %.4f %.4f %.4f swept %.4f %.4f %.4f "
-                    "rest=%d dropped %.4f support %.2f %.2f %.2f final %.4f %.4f %.4f\n",
+                    "rest=%d dropped %.4f corr %.4f %.4f %.4f support %.2f %.2f %.2f "
+                    "ray %.2f %.2f %.2f axis=%d mu %.2f final %.4f %.4f %.4f\n",
                     startX, startY, startZ, delta[0], delta[1], delta[2], sweptX, sweptY, sweptZ,
-                    int(resting_), dropped, support[0], support[1], support[2],
-                    centre[0], centre[1], centre[2]);
+                    int(resting_), dropped, corr[0], corr[1], corr[2],
+                    support[0], support[1], support[2],
+                    floorNormal_[0], floorNormal_[1], floorNormal_[2], int(axisFloor_),
+                    physics.settings().meshFriction, centre[0], centre[1], centre[2]);
     }
-    velX_ = (centre[0] - startX) / dt;
-    velZ_ = (centre[2] - startZ) / dt;
+    velX_ = (centre[0] - startX - corr[0]) / dt;
+    velZ_ = (centre[2] - startZ - corr[2]) / dt;
 
     // On a slope the original's body is held by Havok's contact friction
     // and slides once gravity along the slope beats it. A STAND-IN for that
@@ -363,8 +403,12 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
     // body's own coefficient is not recovered), the excess spent as
     // horizontal acceleration downhill. PlayerMovement.md, "Slopes".
     if (resting_) {
-        // The probe's contact normal when it has one, else the floor ray's.
-        const float* n = support[1] > 0.01f ? support : floorNormal_;
+        // The floor ray's face normal where the axis ray hit last frame - a
+        // sweep's contact normal over a seam between coplanar triangles is a
+        // direction to the seam, not the floor, and slid the body on flat
+        // ground - and the probe's contact normal otherwise, which is the
+        // corner or the slope beside the axis.
+        const float* n = axisFloor_ ? floorNormal_ : (support[1] > 0.01f ? support : floorNormal_);
         const float ny = n[1];
         const float nh = std::sqrt(n[0] * n[0] + n[2] * n[2]);
         if (ny > 0.01f && nh > 1e-3f) {
@@ -389,6 +433,7 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
         float from[3] = {centre[0], centre[1] + kEyeAboveCentre, centre[2]};
         float to[3] = {centre[0], centre[1] - kFloorReach, centre[2]};
         bool floorHit = physics.RayCast(from, to, hit);
+        axisFloor_ = floorHit;
         if (!floorHit) {
             auto unit = [&] {          // xorshift32 -> [-0.5, 0.5]
                 rng_ ^= rng_ << 13; rng_ ^= rng_ >> 17; rng_ ^= rng_ << 5;
@@ -427,9 +472,9 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
     // What the scripts read back through ENTITY.GetVelocity. CPlayer decides
     // it is WALKING from this - "moving faster than 2" - and gates the head
     // bob and the footstep sounds on it.
-    velocity_[0] = velX_;
+    velocity_[0] = commandedX;
     velocity_[1] = velY_;
-    velocity_[2] = velZ_;
+    velocity_[2] = commandedZ;
 
     head_[0] = centre[0];
     head_[1] = centre[1] + kEyeAboveCentre;

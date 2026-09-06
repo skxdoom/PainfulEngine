@@ -232,7 +232,7 @@ const Command kCommands[] = {
  "two animations blended",
  [](int argc, char** argv) { return BlendCmd(argv[2], argv[3], argv[4], argc >= 6 ? argv[5] : nullptr); }},
 
-{"mklevel", 3, Root::kArgv2, "script", "<DataRoot> [name] [extent] [height] [tex] [stepHeights] [lightmap]",
+{"mklevel", 3, Root::kArgv2, "script", "<DataRoot> [name] [extent] [height] [tex] [steps: heights or r<deg> ramps] [lightmap]",
  "write a complete level from code",
  [](int argc, char** argv) {
      return MkLevelCmd(argv[2], argc >= 4 ? argv[3] : "TestFloor",

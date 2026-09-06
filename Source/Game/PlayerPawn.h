@@ -200,6 +200,7 @@ private:
     // +0x60), the too-steep counter on it (helper +0x70, 0..10; over 5 the
     // frame is treated as airborne), and FloorCheckRandom's generator.
     float floorNormal_[3] = {0.f, 1.f, 0.f};
+    bool axisFloor_ = false;         // the axis ray itself hit last frame
     int slopeCount_ = 0;
     uint32_t rng_ = 0x9e3779b9u;
 

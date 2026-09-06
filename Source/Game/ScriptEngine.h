@@ -288,6 +288,11 @@ public:
         std::vector<const AnimTrack*> blendFromTracks;
         float blendLeft = 0.f;      // seconds still to fade
         float blendTotal = 0.f;     // what it started at, for the weight
+        // A fade interrupted by another SetAnim continues from the pose on
+        // screen: the blend in flight, frozen as local matrices, with the
+        // root-motion offset it carried. Empty when the source is blendFrom.
+        std::vector<Mat4> blendFromLocal;
+        float blendFromOffset[3] = {0.f, 0.f, 0.f};
 
         // MDL.ApplyJointRotation, one entry per bone the scripts steer. They
         // pass an absolute angle every frame (a gun recomputes its barrel

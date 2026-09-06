@@ -433,6 +433,45 @@ static MapObject MakeStepBox(const std::string& name, float cx, float cz, float 
     return box;
 }
 
+// A ramp: a wedge rising toward +X at `degrees`, `length` long, with a
+// vertical back. The slope test bed for the pawn's slide and rungs.
+static MapObject MakeRamp(const std::string& name, float cx, float cz, float floorY,
+                          float degrees, float length, float halfZ, float uvPerUnit,
+                          const std::string& texture, const std::string& lightmap) {
+    MapObject ramp;
+    ramp.name = name;
+    ramp.uvChannels = 2;
+    const float x0 = cx - length * 0.5f, x1 = cx + length * 0.5f;
+    const float z0 = cz - halfZ, z1 = cz + halfZ;
+    const float y0 = floorY, y1 = floorY + length * std::tan(degrees * 3.14159265f / 180.f);
+    const float s = std::sin(degrees * 3.14159265f / 180.f);
+    const float c = std::cos(degrees * 3.14159265f / 180.f);
+
+    const float top[4][3]    = {{x0,y0,z0},{x0,y0,z1},{x1,y1,z1},{x1,y1,z0}};
+    const float bottom[4][3] = {{x0,y0,z0},{x1,y0,z0},{x1,y0,z1},{x0,y0,z1}};
+    const float back[4][3]   = {{x1,y0,z0},{x1,y1,z0},{x1,y1,z1},{x1,y0,z1}};
+    // The triangular sides as quads with a doubled corner.
+    const float zneg[4][3]   = {{x0,y0,z0},{x1,y1,z0},{x1,y0,z0},{x1,y0,z0}};
+    const float zpos[4][3]   = {{x0,y0,z1},{x1,y0,z1},{x1,y1,z1},{x1,y1,z1}};
+    const float nTop[3] = {-s, c, 0}, nDown[3] = {0,-1,0}, nXpos[3] = {1,0,0};
+    const float nZneg[3] = {0,0,-1}, nZpos[3] = {0,0,1};
+    AddBoxFace(ramp, top[0], top[1], top[2], top[3], nTop, uvPerUnit);
+    AddBoxFace(ramp, bottom[0], bottom[1], bottom[2], bottom[3], nDown, uvPerUnit);
+    AddBoxFace(ramp, back[0], back[1], back[2], back[3], nXpos, uvPerUnit);
+    AddBoxFace(ramp, zneg[0], zneg[1], zneg[2], zneg[3], nZneg, uvPerUnit);
+    AddBoxFace(ramp, zpos[0], zpos[1], zpos[2], zpos[3], nZpos, uvPerUnit);
+
+    ramp.bboxMin[0] = x0; ramp.bboxMin[1] = y0; ramp.bboxMin[2] = z0;
+    ramp.bboxMax[0] = x1; ramp.bboxMax[1] = y1; ramp.bboxMax[2] = z1;
+    Material mat;
+    mat.firstIndex = 0;
+    mat.triangleCount = uint16_t(ramp.indices.size() / 3);
+    mat.slots[0].name = texture;
+    mat.slots[1].name = lightmap;
+    ramp.materials.push_back(mat);
+    return ramp;
+}
+
 int MkLevelCmd(const char* dataRoot, const char* levelName, float extent,
                       float height, const char* texture, const char* steps,
                       const char* lightmapArg) {
@@ -533,15 +572,19 @@ int MkLevelCmd(const char* dataRoot, const char* levelName, float extent,
         const float spacing = 5.f;
         float cx = spacing;
         for (const char* p = steps; *p;) {
+            // "r<degrees>" is a 4-unit ramp at that angle instead of a box.
+            const bool isRamp = *p == 'r' || *p == 'R';
             char* end = nullptr;
-            const float h = std::strtof(p, &end);
-            if (end == p) break;
+            const float h = std::strtof(isRamp ? p + 1 : p, &end);
+            if (end == (isRamp ? p + 1 : p)) break;
             if (h > 0.f) {
                 char nm[64];
-                std::snprintf(nm, sizeof nm, "step_%02d_%03d", stepCount + 1,
-                              int(h * 100.f + 0.5f));
-                mesh.objects.push_back(MakeStepBox(nm, cx, 0.f, height, h,
-                                                   1.5f, 2.f, uvPerUnit, texture, lightmap));
+                std::snprintf(nm, sizeof nm, isRamp ? "ramp_%02d_%03d" : "step_%02d_%03d",
+                              stepCount + 1, int(h * (isRamp ? 1.f : 100.f) + 0.5f));
+                mesh.objects.push_back(
+                    isRamp ? MakeRamp(nm, cx, 0.f, height, h, 4.f, 2.f, uvPerUnit, texture, lightmap)
+                           : MakeStepBox(nm, cx, 0.f, height, h, 1.5f, 2.f, uvPerUnit, texture,
+                                         lightmap));
                 ++stepCount;
                 cx += spacing;
             }
