@@ -597,8 +597,21 @@ struct PhysicsWorld::Impl {
     JPH::BodyID pawnProbe;
     float pawnProbePos[3] = {0, 0, 0};
     float pawnProbeRadius = 0.f;
-    float pawnProbeHeight = 0.f;     // > 2r: a capsule of this height
-    float pawnProbeCentre = 0.f;     // the probe position's height above the feet
+    // BodyTypes.Player at bodyScale 1 (the sizer, 0x101B3E20): four spheres
+    // stacked on the body's axis, centres -0.63/-0.10/+0.50/+0.90, radii
+    // 0.33/0.40/0.40/0.20. The pawn slides with it, the sensor wears it, and
+    // the AI's traces hit it. PlayerMovement.md, "The pawn".
+    JPH::Ref<JPH::Shape> playerShape;
+    static JPH::Ref<JPH::Shape> MakePlayerShape() {
+        JPH::StaticCompoundShapeSettings compound;
+        const float centres[4] = {-0.63f, -0.10f, 0.50f, 0.90f};
+        const float radii[4] = {0.33f, 0.40f, 0.40f, 0.20f};
+        for (int i = 0; i < 4; ++i)
+            compound.AddShape(JPH::Vec3(0.f, centres[i], 0.f), JPH::Quat::sIdentity(),
+                              new JPH::SphereShape(radii[i]));
+        JPH::ShapeSettings::ShapeResult result = compound.Create();
+        return result.HasError() ? JPH::Ref<JPH::Shape>() : result.Get();
+    }
     float probePos[3] = {0, 0, 0};
     bool probePush = false;
 
@@ -704,41 +717,23 @@ void PhysicsWorld::CreatePawnProbe() {
         impl_->pawnProbe = JPH::BodyID();
     }
     if (impl_->pawnProbeRadius <= 0.f) return;
-    const float r = impl_->pawnProbeRadius;
-    JPH::Ref<JPH::Shape> shape;
-    if (impl_->pawnProbeHeight > 2.f * r) {
-        // A capsule from the feet to the head, hung below the probe position
-        // by however far the centre sits above the pawn's mid-height.
-        JPH::CapsuleShapeSettings capsule(impl_->pawnProbeHeight * 0.5f - r, r);
-        capsule.SetEmbedded();
-        JPH::ShapeSettings::ShapeResult inner = capsule.Create();
-        if (inner.HasError()) return;
-        JPH::RotatedTranslatedShapeSettings placed(
-            JPH::Vec3(0.f, impl_->pawnProbeHeight * 0.5f - impl_->pawnProbeCentre, 0.f),
-            JPH::Quat::sIdentity(), inner.Get());
-        placed.SetEmbedded();
-        JPH::ShapeSettings::ShapeResult result = placed.Create();
-        if (result.HasError()) return;
-        shape = result.Get();
-    } else {
-        JPH::SphereShapeSettings sphere(r);
-        sphere.SetEmbedded();
-        JPH::ShapeSettings::ShapeResult result = sphere.Create();
-        if (result.HasError()) return;
-        shape = result.Get();
-    }
+    if (!impl_->playerShape) impl_->playerShape = Impl::MakePlayerShape();
+    if (!impl_->playerShape) return;
+    // A kinematic SENSOR in the player's own silhouette: contacts are reported
+    // (a can, an axe, a landing corpse), nothing is pushed by it. Moving the
+    // props is the pawn's slide plus PushProps; a solid kinematic shoved them
+    // at infinite mass. PlayerMovement.md, "What the player collides with".
     JPH::BodyCreationSettings body(
-        shape,
+        impl_->playerShape,
         JPH::RVec3(impl_->pawnProbePos[0], impl_->pawnProbePos[1], impl_->pawnProbePos[2]),
         JPH::Quat::sIdentity(), JPH::EMotionType::Kinematic, Layers::kProbe);
     body.mMotionQuality = JPH::EMotionQuality::LinearCast;
+    body.mIsSensor = true;
     impl_->pawnProbe = bodies.CreateAndAddBody(body, JPH::EActivation::Activate);
 }
 
-void PhysicsWorld::SetPawnProbeRadius(float radius, float height, float centreAboveFloor) {
+void PhysicsWorld::SetPawnProbeRadius(float radius) {
     impl_->pawnProbeRadius = radius;
-    impl_->pawnProbeHeight = height;
-    impl_->pawnProbeCentre = centreAboveFloor;
     CreatePawnProbe();
 }
 
@@ -1365,6 +1360,16 @@ int PhysicsWorld::CreateScriptBody(int bodyType, const std::string& modelName,
     body.mAngularDamping = 0.f;
     // PO_SetCollisionGroup turns a driven projectile into a dynamic body.
     body.mAllowDynamicOrKinematic = true;
+    // The sizer's mass for a mesh body: (0.2 * scale)^3 * 10000 (0x101B3E20,
+    // constants 0x102B3B80 and 0x102C8658) - 80 for the player at scale 1,
+    // 0.64 for a scale-0.2 crate. Jolt's density gave a small crate hundreds
+    // of kilos and made it a wall to the player. PO_SetMass still overrides.
+    // The sphere cases keep Jolt's own mass. Physics.md, "The props".
+    if (sphereRadius <= 0.f) {
+        const float k = 0.2f * scale;
+        body.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
+        body.mMassPropertiesOverride.mMass = std::max(0.01f, k * k * k * 10000.f);
+    }
 
     JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
     const JPH::BodyID id = bodies.CreateAndAddBody(body, JPH::EActivation::Activate);
@@ -2235,9 +2240,9 @@ void PhysicsWorld::ShoveCharacters(const float pos[3], float radius, const float
     if (collector.mHits.empty()) return;
     JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
     for (const JPH::CollideShapeResult& hit : collector.mHits) {
-        if (impl_->characterBodies.count(hit.mBodyID2.GetIndexAndSequenceNumber()) == 0)
-            continue;
         if (bodies.GetMotionType(hit.mBodyID2) != JPH::EMotionType::Dynamic) continue;
+        const bool character =
+            impl_->characterBodies.count(hit.mBodyID2.GetIndexAndSequenceNumber()) != 0;
         float mass = pusherMass;
         {
             JPH::BodyLockRead lock(impl_->system.GetBodyLockInterface(), hit.mBodyID2);
@@ -2249,10 +2254,59 @@ void PhysicsWorld::ShoveCharacters(const float pos[3], float radius, const float
         // too strong against the original in play - a monster is a thing you
         // can push, but slowly, and it slows you. What would settle it is the
         // player body's material and friction in the shape sizer.
+        // Characters only: props meet the pawn's own 80 kg body in the solver.
+        if (!character) continue;
         const float share = 0.5f * speed * pusherMass / (pusherMass + mass);
         const JPH::Vec3 v = bodies.GetLinearVelocity(hit.mBodyID2);
         const float have = v.Dot(along);
         if (have < share) bodies.AddLinearVelocity(hit.mBodyID2, along * (share - have));
+    }
+}
+
+// The contact between a dynamic 80 kg body re-commanded at `speed` and the
+// prop it walks into, per frame: dv = M / (M + m) * (speed - have) along the
+// walk. The player's shape, nudged a little ahead, finds the props it is
+// pressing on. Characters keep ShoveCharacters; the world and pinned bodies
+// are not dynamic and block. PlayerMovement.md, "What the player collides with".
+void PhysicsWorld::PushProps(const float centre[3], const float dir[3], float speed,
+                             float pusherMass) {
+    if (!loaded() || speed <= 0.f) return;
+    const JPH::Vec3 d(dir[0], 0.f, dir[2]);
+    if (d.LengthSq() < 1e-8f) return;
+    const JPH::Vec3 along = d.Normalized();
+    if (!impl_->playerShape) impl_->playerShape = Impl::MakePlayerShape();
+    if (!impl_->playerShape) return;
+    JPH::CollideShapeSettings settings;
+    settings.mBackFaceMode = JPH::EBackFaceMode::CollideWithBackFaces;
+    settings.mCollectFacesMode = JPH::ECollectFacesMode::NoFaces;
+    settings.mMaxSeparationDistance = 0.06f;
+    JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> collector;
+    // The centre-of-mass transform, as CollideShape wants; `centre` is the origin.
+    const JPH::RVec3 at = JPH::RVec3(centre[0] + along.GetX() * 0.04f, centre[1],
+                                     centre[2] + along.GetZ() * 0.04f) +
+                          JPH::RVec3(impl_->playerShape->GetCenterOfMass());
+    impl_->system.GetNarrowPhaseQuery().CollideShape(
+        impl_->playerShape.GetPtr(), JPH::Vec3::sOne(), JPH::RMat44::sTranslation(at), settings,
+        JPH::RVec3::sZero(), collector, {}, kSweepLayer, {});
+    if (collector.mHits.empty()) return;
+    JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+    for (const JPH::CollideShapeResult& hit : collector.mHits) {
+        const JPH::BodyID id = hit.mBodyID2;
+        if (id == impl_->pawnProbe || id == impl_->probe) continue;
+        if (impl_->characterBodies.count(id.GetIndexAndSequenceNumber()) != 0) continue;
+        if (bodies.GetMotionType(id) != JPH::EMotionType::Dynamic) continue;
+        float mass = pusherMass;
+        {
+            JPH::BodyLockRead lock(impl_->system.GetBodyLockInterface(), id);
+            if (lock.Succeeded() && lock.GetBody().GetMotionProperties() &&
+                lock.GetBody().GetMotionProperties()->GetInverseMass() > 0.f)
+                mass = 1.f / lock.GetBody().GetMotionProperties()->GetInverseMass();
+        }
+        if (mass > maxPushMass_) continue;
+        const float have = bodies.GetLinearVelocity(id).Dot(along);
+        if (have >= speed) continue;
+        const float dv = pusherMass / (pusherMass + mass) * (speed - have);
+        bodies.AddLinearVelocity(id, along * dv);
     }
 }
 
@@ -3161,7 +3215,7 @@ const SolidLayerFilter kSolidLayer;
 bool PhysicsWorld::RayCast(const float from[3], const float to[3], RayHit& out,
                            bool staticOnly, const int* exclude,
                            size_t excludeCount, const int* ignoreRagdolls,
-                           size_t ignoreRagdollCount) const {
+                           size_t ignoreRagdollCount, bool includePlayer) const {
     out = RayHit{};
     if (!loaded()) return false;
 
@@ -3178,7 +3232,7 @@ bool PhysicsWorld::RayCast(const float from[3], const float to[3], RayHit& out,
     if (!impl_->probe.IsInvalid()) bodies.IgnoreBody(impl_->probe);
     // The pawn's pusher sits exactly where the player is, so a shot fired from
     // there would hit it at zero distance in every direction.
-    if (!impl_->pawnProbe.IsInvalid()) bodies.IgnoreBody(impl_->pawnProbe);
+    if (!impl_->pawnProbe.IsInvalid() && !includePlayer) bodies.IgnoreBody(impl_->pawnProbe);
     for (size_t i = 0; i < excludeCount; ++i) {
         const int slot = exclude[i];
         // A removed slot keeps an invalid id so the others stay stable, and
@@ -3222,10 +3276,19 @@ bool PhysicsWorld::RayCast(const float from[3], const float to[3], RayHit& out,
     };
     const StaticLayerFilter staticLayer;
     const SolidLayerFilter solidLayer;
+    // includePlayer: the pawn's sensor lives in the probe layer, which the
+    // solid filter leaves out; the AI's trace wants it in.
+    struct WithPlayerLayerFilter final : JPH::ObjectLayerFilter {
+        bool ShouldCollide(JPH::ObjectLayer layer) const override {
+            return layer != Layers::kNoCollide;
+        }
+    };
+    const WithPlayerLayerFilter withPlayerLayer;
     impl_->system.GetNarrowPhaseQuery().CastRay(
         ray, settings, collector, {},
         staticOnly ? static_cast<const JPH::ObjectLayerFilter&>(staticLayer)
-                   : solidLayer,
+                   : (includePlayer ? static_cast<const JPH::ObjectLayerFilter&>(withPlayerLayer)
+                                    : solidLayer),
         bodies);
     if (!collector.HadHit()) return false;
 
@@ -3260,6 +3323,13 @@ bool PhysicsWorld::RayCast(const float from[3], const float to[3], RayHit& out,
                      out.normal[2] * out.normal[2];
     if (!(n2 > 1e-8f)) {              // false for NaN as well as for zero
         for (int c = 0; c < 3; ++c) out.normal[c] = -span[c] / length;
+    }
+
+    // The player's own sensor body, when the cast was allowed to see it.
+    if (includePlayer && !impl_->pawnProbe.IsInvalid() &&
+        collector.mHit.mBodyID == impl_->pawnProbe) {
+        out.player = true;
+        return true;
     }
 
     // Which script body, if any. Anything that is not one is the world, and
@@ -3332,8 +3402,13 @@ int PhysicsWorld::Depenetrate(float pos[3], float radius, int iterations,
     const JPH::BodyID self = ScriptBodyExists(ignoreSlot)
                                  ? impl_->scriptBodies[ignoreSlot].body
                                  : JPH::BodyID();
-    const JPH::SphereShape sphere(radius);
+    // radius <= 0 means the player's four-sphere stack (DepenetratePlayer).
+    const JPH::SphereShape sphere(radius > 0.f ? radius : 1.f);
     sphere.SetEmbedded();
+    if (radius <= 0.f && !impl_->playerShape) impl_->playerShape = Impl::MakePlayerShape();
+    const JPH::Shape* shape = radius > 0.f ? static_cast<const JPH::Shape*>(&sphere)
+                                           : impl_->playerShape.GetPtr();
+    if (shape == nullptr) return 0;
     // The player's pusher is excluded from its OWN queries only. Leaving it out
     // of everyone's is why a monster could not feel the player at all - it
     // walked through them, and the player could not shoulder one aside.
@@ -3346,12 +3421,20 @@ int PhysicsWorld::Depenetrate(float pos[3], float radius, int iterations,
         JPH::CollideShapeSettings settings;
         settings.mBackFaceMode = JPH::EBackFaceMode::CollideWithBackFaces;
         settings.mCollectFacesMode = JPH::ECollectFacesMode::NoFaces;
+        // Report near-touching pairs too (a negative depth): a shape left
+        // exactly touching casts as a hit at fraction 0 whichever way it
+        // goes - a sphere settled onto a ledge's corner could never leave it
+        // - so anything nearer than kGap is pushed out to kGap.
+        constexpr float kGap = 0.01f;
+        settings.mMaxSeparationDistance = kGap;
 
         JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> collector;
+        // CollideShape wants the centre-of-mass transform; `pos` is the origin.
         impl_->system.GetNarrowPhaseQuery().CollideShape(
-            &sphere, JPH::Vec3::sOne(),
-            JPH::RMat44::sTranslation(JPH::RVec3(pos[0], pos[1], pos[2])), settings,
-            JPH::RVec3::sZero(), collector, {}, kSweepLayer, blockers);
+            shape, JPH::Vec3::sOne(),
+            JPH::RMat44::sTranslation(JPH::RVec3(pos[0], pos[1], pos[2]) +
+                                      JPH::RVec3(shape->GetCenterOfMass())),
+            settings, JPH::RVec3::sZero(), collector, {}, kSweepLayer, blockers);
         if (collector.mHits.empty()) break;
 
         // ONE overlap per pass - the deepest - and then look again.
@@ -3366,7 +3449,7 @@ int PhysicsWorld::Depenetrate(float pos[3], float radius, int iterations,
         for (const JPH::CollideShapeResult& hit : collector.mHits)
             if (deepest == nullptr || hit.mPenetrationDepth > deepest->mPenetrationDepth)
                 deepest = &hit;
-        if (deepest->mPenetrationDepth <= 0.f) break;
+        if (deepest->mPenetrationDepth <= -kGap) break;
 
         // mPenetrationAxis moves shape 2 out of the collision, so the sphere -
         // shape 1 - goes the other way.
@@ -3400,6 +3483,8 @@ int PhysicsWorld::Depenetrate(float pos[3], float radius, int iterations,
             if (separatedFromCharacter) *separatedFromCharacter = true;
         }
 
+        // Out to the gap, not merely out of the overlap (see kGap above).
+        if (!character) depth += kGap;
         for (int c = 0; c < 3; ++c) pos[c] += out[c] * depth;
         ++resolved;
         // A character push is rate-limited, so re-running the loop would just
@@ -3412,10 +3497,11 @@ int PhysicsWorld::Depenetrate(float pos[3], float radius, int iterations,
 void PhysicsWorld::SlideSphere(float pos[3], const float delta[3], float radius,
                                bool solidProps, int ignoreSlot,
                                bool collideWithPlayer,
-                               bool* separatedFromCharacter) const {
+                               bool* separatedFromCharacter, float* hitNormal) const {
     const JPH::BodyID self = ScriptBodyExists(ignoreSlot)
                                  ? impl_->scriptBodies[ignoreSlot].body
                                  : JPH::BodyID();
+    if (hitNormal) hitNormal[0] = hitNormal[1] = hitNormal[2] = 0.f;
     if (!loaded()) {
         for (int c = 0; c < 3; ++c) pos[c] += delta[c];
         return;
@@ -3434,8 +3520,13 @@ void PhysicsWorld::SlideSphere(float pos[3], const float delta[3], float radius,
         return;
     }
 
-    const JPH::SphereShape sphere(radius);
+    // radius <= 0 means the player's four-sphere stack (SlidePlayer).
+    const JPH::SphereShape sphere(radius > 0.f ? radius : 1.f);
     sphere.SetEmbedded();
+    if (radius <= 0.f && !impl_->playerShape) impl_->playerShape = Impl::MakePlayerShape();
+    const JPH::Shape* shape = radius > 0.f ? static_cast<const JPH::Shape*>(&sphere)
+                                           : impl_->playerShape.GetPtr();
+    if (shape == nullptr) return;
     const CameraBlockerFilter blockers(impl_->probe, solidProps ? kSolidProps : maxPushMass_,
                                       self,
                                       collideWithPlayer ? JPH::BodyID() : impl_->pawnProbe);
@@ -3449,8 +3540,12 @@ void PhysicsWorld::SlideSphere(float pos[3], const float delta[3], float radius,
     for (int iteration = 0; iteration < 3; ++iteration) {
         if (remaining.IsNearZero()) break;
 
-        JPH::RShapeCast cast(&sphere, JPH::Vec3::sOne(),
-                             JPH::RMat44::sTranslation(JPH::RVec3(at)), remaining);
+        // `at` is the shape's ORIGIN. A ShapeCast wants the centre of mass,
+        // and the four-sphere stack's sits 0.059 above its origin - passing
+        // the origin as the COM sank the stack by that much and left the
+        // player resting 0.06 high on every floor.
+        const JPH::RShapeCast cast = JPH::RShapeCast::sFromWorldTransform(
+            shape, JPH::Vec3::sOne(), JPH::RMat44::sTranslation(JPH::RVec3(at)), remaining);
         JPH::ShapeCastSettings settings;
         // A sphere that starts inside geometry has no useful hit to report -
         // let it move out rather than locking the camera in place.
@@ -3470,14 +3565,20 @@ void PhysicsWorld::SlideSphere(float pos[3], const float delta[3], float radius,
 
         const float fraction = std::max(0.f, collector.mHit.mFraction);
         const JPH::Vec3 travelled = remaining * fraction;
-        // Back off along the travel direction rather than along the normal:
-        // the normal can be nearly perpendicular to the motion on a grazing
-        // hit, where backing off would barely help.
-        const float length = travelled.Length();
-        if (length > kSkin) at += travelled * ((length - kSkin) / length);
-
         // The contact normal points from the surface toward the sphere.
         const JPH::Vec3 normal = -collector.mHit.mPenetrationAxis.Normalized();
+        // Back off along the travel direction rather than along the normal:
+        // the normal can be nearly perpendicular to the motion on a grazing
+        // hit, where backing off would barely help. (Scaling the back-off by
+        // the angle instead ate a whole diagonal move along a wall.) What a
+        // diagonal hit leaves touching, Depenetrate's gap takes care of.
+        const float length = travelled.Length();
+        if (length > kSkin) at += travelled * ((length - kSkin) / length);
+        if (hitNormal && iteration == 0) {
+            hitNormal[0] = normal.GetX();
+            hitNormal[1] = normal.GetY();
+            hitNormal[2] = normal.GetZ();
+        }
         remaining -= travelled;
         remaining -= normal * remaining.Dot(normal);
     }

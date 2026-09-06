@@ -894,10 +894,6 @@ private:
     // WORLD.LineTraceHitPlayerBalls: LineTrace that also tests the player's
     // body (PhysicsWorld::LineTraceHitPlayer, 0x10197560) - the AI's guns.
     static int L_WORLD_LineTraceHitPlayerBalls(lua_State* L);
-    // The player's shape for that trace: a capsule of the pawn's radius from
-    // the feet sphere to the head sphere. Reports the fraction along the segment.
-    bool TracePlayer(const float from[3], const float to[3], float& t, float point[3],
-                     float normal[3]) const;
     // Decals (ScriptDecal.cpp). Docs/Reference/Decals.md.
     static int L_ENTITY_SpawnDecal(lua_State* L);
     static int L_ENTITY_SpawnOrientedDecal(lua_State* L);

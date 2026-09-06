@@ -187,6 +187,21 @@ none. Nothing is left unresolved on any of them.
 *spawned*, and spawning is script work that does not exist yet — the statically
 placed actors are a dormant pool the real game never draws in place.
 
+### A script body's mass is the sizer's, not the shape's
+
+`FUN_101B3E20` computes one mass before it switches on the body type:
+`(scale × 0.2)³ × 10000` (`0x102B3B80` = 0.2, `0x102C8658` = 10000), where
+`scale` is `PO_Create`'s explicit scale or, without one, the entity's. That is
+the player's 80 at scale 1 and **0.64** for a scale-0.2 crate such as
+`skrzynia_mala`; `PO_SetMass` overrides it where a template gives one. The
+port let Jolt derive mass from the hull's volume at its default density, so a
+small crate weighed hundreds of kilos and the player could not shift it.
+`CreateScriptBody` now sets the sizer's mass for every mesh-based body; the
+sphere cases (grenades, blood) keep Jolt's own, because the sphere branch
+of the sizer overwrites the value in a way the decompile does not settle.
+Measured headlessly: a `skrzynia_mala` walked into on TestFloor travels ahead
+of the player; left alone it settles at 0.92 within two seconds.
+
 ## The camera
 
 The free camera is still a free camera. It does not walk and it has no gravity —
@@ -1355,10 +1370,10 @@ and four kinds of damage were silently missing. Each has its own rule:
 - **Hitscan.** `CAiBrain` fires through `WORLD.LineTraceHitPlayerBalls`
   (`0x1011E700` → `PhysicsWorld::LineTraceHitPlayer` `0x10197560`), which
   differs from `LineTrace` only in the cast's filter: the player's body is in
-  it. `L_WORLD_LineTraceHitPlayerBalls` tests a capsule of the pawn's radius
-  from the feet sphere's centre to the head sphere's (the sizer's four stacked
-  spheres, `GetPawnFloorPos = centre − 1.1`, `GetPawnHeadPos = centre + 0.9`)
-  and answers with the player entity when nothing solid is nearer; the plain
+  it. `L_WORLD_LineTraceHitPlayerBalls` casts against the pawn's own sensor
+  body, the sizer's four stacked spheres (`GetPawnFloorPos = centre − 1.1`,
+  `GetPawnHeadPos = centre + 0.9`, `RayCast(..., includePlayer)`), and
+  answers with the player entity when nothing solid is nearer; the plain
   trace still leaves the player out, so its own shots and probes never land
   on it. The shooter's own limb boxes are skipped too: the gun hand starts
   inside them, and Havok reports no hit for a ray born inside a shape,
@@ -1369,9 +1384,12 @@ and four kinds of damage were silently missing. Each has its own rule:
   camera is the player's eye; every thrown thing stopped a foot short of the
   player against it and the contact reported the world. It is disabled while
   the scripts own the view (`SetProbeEnabled`) and headlessly.
-- **Contacts.** The pawn's pusher is a capsule of the player's height now
-  (`SetPawnProbeRadius(0.4, 2.0, 1.1)`), not a chest-high sphere, so a can
-  at the shins or an axe at the head touches it. `CollectScriptContacts` flags
+- **Contacts.** The pawn wears a kinematic sensor in `BodyTypes.Player`'s
+  own four-sphere silhouette (`CreatePawnProbe`; the shape and the push rule
+  are in [`PlayerMovement.md`](PlayerMovement.md), "What the player collides
+  with"), not a chest-high sphere, so a can at the shins or an axe at the
+  head touches it. `LineTraceHitPlayerBalls` casts against that same body
+  (`RayCast(..., includePlayer)`), so the AI hits exactly the original's shape. `CollectScriptContacts` flags
   it as a side (`ScriptContact::pawnA/B`) and `TickCollisions` names the
   player entity as `e_other` for it. That is what `StdOnCollision` (a flung barrel),
   `StdRagdollOnCollision` (a landing corpse, `RagdollCollDamage`) and a thrown

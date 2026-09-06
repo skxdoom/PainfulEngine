@@ -601,14 +601,22 @@ void AudioEngine::Pause(Voice v, bool paused) {
 
 int AudioEngine::PauseCurrentlyPlaying() {
     std::lock_guard<std::mutex> guard(lock_);
-    std::vector<Voice> set;
+    PauseSet set;
     for (size_t i = 0; i < voices_.size(); ++i) {
         Playing& p = voices_[i];
         // Already paused stays out of the set: a script paused it, and this
         // resume is not the one that should undo that.
         if (!p.used || !p.playing || p.paused) continue;
         p.paused = true;
-        set.push_back(MakeHandle(i, p.generation));
+        set.voices.push_back(MakeHandle(i, p.generation));
+    }
+    // The music too: MilesEngine::PauseCurrentlyPlayingSounds walks the AIL
+    // streams after the samples (AIL_pause_stream), and ResumeSounds restarts them.
+    for (size_t i = 0; i < streams_.size(); ++i) {
+        MusicStream* ms = streams_[i].get();
+        if (!ms || !ms->playing || ms->paused) continue;
+        ms->paused = true;
+        set.streams.push_back(int(i));
     }
     const int token = nextPauseToken_++;
     pauseSets_[token] = std::move(set);
@@ -621,8 +629,11 @@ void AudioEngine::ResumeSounds(int token) {
     if (it == pauseSets_.end()) return;
     // Resolve rejects a handle whose slot has since been reused, so a voice
     // that ended and was recycled while paused is simply skipped.
-    for (Voice v : it->second)
+    for (Voice v : it->second.voices)
         if (Playing* p = Resolve(v)) p->paused = false;
+    for (int slot : it->second.streams)
+        if (size_t(slot) < streams_.size() && streams_[size_t(slot)])
+            streams_[size_t(slot)]->paused = false;
     pauseSets_.erase(it);
 }
 

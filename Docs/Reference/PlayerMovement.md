@@ -21,8 +21,19 @@ Positions are head-anchored, off the body scale at `this+0x20`:
 | `GetPawnFloorPos` | centre − **1.1**·bodyScale | 0x102c7c04 |
 
 `EngineGame::CreatePlayer` asks for `BodyTypes.Player` at **bodyScale 1.0**,
-so the eye sits exactly **2.0 above the floor contact** and
+so the eye sits exactly **2.0 above the floor point** and
 `SetPawnHeadPos` takes that eye position — `Lev.Pos` is eye level.
+
+**The floor point is not the mesh.** The stack's lowest sphere bottoms out
+at centre − 0.96, and a dynamic body rests on it, so `GetPawnFloorPos`
+(centre − 1.1) reads 0.14 UNDER the ground the body stands on and the eye
+stands 1.86 over it. The step ladder settles this: its rungs are fixed
+offsets from the centre, and with the body resting on the mesh they sit at
+−0.12 / +0.02 / +0.30 above it with the wall rung at 0.74 — the ceiling play
+reports — where a 0.14 hover (this port's first reading, which kept the
+floor point on the mesh) put them all 0.14 higher and let 0.86 be climbed.
+Level starts place `Lev.Pos` 2.0 over the mesh; the body drops the 0.14 on
+its first frame.
 
 Not 2.31. That figure came from scaling the player_box MODEL and treating its
 half-height (1.155) as the multiplier, which makes the player a noticeable
@@ -104,8 +115,10 @@ The gaps are real — the layout is not tightly packed, and inferring it by
 assuming it was gave the wrong field for `+0x30`. Read the stores, not the
 Lua field order.
 
-`StrongAirControl` and `WeakAirControl` are **never read by either mover**;
-they belong to the `QWPhysics` path, which the shipped tweaks leave off.
+`StrongAirControl` and `WeakAirControl` ARE read by `PlayerAction`, as the
+airborne impulse factor (0x1019420b / 0x10194221 — see the air rule below).
+An earlier note here said they were `QWPhysics`-only; the decompiler had
+lost the block.
 
 ### The difference that matters: reversing in mid-air
 
@@ -168,8 +181,14 @@ steers nor slows. A 180° mouse turn keeps the full 8.00 and flips the travel
 
 ## Movement rules (single player)
 
-- **Ground**: velocity = normalised wish direction × `currentSpeed`, an
-  instant snap. There is no walk acceleration ramp.
+- **Ground**: the mover is **one impulse per frame toward a target**,
+  `mass × f × (target − v)` with `target = wish × currentSpeed` and
+  `f = 0.2` (0x102b3b80) on clear ground — so there IS a walk ramp, about
+  ten frames to 90% and the same to stop, and it is per rendered frame with
+  no `dt` in it. A step rung raises `f` to 0.5 and adds a vertical target;
+  a jump is `f = 1`. The whole table is under "The step ladder" below. (An
+  earlier reading here said "an instant snap, no ramp" — the decompiler had
+  dropped the 0.2 block; the disassembly at 0x101943f0 has it.)
 - **Jump**: vertical velocity = `JumpStrength × PlayerSpeed × 0.7` (the 0.7
   at 0x102c8648). Stock tweaks give 5.6 m/s — an 0.8 m hop at gravity 19.62.
 - **Bunny-hop** (the speed state lives on the physics object):
@@ -207,6 +226,13 @@ steers nor slows. A 180° mouse turn keeps the full 8.00 and flips the travel
   removes air steering altogether and pins the player to any wall they
   jumped alongside, because nothing can turn the motion away from it.
 
+  The air impulse has its own factor: **`StrongAirControl` (0.2) while
+  Forward is held or a reversal cut was taken this frame, `WeakAirControl`
+  (0.002) otherwise** — the byte at `ESP+0x6f` picks `tweak+0x34` or
+  `+0x38` at 0x101941ef. Strafing alone in the air barely steers; forward
+  plus the mouse does. The vertical delta is `dir.y × speed` = 0, so the
+  air never touches the fall.
+
   (An earlier note here wondered whether that bleed's last factor was the
   wish-normalisation scale rather than `dt`. **It is `dt`** — the same stack
   slot is reassigned at the top of the frame to the frame time, clamped by
@@ -231,43 +257,188 @@ which is how demon mode and powerups retune movement. The tweak block is
 filled by `PhysicsEngine::GetTweaksFromScript` (0x10185a80) in the declared
 order of `Tweak.PlayerMove`.
 
-## The step ladder — `PhysicsObject::StepCheck` (0x1018eb90)
+## The three helpers around the body
+
+`PlayerAction` does not slide a shape; the rigid body does the colliding and
+three helpers correct it, all of them **line traces** built through the same
+ray-cast input (`FUN_101A6590` → `FUN_1020C720`) with the player's own body
+taken out of the intersection solver for the duration (`FUN_101FB9A0(2,1)` /
+`FUN_101FB850`, guarded by `CanLineTraceCollision`):
+
+- **`FloorCheck(reach, ?, float* floorY, bool, bool useCached)`** (`0x1018F740`)
+  — one ray straight down from the body. A hit within reach answers true,
+  writes the hit height to `floorY` and stores the surface normal at
+  `PhysicsObject+0x60..0x68` (the slope the movers read). With `useCached`
+  and a ragdoll attached it answers the cached flag at `+0xb0` instead.
+  `PlayerAction`'s own inline copy (0x10192a35) runs from the head
+  (`centre + 0.9`) down to **`centre − 1.4`** (`0x102c85f4`): 0.3 past the
+  floor contact. That 0.3 is the window in which the engine still counts
+  the body as standing — a step's hop stays grounded, and a jump pressed
+  while falling through it fires at once, which is the bunny hop.
+  `FloorCheckMP` (`0x10189320`) and `MonsterFloorCheck` (`0x1018FAA0`) are
+  variants of the same ray. **`FloorCheckRandom(bottom, top)`**
+  (`0x1018FF60`) is the same ray at a random horizontal offset: `x` and `z`
+  each `(rand / 32767 − 0.5) × 4.0 × 0.2 × bodyScale`, so within ±0.4, from
+  `centre + top × 0.2` down to `centre + bottom × 0.2`. `PlayerAction` calls
+  it with `(−7.0, 4.5)` — the same head-to-`centre − 1.4` span — whenever
+  its own axis ray misses, which is what keeps a steep slope grounded.
+- **`StepCheck(Vector, float)`** (`0x1018EB90`) — the ladder of forward rays
+  at fixed heights, below.
+- **`MovePlayerOutOfWall()`** (`0x10190890`) — the unstick. The object keeps
+  the **last position it was in** (`+0x54..0x5c` on its helper, refreshed at
+  the end of every call that finds nothing wrong). A ray from that stored
+  position to where the body is now, and if it crosses geometry the body is
+  put back at the hit, pushed out along the surface normal — a body that a
+  step, a moving mesh or the solver's own tolerance left inside a wall walks
+  back out along the path it came in by. Two thresholds gate it: the move is
+  shorter than **3.0** (`0x102AEEF0`; a longer one is a teleport, not a
+  wedge) and the hit fraction is past **0.4** (`0x102C862C`).
+
+The port's pawn is a swept query instead of a corrected body, but it now
+runs the same unstick at the end of every move: `PlayerPawn` keeps the
+previous centre, traces from it to the new one against the static world
+(`RayCast` static-only - props the player is pushing are not walls), and on
+a crossing puts the centre back at the hit plus the body's widest radius
+along the normal, under the same two gates; a teleport (`SetHeadPos`)
+clears the stored position. `Depenetrate` (one deepest overlap per pass,
+four passes) still handles the shallow overlaps a crossing test cannot see.
+`FloorCheck`'s ray is ported as is (head to `centre − 1.4`, deciding the
+grounded branch), a short downward sweep decides whether the body is
+resting at its hover, and `StepCheck` is ported as the ladder below.
+
+## The step ladder — `PhysicsObject::StepCheck` (0x1018eb90) and its response
 
 Steps are not a tweak, they are a **table of constants in the binary**, and
 the engine grades a step by how tall it is rather than treating every
 obstacle alike.
 
-`StepCheck` fires a ladder of forward line traces at fixed heights off the
-pawn centre and returns which rung first comes back blocked. The heights are
-**doubles** at `0x102c8580`–`0x102c85f0` (read them with `ReadFloats.java`;
-the float column is garbage, the values are 8 bytes). With the floor at
-`centre − 1.1`, a rung at `centre + r` sits `1.1 + r` above the floor:
+`StepCheck(dir, arg)` fires line traces from the body centre along the
+normalised wish direction at fixed heights, highest rung first, and returns
+the first rung that comes back blocked. The heights are **doubles** at
+`0x102c8570`–`0x102c85f0` (read them with `ReadFloats.java`; the float
+column is garbage). The float argument is **1.0 at the only call**
+(`PUSH 0x3f800000` at 0x10193b85), and it only picks the reach of the three
+low rungs (`3.8 <= arg × 3.23 / 2.66 / 2.1` would give 0.76; at 1.0 it is
+`arg × 0.646 / 0.532 / 0.42`). With the floor contact at `centre − 1.1`:
 
-| rung | above floor | returns | PlayerAction's response |
-|---:|---:|:--:|---|
-| −1.096 | 0.00 | 1 | full speed over it |
-| −0.96 | 0.14 | 2 | velocity × 0.3 |
-| −0.68 | 0.42 | 3 | horizontal × 0.3 |
-| −0.24 and up | 0.86+ | 4 | a wall: direction cleared, speed reset |
+| rung (off the centre) | above the floor contact | reach | returns |
+|---|---|---:|:--:|
+| −0.075, −0.24, 0, +0.24, +0.48, +0.72, +0.96 | 1.03, 0.86, 1.10 … 2.06 | 0.76 | 4, a wall |
+| −0.68 | 0.42 | 0.646 | 3 |
+| −0.96 | 0.14 | 0.532 | 2 |
+| −1.096 | 0.00 | 0.42 | 1 |
+| nothing blocked | | | 0 |
 
-So the engine climbs **anything up to 0.86 above the floor** and charges for
-it by height. That is what a step feels like in the original: the pawn rises
-in a single frame while that frame's travel is cut to 30%, which reads as a
-small hop whose size varies with the step — not an input jump, just the
-step response. The 0.3 is `0x102af83c`.
+**The response is an impulse, not a climb.** `PlayerAction`'s tail (the
+switch at 0x10193c98, cases at 0x10193f55 / 0x10193dd3 / 0x10193d8a /
+0x10193cab, the default at 0x10194095) builds `target − v` in four stack
+slots, scales it, multiplies by `GetMass` (0x101888a0, `1 / invMass`) and
+hands it to the body's impulse thunk (0x101889b0, vtable `+0x5c`). Every
+frame, with no `dt` anywhere in it:
 
-The function's float argument scales the trace's FORWARD reach (0.42 / 0.532
-/ 0.646 of it below a threshold, a flat 0.76 above), not the heights — so
-`Tweak.PlayerMove.MaxStepHeight` (0.7) does not appear to reach here at all.
-Left unresolved rather than assumed.
+| rung | f | horizontal target | vertical target |
+|:--:|:--:|---|---|
+| 0 | 0.2 (`0x102b3b80`) | wish × speed | none — `v.y` is left alone |
+| 1 | 0.5 (`0x102ae5b0`) | wish × speed | 0.4 × speed (`0x102c862c`) |
+| 2 | 0.5 | 0.3 × wish × speed (`0x102af83c`) | 0.5 × speed (`0x102ae5b0`) |
+| 3 | 0.5 | 0.3 × wish × speed | 0.8 × speed (`0x102b24ac`) |
+| 4 | 0.5 | 0 — the velocity halves | none; the stored direction is zeroed and `currentSpeed` reset to `PlayerSpeed` |
+| jump | 1 | wish × speed (× 0.3 on rung 2, 0 on rung 4) | `jumpVel` |
 
-Measured on Cathedral after porting the ladder, walking a second in eight
-directions: a climbing direction that was fully blocked (0.03 units) now
-covers 7.33 and gains 1.42 height; another goes 5.46 → 7.23. Flat directions
-are untouched at 7.98–8.00, and a descending one pays the penalty, 7.99 →
-7.22.
+A jump never fires against rung 3: case 3 does not test the jump flag, so
+pressing jump into a 0.42 step gives the step's kick instead. Speed here is
+`currentSpeed`, so a bunny-hopper is kicked harder.
 
+**The switch runs in every branch.** Cases 1–4 test only the jump flag
+(`AL`), never the airborne one — the airborne bit only picks the default
+case's factor. So shins meeting a ledge in flight get the same kick, and
+the step flag it sets makes the next frame grounded: that is how a jump
+that falls short of a ledge still ends on top of it. Airborne, the
+direction handed to `StepCheck` is the mask-rebuilt air direction.
 
+So a step is a **kick that lasts while the rung stays blocked**: half the
+gap to 0.4 / 0.5 / 0.8 of the walking speed per frame, the walk cut to 0.3
+of the wish meanwhile, and when the rung clears nothing takes the vertical
+speed away — gravity brings the body down onto the step, and the hop grows
+with the step. The floor ray reaches 0.3 past the floor contact, so the
+frame stays grounded through the hop and the walk keeps steering.
+
+Ghidra's decompile hides all of this — the case bodies collapse to a few
+scaled stack slots — and the earlier reading here ("rises in a single frame
+while that frame's travel is cut to 30%") came from that. The disassembly
+at 0x10193c98..0x10194517 is the evidence
+(`PainfulEngineHelpers/ghidra/steptail.txt`). The same block also shows the
+pre-switch impulse at 0x10193c0a is a **moving-platform** cancel (the mesh
+under the body faster than 5.0, jump not held, `v.y > 0` → `−mass × v.y`),
+not a jump cut: `local_c0..b8` is `MeshUnder`'s velocity, zero on plain
+ground.
+
+### The port
+
+`PlayerPawn::StepCheck` is the table above, against the static world only:
+a loose prop in the way is pushed by the body's contact rather than answered
+as a wall. (The engine's trace, `FUN_101ff410`, walks the world wrapper's
+registered line-trace collidables; whether items register is not recovered.
+Walking pushes props in the original, which a wall answer would forbid, so
+they are assumed not to.) The velocity is state, since each frame's
+impulse is measured against it, and the factors are spent per 60 Hz frame
+(`1 − (1 − f)^(dt × 60)`) because the original applied them once per
+rendered frame. After the sweep the body's velocity is re-read from the
+displacement, so a contact removes the component into it as Havok's
+contact did. `StairsUpSpeed` / `StairsDownSpeed` (1.0 in the tweaks) are not
+read by `PlayerAction` and are not ported. `PAINFUL_PAWN_TRACE=1` prints one
+line per move — start, delta, where the sweep ended, whether it rests and on
+what normal, the final centre — which is how the corner wedge was seen.
+
+Measured on `TestFloor` (`mklevel` with steps
+`0.07,0.14,0.25,0.42,0.60,0.80,0.86,1.00`, walking +X at 8):
+
+| step | sweep ladder | impulse |
+|---|---|---|
+| 0.07–0.25 | placed on top in one frame | kicked at 1–2 m/s, floor pos peaks 0.12–0.14 over the top |
+| 0.42 | wedged 12 frames, then placed on top | kicked at 2.9–3.3 m/s, on top in 12 frames, peaks 0.10 over |
+| 0.60 | blocked for good | climbed |
+| 0.68 / 0.72 (alone, on flat ground) | blocked | climbed |
+| 0.76 / 0.80 (alone, on flat ground) | blocked | a wall: the 0.74 rung, the body stops dead |
+| 0.80 / 0.86 / 1.00 in the row | blocked | climbed — but only because the pawn arrives FALLING off the previous box, with its rungs 0.6 higher; the box top then lies between its shin rungs and the airborne kick takes it |
+
+(The single-step figures come from `mklevel` levels with one box each; the
+row's boxes are 5 apart, too close for a grounded approach at 8 m/s.)
+
+Walking from rest: 3.9 → 5.9 → 6.9 → 7.45 → 7.7 m/s over the first fifteen
+frames, the 0.2 ramp. Pushing (`skrzynia_mala`), the standing jump (1.08
+apex), explosion, throwable and fall damage all measure as before.
+
+Airborne: walking off the 0.80 box and falling (`FloorCheck` false, 2.9 m/s
+down) into the 0.86 box's face, the shins' rung kicks the body to 2.5–3.1
+m/s up, the frame reads grounded through the step flag, and it lands on top
+— before the air branch ran no ladder and the body just slid down the face.
+
+### Slopes
+
+`PlayerAction` compares the floor normal's y with `cos(SlopeAngleToSlide)`
+(0x10192d06, the tweak at `+0x48`, 60° stock) on every frame the floor test
+hits: a walkable floor zeroes a counter on the helper (`+0x70`), a steeper
+one counts it up to 10, a miss counts it down. Over 5 the frame is walked
+as **air** — the weak factor, no walking — while the body slides under
+gravity. Below that the floor is ordinary ground: full control, a jump, and
+whatever Havok's contact friction makes of standing there. The mountain-goat
+climbing of steep slopes is the step ladder above, whose shin rungs hit a
+slope like a stair.
+
+Two things keep the floor test alive on a steep slope, where the axis ray
+misses because the sphere's contact is off to the side:
+`FloorCheckRandom(-7.0, 4.5)` retries the ray at a random offset within
+±0.4 in x and z (see the helpers section), and the step flag counts as
+grounded.
+
+The port has the counter, the random ray and the ladder. The slide itself
+is a **stand-in**: Coulomb friction at the level's `DefaultMeshFriction`
+(0.7 on the shipped levels, so a slope holds to 35°), the excess of gravity
+along the slope spent as downhill acceleration; the body's own coefficient
+(`hkpRigidBodyCinfo` in the sizer, `FUN_101b3e20`) is not recovered, and
+Havok combines the two. Standing still, the 0.2 walk impulse toward zero
+balances it at a creep — about `a / 12` m/s, the slow slide of play.
 
 ### Jump is a LATCH, not an input edge
 
@@ -299,47 +470,23 @@ gave no landing jump before and jumps on landing now.
 jump velocity - not "left the ground", which a step-up also satisfies and which
 made every stair play `hero_jump`.
 
-### The step must not fire against a wall, and must land somewhere it can stand
+### What the sweep ladder got wrong, and why it is gone
 
-Reported from play: the player jumps when pushing a prop or walking into a
-wall, and a small step reads as a weak jump with the jump sound on it.
+The first port of the ladder was a swept-shape retry: on a blocked frame, try
+the move again from `startY + 0.86` and drop back onto whatever is there. It
+climbed by teleporting the body onto the step in one frame — the "almost
+teleports to the ledge" from play — and it had to be fenced against sliding
+along walls and against resting on edges (measured then: 712 frames with
+vertical movement out of 800 wedged against one obstacle on Cathedral). With
+the response recovered as an impulse those fences are unnecessary: a wall
+rung halves the velocity and there is no retry to misfire, and a body that
+cannot rest on a step is simply not lifted onto it.
 
-Three separate faults, all in the port rather than in the recovered ladder.
-
-**A swept sphere SLIDES, so pressing into a wall looked like progress.** The
-engine's top rung is a forward LINE TRACE at 0.86 and a block there is a wall -
-direction cleared, no vertical response. Retrying the move from `startY + 0.86`
-with a swept sphere and comparing raw distance let sliding ALONG the wall count
-as "higher up there is room", so the pawn climbed a fraction every frame and
-gravity pulled it back. The gain is now measured along the WISH DIRECTION, and
-must beat the ground result by more than SlideSphere's own skin.
-
-**A step was kept even where the pawn could not rest.** Placed on an edge, the
-ground probe below then reported it airborne and gravity returned it next
-frame. The step is now only taken when a short probe at the new position comes
-back grounded.
-
-Measured on Cathedral, walking into one obstacle for 800 frames: **712 frames
-with vertical movement before, 0 after** - a fall of about 0.15 followed by a
-pop of +0.14 to +0.22, repeating. Walking eight directions for a second each,
-the ratchet shows up as height gained while going nowhere:
-
-| direction | dist before → after | height before → after |
-|---|---|---|
-| back-left | 1.77 → **2.42** | **+1.52** → +0.44 |
-| forward-left | 8.82 → **9.81** | -0.07 → +0.09 |
-| left | 2.49 → **2.85** | +0.63 → +0.61 |
-| forward | 8.00 → 8.00 | -0.06 → -0.06 |
-
-Climbing is preserved and horizontal progress improves, because a frame spent
-ratcheting up a wall is a frame not spent sliding along it.
-
-**`PO_JumpedInLastAction` has to mean an actual jump.** It was inferred as
-"was grounded, now is not", which a step-up satisfies - and `CPlayer:Tick`
-plays `hero_jump_1/2` on it, which is where the sound on a stair came from.
-`PlayerPawn` now records whether the move really applied the jump velocity.
-Measured: walking into an obstacle for 460 frames reports 0 jump frames, an
-actual jump reports 1.
+One fact from that work stands: **`PO_JumpedInLastAction` has to mean an
+actual jump.** It was inferred as "was grounded, now is not", which a step-up
+satisfies — and `CPlayer:Tick` plays `hero_jump_1/2` on it, which is where the
+sound on a stair came from. `PlayerPawn` records whether the move really
+applied the jump velocity.
 
 ## `ENTITY.SetVelocity` on the player is a launch, not a store
 
@@ -382,10 +529,14 @@ The cause is not found. Ruled out so far:
   Promode block at `0xe8`–`0x11c`, and that block describes a friction-and-
   acceleration model `PlayerAction` has no terms for.
 
-Still open: the jump is handed to Havok as a **velocity delta toward a target**
-(`target − currentVelocity`, built at `0x10193cb3`) rather than assigned, and
-the normal `StepCheck` branch could not be traced — the decompiler loses those
-stack slots.
+Still open. The jump is handed to Havok as a **velocity delta toward a
+target** (`target − currentVelocity`, built at `0x10193cb3`) with the factor
+1, which is an assignment in effect — and the `StepCheck` branches are now
+traced in full (the step ladder section), so there is no hidden extra there.
+One candidate the recovered floor ray offers: it reaches 0.3 past the floor
+contact, so a jump pressed while still falling through that window fires
+0.3 above the ground and tops out that much higher; a measurement of chained
+jumps in the original would have included it.
 
 ### Consecutive jumps top out at the same height
 
@@ -402,11 +553,11 @@ Until the real rule is found, this port reproduces the SHAPE of that:
 | | launch | from |
 |---|---|---|
 | standing jump | formula × `kStandScale` (1.16) | the floor |
-| bunny hop | formula, unscaled | up to `kHopLift` (0.276 m) above the floor |
+| bunny hop | formula, unscaled | the floor ray's window, up to 0.3 above the floor |
 
-`kHopLift` is chosen so both reach the same apex:
-`(1.16² − 1) × 5.6² / (2 × 19.62) = 0.276`. A hop fires from a downward probe
-finding floor within that window while falling.
+The hop's window is the recovered one (FloorCheck's ray to `centre − 1.4`),
+which replaced a chosen 0.276 that had been set so both reached the same
+apex; a hop fires on the first grounded frame while falling through it.
 
 Measured apexes over a hop chain: **1.048, 1.000, 1.021, 0.997, 1.020** — the
 first standing, the rest hops, repeatable across runs. Hops land a little under
@@ -436,6 +587,68 @@ while still standing on the heavier, pinned coffins. The pawn now asks for
 solid props on every query; the camera keeps the affordance. Measured on
 Cathedral: standing on `BarrelBig_007` settles the eye at 10.643 against
 9.749 on the floor beside it.
+
+**The pawn slides with the original's shape.** `Engine.dll` has no Havok
+character proxy (no `hkpCharacterProxy` string anywhere); the player is a
+dynamic rigid body of the sizer's four spheres with a density mass of 80,
+whose velocity `PlayerAction` re-commands every frame, with `StepCheck`,
+`FloorCheck` and `MovePlayerOutOfWall` around it. The port runs the same
+impulse law on a velocity of its own and sweeps the collision shape with it:
+`PlayerPawn::Move` sweeps `BodyTypes.Player`'s four-sphere stack
+(`PhysicsWorld::SlidePlayer`, the same cast as `SlideSphere` with the
+compound shape) about the body centre, eye − 0.9. The stack RESTS on its
+bottom sphere, the sweep's 0.02 skin over the mesh, as a dynamic body does;
+a 0.14 hover that kept `GetPawnFloorPos` on the mesh was tried first and put
+every rung 0.14 too high (see "The pawn"). A short probe down decides
+whether the body is resting and sets it on the floor; it never grounds a
+RISING body, since at 120 fps a jump's first frame lifts the stack 5 cm and
+grounding it there zeroed the jump on the spot. The head sphere meets
+ceilings and the shin sphere meets ledges as they did in the original,
+where a single feet sphere let the camera into ceilings and wedged on
+geometry.
+
+Two query details cost real height and real wedges before they were found:
+
+- **Jolt's shape queries take the centre-of-mass transform**, and the
+  four-sphere stack's centre of mass is 0.059 above its origin. Passing the
+  origin sank the stack by that much in every cast and overlap test, which
+  is why the player rested 0.06 high on every floor (`RShapeCast::
+  sFromWorldTransform`, `shape->GetCenterOfMass()`).
+- **A shape left exactly touching casts as a hit at fraction 0 whichever
+  way it goes.** A sphere settled onto a ledge's corner by a vertical probe
+  was within the skin diagonally, so every later cast — even straight away
+  from the corner — reported a hit and the body could never slide off.
+  `Depenetrate` now reports pairs nearer than 0.01 (`mMaxSeparationDistance`)
+  and pushes them out to that gap.
+
+**Ledge corners.** The resting probe returns its contact normal (`SlidePlayer`'s
+`hitNormal`), and the slope slide runs on it: a sphere hanging over a
+ledge's corner sees a tilted support and slides off once the tilt beats the
+friction angle, as the original's body did — it could not stand with its
+axis past an edge. Measured on the 0.86 box: the axis 0.16 past the edge
+holds (support tilt 29°); 0.21 past (40°) slides and drops within twenty
+frames. `PLAYER.FloorCheck` meanwhile is its own axis ray to `centre − 1.7`
+with no random retry (`FloorCheck(-8.5, 4.5)` at 0x10138da0), so the
+scripts see the drop as the body leaves the edge, not a flicker while it
+stands.
+
+**Pushing is the rigid-body contact, per frame.** When the swept body is
+held short of its ask by a dynamic prop, `PushProps` gives every prop the
+stack is pressing on `dv = M / (M + m) × (speed − have)` along the walk, the
+contact impulse of an 80 kg body re-commanded at `speed`: a light barrel
+reaches the player's speed in a few frames, a heavy crate creeps (and floor
+friction holds it below the player), and anything over
+`Tweak.PlayerMove.MaximalItemPushMass` (2500) is a wall. Characters keep
+`ShoveCharacters`. The solver body the player wears (`CreatePawnProbe`) is a
+kinematic **sensor** in the same silhouette: it reports what strikes the
+player and pushes nothing, so a thrown can passes through the player after
+reporting rather than bouncing off. Two earlier models were wrong: a solid
+kinematic pusher shoved a barrel at full speed whatever it weighed (infinite
+mass - and before that the free camera's 1.2 pusher did the same), and a
+dynamic pusher chasing the pawn pushed almost nothing, because the feet
+sphere stopped the pawn at the prop's surface and the pusher arrived with no
+penetration to spend. Headless (TestFloor, `push_probe.lua`): walking into a
+`BarrelBig` sends it ahead at the player's pace.
 
 ## The bug the measurement caught
 

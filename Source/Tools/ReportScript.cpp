@@ -25,7 +25,7 @@ int LuaCmd(const char* dataRoot, int frames, const char* level,
     physics.SetProbeEnabled(false);   // no free camera here; it would sit on the player
     // The player's own pusher: the widest of the four spheres the shape factory
     // builds for BodyTypes.Player at bodyScale 1.0 (Engine.dll 0x101b3e20).
-    physics.SetPawnProbeRadius(0.4f, 2.0f, 1.1f);   // the four-sphere player body as a capsule
+    physics.SetPawnProbeRadius(0.4f);   // the four-sphere player body as a sensor
     PlayerPawn pawn;
     Input input;
     ScriptEngine engine;

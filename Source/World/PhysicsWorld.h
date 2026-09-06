@@ -350,10 +350,27 @@ public:
     // barrels while still standing on the heavier, pinned coffins.
     // ignoreSlot passes one script body straight through, for a body that is
     // sweeping ITSELF through the world (see CameraBlockerFilter).
+    // The PLAYER's own slide: SlideSphere with BodyTypes.Player's four-sphere
+    // stack about `centre` (the body centre, eye - 0.9), so the head meets
+    // ceilings and the shins meet ledges as the original's body did.
+    // PlayerMovement.md, "What the player collides with".
+    // hitNormal, when given, receives the first contact's normal (toward the
+    // body) - the support under a resting stack, corner or slope alike.
+    void SlidePlayer(float centre[3], const float delta[3], bool solidProps = true,
+                     float* hitNormal = nullptr) const {
+        SlideSphere(centre, delta, -1.f, solidProps, -1, false, nullptr, hitNormal);
+    }
+    // What the player's blocked walk does to the props in its way: the
+    // rigid-body contact law of an 80 kg body re-commanded at `speed`, every
+    // frame, so a light barrel reaches the player's speed in a few frames and
+    // a heavy crate creeps. Heavier than MaximalItemPushMass is a wall.
+    void PushProps(const float centre[3], const float dir[3], float speed,
+                   float pusherMass);
     void SlideSphere(float pos[3], const float delta[3], float radius,
                      bool solidProps = false, int ignoreSlot = -1,
                      bool collideWithPlayer = false,
-                     bool* separatedFromCharacter = nullptr) const;
+                     bool* separatedFromCharacter = nullptr,
+                     float* hitNormal = nullptr) const;
 
     // True when a sphere at this position overlaps anything solid.
     bool SphereOverlaps(const float pos[3], float radius) const;
@@ -372,6 +389,9 @@ public:
         // For a hit on the static world: the MapMesh object the triangle came
         // from (per-triangle user data), -1 otherwise. Decals clip to it.
         int worldObject = -1;
+        // The player's own body, only when the cast asked for it
+        // (includePlayer): the AI's LineTraceHitPlayerBalls.
+        bool player = false;
     };
 
     // WORLD.LineTrace and friends. staticOnly restricts it to the world mesh,
@@ -385,7 +405,7 @@ public:
     bool RayCast(const float from[3], const float to[3], RayHit& out,
                  bool staticOnly = false, const int* exclude = nullptr,
                  size_t excludeCount = 0, const int* ignoreRagdolls = nullptr,
-                 size_t ignoreRagdollCount = 0) const;
+                 size_t ignoreRagdollCount = 0, bool includePlayer = false) const;
 
     // Pushes a sphere out of anything it is inside, and reports how many
     // overlaps it had to resolve. SlideSphere does this before every move:
@@ -431,11 +451,11 @@ public:
     // Radius comes from the recovered player shape: EngineGame::CreatePlayer
     // asks for BodyTypes.Player at bodyScale 1.0 and the sizer builds four
     // spheres of which the widest is 0.4.
-    // height > 2 * radius makes it a capsule of that height standing on the
-    // floor, with the probe's position centreAboveFloor above the feet: the
-    // original's four-sphere player body, which thrown things and debris
-    // strike anywhere from ankle to head.
-    void SetPawnProbeRadius(float radius, float height = 0.f, float centreAboveFloor = 0.f);
+    // A SENSOR wearing BodyTypes.Player's four-sphere stack at the pawn's
+    // centre: it reports what strikes the player (throwables, debris, a
+    // landing corpse) and pushes nothing - the pawn's own slide and PushProps
+    // are the body's motion. radius <= 0 removes it.
+    void SetPawnProbeRadius(float radius);
     // ENTITY.SetAngularVelocity handed to a live body (PhysicsObject::SetAngularVel).
     void SetScriptBodyAngularVelocity(int slot, const float w[3]);
     void MovePawnProbe(const float pos[3], bool push);

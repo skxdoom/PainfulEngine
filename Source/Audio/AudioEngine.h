@@ -211,7 +211,14 @@ private:
 
     // One entry per outstanding PauseCurrentlyPlaying, so nested pauses each
     // resume only what they took.
-    std::unordered_map<int, std::vector<Voice>> pauseSets_;
+    // What one PauseCurrentlyPlaying stopped: voices and music streams, as
+    // MilesEngine::PauseCurrentlyPlayingSounds (0x101F4DF0) pauses every
+    // playing AIL stream too and ResumeSounds restarts them.
+    struct PauseSet {
+        std::vector<Voice> voices;
+        std::vector<int> streams;
+    };
+    std::unordered_map<int, PauseSet> pauseSets_;
     int nextPauseToken_ = 1;
     std::vector<float> scratch_;
 

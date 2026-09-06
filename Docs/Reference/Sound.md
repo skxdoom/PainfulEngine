@@ -154,7 +154,13 @@ iVar1 = (GEngine + 0xd8 == 0) ? -1 : MilesEngine::PauseCurrentlyPlayingSounds(..
 
 It resumes whatever set it is still holding, pauses everything **currently
 playing**, and keeps the token naming that set (`PainMenu+0x3a8`, -1 when it
-holds none). `PainMenu::ResumeSounds` is 0x1004f7c0;
+holds none). "Everything" includes the music: after the 2D and 3D sample
+tables, `PauseCurrentlyPlayingSounds` walks the stream table
+(`MilesEngine+0x5c`, 0x24 bytes a slot) and `AIL_pause_stream`s every one
+that is playing, and `ResumeSounds` restarts exactly those. The port's token
+set carries the stream slots alongside the voices for the same reason.
+`PainMenu.lua` itself has its `StreamPause` calls commented out, so this is
+the only thing that silences the music in the menu. `PainMenu::ResumeSounds` is 0x1004f7c0;
 `MilesEngine::PauseCurrentlyPlayingSounds` is 0x101f4df0 and
 `MilesEngine::ResumeSounds` 0x101f5270. A separate pair exists for saving,
 `SaveGame_PauseSounds` / `SaveGame_ResumeSounds` (0x101f54f0 / 0x101f5500),

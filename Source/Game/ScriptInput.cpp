@@ -155,7 +155,7 @@ int ScriptEngine::L_PLAYER_ExecAction(lua_State* L) {
 int ScriptEngine::L_PLAYER_FloorCheck(lua_State* L) {
     const ScriptEngine* self = From(L);
     lua_pushboolean(L, self->pawn_ && HandleArg(L, 1) == self->playerHandle_ &&
-                           self->pawn_->onGround());
+                           self->pawn_->floorCheck());
     return 1;
 }
 

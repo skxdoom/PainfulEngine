@@ -20,8 +20,10 @@ namespace painful {
 //    1.1h with h the half-height (GetPawnHeadPos / GetPawnFloorPos, the
 //    0.9/1.1 at 0x102c8510/0x102c7c04). SetPawnHeadPos takes the EYE
 //    position - Lev.Pos is eye level.
-//  - Ground velocity is wishDir * currentSpeed, an instant snap - there is
-//    no walk acceleration ramp.
+//  - The mover is an impulse toward a target velocity, mass * f * (target -
+//    v) once per frame: f = 0.2 walking, 0.5 on a step rung (with a vertical
+//    target of 0.4/0.5/0.8 of the speed), 1 for a jump, StrongAirControl /
+//    WeakAirControl in the air. So there IS a walk ramp, about ten frames.
 //  - jumpVelocity = JumpStrength * PlayerSpeed * 0.7 (the 0.7 at
 //    0x102c8648) = 5.6 m/s stock, an 0.8 m hop at gravity 19.62.
 //  - Bunny-hop: a jump pressed within SecondsWhenYouCanBunnyHopBeforeLanding
@@ -71,6 +73,9 @@ public:
         out[2] = head_[2];
     }
     bool onGround() const { return onGround_; }
+    // PLAYER.FloorCheck's own ray: FloorCheck(-8.5, 4.5) (0x10138da0), the
+    // axis from the head to centre - 1.7, no random retry.
+    bool floorCheck() const { return scriptFloor_; }
     // The body's widest half-width, for the region overlap in TickTriggers.
     static constexpr float radius() { return kRadius; }
     // Which mover to be: the engine picks MultiPlayerAction for a multiplayer
@@ -112,7 +117,9 @@ public:
     // steers with. jumpedThisMove_ stays false: a pad is not an input jump,
     // and the scripts' jump sound hangs off that.
     void SetVelocity(const float v[3]) {
+        velX_ = v[0];
         velY_ = v[1];
+        velZ_ = v[2];
         const float h = std::sqrt(v[0] * v[0] + v[2] * v[2]);
         speed_ = h;
         airDir_[0] = h > 1e-4f ? v[0] / h : 0.f;
@@ -162,43 +169,39 @@ private:
     // Its widest radius, 0.40, is the body's, and the model's 0.82 width
     // matches it far better than a scaled 0.92 would.
     static constexpr float kEyeAboveFloor = 2.0f;
+    // GetPawnHeadPos = centre + 0.9, GetPawnFloorPos = centre - 1.1. The
+    // stack's bottom is 0.96 below the centre and the body RESTS ON IT - a
+    // dynamic body does not hover - so the floor point the scripts read sits
+    // 0.14 under the mesh and the eye 1.86 over it. A 0.14 hover was tried
+    // and put every rung 0.14 too high. PlayerMovement.md, "The pawn".
+    static constexpr float kEyeAboveCentre = 0.9f;
+    static constexpr float kFloorBelowCentre = 1.1f;
+    static constexpr float kHover = 0.f;
     static constexpr float kRadius = 0.40f;
     static constexpr float kPlayerMass = 80.f;     // (0.2)^3 * 10000
+    // FloorCheck's ray ends 1.4 below the centre (0x102c85f4): 0.3 past the
+    // floor contact, the window in which the engine still counts as standing.
+    static constexpr float kFloorReach = 1.4f;
 
-    // PhysicsObject::StepCheck (0x1018eb90) is a ladder of forward line
-    // traces at fixed heights, and it returns which rung first came back
-    // blocked. The heights are DOUBLES in Engine.dll at 0x102c8580..0x102c85f0,
-    // measured from the pawn centre; the floor is centre - 1.1, so a rung at
-    // centre + r sits 1.1 + r above the floor:
-    //
-    //   rung -1.096 -> 0.00 above floor -> returns 1, climbed at full speed
-    //   rung -0.96  -> 0.14             -> returns 2, velocity x 0.3
-    //   rung -0.68  -> 0.42             -> returns 3, horizontal x 0.3
-    //   rung -0.24  -> 0.86             -> returns 4, a wall: stop dead
-    //
-    // So the engine climbs anything up to 0.86 above the floor and charges
-    // for it by height, which is why a step in the original reads as a small
-    // hop that differs with the step: the pawn rises in one frame while that
-    // frame's travel is cut to 30%. A bare sphere only rolls over what its
-    // own radius clears, which is why steps felt too low here.
-    // Note these are hardcoded in the binary, not read from the tweaks.
-    // StepCheck's only tweak-ish input is its float argument, and that scales
-    // the FORWARD trace distance (0.42/0.532/0.646 of it below a threshold,
-    // a flat 0.76 above), not the heights - so Tweak.PlayerMove.MaxStepHeight
-    // (0.7) does not appear to reach here. Left unresolved rather than
-    // assumed.
-    static constexpr float kStepFree = 0.14f;      // free below this
-    static constexpr float kStepMax = 0.86f;       // a wall above this
-    static constexpr float kStepPenalty = 0.3f;    // 0x102af83c
-
-    // How high above the floor a bunny hop may launch. Set so an unscaled hop
-    // matches a standing jump at 1.16: (1.16^2 - 1) * 5.6^2 / (2*19.62).
-    // A STAND-IN, like the scale it compensates.
-    static constexpr float kHopLift = 0.276f;
+    // StepCheck's rung ladder for a wish direction: 0 clear, 1..3 a step at
+    // the floor / 0.14 / 0.42 above it, 4 a wall. Rung table in the .cpp.
+    int StepCheck(const PhysicsWorld& physics, const float centre[3],
+                  const float wish[2]) const;
 
     float head_[3] = {0, 0, 0};
-    float velY_ = 0.f;
-    bool onGround_ = false;
+    // The body's velocity, PlayerAction's `v` - persistent, since every
+    // frame's impulse is measured against it.
+    float velX_ = 0.f, velY_ = 0.f, velZ_ = 0.f;
+    bool onGround_ = false;          // floor ray or step: the grounded branch
+    bool resting_ = false;           // set on the floor by the probe
+    bool stepping_ = false;          // a rung answered 1..3 (flag bit 0)
+    bool scriptFloor_ = false;       // PLAYER.FloorCheck's ray
+    // The floor's normal from the last floor ray that hit (PhysicsObject
+    // +0x60), the too-steep counter on it (helper +0x70, 0..10; over 5 the
+    // frame is treated as airborne), and FloorCheckRandom's generator.
+    float floorNormal_[3] = {0.f, 1.f, 0.f};
+    int slopeCount_ = 0;
+    uint32_t rng_ = 0x9e3779b9u;
 
     // The bunny-hop state PlayerAction keeps on the physics object.
     float speed_ = 0.f;              // current target speed; 0 = uninitialised
@@ -210,6 +213,10 @@ private:
     uint32_t takeoffMask_ = 0;       // movement bits frozen at takeoff
     float airDir_[2] = {0, 0};       // last frame's travel direction (x, z)
     float landingImpact_ = 0.f;      // fall speed at the last touchdown
+    // Where the body centre was after the last move: MovePlayerOutOfWall's
+    // stored position (PhysicsObject helper +0x54). A teleport clears it.
+    float lastCentre_[3] = {0, 0, 0};
+    bool haveLast_ = false;
 };
 
 } // namespace painful
