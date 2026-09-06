@@ -928,6 +928,12 @@ int ScriptEngine::L_R3D_ApplyVideoSettings(lua_State* L) {
         lua_gettable(L, -2);
         if (!lua_isnil(L, -1)) self->world_.bloom = lua_toboolean(L, -1) != 0;
         lua_pop(L, 1);
+        // And Cfg.DecalsStayTime into the decal ageing rate (Renderer+0x5d6b50):
+        // 1000 = off, 2.0 = x1 ... 0.2 = x5 by the menu's own comment.
+        lua_pushstring(L, "DecalsStayTime");
+        lua_gettable(L, -2);
+        if (lua_isnumber(L, -1)) self->decals_.SetSpeed(float(lua_tonumber(L, -1)));
+        lua_pop(L, 1);
     }
     lua_pop(L, 1);
     return 0;

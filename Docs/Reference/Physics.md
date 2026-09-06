@@ -514,6 +514,28 @@ passes `(true, 0.5, MinSpeedOnCollision * 0.2)` when the item has an impact
 sound, so the engine's gate sits well below the script's and the script decides.
 
 
+### Ragdoll limbs report too
+
+`ENTITY.EnableCollisionsToRagdoll(e, joint, minTime = 0.4, minStren = 1.0)`
+(`0x10130500`) is `Ragdoll::Joint_SetCollisionCallbacks` on one joint of the
+entity's ragdoll — the same gate as `EnableCollisions`, per limb, and nothing
+without a ragdoll. `CActor:EnableRagdoll` and `CreateGib` arm the joints the
+template lists in `RagdollCollisions.Bones` / `RagdollCollisionsGib.Bones`
+(`{"k_szyja", "bodyfalls", true}` = joint, sound, bleeds; Amputee arms the
+neck and both elbows at `MinStren 4, MinTime 0.6`) and install
+`StdRagdollOnCollision`, which plays the joint's sound at the contact and
+calls `BloodFX` there — the blood items whose landing spawns the decals
+([`Decals.md`](Decals.md)). It also deals `RagdollCollDamage` to whatever the
+limb hit when `velocity_me + 2 > velocity_other`.
+
+The message is the same ten values with `e_me` the corpse's owner and `h_me`
+a **limb handle**, which is what `MDL.GetJointFromHavokBody(e, h_me)` turns
+back into the joint index the precomputed table is keyed on.
+`PHYSICS.GetHavokBodyVelocity` answers a limb handle with the part's contact
+velocity. In the port `CollectScriptContacts` maps a Jolt body to (ragdoll
+slot, part) beside the script-body slots, and `TickCollisions` dispatches a
+limb side through the joint's own `RagdollCallback` gate and cooldown.
+
 ## Explosions
 
 Every explosion in the game funnels through one native. `Explosion()` in

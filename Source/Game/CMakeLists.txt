@@ -30,6 +30,7 @@ add_library(Game STATIC
   ScriptExplosion.cpp
   ScriptWater.cpp
   ScriptSave.cpp
+  ScriptDecal.cpp
 )
 target_link_libraries(Game PUBLIC Script Render Audio)
 painful_layer(Game)

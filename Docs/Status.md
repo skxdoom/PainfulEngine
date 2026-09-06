@@ -356,11 +356,14 @@ The ordered work queue, with the evidence behind each item, is
   `MaintainPosition` and `PO_EnableSpeedDamping` behind it are stubs, so
   Alastor and the ravens still have no mover.
 - **Collision-group plumbing.** `PO_SetCollisionGroup` (91 sites),
-  `PO_SetMovedByExplosions`, `EnableCollisionsToRagdoll` / `ToAll`,
-  `PO_Activate`. `CreateScriptBody` switches on groups 1 and 7 only.
+  `PO_SetMovedByExplosions`, `EnableCollisionsToAll`, `PO_Activate`.
+  `CreateScriptBody` switches on groups 1 and 7 only.
+  `EnableCollisionsToRagdoll` is real: a corpse's armed joints report their
+  landing, which is the fall sound and the blood ([`Physics.md`](Reference/Physics.md),
+  "Ragdoll limbs report too").
 - **The ragdoll joint API.** The `ApplyVelocitiesToJoint` /
-  `ApplyRotationToJoint` family, `SetRagdollRestitution`,
-  `EnableCollisionsToRagdoll`. The `Spring` and `Dashpot` actions in the
+  `ApplyRotationToJoint` family, `SetRagdollRestitution`. The `Spring` and
+  `Dashpot` actions in the
   `.hke` are parsed but not simulated ([`Physics.md`](Reference/Physics.md),
   "The binary .hke").
 - **Lifetime and world state.** `WORLD.SetWorldSpeed` (slow motion),
@@ -372,8 +375,10 @@ The ordered work queue, with the evidence behind each item, is
 
 ### Rendering
 
-- Decals and trails: `ENTITY.SpawnDecal` / `SpawnOrientedDecal` and
-  `AttachTrailToBones` are stubs, so no impact marks and no projectile trails.
+- Decals are in: `ENTITY.SpawnDecal` / `SpawnOrientedDecal` / `SpawnStaticDecal`
+  / `UpdateDecal`, `R3D.KeepDecals` and `Cfg.DecalsStayTime`, cut against the
+  map object under the hit ([`Decals.md`](Reference/Decals.md)). Not on models
+  or pack meshes. Trails (`AttachTrailToBones`) are still stubs.
 - Script-driven dynamic lights: `LIGHT.Setup` / `SetFalloff` and the
   `ENVIRONMENT.Set*` family are stubs. Static `CLight`s already light models
   (see Entity lighting above); what is missing is the runtime kind the scripts

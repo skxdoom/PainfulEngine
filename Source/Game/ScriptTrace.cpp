@@ -141,6 +141,38 @@ int ScriptEngine::L_WORLD_LineTrace(lua_State* L) {
     return TraceCommon(L, false);
 }
 
+// ENTITY.PO_LineTrace(e, x1,y1,z1, x2,y2,z2) - the same ten values, against
+// ONE entity: a world mesh through PhysicsWorld::LineTraceStaticMesh, anything
+// with a body through PhysicsObject::LineTrace (0x101318B0). The stake and the
+// bolt re-trace the wall they stuck in for the decal and the sparks.
+int ScriptEngine::L_ENTITY_PO_LineTrace(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const int handle = HandleArg(L, 1);
+    const float from[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+                           float(luaL_optnumber(L, 4, 0))};
+    const float to[3] = {float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
+                         float(luaL_optnumber(L, 7, 0))};
+    PhysicsWorld::RayHit hit;
+    bool got = false;
+    int entity = 0;
+    if (handle == 0) {
+        got = self->TraceRay(from, to, hit, true);
+    } else if (const Entity* e = self->Find(handle)) {
+        // Only this entity's body counts; a hit on anything else is a miss.
+        got = self->TraceRay(from, to, hit, false) && e->physicsBody >= 0 &&
+              hit.bodySlot == e->physicsBody;
+        entity = handle;
+    }
+    lua_pushboolean(L, got);
+    if (!got) return 1;
+    lua_pushnumber(L, hit.distance);
+    for (int c = 0; c < 3; ++c) lua_pushnumber(L, hit.point[c]);
+    for (int c = 0; c < 3; ++c) lua_pushnumber(L, hit.normal[c]);
+    lua_pushnumber(L, hit.bodySlot);
+    lua_pushnumber(L, entity);
+    return 10;
+}
+
 // LineTraceFixedGeom asks about the world mesh alone. The actors use it for
 // their ground and step probes, where hitting each other would be noise.
 int ScriptEngine::L_WORLD_LineTraceFixedGeom(lua_State* L) {

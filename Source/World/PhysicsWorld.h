@@ -36,6 +36,10 @@ struct BodyPose {
 // COLLISION_WITH_OTHER_ENTITY; see ScriptEngine::TickCollisions.
 struct ScriptContact {
     int slotA = -1, slotB = -1;
+    // A side that is a ragdoll limb rather than a script body: the ragdoll
+    // slot and the part index (RagdollBones order). -1 when it is not one.
+    int ragdollA = -1, partA = -1;
+    int ragdollB = -1, partB = -1;
     float point[3] = {0, 0, 0};
     float normal[3] = {0, 0, 0};   // pointing from A toward B
     // The two velocities AS THE CONTACT WAS RECORDED, mid-step and before the
@@ -356,6 +360,9 @@ public:
         // A ragdoll limb is neither a script body nor the world.
         int ragdollSlot = -1;       // CreateRagdoll slot, or -1
         int ragdollPart = -1;       // index into RagdollBones(ragdollSlot)
+        // For a hit on the static world: the MapMesh object the triangle came
+        // from (per-triangle user data), -1 otherwise. Decals clip to it.
+        int worldObject = -1;
     };
 
     // WORLD.LineTrace and friends. staticOnly restricts it to the world mesh,

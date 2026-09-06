@@ -267,8 +267,9 @@ void ScriptEngine::ResetLevelState() {
     // objects (CreateActiveMeshes); GObjects:Clear never sees them.
     std::vector<int> engineOwned;
     for (const auto& kv : entities_)
-        if (kv.second.worldObject) engineOwned.push_back(kv.first);
+        if (kv.second.worldObject || kv.second.decalSlot >= 0) engineOwned.push_back(kv.first);
     for (int handle : engineOwned) ReleaseEntity(handle);
+    decals_.Clear();
     water_.clear();
     lastExploded_.clear();
     contactVelocity_.clear();

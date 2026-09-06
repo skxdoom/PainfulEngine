@@ -797,7 +797,8 @@ bool PhysicsWorld::BuildStaticWorld(const MapMesh& map, float worldScale,
     JPH::VertexList vertices;
     JPH::IndexedTriangleList triangles;
 
-    for (const MapObject& o : map.objects) {
+    for (size_t objectIndex = 0; objectIndex < map.objects.size(); ++objectIndex) {
+        const MapObject& o = map.objects[objectIndex];
         if (!o.isCollidable()) continue;
         // CreateActiveMeshBody's, and CreateStaticTwinBody's: a destructible's
         // intact twin is its own static body, so its release can remove it.
@@ -821,7 +822,10 @@ bool PhysicsWorld::BuildStaticWorld(const MapMesh& map, float worldScale,
             // as authored gives every floor a downward face, and simulated
             // bodies fall through the level while queries - which can be told
             // to collide with back faces - still hit it.
-            triangles.push_back(JPH::IndexedTriangle(base + a, base + c, base + b, 0));
+            // The object index rides along as the triangle's user data, so a
+            // trace can say which .mpk object it hit (RayHit::worldObject).
+            triangles.push_back(JPH::IndexedTriangle(base + a, base + c, base + b, 0,
+                                                     JPH::uint32(objectIndex)));
         }
     }
 
@@ -831,6 +835,7 @@ bool PhysicsWorld::BuildStaticWorld(const MapMesh& map, float worldScale,
     }
 
     JPH::MeshShapeSettings meshSettings(std::move(vertices), std::move(triangles));
+    meshSettings.mPerTriangleUserData = true;
     // Map geometry has degenerate triangles here and there; Jolt refuses to
     // build a tree around them, so they go before it sees them.
     meshSettings.Sanitize();
@@ -1303,19 +1308,34 @@ void PhysicsWorld::CollectScriptContacts(std::vector<ScriptContact>& out) {
             slotOf[sb.body.GetIndexAndSequenceNumber()] = int(i);
     }
 
+    // BodyID -> (ragdoll slot, part): a limb is a side too, for the joints
+    // ENTITY.EnableCollisionsToRagdoll asked about.
+    std::unordered_map<uint32_t, std::pair<int, int>> limbOf;
+    for (size_t r = 0; r < impl_->ragdolls.size(); ++r) {
+        const JPH::Ragdoll* rd = impl_->ragdolls[r].ragdoll;
+        if (rd == nullptr) continue;
+        for (size_t b = 0; b < rd->GetBodyCount(); ++b)
+            limbOf[rd->GetBodyID(int(b)).GetIndexAndSequenceNumber()] = {int(r), int(b)};
+    }
+
     for (const ScriptContactListener::Pending& p : pending) {
         const auto a = slotOf.find(p.a.GetIndexAndSequenceNumber());
         const auto b = slotOf.find(p.b.GetIndexAndSequenceNumber());
+        const auto la = limbOf.find(p.a.GetIndexAndSequenceNumber());
+        const auto lb = limbOf.find(p.b.GetIndexAndSequenceNumber());
         // ONE side is enough. Requiring both was wrong and it hid the common
         // case: almost everything a prop hits is the STATIC WORLD - a vase
         // pushed off a balcony lands on the floor, not on another prop - and
         // that collision is exactly the one a destructible breaks on. The world
         // side reports slot -1, which becomes entity 0 in the message, the same
         // stand-in a world hit already uses in the traces.
-        if (a == slotOf.end() && b == slotOf.end()) continue;
+        if (a == slotOf.end() && b == slotOf.end() && la == limbOf.end() && lb == limbOf.end())
+            continue;
         ScriptContact c;
         c.slotA = a == slotOf.end() ? -1 : a->second;
         c.slotB = b == slotOf.end() ? -1 : b->second;
+        if (la != limbOf.end()) { c.ragdollA = la->second.first; c.partA = la->second.second; }
+        if (lb != limbOf.end()) { c.ragdollB = lb->second.first; c.partB = lb->second.second; }
         for (int k = 0; k < 3; ++k) {
             c.point[k] = p.point[k];
             c.normal[k] = p.normal[k];
@@ -3046,9 +3066,14 @@ bool PhysicsWorld::RayCast(const float from[3], const float to[3], RayHit& out,
     JPH::ClosestHitCollisionCollector<JPH::CastRayCollector> collector;
     // LineTraceFixedGeom asks about the world mesh alone, which is the
     // non-moving layer; the actors and props it wants to ignore all live in
-    // the moving one.
-    const JPH::DefaultObjectLayerFilter staticLayer(impl_->objectPairs,
-                                                    Layers::kNonMoving);
+    // the moving one. Asked directly: the pair filter says static never
+    // meets static, so a DefaultObjectLayerFilter on kNonMoving hit nothing.
+    struct StaticLayerFilter final : JPH::ObjectLayerFilter {
+        bool ShouldCollide(JPH::ObjectLayer layer) const override {
+            return layer == Layers::kNonMoving;
+        }
+    };
+    const StaticLayerFilter staticLayer;
     const SolidLayerFilter solidLayer;
     impl_->system.GetNarrowPhaseQuery().CastRay(
         ray, settings, collector, {},
@@ -3071,6 +3096,12 @@ bool PhysicsWorld::RayCast(const float from[3], const float to[3], RayHit& out,
             const JPH::Vec3 normal =
                 body.GetWorldSpaceSurfaceNormal(collector.mHit.mSubShapeID2, point);
             for (int c = 0; c < 3; ++c) out.normal[c] = normal[c];
+            // Which .mpk object, off the triangle's user data (BuildStaticWorld).
+            if (body.GetID() == impl_->worldBody &&
+                body.GetShape()->GetSubType() == JPH::EShapeSubType::Mesh) {
+                const JPH::MeshShape* mesh = static_cast<const JPH::MeshShape*>(body.GetShape());
+                out.worldObject = int(mesh->GetTriangleUserData(collector.mHit.mSubShapeID2));
+            }
         }
     }
 

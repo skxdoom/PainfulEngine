@@ -15,6 +15,7 @@
 #include "../Assets/Rde.h"
 #include "../Assets/Hke.h"
 #include "../Script/LuaHost.h"
+#include "../World/Decals.h"
 #include "../World/Level.h"
 #include "../World/PhysicsWorld.h"
 #include "Input.h"
@@ -132,6 +133,18 @@ public:
         float collisionMinTime = 0.4f;
         float collisionMinStrength = 0.6f;
         float collisionCooldown = 0.f;
+        // ENTITY.EnableCollisionsToRagdoll(e, joint, minTime, minStren): the
+        // same gate per LIMB (Ragdoll::Joint_SetCollisionCallbacks). A corpse
+        // reports the joints listed here when they land, which is what plays
+        // the fall sound and spawns the blood. Docs/Reference/Physics.md, "Contacts".
+        struct RagdollCallback {
+            float minTime = 0.4f;
+            float minStrength = 1.f;
+            float cooldown = 0.f;
+        };
+        std::map<int, RagdollCallback> ragdollCallbacks;
+        // A Decal entity's DecalSystem slot, -1 for a precache-only one.
+        int decalSlot = -1;
         // MDL.SetMeshVisibility, kept so it survives the renderer instance
         // being rebuilt. name -> shown.
         std::map<std::string, bool> hiddenMeshes;
@@ -624,6 +637,9 @@ public:
     const MapMesh* map() const { return mapLoaded_ ? &map_ : nullptr; }
 
     const WorldState& world() const { return world_; }
+    // The live decals, for the DecalRenderer to draw. ENTITY.SpawnDecal
+    // builds them; TickLifetimes ages and reaps them.
+    const DecalSystem& decals() const { return decals_; }
     void ClearLoadRequest() { world_.loadRequested = false; }
     const std::unordered_map<int, Entity>& entities() const { return entities_; }
     size_t created() const { return created_; }
@@ -869,6 +885,21 @@ private:
     static int L_PHYSICS_IsHavokBodyInWorld(lua_State* L);
     static int L_PHYSICS_GetHavokBodyVelocity(lua_State* L);
     static int L_ENTITY_EnableCollisions(lua_State* L);
+    static int L_ENTITY_EnableCollisionsToRagdoll(lua_State* L);
+    static int L_ENTITY_PO_LineTrace(lua_State* L);
+    // Decals (ScriptDecal.cpp). Docs/Reference/Decals.md.
+    static int L_ENTITY_SpawnDecal(lua_State* L);
+    static int L_ENTITY_SpawnOrientedDecal(lua_State* L);
+    static int L_ENTITY_SpawnStaticDecal(lua_State* L);
+    static int L_ENTITY_UpdateDecal(lua_State* L);
+    static int L_ENTITY_ReloadDecalSystem(lua_State* L);
+    static int L_R3D_KeepDecals(lua_State* L);
+    // Projects a decal onto what it was spawned against: the target's map
+    // object when it is a world object, else the object under the spawn
+    // point, else every collidable object the box overlaps.
+    void BuildDecalGeometry(Entity& decal, int target, const float pos[3],
+                            const float normal[3]);
+    int SpawnDecalEntity(lua_State* L, bool oriented, const char* staticTexture);
     static int L_WORLD_Explosion2(lua_State* L);
     static int L_PO_SetMovedByExplosions(lua_State* L);
     static int L_PO_SetGrenade(lua_State* L);
@@ -1167,6 +1198,8 @@ private:
 
     MapMesh map_;
     bool mapLoaded_ = false;
+    DecalLibrary decalLib_;
+    DecalSystem decals_;
     std::unordered_map<int, int> bodyToEntity_;   // body slot -> entity handle
     // The debris ExplodeItem made, per item that blew up. CItem:DestroyItemFX
     // asks for it by the ITEM's handle straight after exploding it, and walks

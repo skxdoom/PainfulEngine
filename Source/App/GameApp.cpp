@@ -18,6 +18,7 @@
 #include "Game/ScriptEngine.h"
 #include "Render/BillboardRenderer.h"
 #include "Render/DebugLines.h"
+#include "Render/DecalRenderer.h"
 #include "Render/EntityRenderer.h"
 #include "Render/HudRenderer.h"
 #include "Render/ParticleRenderer.h"
@@ -136,6 +137,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
     const bool particlesReady = particles.Init(shaderDir);
     BillboardRenderer billboards;
     const bool billboardsReady = billboards.Init(shaderDir);
+    // Decals live in the engine (ENTITY.SpawnDecal builds them); this only draws.
+    DecalRenderer decals;
+    const bool decalsReady = decals.Init(shaderDir);
 
     // Boot the scripts with the renderers and the simulation attached, then
     // let them load the level: every ENTITY.Create lands in the renderer,
@@ -325,6 +329,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
     auto tearDown = [&]() {
         if (!levelUp) return;
         world.Clear();
+        decals.Clear();
         sky.Unload();
         collision = CollisionMesh();
         fallbackMap = MapMesh();
@@ -927,6 +932,11 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
                        info, elapsed);
         entities.Draw(Renderer::kWorldView, camera, window.width(), window.height(),
                       info, elapsed);
+        // Decals over the world and the props, before anything blended.
+        if (decalsReady) {
+            decals.SetFog(info.fogMode, info.fogStart, info.fogEnd, info.fogDensity, info.fogColor);
+            decals.Draw(Renderer::kWorldView, camera, engine.decals(), textures);
+        }
         // Particles then coronas last, exactly as in the hand-driven loop:
         // blended, no depth writes, and coronas ignore depth entirely.
         // Paused stops the SIMULATION but not the drawing, here as everywhere

@@ -26,6 +26,10 @@ int ScriptEngine::L_Create(lua_State* L) {
         // AddPFX passes the effect name as argument 3, and that is the name
         // KillAllChildrenByName(se, "stakeflame") finds a bound effect by.
         e.name = e.mesh;
+    } else if (e.type == kDecal) {
+        // Cache:PrecacheDecal creates and releases one: load the .ini now.
+        e.name = e.source;
+        self->decalLib_.Get(e.source);
     }
     const int handle = self->nextHandle_++;
     auto it = self->entities_.emplace(handle, e).first;
@@ -106,6 +110,7 @@ void ScriptEngine::ReleaseEntity(int handle) {
     if (particles_)
         for (int slot : it->second.emitterSlots)
             if (slot >= 0) particles_->RemoveScriptEmitter(slot);
+    if (it->second.decalSlot >= 0) decals_.Remove(it->second.decalSlot);
     entities_.erase(it);
     ++released_;
 }
@@ -450,6 +455,8 @@ int ScriptEngine::L_SetTimeToDie(lua_State* L) {
 void ScriptEngine::TickLifetimes(float dt) {
     if (dt <= 0.f) return;
     expired_.clear();
+    // Decal::Tick, then World::DeleteEntityDelayed on the ones that ran out.
+    decals_.Tick(dt);
     for (auto& kv : entities_) {
         Entity& e = kv.second;
         if (e.timeToDie >= 0.f) {
@@ -458,6 +465,10 @@ void ScriptEngine::TickLifetimes(float dt) {
                 expired_.push_back(kv.first);
                 continue;
             }
+        }
+        if (e.decalSlot >= 0 && decals_.Finished(e.decalSlot)) {
+            expired_.push_back(kv.first);
+            continue;
         }
         // A spent one-shot effect. AddPFX creates an entity per impact and
         // never takes it back, so the engine has to: once every emitter has

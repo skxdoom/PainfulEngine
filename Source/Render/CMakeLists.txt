@@ -9,6 +9,7 @@ add_library(Render STATIC
   SkyRenderer.cpp        SkyRenderer.h
   ParticleRenderer.cpp   ParticleRenderer.h
   BillboardRenderer.cpp  BillboardRenderer.h
+  DecalRenderer.cpp      DecalRenderer.h
   DebugLines.cpp         DebugLines.h
   FontCache.cpp          FontCache.h
   HudRenderer.cpp        HudRenderer.h

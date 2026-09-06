@@ -6,6 +6,7 @@ add_library(World STATIC
   Zones.cpp          Zones.h
   CollisionMesh.cpp  CollisionMesh.h
   PhysicsWorld.cpp   PhysicsWorld.h
+  Decals.cpp         Decals.h
 )
 target_link_libraries(World PUBLIC Assets Jolt)
 painful_layer(World)

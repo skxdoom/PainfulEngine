@@ -86,6 +86,7 @@ new fact is recovered.
 | [`Levels.md`](Docs/Reference/Levels.md) | what a level is made of, and writing one from code |
 | [`Particles.md`](Docs/Reference/Particles.md) | emitter formats and simulation |
 | [`Billboards.md`](Docs/Reference/Billboards.md) | billboards, coronas and the occlusion trace |
+| [`Decals.md`](Docs/Reference/Decals.md) | impact marks and blood: the `.ini`, the projection, the fade, who spawns them |
 | [`TextureTransforms.md`](Docs/Reference/TextureTransforms.md) | pan, tile and the detail-map transform |
 | [`Water.md`](Docs/Reference/Water.md) | water surfaces, the material tiers and what each needs |
 | [`Hud.md`](Docs/Reference/Hud.md) | the 2D layer: `MATERIAL`, `HUD.PrintXY`, fonts and the colour palette |

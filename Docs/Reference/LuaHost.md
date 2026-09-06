@@ -680,8 +680,9 @@ Not carried over: the animation cross-fade in progress (the new run starts on
 the current animation), angular velocity of free bodies (`angVel` is kept,
 the solver's own spin is not read back), the particle systems' live
 particles (emitters restart), 2D sounds and music streams (script-side, and
-the scripts restart the level's music), and anything in the stub natives
-(decals, dynamic lights). `SOUND.SaveGame_ResumeSounds` and the bookkeeping
+the scripts restart the level's music), the decals on the walls (engine
+entities the scripts never see; [`Decals.md`](Decals.md)), and anything in
+the stub natives (dynamic lights). `SOUND.SaveGame_ResumeSounds` and the bookkeeping
 `WORLD.SwitchToState` / `LateVBsBegin` / `LateVBsEnd` / `UpdateAllEntities` /
 `Release` are no-ops here.
 

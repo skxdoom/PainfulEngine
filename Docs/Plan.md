@@ -323,7 +323,7 @@ wrong:
 
 | | |
 |---|---|
-| Decals | `ENTITY.SpawnDecal` (35), `SpawnOrientedDecal`, `ReloadDecalSystem`, `R3D.KeepDecals`. Every impact mark in the game. |
+| Decals | LANDED — `ENTITY.SpawnDecal` (35), `SpawnOrientedDecal`, `ReloadDecalSystem`, `R3D.KeepDecals` ([`Decals.md`](Reference/Decals.md)). Left: decals on models and pack meshes; trails. |
 | Dynamic lights | `LIGHT.Setup` / `SetFalloff` (502 calls a run) and the six flag setters; `ENVIRONMENT.SetAmbient` / `SetFog` / `SetDirLight` / `RemoveLights` (250). |
 | Model materials | `MESH.SetDetailMap` / `SetNormalMap` / `SetCubeMap` / `SetSpecular` / `AddSpecularLight` (648); `MDL.SetMaterial`, `SetTexture`, `EnableNormalMaps`, `MATERIAL.Replace` (44). |
 | Camera | `R3D.SetCameraFOV` (401) — FOV is fixed, so no zoom and no FX. |
