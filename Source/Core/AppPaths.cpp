@@ -52,6 +52,13 @@ void MountForPath(const char* anyPath, const char* exePath) {
     if (!root.empty()) MountRoot(root.c_str());
 }
 
+std::string ExeDir(const char* exePath) {
+    std::error_code ec;
+    const std::filesystem::path exe = std::filesystem::absolute(exePath, ec);
+    if (ec) return ".";
+    return exe.parent_path().string();
+}
+
 std::string ShaderDirFor(const char* exePath) {
     std::error_code ec;
     std::filesystem::path exe = std::filesystem::absolute(exePath, ec);

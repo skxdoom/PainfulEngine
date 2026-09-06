@@ -1,12 +1,12 @@
 # Third-party components
 
-PainfulEngine itself is GPL-3.0-or-later (see [`LICENSE`](LICENSE)). It builds
-against the components below, each of which stays under its own terms. All of
-them are permissive and GPL-compatible, so the combined work may be
-distributed under the GPL while these notices are preserved.
+PainfulEngine is GPL-3.0-or-later (see [`LICENSE`](LICENSE)). It builds against
+the components below. Each keeps its own licence. All of them are permissive and
+GPL-compatible, so the combined work can be distributed under the GPL as long
+as these notices stay.
 
-Licence texts live with the code — the paths below are where each one ships —
-and nothing here is relicensed by this project.
+Each licence text ships with its code, at the path given. This project
+relicenses nothing.
 
 | Component | Licence | Where it comes from |
 |---|---|---|
@@ -16,27 +16,27 @@ and nothing here is relicensed by this project.
 | **bgfx.cmake** | CC0 1.0 | Submodule `External/bgfx` (the build wrapper) |
 | **miniz** | MIT | Header-only, from `External/bgfx/bimg/3rdparty/tinyexr/deps/miniz` |
 | **Jolt Physics** | MIT | Submodule `External/JoltPhysics` |
-| **minimp3** | CC0 1.0 | Vendored header in `External/minimp3/` (the music streams) |
+| **minimp3** | CC0 1.0 | Vendored header in `External/minimp3/` (music streams) |
 
 Everything except Lua and minimp3 is a git submodule, so only a reference is
-stored here; run a recursive clone to fetch them.
+stored here. Clone with `--recursive` to fetch them.
 
-## Lua is vendored, and deliberately
+## Why Lua is vendored
 
-`External/lua-5.0.2/` holds the interpreter's source verbatim from lua.org,
-including its `COPYRIGHT` file, which must stay with it. The version is
-load-bearing rather than incidental: the shipped game scripts use 5.0-only
-forms — the generic `for k,v in <table> do`, `table.getn`, `math.mod`,
-`string.gfind` — that 5.1 removed, and `Engine.dll` statically links exactly
-this interpreter. A newer Lua does not run Painkiller's scripts.
+`External/lua-5.0.2/` holds the interpreter's source exactly as published on
+lua.org, including its `COPYRIGHT` file, which must stay with it. The version
+matters: the game's scripts use forms that Lua 5.1 removed (the generic
+`for k,v in <table> do`, `table.getn`, `math.mod`, `string.gfind`), and
+`Engine.dll` statically links this exact interpreter. A newer Lua does not run
+Painkiller's scripts.
 
 ## What this project is not
 
-No Painkiller data, assets, or binaries are included, and none may be
-redistributed with it. Running the engine requires your own copy of the game.
+No Painkiller data, assets or binaries are included, and none may be
+redistributed with it. You need your own copy of the game.
 
 The rules the engine implements were recovered from the shipped data, the
-shipped Lua scripts, and analysis of `Engine.dll`; the documentation records
+shipped Lua scripts and analysis of `Engine.dll`. The documentation records
 addresses, constants and data layouts as factual descriptions of those
 interfaces. No decompiler output is kept in this repository, and none should
-be added to it.
+be added.

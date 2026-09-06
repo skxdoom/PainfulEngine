@@ -23,6 +23,9 @@ void MountForPath(const char* anyPath, const char* exePath);
 // Where the compiled shaders sit, relative to the executable.
 std::string ShaderDirFor(const char* exePath);
 
+// The executable's own directory, where painful_config.ini and the logs go.
+std::string ExeDir(const char* exePath);
+
 std::string MapNameWithoutExtension(const std::string& mapFile);
 
 }  // namespace painful

@@ -192,7 +192,7 @@ bool LuaHost::DoFile(const std::string& scriptPath, bool required) {
     std::vector<uint8_t> bytes;
     if (!FileSystem::Get().Exists(path) || !ReadFile(path, bytes)) {
         if (required) {
-            LogWarn("script missing: %s", path.c_str());
+            LogScript("script missing: %s", path.c_str());
             ++filesMissing_;
         }
         return false;
@@ -201,7 +201,7 @@ bool LuaHost::DoFile(const std::string& scriptPath, bool required) {
     const std::string chunkName = "@" + path;
     if (luaL_loadbuffer(L_, reinterpret_cast<const char*>(bytes.data()), bytes.size(),
                         chunkName.c_str()) != 0) {
-        LogWarn("script parse error: %s", lua_tostring(L_, -1));
+        LogScript("script parse error: %s", lua_tostring(L_, -1));
         lua_pop(L_, 1);
         ++scriptErrors_;
         return false;
@@ -210,7 +210,7 @@ bool LuaHost::DoFile(const std::string& scriptPath, bool required) {
     lua_pushcfunction(L_, Traceback);
     lua_insert(L_, -2);                     // handler below the chunk
     if (lua_pcall(L_, 0, 0, -2) != 0) {
-        LogWarn("script error: %s", lua_tostring(L_, -1));
+        LogScript("script error: %s", lua_tostring(L_, -1));
         lua_pop(L_, 2);                     // message + handler
         ++scriptErrors_;
         return false;
@@ -285,7 +285,7 @@ std::string LuaHost::GetTextField(const char* table, const std::string& field) c
 
 bool LuaHost::RunString(const std::string& chunk) {
     if (luaL_loadbuffer(L_, chunk.data(), chunk.size(), "@exec") != 0) {
-        LogWarn("exec parse error: %s", lua_tostring(L_, -1));
+        LogScript("exec parse error: %s", lua_tostring(L_, -1));
         lua_pop(L_, 1);
         ++scriptErrors_;
         return false;
@@ -293,7 +293,7 @@ bool LuaHost::RunString(const std::string& chunk) {
     lua_pushcfunction(L_, Traceback);
     lua_insert(L_, -2);
     if (lua_pcall(L_, 0, 0, -2) != 0) {
-        LogWarn("exec error: %s", lua_tostring(L_, -1));
+        LogScript("exec error: %s", lua_tostring(L_, -1));
         lua_pop(L_, 2);
         ++scriptErrors_;
         return false;
@@ -311,7 +311,7 @@ bool LuaHost::CallGlobal(const char* name, const double* args, int nargs) {
     }
     for (int i = 0; i < nargs; ++i) lua_pushnumber(L_, args[i]);
     if (lua_pcall(L_, nargs, 0, -nargs - 2) != 0) {
-        LogWarn("%s: %s", name, lua_tostring(L_, -1));
+        LogScript("%s: %s", name, lua_tostring(L_, -1));
         lua_pop(L_, 2);
         ++scriptErrors_;
         return false;
@@ -331,7 +331,7 @@ bool LuaHost::CallGlobalStr(const char* name, const std::string& text, const dou
     lua_pushlstring(L_, text.data(), text.size());
     for (int i = 0; i < nargs; ++i) lua_pushnumber(L_, args[i]);
     if (lua_pcall(L_, nargs + 1, 0, -nargs - 3) != 0) {
-        LogWarn("%s: %s", name, lua_tostring(L_, -1));
+        LogScript("%s: %s", name, lua_tostring(L_, -1));
         lua_pop(L_, 2);
         ++scriptErrors_;
         return false;
@@ -346,14 +346,14 @@ bool LuaHost::CallGameMethod(const char* method, const char* stringArg) {
     lua_getglobal(L_, "Game");
     if (!lua_istable(L_, -1)) {
         lua_pop(L_, 2);
-        LogWarn("no Game object - boot did not complete");
+        LogScript("no Game object - boot did not complete");
         return false;
     }
     lua_pushstring(L_, method);
     lua_gettable(L_, -2);
     if (!lua_isfunction(L_, -1)) {
         lua_pop(L_, 3);
-        LogWarn("Game.%s is missing", method);
+        LogScript("Game.%s is missing", method);
         return false;
     }
     lua_insert(L_, -2);          // function below its self argument
@@ -363,7 +363,7 @@ bool LuaHost::CallGameMethod(const char* method, const char* stringArg) {
         nargs = 2;
     }
     if (lua_pcall(L_, nargs, 0, -nargs - 2) != 0) {
-        LogWarn("Game:%s: %s", method, lua_tostring(L_, -1));
+        LogScript("Game:%s: %s", method, lua_tostring(L_, -1));
         lua_pop(L_, 2);
         ++scriptErrors_;
         return false;
@@ -386,7 +386,7 @@ bool LuaHost::CallGameInit(bool noLevel) {
     lua_insert(L_, -2);
     lua_pushboolean(L_, 1);
     if (lua_pcall(L_, 2, 0, -4) != 0) {
-        LogWarn("Game:Init(true): %s", lua_tostring(L_, -1));
+        LogScript("Game:Init(true): %s", lua_tostring(L_, -1));
         lua_pop(L_, 2);
         ++scriptErrors_;
         return false;
@@ -409,7 +409,7 @@ bool LuaHost::CallGameOnPlay() {
     lua_insert(L_, -2);              // function below its self argument
     lua_pushboolean(L_, 1);          // firstTime
     if (lua_pcall(L_, 2, 0, -4) != 0) {
-        LogWarn("Game:OnPlay: %s", lua_tostring(L_, -1));
+        LogScript("Game:OnPlay: %s", lua_tostring(L_, -1));
         lua_pop(L_, 2);
         ++scriptErrors_;
         return false;
@@ -438,7 +438,7 @@ bool LuaHost::PostMsg(const char* msg, const double* args, int nargs) {
     lua_pushstring(L_, msg);
     for (int i = 0; i < nargs; ++i) lua_pushnumber(L_, args[i]);
     if (lua_pcall(L_, 1 + nargs, 0, -nargs - 3) != 0) {
-        LogWarn("Game_GetMsg(%s): %s", msg, lua_tostring(L_, -1));
+        LogScript("Game_GetMsg(%s): %s", msg, lua_tostring(L_, -1));
         lua_pop(L_, 2);
         ++scriptErrors_;
         return false;

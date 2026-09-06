@@ -29,7 +29,7 @@ bgfx::ShaderHandle LoadShader(const std::string& shaderDir, const char* name) {
             // Said once, because an override is a development state and a build
             // that renders oddly should say why before anyone goes looking.
             static bool said = false;
-            if (!said) { said = true; LogInfo("shaders: %s (on-disk override)", shaderDir.c_str()); }
+            if (!said) { said = true; LogShader("shaders: %s (on-disk override)", shaderDir.c_str()); }
             return bgfx::createShader(bgfx::copy(data.data(), uint32_t(data.size())));
         }
     }
@@ -38,7 +38,7 @@ bgfx::ShaderHandle LoadShader(const std::string& shaderDir, const char* name) {
     // Only reachable when the running backend has no array in the table - a
     // renderer bgfx chose that this build was not compiled for.
     if (!bgfx::isValid(h))
-        LogWarn("no %s for %s", name, bgfx::getRendererName(bgfx::getRendererType()));
+        LogShader("warning: no %s for %s", name, bgfx::getRendererName(bgfx::getRendererType()));
     return h;
 }
 

@@ -8,6 +8,7 @@
 #include "GameApp.h"
 
 #include "Core/AppPaths.h"
+#include "Core/Config.h"
 #include "Core/CrashReport.h"
 #include "Core/FileSystem.h"
 #include "Core/Log.h"
@@ -47,6 +48,11 @@ static int DefaultRun(const char* exePath) {
 
 int main(int argc, char** argv) {
     InstallCrashHandler("PainfulEngine");
+    // The logs and painful_config.ini live beside the executable, like the
+    // original's config.ini.
+    const std::string exeDir = ExeDir(argv[0]);
+    LogOpen(exeDir);
+    Settings().Load(exeDir);
     if (argc < 2) return DefaultRun(argv[0]);
     if (std::string(argv[1]) != "game" || argc < 3) return Usage();
 

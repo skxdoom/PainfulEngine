@@ -10,7 +10,8 @@ add_library(Core STATIC
   FileSystem.cpp  FileSystem.h
   AppPaths.cpp    AppPaths.h
   CrashReport.cpp CrashReport.h
-                  Log.h
+  Log.cpp         Log.h
+  Config.cpp      Config.h
 )
 # Source/ is the include root: headers are reached as "../Core/Common.h".
 target_include_directories(Core PUBLIC ${PAINFUL_SOURCE})

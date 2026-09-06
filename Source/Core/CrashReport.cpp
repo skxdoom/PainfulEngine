@@ -26,7 +26,7 @@ std::string CrashLogPath() {
     std::string path(exe, n);
     const size_t slash = path.find_last_of("\/");
     path = (slash == std::string::npos) ? std::string() : path.substr(0, slash + 1);
-    return path + g_name + "-crash.log";
+    return path + "painful_crash.log";
 }
 
 // Both, always. stderr is what a console run and the headless tools show; the

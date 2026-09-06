@@ -1,48 +1,48 @@
 # PainfulEngine
 
 An open reimplementation of PainEngine (Painkiller, 2004). The game's logic is
-not compiled — it is Lua 5.0 plus serialised property tables — so the work is
-implementing the native API those scripts call, not rewriting the design.
+not compiled. It is Lua 5.0 scripts plus serialised property tables. So the
+work is implementing the native API those scripts call, not redesigning the
+game.
 
 ## Recover, don't guess
 
 Every rule the engine follows comes from something the game shipped: the data,
-the shipped Lua, or `Engine.dll` decompiled in Ghidra. Before reasoning out what
-a native means, read it in the binary. Heuristics that looked right have been
-wrong here in ways that only surfaced levels later, and each one cost more to
-find than it would have cost to check.
+the Lua scripts, or `Engine.dll` decompiled in Ghidra. Before reasoning out
+what a native does, read it in the binary. Guesses that looked right have been
+wrong here, and each one showed up levels later and cost more to find than a
+check would have.
 
-When a guess is unavoidable, say so where it lives — in the code, and in the
-doc — and say what would settle it.
+When a guess cannot be avoided, say so in the code and in the doc, and say
+what would settle it.
 
 ## Docs are part of the change
 
-`Docs/` has three kinds of file and they are not maintained the same way:
+`Docs/` has four kinds of file, maintained differently:
 
 | | |
 |---|---|
-| `Docs/Reference/` | The recovered rules. Durable: changes only when a new fact is recovered. |
+| `Docs/Reference/` | The recovered rules. Changes only when a new fact is recovered. |
 | `Docs/Status.md` | What works today. Changes when a checklist item flips. |
-| `Docs/Plan.md` | What is left and in what order. |
-| `Docs/Data/` | Generated — `native_priority.tsv` comes from `Tools/GenNativeList.ps1`. Never hand-edited. |
+| `Docs/Plan.md` | What is left, in order. |
+| `Docs/Data/` | Generated. `native_priority.tsv` comes from `Tools/GenNativeList.ps1`. Never hand-edited. |
 
-**A change that alters a recovered rule updates its `Docs/Reference/` page in the
-same commit.** Not afterwards, not in a follow-up.
+**A change to a recovered rule updates its `Docs/Reference/` page in the same
+commit.** Not later, not in a follow-up.
 
-**Never state a fact in two files — link instead.** Status lived in four places
-once (two docs and two README sections) and drifted in all of them. If something
-belongs in Reference, the README and Status link to it rather than summarising.
+**State each fact in one file and link to it from the others.** Status once
+lived in four places and drifted in all of them. If something belongs in
+Reference, the README and Status link to it instead of repeating it.
 
 ## Comments
 
 Short and technical. A comment says what the code does and which constraint it
-obeys, in about three lines. The *evidence* — measured numbers, the hypothesis
-that was tried and failed, per-asset tables — goes in the matching
-`Docs/Reference/` page, and the comment carries a one-line pointer to it. That
-record is worth keeping; it is just not worth keeping in the middle of a
-function.
+follows, in about three lines. The evidence (measured numbers, the hypothesis
+that failed, per-asset tables) goes in the matching `Docs/Reference/` page,
+and the comment points to it in one line. That record is worth keeping, just
+not in the middle of a function.
 
-Keep the address or the constant, drop the narrative:
+Keep the address or the constant, drop the story:
 
 ```cpp
 // Monster width = the SMALLER horizontal half-extent; the larger one is arms,
@@ -50,15 +50,15 @@ Keep the address or the constant, drop the narrative:
 // the model centre, not the soles. Rig measurements: Docs/Reference/MonsterMovement.md
 ```
 
-**This governs code you write or change.** Existing long comments are not a
-backlog to work through — rewrite one when you are already editing that function,
-not as a sweep of its own. The older files still carry their full derivations
-inline; that is a known state, not a defect to fix in bulk.
+**This applies to code you write or change.** Existing long comments are not a
+backlog. Rewrite one when you are already editing that function, not as a
+sweep. Older files still carry their full derivations inline; that is known and
+is not a defect to fix in bulk.
 
 ## Layout
 
 One directory, one `CMakeLists.txt`, one target, one project in the IDE. The
-layering is one-directional and the CMake targets enforce it:
+layering goes one way and the CMake targets enforce it:
 
 ```
 Core <- Assets <- World <- Render        Script beside Assets; Audio off Core
@@ -66,9 +66,8 @@ Game is the seam; App and Tools sit on top
 ```
 
 Two executables: `PainfulEngine.exe` (the game) and `PainfulTools.exe` (the
-reports and the `run` viewer). Adding a report means adding a row to the command
-table in `Source/Tools/ToolsMain.cpp` — the help text and the README's command
-tables both generate from it.
+reports and the `run` viewer). To add a report, add a row to the command table
+in `Source/Tools/ToolsMain.cpp`. The help text is generated from it.
 
 The full tree is in [`Docs/Status.md`](Docs/Status.md).
 
@@ -80,12 +79,13 @@ cmake --build Build --config Release
 ```
 
 `-DPAINFUL_DEPLOY_DIR=<game>/Bin` makes each build copy the executable into a
-game folder. Output is `Build/Bin/<Config>/` for both executables and
-`Build/Lib/<Config>/` for the libraries. The shaders are compiled per backend
-and embedded, so the executable is the whole deliverable; a `Shaders/` folder
-beside it still overrides them, which is the way to test one without a rebuild.
+game folder. Output goes to `Build/Bin/<Config>/` for both executables and
+`Build/Lib/<Config>/` for the libraries. Shaders are compiled per backend and
+embedded, so the executable is the whole deliverable. A `Shaders/` folder next
+to it still overrides them, which is how to test a shader without a rebuild.
 
-Verify a change without opening a window: every subsystem has a report.
+To check a change without opening a window, use the reports. Every subsystem
+has one:
 
 ```
 PainfulTools level <DataRoot>/Levels/<name> <DataRoot>
