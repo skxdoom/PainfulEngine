@@ -521,6 +521,13 @@ struct PhysicsWorld::Impl {
         // a character must not lose it.
         float mass = 0.f;
         int character = -1;    // index into characters, -1 for a prop
+        // The pose at the last two steps, for the render-side interpolation
+        // (RecordStep / CollectScriptPoses). Docs/Reference/Physics.md,
+        // "Interpolated poses".
+        JPH::RVec3 p0 = JPH::RVec3::sZero(), p1 = JPH::RVec3::sZero();
+        JPH::Quat q0 = JPH::Quat::sIdentity(), q1 = JPH::Quat::sIdentity();
+        bool hist = false;
+        bool needFinal = false;   // report the rest pose once after settling
         // Active mesh record (AddMesh's pinned array, 0x34-byte entries):
         // the group byte at WorldMesh+0x7e2, whether the static twin still
         // stands, whether explosions may release it, and the bounds radius
@@ -574,6 +581,12 @@ struct PhysicsWorld::Impl {
         JPH::Ref<JPH::Ragdoll> ragdoll;
         std::vector<std::string> bones;
         bool simulated = false;     // dynamic (dead) rather than driven (alive)
+        // Per part, the pose at the last two steps (RecordStep).
+        struct PartHist {
+            JPH::RVec3 p0, p1;
+            JPH::Quat q0, q1;
+        };
+        std::vector<PartHist> hist;
     };
     std::vector<RagdollInst> ragdolls;
     // Each instance gets its own collision group so two corpses in a heap
@@ -1035,6 +1048,49 @@ void PhysicsWorld::LoadProps(const Level& level, TemplateCache& templates,
     }
 }
 
+// Shifts every body's step history: what was current becomes previous, the
+// solver's pose becomes current. The read-backs blend the two by Alpha(), so
+// a frame between steps still moves everything. Physics.md, "Interpolated poses".
+void PhysicsWorld::RecordStep() {
+    const JPH::BodyInterface& bodies = impl_->system.GetBodyInterfaceNoLock();
+    for (Impl::ScriptBody& sb : impl_->scriptBodies) {
+        if (sb.body.IsInvalid() || !sb.inWorld) continue;
+        JPH::RVec3 p;
+        JPH::Quat q;
+        bodies.GetPositionAndRotation(sb.body, p, q);
+        if (!sb.hist) { sb.p0 = p; sb.q0 = q; sb.hist = true; }
+        else { sb.p0 = sb.p1; sb.q0 = sb.q1; }
+        sb.p1 = p;
+        sb.q1 = q;
+        // Settled: the two poses agree, so one more report lands it exactly.
+        if (sb.p0 == sb.p1 && sb.q0 == sb.q1) sb.needFinal = true;
+    }
+    for (Impl::RagdollInst& inst : impl_->ragdolls) {
+        if (inst.ragdoll == nullptr) continue;
+        const size_t n = inst.ragdoll->GetBodyCount();
+        std::vector<JPH::Mat44> mats(n);
+        JPH::RVec3 rootOffset = JPH::RVec3::sZero();
+        inst.ragdoll->GetPose(rootOffset, mats.data());
+        const bool fresh = inst.hist.size() != n;
+        if (fresh) inst.hist.resize(n);
+        for (size_t i = 0; i < n; ++i) {
+            Impl::RagdollInst::PartHist& h = inst.hist[i];
+            const JPH::RVec3 p = JPH::RVec3(mats[i].GetTranslation()) + rootOffset;
+            const JPH::Quat q = mats[i].GetQuaternion();
+            if (fresh) { h.p0 = p; h.q0 = q; }
+            else { h.p0 = h.p1; h.q0 = h.q1; }
+            h.p1 = p;
+            h.q1 = q;
+        }
+    }
+}
+
+// How far the frame is past the last step, 0..1.
+float PhysicsWorld::Alpha() const {
+    const float a = impl_->accumulator / kStep;
+    return a < 0.f ? 0.f : (a > 1.f ? 1.f : a);
+}
+
 void PhysicsWorld::Update(float dt) {
     if (dt <= 0.f) return;
     impl_->accumulator = std::min(impl_->accumulator + dt, kStep * kMaxStepsPerFrame);
@@ -1066,6 +1122,7 @@ void PhysicsWorld::Update(float dt) {
         StepCharacters();
         impl_->system.Update(kStep, 1, &impl_->temp, &impl_->jobs);
         impl_->accumulator -= kStep;
+        RecordStep();
         // PAINFUL_CHAR_TRACE: a character whose velocity the step changed by
         // more than 4 units/s, and what it was touching.
         static const bool traceChars = std::getenv("PAINFUL_CHAR_TRACE") != nullptr;
@@ -1677,6 +1734,8 @@ void PhysicsWorld::SetScriptBodyPose(int slot, const float pos[3],
         EngineQuatToJolt(rotWXYZ), JPH::EActivation::Activate);
     // A teleported character lands at its model origin, like a spawn.
     if (impl_->scriptBodies[size_t(slot)].character >= 0) StandCharacterOnFloor(slot, 100.f);
+    // A teleport is not a motion to blend across.
+    impl_->scriptBodies[size_t(slot)].hist = false;
 }
 
 
@@ -2206,6 +2265,8 @@ void PhysicsWorld::RemoveScriptBody(int slot) {
     bodies.DestroyBody(sb.body);
     sb.body = JPH::BodyID();
     sb.inWorld = false;
+    sb.hist = false;
+    sb.needFinal = false;
 }
 
 void PhysicsWorld::CollectScriptPoses(std::vector<ScriptBodyPose>& out,
@@ -2213,14 +2274,25 @@ void PhysicsWorld::CollectScriptPoses(std::vector<ScriptBodyPose>& out,
     out.clear();
 
     const JPH::BodyInterface& bodies = impl_->system.GetBodyInterfaceNoLock();
+    const float alpha = Alpha();
     for (size_t slot = 0; slot < impl_->scriptBodies.size(); ++slot) {
-        const JPH::BodyID id = impl_->scriptBodies[slot].body;
-        if (id.IsInvalid() || !impl_->scriptBodies[slot].inWorld) continue;
-        if (activeOnly && !bodies.IsActive(id)) continue;
+        Impl::ScriptBody& sb = impl_->scriptBodies[slot];
+        const JPH::BodyID id = sb.body;
+        if (id.IsInvalid() || !sb.inWorld) continue;
+        // Still blending toward a rest pose counts as moving, and a settled
+        // body is reported once more so it lands exactly where it stopped.
+        const bool blending = sb.hist && (sb.p0 != sb.p1 || sb.q0 != sb.q1);
+        if (activeOnly && !bodies.IsActive(id) && !blending && !sb.needFinal) continue;
+        if (!blending) sb.needFinal = false;
 
         JPH::RVec3 position;
         JPH::Quat rotation;
-        bodies.GetPositionAndRotation(id, position, rotation);
+        if (sb.hist) {
+            position = sb.p0 + (sb.p1 - sb.p0) * alpha;
+            rotation = sb.q0.SLERP(sb.q1, alpha).Normalized();
+        } else {
+            bodies.GetPositionAndRotation(id, position, rotation);
+        }
 
         ScriptBodyPose pose;
         pose.slot = int(slot);
@@ -2815,6 +2887,8 @@ void PhysicsWorld::SetRagdollPartPosition(int slot, int part, const float pos[3]
     impl_->system.GetBodyInterface().SetPosition(ids[size_t(part)],
                                                  JPH::RVec3(pos[0], pos[1], pos[2]),
                                                  JPH::EActivation::Activate);
+    // A dragged limb is placed, not moved: no blend across it.
+    impl_->ragdolls[size_t(slot)].hist.clear();
 }
 
 void PhysicsWorld::PinRagdollPart(int slot, int part) {
@@ -2844,6 +2918,9 @@ void PhysicsWorld::SetRagdollPose(int slot, const float* boneMatrices, bool kine
     if (!RagdollExists(slot) || boneMatrices == nullptr) return;
     Impl::RagdollInst& inst = impl_->ragdolls[size_t(slot)];
     const size_t n = inst.bones.size();
+    // A placed pose (the animation driving a live one, or the death
+    // handover) starts the step history afresh.
+    inst.hist.clear();
 
     // Our Mat4 is row-major with the basis in its ROWS (row-vector, v*M);
     // Jolt's Mat44 is column-major with the basis in its COLUMNS. Row i of one
@@ -2886,7 +2963,18 @@ bool PhysicsWorld::GetRagdollPose(int slot, float* boneMatrices) const {
     const size_t n = inst.bones.size();
     std::vector<JPH::Mat44> mats(n);
     JPH::RVec3 rootOffset = JPH::RVec3::sZero();
-    inst.ragdoll->GetPose(rootOffset, mats.data());
+    // Blended between the last two steps once a history exists; the solver's
+    // own pose before the first step (and for a driven, live ragdoll).
+    if (inst.simulated && inst.hist.size() == n) {
+        const float alpha = Alpha();
+        for (size_t i = 0; i < n; ++i) {
+            const Impl::RagdollInst::PartHist& h = inst.hist[i];
+            mats[i] = JPH::Mat44::sRotationTranslation(h.q0.SLERP(h.q1, alpha).Normalized(),
+                                                       JPH::Vec3(h.p0 + (h.p1 - h.p0) * alpha));
+        }
+    } else {
+        inst.ragdoll->GetPose(rootOffset, mats.data());
+    }
     for (size_t i = 0; i < n; ++i) {
         float* m = boneMatrices + i * 16;
         for (int c = 0; c < 3; ++c) {

@@ -463,6 +463,10 @@ private:
     void CreateProbe();
     // PhysicsObject::Tick for every character, once per fixed step.
     void StepCharacters();
+    // After each step: every body's previous and current pose, which the
+    // read-backs blend by Alpha() so frames between steps still move.
+    void RecordStep();
+    float Alpha() const;
     // Lifts a character whose stack is under the floor beneath it so it stands
     // on that floor. Havok's mesh is two-sided and pushes an embedded body out
     // on its own; Jolt's is one-sided and drops it through. maxLift caps the

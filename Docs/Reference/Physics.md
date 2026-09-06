@@ -1345,6 +1345,35 @@ not a port limit. Cathedral's far wall is fronted by `Slab_Room1`, a `.dat`
 item with a fixed body, which `IsFixedMesh` rightly refuses; the original
 would not nail there either.
 
+## Interpolated poses
+
+The original has no fixed step. `PhysicsWorld::Tick(dt)` (`0x1019BB70` →
+`FUN_101B75F0` in single player) hands Havok the **frame's own delta**; only a
+frame longer than 34 ms (`_DAT_102C8D04`) is split, into `ceil(dt × 33.3)`
+sub-steps of `dt / n` (`_DAT_102C8D00`), with `PhysicsObject::Tick` run per
+sub-step. A flag mode (`GEngine[0x110]`) clamps the step to
+`[prev / 3.5, prev × 3.5]` instead. So at 120 fps Havok simply stepped at
+120 Hz and nothing was ever interpolated.
+
+The port keeps its fixed 1/60 accumulator (`kStep`, at most 4 per frame),
+because every character, grenade and floor-standing constant here was measured
+per step. What it adds is the standard fix for what that does at 120 fps —
+props, corpses and monsters moving on alternate frames: `RecordStep` keeps each
+script body's and each ragdoll part's pose at the last two steps, and the
+read-backs (`CollectScriptPoses`, `GetRagdollPose`) blend them by
+`accumulator / kStep`. Positions lerp, rotations slerp. The scripts therefore
+see a pose one step behind the solver at most, which the original's own
+frame-rate stepping never had, but the natives that read the solver directly
+(`GetScriptBodyPosition`, the traces, the contacts) still see the current
+step.
+
+Three rules keep the blend honest: a teleport (`SetScriptBodyPose`,
+`SetRagdollPartPosition`, `SetRagdollPose`) drops the history so nothing
+glides across it; a body whose two recorded poses agree is reported once more
+(`needFinal`) so it lands exactly where it stopped rather than a fraction
+short; and a live, driven ragdoll (not `simulated`) reads the solver directly,
+as its pose is the animation's.
+
 ## What is missing
 
 Since this list was written the player controller and ragdolls have both
