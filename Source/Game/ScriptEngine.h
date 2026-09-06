@@ -1148,6 +1148,18 @@ private:
     static int L_SOUND_GetCurrent3DSoundProviderName(lua_State* L);
     static int L_SOUND_Set3DSoundProvider(lua_State* L);
     static int L_SOUND_SetMasterVolume(lua_State* L);
+    // Music streams and the 3D rolloff (ScriptSound.cpp).
+    static int L_SOUND_StreamLoad(lua_State* L);
+    static int L_SOUND_StreamPlay(lua_State* L);
+    static int L_SOUND_StreamPause(lua_State* L);
+    static int L_SOUND_StreamResume(lua_State* L);
+    static int L_SOUND_StreamDelete(lua_State* L);
+    static int L_SOUND_StreamSetVolume(lua_State* L);
+    static int L_SOUND_StreamGetVolume(lua_State* L);
+    static int L_SOUND_StreamSetLowPass(lua_State* L);
+    static int L_SOUND_StreamGetLowPass(lua_State* L);
+    static int L_SOUND_Set3DSoundFalloff(lua_State* L);
+    static int L_SOUND_Get3DSoundFalloff(lua_State* L);
 
     LuaHost* host_ = nullptr;
     // One id per blast, so Game_GetMsg's _Exploded dedupe sees two entities in

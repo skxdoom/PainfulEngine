@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -22,6 +23,8 @@ namespace painful {
 // Painkiller fight is a lot of sounds at once.
 class AudioEngine {
 public:
+    // Both out of line: MusicStream is complete only in the .cpp.
+    AudioEngine();
     ~AudioEngine();
 
     bool Init(const std::string& soundsRoot);
@@ -89,7 +92,33 @@ public:
     int PauseCurrentlyPlaying();
     void ResumeSounds(int token);
 
-    void SetMasterVolume(float v) { masterVolume_ = v; }
+    // The three sliders, composed the way Engine.dll composes them: samples
+    // play at master * master * effects (the master is applied once per
+    // sample and once more by Miles' digital master), streams at master *
+    // streaming. Docs/Reference/Sound.md, "The master applies twice".
+    void SetMasterVolume(float v) { masterVolume_ = v; RecomputeBusGains(); }
+    void SetEffectsVolume(float v) { effectsVolume_ = v; RecomputeBusGains(); }
+    void SetStreamingVolume(float v) { streamingVolume_ = v; RecomputeBusGains(); }
+    // SOUND.Set3DSoundFalloff -> AIL_set_3D_rolloff_factor: the k in
+    // dist1 / (dist1 + k * (d - dist1)).
+    void SetRolloff(float k) { rolloff_ = k > 0.f ? k : 1.f; }
+    float rolloff() const { return rolloff_; }
+
+    // --- music streams (the SOUND.Stream* natives) ---
+    // Slots are the scripts' own small integers (0 ambient, 1 battle, 2 the
+    // stats loop). An .mp3 under <Data>/Music, decoded as it plays.
+    bool StreamLoad(int slot, const std::string& name);
+    void StreamDelete(int slot);
+    // Starts from the beginning at volume 0, as StreamPlay (0x10124870) does.
+    void StreamPlay(int slot, bool loop);
+    void StreamPause(int slot);
+    void StreamResume(int slot);
+    void StreamSetVolume(int slot, float volume);
+    float StreamGetVolume(int slot) const;
+    bool StreamIsPlaying(int slot) const;
+    void StreamSetLowPass(int slot, float cutoff);
+    float StreamGetLowPass(int slot) const;
+    size_t streamsPlaying() const;
 
     size_t voicesPlaying() const;
     // Every sample with a real voice right now, with how many are real and how
@@ -190,6 +219,23 @@ private:
     float forward_[3] = {0, 0, 1};
     float right_[3] = {1, 0, 0};
     float masterVolume_ = 1.f;
+    float effectsVolume_ = 1.f;
+    float streamingVolume_ = 1.f;
+    float sampleGain_ = 1.f;     // master * master * effects
+    float streamGain_ = 1.f;     // master * streaming
+    float rolloff_ = 1.f;
+    void RecomputeBusGains() {
+        sampleGain_ = masterVolume_ * masterVolume_ * effectsVolume_;
+        streamGain_ = masterVolume_ * streamingVolume_;
+    }
+    // One music stream: the file, the decoder position, and an SDL stream
+    // that converts decoded frames to the device format. Defined in the .cpp
+    // so the decoder header stays out of this one.
+    struct MusicStream;
+    std::vector<std::unique_ptr<MusicStream>> streams_;
+    std::string musicRoot_;
+    std::vector<float> streamScratch_;
+    void RefillStreams();
     size_t missing_ = 0;
     // Properties named before their file is loaded, applied at Load.
     std::unordered_map<std::string, std::pair<int, int>> pendingProps_;

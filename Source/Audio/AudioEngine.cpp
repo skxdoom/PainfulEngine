@@ -6,6 +6,12 @@
 
 #include <SDL3/SDL.h>
 
+// The music decoder (CC0, External/minimp3). Frames are decoded on the game
+// thread in RefillStreams and handed to an SDL_AudioStream for conversion.
+#define MINIMP3_IMPLEMENTATION
+#define MINIMP3_NO_STDIO
+#include <minimp3.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -29,6 +35,56 @@ constexpr int kChannels = 2;
 
 } // namespace
 
+// One SOUND.Stream* slot. The whole .mp3 stays in memory (a few MB) and is
+// decoded a frame at a time ahead of the mixer; `conv` converts the decoded
+// frames to the device format and buffers them. Sound.md, "Music streams".
+struct AudioEngine::MusicStream {
+    std::string name;
+    std::vector<uint8_t> file;
+    mp3dec_t dec{};
+    size_t offset = 0;          // next byte to decode
+    SDL_AudioStream* conv = nullptr;
+    int rate = 0, channels = 0;
+    bool ok = false;
+    bool playing = false, paused = false, loop = false, eof = false;
+    float volume = 0.f;
+    float lowPass = 0.f;        // recorded, not filtered
+
+    ~MusicStream() {
+        if (conv) SDL_DestroyAudioStream(conv);
+    }
+    void Rewind() {
+        mp3dec_init(&dec);
+        offset = 0;
+        eof = false;
+        if (conv) SDL_ClearAudioStream(conv);
+    }
+    // Decodes one frame into conv. False at the end of the file.
+    bool DecodeFrame() {
+        static thread_local short pcm[MINIMP3_MAX_SAMPLES_PER_FRAME];
+        while (offset < file.size()) {
+            mp3dec_frame_info_t info{};
+            const int samples = mp3dec_decode_frame(&dec, file.data() + offset,
+                                                    int(file.size() - offset), pcm, &info);
+            if (info.frame_bytes <= 0) break;
+            offset += size_t(info.frame_bytes);
+            if (samples <= 0) continue;         // an ID3 tag or garbage, skipped
+            if (!conv) {
+                rate = info.hz;
+                channels = info.channels;
+                const SDL_AudioSpec src{SDL_AUDIO_S16, channels, rate};
+                const SDL_AudioSpec dst{SDL_AUDIO_F32, kChannels, 44100};
+                conv = SDL_CreateAudioStream(&src, &dst);
+                if (!conv) return false;
+            }
+            SDL_PutAudioStreamData(conv, pcm, samples * channels * int(sizeof(short)));
+            return true;
+        }
+        return false;
+    }
+};
+
+AudioEngine::AudioEngine() = default;
 AudioEngine::~AudioEngine() { Shutdown(); }
 
 void AudioEngine::SDLCALLBACK(void* userdata, SDL_AudioStream* stream, int more, int) {
@@ -55,6 +111,12 @@ void AudioEngine::SDLCALLBACK(void* userdata, SDL_AudioStream* stream, int more,
 
 bool AudioEngine::Init(const std::string& soundsRoot) {
     root_ = soundsRoot;
+    // "../Data/Music/%s.mp3" (StreamLoad, 0x101247A0): beside Sounds.
+    {
+        const size_t slash = root_.find_last_of("/\\");
+        musicRoot_ = (slash == std::string::npos ? std::string(".") : root_.substr(0, slash)) +
+                     "/Music";
+    }
     voices_.assign(kMaxVoices, Playing{});
 
     if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
@@ -101,6 +163,7 @@ void AudioEngine::Shutdown() {
     {
         std::lock_guard<std::mutex> guard(lock_);
         voices_.clear();
+        streams_.clear();
     }
     cache_.clear();
 }
@@ -184,13 +247,14 @@ void AudioEngine::ComputeGains(Playing& p) const {
     for (int c = 0; c < 3; ++c) to[c] = p.pos[c] - listener_[c];
     const float dist = std::sqrt(to[0] * to[0] + to[1] * to[1] + to[2] * to[2]);
 
-    // dist1 is where it starts to fade, dist2 where it is gone. The soundsDef
-    // files give both per sound, which is why this is not one global falloff.
+    // AIL_set_3D_sample_distances(max = dist2, min = dist1) under the rolloff
+    // factor Set3DSoundFalloff sets: full inside dist1, dist1 / (dist1 + k *
+    // (d - dist1)) beyond it, inaudible past dist2. Sound.md, "Falloff".
     float attenuation = 1.f;
-    if (p.dist2 > p.dist1 && dist > p.dist1)
-        attenuation = std::max(0.f, 1.f - (dist - p.dist1) / (p.dist2 - p.dist1));
-    else if (p.dist2 <= p.dist1 && dist > p.dist2 && p.dist2 > 0.f)
+    if (p.dist2 > 0.f && dist > p.dist2)
         attenuation = 0.f;
+    else if (p.dist1 > 0.f && dist > p.dist1)
+        attenuation = p.dist1 / (p.dist1 + rolloff_ * (dist - p.dist1));
 
     const float level = p.volume * attenuation;
     if (dist < 1e-3f) {
@@ -229,17 +293,31 @@ void AudioEngine::Mix(float* out, int frames) {
             const float* src = &s.pcm[idx * size_t(s.channels)];
             const float l = src[0];
             const float r = s.channels > 1 ? src[1] : l;
-            out[f * kChannels + 0] += l * p.gain[0];
-            out[f * kChannels + 1] += r * p.gain[1];
+            out[f * kChannels + 0] += l * p.gain[0] * sampleGain_;
+            out[f * kChannels + 1] += r * p.gain[1] * sampleGain_;
             p.cursor += p.speed;
         }
     }
 
+    // The music streams, already converted to the device format by their
+    // SDL streams (which are thread-safe; only the flags need the lock).
+    const int n = frames * kChannels;
+    for (const std::unique_ptr<MusicStream>& ms : streams_) {
+        if (!ms || !ms->playing || ms->paused || !ms->conv) continue;
+        if (streamScratch_.size() < size_t(n)) streamScratch_.assign(size_t(n), 0.f);
+        const int got = SDL_GetAudioStreamData(ms->conv, streamScratch_.data(),
+                                               n * int(sizeof(float)));
+        const int gotSamples = got > 0 ? got / int(sizeof(float)) : 0;
+        const float g = ms->volume * streamGain_;
+        for (int i = 0; i < gotSamples; ++i) out[i] += streamScratch_[size_t(i)] * g;
+        // Drained after the end of the file: a one-shot stream is over.
+        if (gotSamples < n && ms->eof) ms->playing = false;
+    }
+
     // One soft clip at the end rather than per voice: a dozen sounds at once
     // will exceed 1.0 and hard clipping crackles.
-    const int n = frames * kChannels;
     for (int i = 0; i < n; ++i) {
-        float v = out[i] * masterVolume_;
+        float v = out[i];
         if (v > 1.f) v = 1.f;
         else if (v < -1.f) v = -1.f;
         out[i] = v;
@@ -607,6 +685,7 @@ void AudioEngine::SetListener(const float pos[3], const float forward[3],
 
 void AudioEngine::Update() {
     if (!stream_) return;
+    RefillStreams();
     std::lock_guard<std::mutex> guard(lock_);
     const uint32_t now = NowMs();
     for (Playing& p : voices_) {
@@ -678,11 +757,148 @@ void AudioEngine::LogRealVoices() const {
                     s.minIntervalMs >= 0 ? s.minIntervalMs : defaultIntervalMs_);
     }
     LogInfo("audio: %zu real voices of %zu slots", RealCount(), voices_.size());
+    for (size_t i = 0; i < streams_.size(); ++i) {
+        const MusicStream* ms = streams_[i].get();
+        if (!ms) continue;
+        LogInfo("audio: music slot %zu %s %s%s volume %.0f%% at byte %zu of %zu", i,
+                ms->name.c_str(), ms->playing ? "playing" : "stopped",
+                ms->paused ? " (paused)" : "", ms->volume * 100.f, ms->offset, ms->file.size());
+    }
 }
 
 size_t AudioEngine::voicesPlaying() const {
     std::lock_guard<std::mutex> guard(lock_);
     return RealCount();
+}
+
+// ---------------------------------------------------------------- music
+
+bool AudioEngine::StreamLoad(int slot, const std::string& name) {
+    if (slot < 0 || slot > 15) return false;
+    StreamDelete(slot);
+    if (name.empty()) return false;
+    auto ms = std::make_unique<MusicStream>();
+    ms->name = name;
+    const std::string path = musicRoot_ + "/" + name + ".mp3";
+    if (!ReadFile(path, ms->file) || ms->file.empty()) {
+        LogWarn("audio: music %s not found", path.c_str());
+        return false;
+    }
+    ms->Rewind();
+    // The first frame tells the rate and channel count.
+    if (!ms->DecodeFrame() || !ms->conv) {
+        LogWarn("audio: music %s does not decode", path.c_str());
+        return false;
+    }
+    ms->ok = true;
+    std::lock_guard<std::mutex> guard(lock_);
+    if (streams_.size() <= size_t(slot)) streams_.resize(size_t(slot) + 1);
+    streams_[size_t(slot)] = std::move(ms);
+    LogInfo("audio: music slot %d = %s (%d Hz x%d, %zu KB)", slot, name.c_str(),
+            streams_[size_t(slot)]->rate, streams_[size_t(slot)]->channels,
+            streams_[size_t(slot)]->file.size() / 1024);
+    return true;
+}
+
+void AudioEngine::StreamDelete(int slot) {
+    std::unique_ptr<MusicStream> gone;
+    {
+        std::lock_guard<std::mutex> guard(lock_);
+        if (slot < 0 || size_t(slot) >= streams_.size()) return;
+        gone = std::move(streams_[size_t(slot)]);
+    }
+    // Destroyed outside the lock: the SDL stream teardown is not instant.
+}
+
+#define PAINFUL_STREAM(slot)                                                    \
+    std::lock_guard<std::mutex> guard(lock_);                                   \
+    if (slot < 0 || size_t(slot) >= streams_.size() || !streams_[size_t(slot)]) \
+        return;                                                                 \
+    MusicStream& ms = *streams_[size_t(slot)];
+
+void AudioEngine::StreamPlay(int slot, bool loop) {
+    PAINFUL_STREAM(slot)
+    ms.Rewind();
+    ms.DecodeFrame();
+    ms.loop = loop;
+    ms.volume = 0.f;
+    ms.paused = false;
+    ms.playing = ms.ok;
+}
+
+void AudioEngine::StreamPause(int slot) {
+    PAINFUL_STREAM(slot)
+    ms.paused = true;
+}
+
+void AudioEngine::StreamResume(int slot) {
+    PAINFUL_STREAM(slot)
+    ms.paused = false;
+}
+
+void AudioEngine::StreamSetVolume(int slot, float volume) {
+    PAINFUL_STREAM(slot)
+    ms.volume = std::max(0.f, std::min(1.f, volume));
+}
+
+void AudioEngine::StreamSetLowPass(int slot, float cutoff) {
+    PAINFUL_STREAM(slot)
+    ms.lowPass = cutoff;
+}
+
+#undef PAINFUL_STREAM
+
+float AudioEngine::StreamGetVolume(int slot) const {
+    std::lock_guard<std::mutex> guard(lock_);
+    if (slot < 0 || size_t(slot) >= streams_.size() || !streams_[size_t(slot)]) return 0.f;
+    return streams_[size_t(slot)]->volume;
+}
+
+float AudioEngine::StreamGetLowPass(int slot) const {
+    std::lock_guard<std::mutex> guard(lock_);
+    if (slot < 0 || size_t(slot) >= streams_.size() || !streams_[size_t(slot)]) return 0.f;
+    return streams_[size_t(slot)]->lowPass;
+}
+
+bool AudioEngine::StreamIsPlaying(int slot) const {
+    std::lock_guard<std::mutex> guard(lock_);
+    if (slot < 0 || size_t(slot) >= streams_.size() || !streams_[size_t(slot)]) return false;
+    return streams_[size_t(slot)]->playing && !streams_[size_t(slot)]->paused;
+}
+
+size_t AudioEngine::streamsPlaying() const {
+    std::lock_guard<std::mutex> guard(lock_);
+    size_t n = 0;
+    for (const auto& ms : streams_)
+        if (ms && ms->playing && !ms->paused) ++n;
+    return n;
+}
+
+// Keeps half a second of converted audio ahead of the mixer for every stream
+// that is playing. Decoding happens outside the mixer lock; the SDL stream is
+// its own critical section.
+void AudioEngine::RefillStreams() {
+    const int targetBytes = 44100 / 2 * kChannels * int(sizeof(float));
+    for (size_t i = 0; i < streams_.size(); ++i) {
+        MusicStream* ms = nullptr;
+        {
+            std::lock_guard<std::mutex> guard(lock_);
+            ms = streams_[i].get();
+            if (!ms || !ms->playing || ms->paused || !ms->conv) continue;
+        }
+        while (!ms->eof && SDL_GetAudioStreamAvailable(ms->conv) < targetBytes) {
+            if (ms->DecodeFrame()) continue;
+            if (ms->loop && ms->offset > 0) {
+                // AIL loop count 0: back to the start without a gap.
+                mp3dec_init(&ms->dec);
+                ms->offset = 0;
+                if (!ms->DecodeFrame()) { ms->eof = true; break; }
+                continue;
+            }
+            ms->eof = true;
+            SDL_FlushAudioStream(ms->conv);
+        }
+    }
 }
 
 } // namespace painful

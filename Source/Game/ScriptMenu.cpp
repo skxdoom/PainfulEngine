@@ -652,21 +652,26 @@ int ScriptEngine::L_SOUND_Set3DSoundProvider(lua_State* L) {
     return 1;
 }
 
+// The master reaches every sample TWICE in the original: once folded into the
+// per-sample level (Set3DDigitalEffectsVolume keeps master * sfx and every
+// 2D/3D SetVolume multiplies by it) and once more as Miles' digital master.
+// Samples therefore play at master^2 * sfx; streams at master. Sound.md.
 int ScriptEngine::L_SOUND_ApplySoundSettings(lua_State* L) {
     ScriptEngine* self = From(L);
-    const double master = luaL_optnumber(L, 1, 100.0) * 0.01;
-    const double sfx    = luaL_optnumber(L, 3, 100.0) * 0.01;
-    const double gain = std::max(0.0, std::min(1.0, master)) *
-                        std::max(0.0, std::min(1.0, sfx));
-    if (self->audio_) self->audio_->SetMasterVolume(float(gain));
-    LogInfo("audio: master %.0f%%, sfx %.0f%% -> gain %.2f", master * 100.0, sfx * 100.0,
-            gain);
+    const double master = std::max(0.0, std::min(1.0, luaL_optnumber(L, 1, 100.0) * 0.01));
+    const double sfx    = std::max(0.0, std::min(1.0, luaL_optnumber(L, 3, 100.0) * 0.01));
+    if (self->audio_) {
+        self->audio_->SetMasterVolume(float(master));
+        self->audio_->SetEffectsVolume(float(sfx));
+    }
+    LogInfo("audio: master %.0f%%, sfx %.0f%% -> sample gain %.3f, stream gain %.2f",
+            master * 100.0, sfx * 100.0, master * master * sfx, master);
     return 0;
 }
 
 int ScriptEngine::L_SOUND_SetMasterVolume(lua_State* L) {
     ScriptEngine* self = From(L);
-    const double v = luaL_optnumber(L, 1, 100.0) * 0.01;
+    const double v = luaL_optnumber(L, 1, 0.0) * 0.01;
     if (self->audio_) self->audio_->SetMasterVolume(float(std::max(0.0, std::min(1.0, v))));
     return 0;
 }

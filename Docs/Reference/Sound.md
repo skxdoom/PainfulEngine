@@ -189,12 +189,83 @@ vector, so a sound crossing in front does not dip in the middle.
 `SOUND.SetPlayerPos` / `SetPlayerOrientation` give the listener. The scripts
 hand over a forward vector only, so the right vector is derived from it.
 
+## The master applies twice
+
+The port used to play a factor of five louder than the original with the
+same `config.ini`, and the reason is in how `Engine.dll` composes the
+sliders. `SOUND.ApplySoundSettings(master, music, sfx, ...)` (`0x101401B0`)
+reads argument 1 into `MilesEngine::SetMasterVolumeLevel` and argument 3
+into `Set3DDigitalEffectsVolume`; argument 2 is never read. Then:
+
+- `SetMasterVolumeLevel` (`0x101F19D0`) calls
+  `AIL_set_digital_master_volume_level(master)` — Miles scales every sample
+  on the digital driver by it — and re-derives the effects level as
+  `old / oldMaster`, so
+- `Set3DDigitalEffectsVolume` (`0x101F0F10`) keeps `+0x2c = master * sfx`,
+  and every per-sample volume set goes through it: the 2D setter
+  (`FUN_101ED040`) calls `AIL_set_sample_volume_levels(vol * +0x2c)`, the 3D
+  one (`FUN_101EE750`) `AIL_set_3D_sample_volume(vol * +0x2c)`.
+
+Both paths run under the digital master, and the default provider is
+"Miles Fast 2D Positional Audio", a software provider on that same driver.
+So a sample plays at **`vol * master² * sfx`**. With the shipped
+`Cfg.MasterVolume = 20` that is 0.04, where the port's single `master * sfx`
+gave 0.2. Streams get the digital master once: `level * master` (the
+streaming multiplier at `+0x30` has no script setter and stays 1). The
+"privileged sounds" multiplier at `+0x44` has no caller in the binary.
+
+Two defaults were off as well: `SOUND.Play2D`'s volume argument defaults to
+**80** (`0x10124510`), not 100, and `Play3D`'s distances to **6** and
+`dist1 + 24` (`0x10124610`, `_DAT_102C5600`).
+
+## Falloff
+
+`SOUND.Set3DSoundFalloff(k)` is `MilesEngine::SetFalloffSpeed` →
+`AIL_set_3D_rolloff_factor(k)` (`0x101250E0`, `0x101F02F0`), and
+`SetHearingDistance(dist1, dist2)` is `AIL_set_3D_sample_distances(max =
+dist2, min = dist1)` (`0x101F36F0`, `FUN_101EE370`). That is the DirectSound
+rolloff law, so the port attenuates as
+
+```
+d <= dist1:        1
+dist1 < d < dist2: dist1 / (dist1 + k * (d - dist1))
+d >= dist2:        0
+```
+
+`CLevel:Init` sets `k` to its `SoundFalloffSpeed`, 2 by default;
+`Cfg.SoundFalloffSpeed` is not what reaches it. Silence past `dist2` is the
+assumption here: Miles' own documentation says the software providers stop
+mixing beyond the maximum distance, and `MilesEngine::Tick` drops those
+voices too, which is where the port's demotion came from.
+
+## Music streams
+
+Music is entirely script-driven; the engine only offers slots. `CLevel`
+loads `Music.Ambient[]` into slot 0 and `Music.Battle[]` into slot 1 (and a
+stats loop into 2 in multiplayer), starts both at volume 0, and
+`StartAmbientMusic` / `StartBattleMusic` cross-fade them with
+`PMusicFade.CProcess` at `Cfg.AmbientVolume` (77) and `Cfg.MusicVolume` (33)
+over 5 and 2 seconds, pausing the loser. The 79 `.mp3` files under
+`Data/Music` are named `<level>_Music_NN` and `<level>_Fight`.
+
+The natives (`0x101247A0`–`0x10124DA0`): `StreamLoad(slot, name)` deletes
+what the slot held and opens `../Data/Music/<name>.mp3` (an empty name just
+empties the slot); `StreamPlay(slot, loop = true)` sets the volume to 0, a
+loop count of 0 (forever) when `loop`, and plays from the top;
+`StreamPause` / `StreamResume` / `StreamDelete`; `StreamSetVolume(slot,
+0..100)` and `StreamGetVolume` in the same units; `StreamSetLowPass` /
+`GetLowPass` (recorded here, not filtered). The port decodes with minimp3 a
+frame at a time, half a second ahead of the mixer, through an
+`SDL_AudioStream` that converts to the device format; a looping stream
+restarts its decoder at the end of the file without a gap. Streams are not
+in the pause token set: the menu pauses samples, and the scripts pause music
+themselves.
+
 ## Not done
 
-- **Music.** No files ship; `SOUND.Stream*` is inert.
 - **`SOUND.SetRoomType`** - reverb zones. The scripts set them per level and
   per area, and it is currently ignored.
-- **`SOUND.Set3DSoundFalloff`**, a global falloff scale.
+- **Stream low-pass** (`StreamSetLowPass`) is stored and not applied.
 - **Doppler**, if the original has it at all - not investigated.
 - **`SND.SetVelocityScaleFactor`** (6 call sites), the per-entity doppler scale.
 - **`Setup3D`'s `dontAutoDelete`** is stored and not acted on: nothing auto-

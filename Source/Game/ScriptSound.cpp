@@ -32,16 +32,19 @@ static std::string SoundName(lua_State* L, int index) {
     return name;
 }
 
-static float SoundVolume(lua_State* L, int index) {
-    // 0..100 from the scripts; anything absent means full.
-    const double v = luaL_optnumber(L, index, 100.0);
+static float SoundVolume(lua_State* L, int index, double fallback = 100.0) {
+    // 0..100 from the scripts.
+    const double v = luaL_optnumber(L, index, fallback);
     return float(v) * 0.01f;
 }
 
+// SOUND.Play2D(name, volume = 80, sameSpeedInBulletTime, noPitch) - the 80 is
+// 0x10124510's own default. Play3D(name, x,y,z, dist1 = 6, dist2 = dist1 + 24,
+// noPitch) likewise (0x10124610, _DAT_102c5600 = 24).
 int ScriptEngine::L_SOUND_Play2D(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!self->audio_) return 0;
-    const int v = self->audio_->Play2D(SoundName(L, 1), SoundVolume(L, 2),
+    const int v = self->audio_->Play2D(SoundName(L, 1), SoundVolume(L, 2, 80.0),
                                        lua_toboolean(L, 3) != 0,
                                        lua_toboolean(L, 4) != 0);
     lua_pushnumber(L, v);
@@ -53,9 +56,9 @@ int ScriptEngine::L_SOUND_Play3D(lua_State* L) {
     if (!self->audio_) return 0;
     const float pos[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
                           float(luaL_optnumber(L, 4, 0))};
-    const int v = self->audio_->Play3D(SoundName(L, 1), pos,
-                                       float(luaL_optnumber(L, 5, 15.0)),
-                                       float(luaL_optnumber(L, 6, 40.0)),
+    const float dist1 = float(luaL_optnumber(L, 5, 6.0));
+    const int v = self->audio_->Play3D(SoundName(L, 1), pos, dist1,
+                                       float(luaL_optnumber(L, 6, dist1 + 24.0)),
                                        lua_toboolean(L, 7) != 0);
     lua_pushnumber(L, v);
     return 1;
@@ -758,6 +761,89 @@ void ScriptEngine::TickSounds(float dt) {
         }
         if (e.soundVoice) audio_->SetPosition(e.soundVoice, e.pos);
     }
+}
+
+// ---------------------------------------------------------------- music
+//
+// SOUND.Stream*(slot, ...): the level's music, three slots the scripts drive
+// themselves (CLevel:StartMusicEx / StartAmbientMusic / StartBattleMusic,
+// faded by PMusicFade). Recovered from 0x101247A0..0x10124DA0: StreamLoad
+// opens "../Data/Music/<name>.mp3" into the slot, StreamPlay starts from the
+// top at volume 0 (loop count 0 = forever when the second argument, default
+// true, holds), volumes are 0..100. Docs/Reference/Sound.md, "Music streams".
+int ScriptEngine::L_SOUND_StreamLoad(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (self->audio_) self->audio_->StreamLoad(int(luaL_optnumber(L, 1, 0)), luaL_optstring(L, 2, ""));
+    return 0;
+}
+
+int ScriptEngine::L_SOUND_StreamPlay(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (self->audio_)
+        self->audio_->StreamPlay(int(luaL_optnumber(L, 1, 0)),
+                                 lua_isnoneornil(L, 2) || lua_toboolean(L, 2) != 0);
+    return 0;
+}
+
+int ScriptEngine::L_SOUND_StreamPause(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (self->audio_) self->audio_->StreamPause(int(luaL_optnumber(L, 1, 0)));
+    return 0;
+}
+
+int ScriptEngine::L_SOUND_StreamResume(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (self->audio_) self->audio_->StreamResume(int(luaL_optnumber(L, 1, 0)));
+    return 0;
+}
+
+int ScriptEngine::L_SOUND_StreamDelete(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (self->audio_) self->audio_->StreamDelete(int(luaL_optnumber(L, 1, 0)));
+    return 0;
+}
+
+int ScriptEngine::L_SOUND_StreamSetVolume(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (self->audio_)
+        self->audio_->StreamSetVolume(int(luaL_optnumber(L, 1, 0)),
+                                      float(luaL_optnumber(L, 2, 0) * 0.01));
+    return 0;
+}
+
+int ScriptEngine::L_SOUND_StreamGetVolume(lua_State* L) {
+    ScriptEngine* self = From(L);
+    const float v = self->audio_ ? self->audio_->StreamGetVolume(int(luaL_optnumber(L, 1, 0))) : 0.f;
+    lua_pushnumber(L, v * 100.f);
+    return 1;
+}
+
+int ScriptEngine::L_SOUND_StreamSetLowPass(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (self->audio_)
+        self->audio_->StreamSetLowPass(int(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)));
+    return 0;
+}
+
+int ScriptEngine::L_SOUND_StreamGetLowPass(lua_State* L) {
+    ScriptEngine* self = From(L);
+    lua_pushnumber(L, self->audio_ ? self->audio_->StreamGetLowPass(int(luaL_optnumber(L, 1, 0))) : 0.f);
+    return 1;
+}
+
+// SOUND.Set3DSoundFalloff(k = 1) -> MilesEngine::SetFalloffSpeed ->
+// AIL_set_3D_rolloff_factor (0x101250E0). CLevel:Init passes its
+// SoundFalloffSpeed, 2 by default.
+int ScriptEngine::L_SOUND_Set3DSoundFalloff(lua_State* L) {
+    ScriptEngine* self = From(L);
+    if (self->audio_) self->audio_->SetRolloff(float(luaL_optnumber(L, 1, 1.0)));
+    return 0;
+}
+
+int ScriptEngine::L_SOUND_Get3DSoundFalloff(lua_State* L) {
+    ScriptEngine* self = From(L);
+    lua_pushnumber(L, self->audio_ ? self->audio_->rolloff() : 1.f);
+    return 1;
 }
 
 }  // namespace painful

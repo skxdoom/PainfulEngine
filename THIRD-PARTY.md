@@ -16,9 +16,10 @@ and nothing here is relicensed by this project.
 | **bgfx.cmake** | CC0 1.0 | Submodule `External/bgfx` (the build wrapper) |
 | **miniz** | MIT | Header-only, from `External/bgfx/bimg/3rdparty/tinyexr/deps/miniz` |
 | **Jolt Physics** | MIT | Submodule `External/JoltPhysics` |
+| **minimp3** | CC0 1.0 | Vendored header in `External/minimp3/` (the music streams) |
 
-Everything except Lua is a git submodule, so only a reference is stored here;
-run a recursive clone to fetch them.
+Everything except Lua and minimp3 is a git submodule, so only a reference is
+stored here; run a recursive clone to fetch them.
 
 ## Lua is vendored, and deliberately
 

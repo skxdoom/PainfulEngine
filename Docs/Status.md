@@ -305,7 +305,9 @@ that buys:
   `Size`, and the `SOUND` / `SOUND2D` / `SOUND3D` families over one mixed
   device stream, with the original's virtual-voice policy deciding what is
   audible: `SOUND.SetSoundProperties` caps instances per file and spaces
-  their starts ([`Sound.md`](Reference/Sound.md)).
+  their starts. Levels are the original's (master twice, Miles' rolloff),
+  and the ambient/battle music streams play from the shipped `.mp3`s
+  ([`Sound.md`](Reference/Sound.md)).
 - **Save and load.** The shipped `SaveGame.lua` runs as written: quick save
   and load (F5 / F9), checkpoints, the level-start autosave, and the Saves /
   Autosaves screens with their table, over the original's own container -
@@ -417,8 +419,8 @@ The ordered work queue, with the evidence behind each item, is
 ### Everything else
 
 - Acoustic environments and sound occlusion: `WORLD.FindEnvironmentAtPoint`,
-  `SOUND.SetRoomType`, `SOUND3D.SetObstructed` / `SetIntensity`. Music streams
-  (`SOUND.StreamLoad` / `StreamPlay`) too.
+  `SOUND.SetRoomType`, `SOUND3D.SetObstructed` / `SetIntensity`, and the
+  music streams' low-pass.
 - Menus: the main menu, options, controls (with key capture), the campaign
   map and the save / load screens work, and a plain launch boots to the menu
   and starts a new game through it, with a runtime level switch. Still
