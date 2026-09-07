@@ -37,163 +37,163 @@ namespace painful {
 // `k_szyjShape`, `root` gives `rooShape`, and two of evilmonk's are called
 // `pCubeShape1` and `pCubeShape2`. Resolve by the reference, never by name.
 struct HkeGeometry {
-    std::string name;
-    std::vector<float> verts;       // xyz triples
-    std::vector<uint32_t> tris;     // index triples
+	std::string name;
+	std::vector<float> verts; // xyz triples
+	std::vector<uint32_t> tris; // index triples
 
-    size_t vertexCount() const { return verts.size() / 3; }
-    size_t triangleCount() const { return tris.size() / 3; }
+	size_t vertexCount() const { return verts.size() / 3; }
+	size_t triangleCount() const { return tris.size() / 3; }
 };
 
 // One limb: a rigid body named by its BONE, with the hull carried by its
 // primitive.
 struct HkeBody {
-    std::string bone;               // BEGIN_RIGID_BODY <name> - the bone name
-    float elasticity = 0.f;         // ELLASTICITY (sic), the restitution
-    float staticFriction = 1.f;
-    float dynamicFriction = 1.f;
-    // ANGLE-AXIS, not a quaternion: `0.349955 1 0 0` is 20 degrees about +X,
-    // and a primitive's identity is `0 0 0 0`, which is no rotation about no
-    // axis. Read as a quaternion the first is not normalised and the second is
-    // not a rotation at all.
-    float rotAngle = 0.f;
-    Vec3 rotAxis;
-    Vec3 translation;
-    Vec3 displacement;
-    bool active = true;
-    bool collisionsDisabled = false;
+	std::string bone; // BEGIN_RIGID_BODY <name> - the bone name
+	float elasticity = 0.f; // ELLASTICITY (sic), the restitution
+	float staticFriction = 1.f;
+	float dynamicFriction = 1.f;
+	// ANGLE-AXIS, not a quaternion: `0.349955 1 0 0` is 20 degrees about +X,
+	// and a primitive's identity is `0 0 0 0`, which is no rotation about no
+	// axis. Read as a quaternion the first is not normalised and the second is
+	// not a rotation at all.
+	float rotAngle = 0.f;
+	Vec3 rotAxis;
+	Vec3 translation;
+	Vec3 displacement;
+	bool active = true;
+	bool collisionsDisabled = false;
 
-    // ...and its primitive, which is where the hull and the mass live.
-    float mass = 0.f;
-    int collisionMask = 0;
-    std::string geometry;           // GEOMETRY <name> -> HkeGeometry::name
-    bool convex = true;
-    float primRotAngle = 0.f;
-    Vec3 primRotAxis;
-    Vec3 primTranslation;
+	// ...and its primitive, which is where the hull and the mass live.
+	float mass = 0.f;
+	int collisionMask = 0;
+	std::string geometry; // GEOMETRY <name> -> HkeGeometry::name
+	bool convex = true;
+	float primRotAngle = 0.f;
+	Vec3 primRotAxis;
+	Vec3 primTranslation;
 
-    // The body's authored transform in MODEL units, as a row-vector 4x4 - the
-    // form the rest of the engine holds matrices in.
-    //
-    // A limb body sits at the limb's CENTRE, not at its bone's origin, so this
-    // is what says where a body belongs relative to the bone that drives it.
-    // Posing bodies straight onto bone origins displaces every constraint
-    // anchor by up to a limb length and the solver throws the corpse across
-    // the level trying to close the gap.
-    void RestMatrix(float out[16]) const;
+	// The body's authored transform in MODEL units, as a row-vector 4x4 - the
+	// form the rest of the engine holds matrices in.
+	//
+	// A limb body sits at the limb's CENTRE, not at its bone's origin, so this
+	// is what says where a body belongs relative to the bone that drives it.
+	// Posing bodies straight onto bone origins displaces every constraint
+	// anchor by up to a limb length and the solver throws the corpse across
+	// the level trying to close the gap.
+	void RestMatrix(float out[16]) const;
 };
 
 // One constraint. The two kinds are Havok's own and each maps onto a Jolt
 // constraint almost one-to-one - Ragdoll onto SwingTwistConstraint, Hinge onto
 // HingeConstraint. Angles are RADIANS.
 struct HkeConstraint {
-    // Three kinds, not two. StiffSpring holds two bodies a fixed distance
-    // apart and carries no limits at all.
-    enum Kind { kHinge, kRagdoll, kStiffSpring };
-    Kind kind = kRagdoll;
-    std::string name;
-    // Hinge names its bodies A/B; Ragdoll names them REFERENCE/ATTACHED. Both
-    // land here, reference first.
-    std::string bodyA, bodyB;
-    bool twoBodied = true;
-    bool breakable = false;         // IS_BREAKABLE - the breakables system
-    float strength = 1.f;           // and what it takes to break
-    float tau = 0.1f;
+	// Three kinds, not two. StiffSpring holds two bodies a fixed distance
+	// apart and carries no limits at all.
+	enum Kind { kHinge, kRagdoll, kStiffSpring };
+	Kind kind = kRagdoll;
+	std::string name;
+	// Hinge names its bodies A/B; Ragdoll names them REFERENCE/ATTACHED. Both
+	// land here, reference first.
+	std::string bodyA, bodyB;
+	bool twoBodied = true;
+	bool breakable = false; // IS_BREAKABLE - the breakables system
+	float strength = 1.f; // and what it takes to break
+	float tau = 0.1f;
 
-    // --- Hinge ---
-    bool limited = false;           // IS_LIMITED
-    Vec3 hingePosA, hingePosB;
-    Vec3 hingeDirA, hingeDirB;
-    Vec3 hingePerpA, hingePerpB;
-    float limitMinAngle = 0.f, limitMaxAngle = 0.f, limitFriction = 0.f;
+	// --- Hinge ---
+	bool limited = false; // IS_LIMITED
+	Vec3 hingePosA, hingePosB;
+	Vec3 hingeDirA, hingeDirB;
+	Vec3 hingePerpA, hingePerpB;
+	float limitMinAngle = 0.f, limitMaxAngle = 0.f, limitFriction = 0.f;
 
-    // --- Ragdoll (cone-twist) ---
-    // Constraint space -> reference / attached body, as four columns: a 3x3
-    // basis in COL0..2 and the origin in COL3.
-    Vec3 csToRef[4];
-    Vec3 csToAtt[4];
-    float twistMin = 0.f, twistMax = 0.f;
-    float coneMin = 0.f, coneMax = 0.f;
-    float planeMin = 0.f, planeMax = 0.f;
+	// --- Ragdoll (cone-twist) ---
+	// Constraint space -> reference / attached body, as four columns: a 3x3
+	// basis in COL0..2 and the origin in COL3.
+	Vec3 csToRef[4];
+	Vec3 csToAtt[4];
+	float twistMin = 0.f, twistMax = 0.f;
+	float coneMin = 0.f, coneMax = 0.f;
+	float planeMin = 0.f, planeMax = 0.f;
 
-    // --- the WORLD-SPACE form of both ---
-    //
-    // A constraint states its frame one of two ways and the files use both.
-    // The body-local form is the matrices and HINGE_*_IN_A/B above; the world
-    // form is a pivot and axes in the ragdoll's own space, which is the pose
-    // the file was authored in. raven uses it, Alastor the other. Whichever
-    // arrived is the one to build from, so record which.
-    bool worldSpace = false;
-    Vec3 worldPivot;    // Ragdoll: WORLD_PIVOT_POINT
-    Vec3 twistAxis;
-    Vec3 planeAxis;
-    Vec3 worldHingePos; // Hinge: WORLD_HINGE_POS / _DIR
-    Vec3 worldHingeDir;
+	// --- the WORLD-SPACE form of both ---
+	//
+	// A constraint states its frame one of two ways and the files use both.
+	// The body-local form is the matrices and HINGE_*_IN_A/B above; the world
+	// form is a pivot and axes in the ragdoll's own space, which is the pose
+	// the file was authored in. raven uses it, Alastor the other. Whichever
+	// arrived is the one to build from, so record which.
+	bool worldSpace = false;
+	Vec3 worldPivot; // Ragdoll: WORLD_PIVOT_POINT
+	Vec3 twistAxis;
+	Vec3 planeAxis;
+	Vec3 worldHingePos; // Hinge: WORLD_HINGE_POS / _DIR
+	Vec3 worldHingeDir;
 
-    // --- StiffSpring ---
-    Vec3 localPointA, localPointB;
-    float springLength = 0.f;
-    float linearStrength = 0.f, angularStrength = 0.f;
+	// --- StiffSpring ---
+	Vec3 localPointA, localPointB;
+	float springLength = 0.f;
+	float linearStrength = 0.f, angularStrength = 0.f;
 };
 
 // BEGIN_ACTION Spring - a soft spring between two limbs, in 17 of the files.
 // Not a constraint: it pulls towards a rest length rather than holding a joint.
 struct HkeSpring {
-    std::string bodyA, bodyB;
-    Vec3 pointA, pointB;
-    bool twoBodied = true;
-    float restitution = 0.f;
-    float restLength = 0.f;
-    float damping = 0.f;
-    bool onCompression = true, onExtension = true;
+	std::string bodyA, bodyB;
+	Vec3 pointA, pointB;
+	bool twoBodied = true;
+	float restitution = 0.f;
+	float restLength = 0.f;
+	float damping = 0.f;
+	bool onCompression = true, onExtension = true;
 };
 
 // BEGIN_ACTION Dashpot - hkLinearDashpotAction, a damped pull between two
 // points. One file (C2L2_Door2, between the fixed post and the door).
 struct HkeDashpot {
-    std::string bodyA, bodyB;
-    Vec3 pointA, pointB;
-    bool twoBodied = true;
-    float strength = 1.f;
-    float damping = 0.f;
+	std::string bodyA, bodyB;
+	Vec3 pointA, pointB;
+	bool twoBodied = true;
+	float strength = 1.f;
+	float damping = 0.f;
 };
 
 struct Hke {
-    int version = 0;
-    float worldScale = 1.f;
-    Vec3 gravity;
-    float linearDrag = 0.f, angularDrag = 0.f;
-    float deactivationThreshold = 0.f;
-    std::vector<HkeGeometry> geometries;
-    std::vector<HkeBody> bodies;
-    std::vector<HkeConstraint> constraints;
-    std::vector<HkeSpring> springs;
-    std::vector<HkeDashpot> dashpots;
+	int version = 0;
+	float worldScale = 1.f;
+	Vec3 gravity;
+	float linearDrag = 0.f, angularDrag = 0.f;
+	float deactivationThreshold = 0.f;
+	std::vector<HkeGeometry> geometries;
+	std::vector<HkeBody> bodies;
+	std::vector<HkeConstraint> constraints;
+	std::vector<HkeSpring> springs;
+	std::vector<HkeDashpot> dashpots;
 
-    bool binary = false;            // a 'B' file, decoded to text before parsing
-    std::string error;
-    // Keywords the parser did not know. Empty across the shipped set is the
-    // check that the format is fully covered rather than merely accepted.
-    std::vector<std::string> unknown;
+	bool binary = false; // a 'B' file, decoded to text before parsing
+	std::string error;
+	// Keywords the parser did not know. Empty across the shipped set is the
+	// check that the format is fully covered rather than merely accepted.
+	std::vector<std::string> unknown;
 
-    const HkeGeometry* Find(const std::string& geometry) const;
-    const HkeBody* Body(const std::string& bone) const;
+	const HkeGeometry* Find(const std::string& geometry) const;
+	const HkeBody* Body(const std::string& bone) const;
 
-    // Is `bone` connected to `root` through the constraint graph?
-    //
-    // THIS IS THE WEAPON RULE. A monster's weapon gets a rigid body with NO
-    // constraint attaching it to anything - evilmonkv2's unconstrained bodies
-    // are exactly axeL and axeR, zombie's is joint1 - so it is a limb you can
-    // hit that is not part of the body. Ragdoll::Joint_AreLinked answers this,
-    // and Stake, BoltStick and PainHead all ask it before doing damage, to
-    // tell "the body" from "some detachable element, e.g. a scythe or a
-    // pauldron". A shield is the opposite case and IS constrained.
-    bool Linked(const std::string& a, const std::string& b) const;
+	// Is `bone` connected to `root` through the constraint graph?
+	//
+	// THIS IS THE WEAPON RULE. A monster's weapon gets a rigid body with NO
+	// constraint attaching it to anything - evilmonkv2's unconstrained bodies
+	// are exactly axeL and axeR, zombie's is joint1 - so it is a limb you can
+	// hit that is not part of the body. Ragdoll::Joint_AreLinked answers this,
+	// and Stake, BoltStick and PainHead all ask it before doing damage, to
+	// tell "the body" from "some detachable element, e.g. a scythe or a
+	// pauldron". A shield is the opposite case and IS constrained.
+	bool Linked(const std::string& a, const std::string& b) const;
 
-    static bool Load(const std::string& path, Hke& out);
-    // The file as text: a 'B' file decoded (see Hke.cpp, "binary form"), an
-    // 'A' file as it is. For the hketext report.
-    static bool DecodeToText(const std::string& path, std::string& text, std::string& error);
+	static bool Load(const std::string& path, Hke& out);
+	// The file as text: a 'B' file decoded (see Hke.cpp, "binary form"), an
+	// 'A' file as it is. For the hketext report.
+	static bool DecodeToText(const std::string& path, std::string& text, std::string& error);
 };
 
 } // namespace painful

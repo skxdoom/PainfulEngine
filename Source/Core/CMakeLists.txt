@@ -12,24 +12,24 @@
 #   Frustum     six view planes and AABB tests - pure maths, so World may use it
 #               without reaching up into Render
 add_library(Core STATIC
-  Vectors.cpp     Vectors.h
-  Matrix.cpp      Matrix.h
-                  Reader.h
-  PakArchive.cpp  PakArchive.h
-  FileSystem.cpp  FileSystem.h
-  AppPaths.cpp    AppPaths.h
-  CrashReport.cpp CrashReport.h
-  Log.cpp         Log.h
-                  Frustum.h
-  Check.cpp       Check.h
-  Debug.cpp       Debug.h
-  Config.cpp      Config.h
-)
+		Vectors.cpp Vectors.h
+		Matrix.cpp Matrix.h
+		Reader.h
+		PakArchive.cpp PakArchive.h
+		FileSystem.cpp FileSystem.h
+		AppPaths.cpp AppPaths.h
+		CrashReport.cpp CrashReport.h
+		Log.cpp Log.h
+		Frustum.h
+		Check.cpp Check.h
+		Debug.cpp Debug.h
+		Config.cpp Config.h
+		)
 # Source/ is the include root: headers are reached as "../Core/Vectors.h".
 target_include_directories(Core PUBLIC ${PAINFUL_SOURCE})
 # dbghelp is the symbol lookup and the stack walk behind CrashReport.
 target_link_libraries(Core PRIVATE miniz PUBLIC EngineWarnings)
 if(WIN32)
-  target_link_libraries(Core PRIVATE dbghelp)
+	target_link_libraries(Core PRIVATE dbghelp)
 endif()
 painful_layer(Core)

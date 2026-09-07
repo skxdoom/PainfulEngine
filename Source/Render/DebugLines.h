@@ -16,24 +16,24 @@ namespace painful {
 // draws what the simulation actually holds.
 class DebugLines {
 public:
-    ~DebugLines() { Shutdown(); }
-    // Owns GPU handles that Shutdown destroys, so it is not copyable: a copy
-    // would free them twice.
-    DebugLines() = default;
-    DebugLines(const DebugLines&) = delete;
-    DebugLines& operator=(const DebugLines&) = delete;
+	~DebugLines() { Shutdown(); }
+	// Owns GPU handles that Shutdown destroys, so it is not copyable: a copy
+	// would free them twice.
+	DebugLines() = default;
+	DebugLines(const DebugLines&) = delete;
+	DebugLines& operator=(const DebugLines&) = delete;
 
-    bool Init(const std::string& shaderDir);
-    void Shutdown();
+	bool Init(const std::string& shaderDir);
+	void Shutdown();
 
-    void Draw(bgfx::ViewId view, const std::vector<DebugLine>& lines);
+	void Draw(bgfx::ViewId view, const std::vector<DebugLine>& lines);
 
-    size_t drawn() const { return drawn_; }
+	size_t drawn() const { return drawn_; }
 
 private:
-    bgfx::ProgramHandle program_ = BGFX_INVALID_HANDLE;
-    bgfx::VertexLayout layout_;
-    size_t drawn_ = 0;
+	bgfx::ProgramHandle program_ = BGFX_INVALID_HANDLE;
+	bgfx::VertexLayout layout_;
+	size_t drawn_ = 0;
 };
 
 } // namespace painful

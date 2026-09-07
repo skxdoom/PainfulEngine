@@ -8,24 +8,24 @@
 # takes createWhite=false for exactly this - so nothing here opens a window
 # except `run`, which is a viewer on purpose.
 add_executable(PainfulTools
-  ToolsMain.cpp
-  Commands.h
-  LevelStats.h
-  ViewerApp.cpp
-  ReportLevel.cpp
-  ReportMesh.cpp
-  ReportTexture.cpp
-  ReportRender.cpp
-  ReportPhysics.cpp
-  ReportSelfTest.cpp
-  ReportScript.cpp
-  PainfulTools.rc
-)
+		ToolsMain.cpp
+		Commands.h
+		LevelStats.h
+		ViewerApp.cpp
+		ReportLevel.cpp
+		ReportMesh.cpp
+		ReportTexture.cpp
+		ReportRender.cpp
+		ReportPhysics.cpp
+		ReportSelfTest.cpp
+		ReportScript.cpp
+		PainfulTools.rc
+		)
 target_link_libraries(PainfulTools PRIVATE Game)
 target_include_directories(PainfulTools PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} PREFIX "" FILES
-  $<TARGET_PROPERTY:PainfulTools,SOURCES>)
+		$<TARGET_PROPERTY:PainfulTools,SOURCES>)
 
 # See App/CMakeLists.txt for why the .ico dependency is spelled out.
 set_source_files_properties(PainfulTools.rc PROPERTIES
-  OBJECT_DEPENDS ${PAINFUL_SOURCE}/PainfulEngine.ico)
+		OBJECT_DEPENDS ${PAINFUL_SOURCE}/PainfulEngine.ico)

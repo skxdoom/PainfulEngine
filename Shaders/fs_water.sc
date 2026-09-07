@@ -26,21 +26,21 @@ $input v_texcoord0, v_texcoord1, v_wpos, v_viewdist
 // are not reproduced - only the reflection and the lightmap are.
 #include <bgfx_shader.sh>
 
-SAMPLER2D(s_normal,   0);
-SAMPLERCUBE(s_cube,   1);
+SAMPLER2D(s_normal, 0);
+SAMPLERCUBE(s_cube, 1);
 SAMPLER2D(s_lightmap, 2);
 
-uniform vec4 u_tile;      // xy: stage 0 tile, zw: stage 1 tile
-uniform vec4 u_uvanim;    // xy: stage 0 pan * t, zw: stage 1 pan * t
-uniform vec4 u_eye;       // xyz: camera position in world space
-uniform vec4 u_ambient;   // rgb: level ambient, w: lightmap scale
+uniform vec4 u_tile; // xy: stage 0 tile, zw: stage 1 tile
+uniform vec4 u_uvanim; // xy: stage 0 pan * t, zw: stage 1 pan * t
+uniform vec4 u_eye; // xyz: camera position in world space
+uniform vec4 u_ambient; // rgb: level ambient, w: lightmap scale
 uniform vec4 u_fogColor;
-uniform vec4 u_fog;       // x: mode, y: start, z: end, w: density
+uniform vec4 u_fog; // x: mode, y: start, z: end, w: density
 // o.Water from the level: x BumpHeight, y FresnelBias, z FresnelExponent,
 // w ReflectionAmount.
 uniform vec4 u_water;
-uniform vec4 u_waterDeep;      // rgb DeepWaterColor, w WaterAmount
-uniform vec4 u_waterShallow;   // rgb ShallowWaterColor
+uniform vec4 u_waterDeep; // rgb DeepWaterColor, w WaterAmount
+uniform vec4 u_waterShallow; // rgb ShallowWaterColor
 
 void main()
 {
@@ -66,7 +66,7 @@ void main()
 	vec3 nT = texture2D(s_normal, uv0).xyz * 2.0 - 1.0;
 	vec3 n = normalize(vec3(nT.x * u_water.x, nT.y, nT.z * u_water.x));
 
-	vec3 eye  = normalize(v_wpos - u_eye.xyz);
+	vec3 eye = normalize(v_wpos - u_eye.xyz);
 	vec3 refl = reflect(eye, n);
 	vec3 color = textureCube(s_cube, refl).rgb;
 
@@ -94,9 +94,9 @@ void main()
 	if (u_fog.x > 0.5)
 	{
 		float f = 1.0;
-		if (u_fog.x < 1.5)      f = exp(-u_fog.w * v_viewdist);
+		if (u_fog.x < 1.5) f = exp(-u_fog.w * v_viewdist);
 		else if (u_fog.x < 2.5) f = exp(-u_fog.w * u_fog.w * v_viewdist * v_viewdist);
-		else                    f = (u_fog.z - v_viewdist) / max(u_fog.z - u_fog.y, 0.001);
+		else f = (u_fog.z - v_viewdist) / max(u_fog.z - u_fog.y, 0.001);
 		color = mix(u_fogColor.rgb, color, clamp(f, 0.0, 1.0));
 	}
 

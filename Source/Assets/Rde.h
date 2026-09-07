@@ -10,12 +10,12 @@ struct Model;
 
 // One limb of a ragdoll, as the .rde names it.
 struct RagdollLimb {
-    std::string bone;           // the section name IS the bone name
-    float mass = -1.f;
-    float linearDamping = 0.f;
-    float angularDamping = 0.f;
-    float friction = 0.f;
-    float restitution = 0.f;
+	std::string bone; // the section name IS the bone name
+	float mass = -1.f;
+	float linearDamping = 0.f;
+	float angularDamping = 0.f;
+	float friction = 0.f;
+	float restitution = 0.f;
 };
 
 // PainEngine .rde - the ragdoll definition shipped beside a model.
@@ -28,11 +28,11 @@ struct RagdollLimb {
 // There is NO SHAPE DATA HERE, only mass and material. The limb shapes have to
 // be derived from the model, which is what BuildLimbBounds does.
 struct Ragdoll {
-    std::vector<RagdollLimb> limbs;
-    std::string error;
+	std::vector<RagdollLimb> limbs;
+	std::string error;
 
-    const RagdollLimb* Find(const std::string& bone) const;
-    static bool Load(const std::string& path, Ragdoll& out);
+	const RagdollLimb* Find(const std::string& bone) const;
+	static bool Load(const std::string& path, Ragdoll& out);
 };
 
 // A limb's extent in ITS OWN BONE's space, derived from the vertices that bone
@@ -42,14 +42,14 @@ struct Ragdoll {
 // because the skinning matrices that place it are already computed every frame
 // for the draw. A box built in model space would have to be rebuilt per pose.
 struct LimbBounds {
-    int bone = -1;
-    std::string name;
-    Vec3 min;
-    Vec3 max;
-    size_t vertices = 0;        // how many the bone actually drives
+	int bone = -1;
+	std::string name;
+	Vec3 min;
+	Vec3 max;
+	size_t vertices = 0; // how many the bone actually drives
 
-    float extent(int axis) const { return max[axis] - min[axis]; }
-    bool valid() const { return vertices > 0; }
+	float extent(int axis) const { return max[axis] - min[axis]; }
+	bool valid() const { return vertices > 0; }
 };
 
 // One box per limb the ragdoll names, from the vertices weighted to that bone.

@@ -12,45 +12,45 @@ namespace painful {
 // The Entity natives. The struct is declared here rather than in
 // ScriptEngine.h so that adding one touches only this file.
 struct EntityNatives : ScriptNativesBase {
-    static int L_Create(lua_State* L);
-    static int L_Release(lua_State* L);
-    static int L_PO_Hit(lua_State* L);
-    static int L_PO_AccumulateRotation(lua_State* L);
-    static int L_MDL_ApplyPointImpulseToRagdoll(lua_State* L);
-    static int L_PO_ScaleInertiaTensor(lua_State* L);
-    static int L_WORLD_HitPhysicObject(lua_State* L);
-    static int L_WORLD_GetLastExplodedEntities(lua_State* L);
-    static int L_ENTITY_ExplodeItem(lua_State* L);
-    static int L_SetTimeToDie(lua_State* L);
-    static int L_SetPosition(lua_State* L);
-    static int L_GetPosition(lua_State* L);
-    static int L_SetRotationQ(lua_State* L);
-    static int L_GetRotationQ(lua_State* L);
-    static int L_SetOrientation(lua_State* L);
-    static int L_GetOrientation(lua_State* L);
-    static int L_SetScale(lua_State* L);
-    static int L_PARTICLE_AddEmitter(lua_State* L);
-    static int L_PARTICLE_SetupEmitter(lua_State* L);
-    static int L_NoOpNative(lua_State* L);
-    static int L_BILLBOARD_SetupCorona(lua_State* L);
-    static int L_EnableDraw(lua_State* L);
-    static int L_GetVelocity(lua_State* L);
-    static int L_SetVelocity(lua_State* L);
-    static int L_SetAngularVelocity(lua_State* L);
-    static int L_PO_Remove(lua_State* L);
-    static int L_PO_GetCollisionGroup(lua_State* L);
-    static int L_PO_SetCollisionGroup(lua_State* L);
-    static int L_PO_IsFixed(lua_State* L);
-    static int L_R3D_DistToLine(lua_State* L);
-    static int L_PO_Create(lua_State* L);
-    static int L_PO_Move(lua_State* L);
-    static int L_PO_SetMonsterType(lua_State* L);
-    static int L_ENTITY_RegisterChild(lua_State* L);
-    static int L_ENTITY_ComputeChildMatrix(lua_State* L);
-    static int L_ENTITY_GetIndex(lua_State* L);
-    static int L_ENTITY_GetPtrByIndex(lua_State* L);
-    static int L_PARTICLE_SetParentOffset(lua_State* L);
-    static int L_PARTICLE_Die(lua_State* L);
+	static int L_Create(lua_State* L);
+	static int L_Release(lua_State* L);
+	static int L_PO_Hit(lua_State* L);
+	static int L_PO_AccumulateRotation(lua_State* L);
+	static int L_MDL_ApplyPointImpulseToRagdoll(lua_State* L);
+	static int L_PO_ScaleInertiaTensor(lua_State* L);
+	static int L_WORLD_HitPhysicObject(lua_State* L);
+	static int L_WORLD_GetLastExplodedEntities(lua_State* L);
+	static int L_ENTITY_ExplodeItem(lua_State* L);
+	static int L_SetTimeToDie(lua_State* L);
+	static int L_SetPosition(lua_State* L);
+	static int L_GetPosition(lua_State* L);
+	static int L_SetRotationQ(lua_State* L);
+	static int L_GetRotationQ(lua_State* L);
+	static int L_SetOrientation(lua_State* L);
+	static int L_GetOrientation(lua_State* L);
+	static int L_SetScale(lua_State* L);
+	static int L_PARTICLE_AddEmitter(lua_State* L);
+	static int L_PARTICLE_SetupEmitter(lua_State* L);
+	static int L_NoOpNative(lua_State* L);
+	static int L_BILLBOARD_SetupCorona(lua_State* L);
+	static int L_EnableDraw(lua_State* L);
+	static int L_GetVelocity(lua_State* L);
+	static int L_SetVelocity(lua_State* L);
+	static int L_SetAngularVelocity(lua_State* L);
+	static int L_PO_Remove(lua_State* L);
+	static int L_PO_GetCollisionGroup(lua_State* L);
+	static int L_PO_SetCollisionGroup(lua_State* L);
+	static int L_PO_IsFixed(lua_State* L);
+	static int L_R3D_DistToLine(lua_State* L);
+	static int L_PO_Create(lua_State* L);
+	static int L_PO_Move(lua_State* L);
+	static int L_PO_SetMonsterType(lua_State* L);
+	static int L_ENTITY_RegisterChild(lua_State* L);
+	static int L_ENTITY_ComputeChildMatrix(lua_State* L);
+	static int L_ENTITY_GetIndex(lua_State* L);
+	static int L_ENTITY_GetPtrByIndex(lua_State* L);
+	static int L_PARTICLE_SetParentOffset(lua_State* L);
+	static int L_PARTICLE_Die(lua_State* L);
 };
 
 // ---------------------------------------------------------------- ENTITY
@@ -59,112 +59,112 @@ struct EntityNatives : ScriptNativesBase {
 // The Model path passes a .pkmdl name with the scripts' own *0.1 already
 // applied; the Mesh path passes "../Data/Items/<pack>" plus the object name.
 int EntityNatives::L_Create(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity e;
-    e.type = int(luaL_checknumber(L, 1));
-    e.source = luaL_optstring(L, 2, "");
-    e.mesh = luaL_optstring(L, 3, "");
-    e.scale = float(luaL_optnumber(L, 4, 1.0));
-    if (e.type == kModel) {
-        // Argument 3 is the "Name:Tag" identity for models, not a mesh name.
-        e.name = e.mesh;
-        e.mesh.clear();
-    } else if (e.type == kParticleFX) {
-        // AddPFX passes the effect name as argument 3, and that is the name
-        // KillAllChildrenByName(se, "stakeflame") finds a bound effect by.
-        e.name = e.mesh;
-    } else if (e.type == kDecal) {
-        // Cache:PrecacheDecal creates and releases one: load the .ini now.
-        e.name = e.source;
-        self->decalLib_.Get(e.source);
-    }
-    const int handle = self->nextHandle_++;
-    auto it = self->entities_.emplace(handle, e).first;
-    ++self->created_;
-    self->CreateRendererInstance(it->second);
-    lua_pushnumber(L, handle);
-    return 1;
+	ScriptEngine* self = From(L);
+	Entity e;
+	e.type = int(luaL_checknumber(L, 1));
+	e.source = luaL_optstring(L, 2, "");
+	e.mesh = luaL_optstring(L, 3, "");
+	e.scale = float(luaL_optnumber(L, 4, 1.0));
+	if (e.type == kModel) {
+		// Argument 3 is the "Name:Tag" identity for models, not a mesh name.
+		e.name = e.mesh;
+		e.mesh.clear();
+	} else if (e.type == kParticleFX) {
+		// AddPFX passes the effect name as argument 3, and that is the name
+		// KillAllChildrenByName(se, "stakeflame") finds a bound effect by.
+		e.name = e.mesh;
+	} else if (e.type == kDecal) {
+		// Cache:PrecacheDecal creates and releases one: load the .ini now.
+		e.name = e.source;
+		self->decalLib_.Get(e.source);
+	}
+	const int handle = self->nextHandle_++;
+	auto it = self->entities_.emplace(handle, e).first;
+	++self->created_;
+	self->CreateRendererInstance(it->second);
+	lua_pushnumber(L, handle);
+	return 1;
 }
 
 void ScriptEngine::ReleaseEntity(int handle) {
-    auto it = entities_.find(handle);
-    if (it == entities_.end()) return;   // nil and doubles are routine
+	auto it = entities_.find(handle);
+	if (it == entities_.end()) return; // nil and doubles are routine
 
-    // CHILDREN GO WITH THE PARENT, which is what RegisterChild's fifth
-    // argument says and what nothing here was doing. A pickup's corona is its
-    // own Billboard entity registered as a child; releasing only the pickup
-    // left the corona drawn, in mid-air, for the rest of the level.
-    //
-    // Taken by value and cleared first: the recursive release erases from
-    // entities_, and a child that unregisters itself on the way out would
-    // otherwise mutate the list being walked.
-    {
-        const std::vector<int> kids = it->second.children;
-        it->second.children.clear();
-        for (int kid : kids) {
-            auto k = entities_.find(kid);
-            if (k == entities_.end()) continue;
-            k->second.parent = 0;                 // no back-link into a dying parent
-            if (k->second.dieWithParent) ReleaseEntity(kid);
-        }
-        // The map may have rehashed under the recursion.
-        it = entities_.find(handle);
-        if (it == entities_.end()) return;
-    }
-    // And drop the back-link from whatever owns this one, so a parent released
-    // later does not walk a handle that is already gone.
-    if (it->second.parent != 0) {
-        auto p = entities_.find(it->second.parent);
-        if (p != entities_.end()) {
-            std::vector<int>& siblings = p->second.children;
-            siblings.erase(std::remove(siblings.begin(), siblings.end(), handle),
-                           siblings.end());
-        }
-    }
-    // A bound sound dies with the thing it was following: a PainHead's rotor
-    // loop is held, so nothing would ever hand the slot back on its own.
-    if (audio_ && it->second.soundVoice)
-        audio_->Release(it->second.soundVoice, false);
-    if (renderer_ && it->second.rendererInstance >= 0)
-        renderer_->ReleaseScript(it->second.rendererInstance);
-    if (physics_ && it->second.physicsBody >= 0) {
-        physics_->RemoveScriptBody(it->second.physicsBody);
-        bodyToEntity_.erase(it->second.physicsBody);
-        // Anything released mid-trace-bracket would otherwise leave a dead
-        // slot in the exclusion list for good. A projectile does exactly
-        // that: it removes itself from the solver, traces, and dies.
-        excludedSlots_.erase(
-            std::remove(excludedSlots_.begin(), excludedSlots_.end(), it->second.physicsBody),
-            excludedSlots_.end());
-        // Same for the shooting shadow list. It is rebuilt every frame, but a
-        // frame with no tick (a pause, a load) would otherwise leave a dead
-        // slot in it - and a reused slot would take a live body out of every
-        // trace.
-        limbShadowed_.erase(
-            std::remove(limbShadowed_.begin(), limbShadowed_.end(), it->second.physicsBody),
-            limbShadowed_.end());
-    }
-    // The ragdoll is its own object, at its own offset in the original and on
-    // its own slot here, so it outlives the physics body and has to be freed
-    // whether or not the entity ever had one. A corpse reaped by DeathTimer is
-    // exactly that case.
-    if (physics_ && it->second.ragdollSlot >= 0) {
-        physics_->RemoveRagdoll(it->second.ragdollSlot);
-        it->second.ragdollSlot = -1;
-    }
-    if (billboards_ && it->second.spriteSlot >= 0)
-        billboards_->RemoveScriptSprite(it->second.spriteSlot);
-    if (particles_)
-        for (int slot : it->second.emitterSlots)
-            if (slot >= 0) particles_->RemoveScriptEmitter(slot);
-    if (it->second.decalSlot >= 0) decals_.Remove(it->second.decalSlot);
-    entities_.erase(it);
-    ++released_;
+	// CHILDREN GO WITH THE PARENT, which is what RegisterChild's fifth
+	// argument says and what nothing here was doing. A pickup's corona is its
+	// own Billboard entity registered as a child; releasing only the pickup
+	// left the corona drawn, in mid-air, for the rest of the level.
+	//
+	// Taken by value and cleared first: the recursive release erases from
+	// entities_, and a child that unregisters itself on the way out would
+	// otherwise mutate the list being walked.
+	{
+		const std::vector<int> kids = it->second.children;
+		it->second.children.clear();
+		for (int kid : kids) {
+			auto k = entities_.find(kid);
+			if (k == entities_.end()) continue;
+			k->second.parent = 0; // no back-link into a dying parent
+			if (k->second.dieWithParent) ReleaseEntity(kid);
+		}
+		// The map may have rehashed under the recursion.
+		it = entities_.find(handle);
+		if (it == entities_.end()) return;
+	}
+	// And drop the back-link from whatever owns this one, so a parent released
+	// later does not walk a handle that is already gone.
+	if (it->second.parent != 0) {
+		auto p = entities_.find(it->second.parent);
+		if (p != entities_.end()) {
+			std::vector<int>& siblings = p->second.children;
+			siblings.erase(std::remove(siblings.begin(), siblings.end(), handle),
+					siblings.end());
+		}
+	}
+	// A bound sound dies with the thing it was following: a PainHead's rotor
+	// loop is held, so nothing would ever hand the slot back on its own.
+	if (audio_ && it->second.soundVoice)
+		audio_->Release(it->second.soundVoice, false);
+	if (renderer_ && it->second.rendererInstance >= 0)
+		renderer_->ReleaseScript(it->second.rendererInstance);
+	if (physics_ && it->second.physicsBody >= 0) {
+		physics_->RemoveScriptBody(it->second.physicsBody);
+		bodyToEntity_.erase(it->second.physicsBody);
+		// Anything released mid-trace-bracket would otherwise leave a dead
+		// slot in the exclusion list for good. A projectile does exactly
+		// that: it removes itself from the solver, traces, and dies.
+		excludedSlots_.erase(
+				std::remove(excludedSlots_.begin(), excludedSlots_.end(), it->second.physicsBody),
+				excludedSlots_.end());
+		// Same for the shooting shadow list. It is rebuilt every frame, but a
+		// frame with no tick (a pause, a load) would otherwise leave a dead
+		// slot in it - and a reused slot would take a live body out of every
+		// trace.
+		limbShadowed_.erase(
+				std::remove(limbShadowed_.begin(), limbShadowed_.end(), it->second.physicsBody),
+				limbShadowed_.end());
+	}
+	// The ragdoll is its own object, at its own offset in the original and on
+	// its own slot here, so it outlives the physics body and has to be freed
+	// whether or not the entity ever had one. A corpse reaped by DeathTimer is
+	// exactly that case.
+	if (physics_ && it->second.ragdollSlot >= 0) {
+		physics_->RemoveRagdoll(it->second.ragdollSlot);
+		it->second.ragdollSlot = -1;
+	}
+	if (billboards_ && it->second.spriteSlot >= 0)
+		billboards_->RemoveScriptSprite(it->second.spriteSlot);
+	if (particles_)
+		for (int slot : it->second.emitterSlots)
+			if (slot >= 0) particles_->RemoveScriptEmitter(slot);
+	if (it->second.decalSlot >= 0) decals_.Remove(it->second.decalSlot);
+	entities_.erase(it);
+	++released_;
 }
 
 int EntityNatives::L_Release(lua_State* L) {
-    From(L)->ReleaseEntity(HandleArg(L, 1));
-    return 0;
+	From(L)->ReleaseEntity(HandleArg(L, 1));
+	return 0;
 }
 
 // ENTITY.PO_Hit(e, x,y,z, ix,iy,iz) and WORLD.HitPhysicObject(body, ...) -
@@ -174,13 +174,13 @@ int EntityNatives::L_Release(lua_State* L) {
 // script body slot. A weapon calls both - the first for what it damaged, the
 // second for anything physical it touched.
 static void ApplyHitImpulse(lua_State* L, PhysicsWorld* physics, int slot) {
-    if (!physics || slot < 0) return;
-    const Vec3 at{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
-                         float(luaL_optnumber(L, 4, 0))};
-    const Vec3 impulse{float(luaL_optnumber(L, 5, 0)),
-                              float(luaL_optnumber(L, 6, 0)),
-                              float(luaL_optnumber(L, 7, 0))};
-    physics->AddScriptBodyImpulse(slot, at, impulse);
+	if (!physics || slot < 0) return;
+	const Vec3 at{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+			float(luaL_optnumber(L, 4, 0))};
+	const Vec3 impulse{float(luaL_optnumber(L, 5, 0)),
+			float(luaL_optnumber(L, 6, 0)),
+			float(luaL_optnumber(L, 7, 0))};
+	physics->AddScriptBodyImpulse(slot, at, impulse);
 }
 
 // The magnitude window PO_Hit drops an impulse outside (Engine.dll 0x101337a0,
@@ -205,37 +205,37 @@ constexpr float kSpinPerImpulse = 0.03f;
 // 0x102c02d0 and 0x102c5688. The weapons sit inside it by design - Shotgun
 // throws 200 (and 100 up), MiniGun 1400, DriverElectro 80.
 int EntityNatives::L_PO_Hit(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    if (!e) return 0;
-    const Vec3 at{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
-                         float(luaL_optnumber(L, 4, 0))};
-    const Vec3 imp{float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
-                          float(luaL_optnumber(L, 7, 0))};
-    const float mag = std::sqrt(imp[0]*imp[0] + imp[1]*imp[1] + imp[2]*imp[2]);
-    if (!(mag > kMinHitImpulse && mag < kMaxHitImpulse)) return 0;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e) return 0;
+	const Vec3 at{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+			float(luaL_optnumber(L, 4, 0))};
+	const Vec3 imp{float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
+			float(luaL_optnumber(L, 7, 0))};
+	const float mag = std::sqrt(imp[0]*imp[0] + imp[1]*imp[1] + imp[2]*imp[2]);
+	if (!(mag > kMinHitImpulse && mag < kMaxHitImpulse)) return 0;
 
-    if (e->ragdollSlot >= 0 && self->physics_) {
-        self->physics_->AddRagdollImpulse(e->ragdollSlot, at, imp);
-        return 0;
-    }
-    // NOT YET DEAD, BUT ABOUT TO BE. The lethal pellet's PO_Hit arrives before
-    // OnDamage has run, so there is no ragdoll to give it to yet - bank it and
-    // spend it in EnableRagdoll. A monster that survives never activates one,
-    // and the banked impulse is simply overwritten by the next hit.
-    if (e->isMonster) {
-        for (int c = 0; c < 3; ++c) {
-            e->deathImpulse[c] = imp[c];
-            e->deathImpulseAt[c] = at[c];
-        }
-        e->hasDeathImpulse = true;
-        // And the LIVE body takes it too: PhysicsObject::Hit is EffectForce
-        // on the walking body, capped at 30, and the character tick then
-        // decays the knock by half a step. That is the shove a monster shows
-        // when a shot lands and does not kill.
-    }
-    ApplyHitImpulse(L, self->physics_, e->physicsBody);
-    return 0;
+	if (e->ragdollSlot >= 0 && self->physics_) {
+		self->physics_->AddRagdollImpulse(e->ragdollSlot, at, imp);
+		return 0;
+	}
+	// NOT YET DEAD, BUT ABOUT TO BE. The lethal pellet's PO_Hit arrives before
+	// OnDamage has run, so there is no ragdoll to give it to yet - bank it and
+	// spend it in EnableRagdoll. A monster that survives never activates one,
+	// and the banked impulse is simply overwritten by the next hit.
+	if (e->isMonster) {
+		for (int c = 0; c < 3; ++c) {
+			e->deathImpulse[c] = imp[c];
+			e->deathImpulseAt[c] = at[c];
+		}
+		e->hasDeathImpulse = true;
+		// And the LIVE body takes it too: PhysicsObject::Hit is EffectForce
+		// on the walking body, capped at 30, and the character tick then
+		// decays the knock by half a step. That is the shove a monster shows
+		// when a shot lands and does not kill.
+	}
+	ApplyHitImpulse(L, self->physics_, e->physicsBody);
+	return 0;
 }
 
 // ENTITY.PO_AccumulateRotation(e, x,y,z, ix,iy,iz) - the spin a shot puts on a
@@ -255,17 +255,17 @@ int EntityNatives::L_PO_Hit(lua_State* L) {
 //
 // Same magnitude gate as PO_Hit.
 int EntityNatives::L_PO_AccumulateRotation(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    if (!e) return 0;
-    const Vec3 at{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
-                         float(luaL_optnumber(L, 4, 0))};
-    const Vec3 imp{float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
-                          float(luaL_optnumber(L, 7, 0))};
-    const float mag = std::sqrt(imp[0]*imp[0] + imp[1]*imp[1] + imp[2]*imp[2]);
-    if (!(mag > kMinHitImpulse && mag < kMaxHitImpulse)) return 0;
-    e->deathSpin += ((at[2] - e->pos[2]) * imp[0] - imp[2] * (at[0] - e->pos[0])) * kSpinPerImpulse;
-    return 0;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e) return 0;
+	const Vec3 at{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+			float(luaL_optnumber(L, 4, 0))};
+	const Vec3 imp{float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
+			float(luaL_optnumber(L, 7, 0))};
+	const float mag = std::sqrt(imp[0]*imp[0] + imp[1]*imp[1] + imp[2]*imp[2]);
+	if (!(mag > kMinHitImpulse && mag < kMaxHitImpulse)) return 0;
+	e->deathSpin += ((at[2] - e->pos[2]) * imp[0] - imp[2] * (at[0] - e->pos[0])) * kSpinPerImpulse;
+	return 0;
 }
 
 // MDL.ApplyPointImpulseToRagdoll(e, x,y,z, ix,iy,iz) - the same thing said
@@ -273,15 +273,15 @@ int EntityNatives::L_PO_AccumulateRotation(lua_State* L) {
 // from an animation. No magnitude gate on this one; the engine's version
 // (0x1012b8c0) has none either.
 int EntityNatives::L_MDL_ApplyPointImpulseToRagdoll(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    if (!e || e->ragdollSlot < 0 || !self->physics_) return 0;
-    const Vec3 at{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
-                         float(luaL_optnumber(L, 4, 0))};
-    const Vec3 imp{float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
-                          float(luaL_optnumber(L, 7, 0))};
-    self->physics_->AddRagdollImpulse(e->ragdollSlot, at, imp);
-    return 0;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || e->ragdollSlot < 0 || !self->physics_) return 0;
+	const Vec3 at{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+			float(luaL_optnumber(L, 4, 0))};
+	const Vec3 imp{float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
+			float(luaL_optnumber(L, 7, 0))};
+	self->physics_->AddRagdollImpulse(e->ragdollSlot, at, imp);
+	return 0;
 }
 
 // ENTITY.PO_ScaleInertiaTensor - s_Physics.InertiaTensorMultiplier, which is
@@ -289,38 +289,38 @@ int EntityNatives::L_MDL_ApplyPointImpulseToRagdoll(lua_State* L) {
 // death (_inertiaTensorDelayedEnable), once the ragdoll has settled into the
 // solver. A tenth of the inertia is a body that tumbles instead of toppling.
 int EntityNatives::L_PO_ScaleInertiaTensor(lua_State* L) {
-    ScriptEngine* self = From(L);
-    const Entity* e = self->Find(HandleArg(L, 1));
-    if (e && e->ragdollSlot >= 0 && self->physics_)
-        self->physics_->ScaleRagdollInertia(e->ragdollSlot,
-                                            float(luaL_optnumber(L, 2, 1.0)));
-    return 0;
+	ScriptEngine* self = From(L);
+	const Entity* e = self->Find(HandleArg(L, 1));
+	if (e && e->ragdollSlot >= 0 && self->physics_)
+		self->physics_->ScaleRagdollInertia(e->ragdollSlot,
+				float(luaL_optnumber(L, 2, 1.0)));
+	return 0;
 }
 
 int EntityNatives::L_WORLD_HitPhysicObject(lua_State* L) {
-    ScriptEngine* self = From(L);
-    // -1 is what a trace reports for the world itself, which cannot be moved.
-    const int handle = int(luaL_optnumber(L, 1, -1));
-    // A LIMB handle lands on that ragdoll part: Stake:Tick ends every hit with
-    // HitPhysicObject(he, ..., dx*800, rand(1,700), dz*800), and a stake in
-    // the head is what flips a corpse. Physics.md, "The stake".
-    int entity = 0, joint = -1;
-    if (self->physics_ && self->LimbFromHandle(handle, entity, joint)) {
-        Entity* e = self->Find(entity);
-        if (!e || e->ragdollSlot < 0) return 0;
-        const Vec3 at{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
-                             float(luaL_optnumber(L, 4, 0))};
-        const Vec3 imp{float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
-                              float(luaL_optnumber(L, 7, 0))};
-        const float mag = std::sqrt(imp[0]*imp[0] + imp[1]*imp[1] + imp[2]*imp[2]);
-        if (!(mag > kMinHitImpulse && mag < kMaxHitImpulse)) return 0;
-        const int part = self->RagdollPartForJoint(*e, joint);
-        if (part >= 0) self->physics_->AddRagdollPartImpulse(e->ragdollSlot, part, at, imp);
-        else           self->physics_->AddRagdollImpulse(e->ragdollSlot, at, imp);
-        return 0;
-    }
-    ApplyHitImpulse(L, self->physics_, handle);
-    return 0;
+	ScriptEngine* self = From(L);
+	// -1 is what a trace reports for the world itself, which cannot be moved.
+	const int handle = int(luaL_optnumber(L, 1, -1));
+	// A LIMB handle lands on that ragdoll part: Stake:Tick ends every hit with
+	// HitPhysicObject(he, ..., dx*800, rand(1,700), dz*800), and a stake in
+	// the head is what flips a corpse. Physics.md, "The stake".
+	int entity = 0, joint = -1;
+	if (self->physics_ && self->LimbFromHandle(handle, entity, joint)) {
+		Entity* e = self->Find(entity);
+		if (!e || e->ragdollSlot < 0) return 0;
+		const Vec3 at{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+				float(luaL_optnumber(L, 4, 0))};
+		const Vec3 imp{float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
+				float(luaL_optnumber(L, 7, 0))};
+		const float mag = std::sqrt(imp[0]*imp[0] + imp[1]*imp[1] + imp[2]*imp[2]);
+		if (!(mag > kMinHitImpulse && mag < kMaxHitImpulse)) return 0;
+		const int part = self->RagdollPartForJoint(*e, joint);
+		if (part >= 0) self->physics_->AddRagdollPartImpulse(e->ragdollSlot, part, at, imp);
+		else self->physics_->AddRagdollImpulse(e->ragdollSlot, at, imp);
+		return 0;
+	}
+	ApplyHitImpulse(L, self->physics_, handle);
+	return 0;
 }
 
 // WORLD.GetLastExplodedEntities(item) -> the debris ExplodeItem just made.
@@ -337,18 +337,18 @@ int EntityNatives::L_WORLD_HitPhysicObject(lua_State* L) {
 // than convenient: no parts exist yet, and the scripts read the emptiness
 // correctly.
 int EntityNatives::L_WORLD_GetLastExplodedEntities(lua_State* L) {
-    ScriptEngine* self = From(L);
-    const int handle = HandleArg(L, 1);
-    lua_newtable(L);
-    const auto it = self->lastExploded_.find(handle);
-    if (it == self->lastExploded_.end()) return 1;
-    int index = 1;
-    for (const int part : it->second) {
-        lua_pushnumber(L, index++);
-        lua_pushnumber(L, part);
-        lua_settable(L, -3);
-    }
-    return 1;
+	ScriptEngine* self = From(L);
+	const int handle = HandleArg(L, 1);
+	lua_newtable(L);
+	const auto it = self->lastExploded_.find(handle);
+	if (it == self->lastExploded_.end()) return 1;
+	int index = 1;
+	for (const int part : it->second) {
+		lua_pushnumber(L, index++);
+		lua_pushnumber(L, part);
+		lua_settable(L, -3);
+	}
+	return 1;
 }
 
 // ENTITY.ExplodeItem(item, pack, strength, radius, lifetime, _, bindTo, noSelf)
@@ -359,130 +359,130 @@ int EntityNatives::L_WORLD_GetLastExplodedEntities(lua_State* L) {
 // GetLastExplodedEntities for the parts so it can texture them and set the
 // burning ones alight - so they have to exist by the time this returns.
 int EntityNatives::L_ENTITY_ExplodeItem(lua_State* L) {
-    ScriptEngine* self = From(L);
-    const int srcHandle = HandleArg(L, 1);
-    Entity* src = self->Find(srcHandle);
-    const char* packArg = lua_isstring(L, 2) ? lua_tostring(L, 2) : nullptr;
-    if (!src || !packArg || !*packArg) {
-        lua_pushboolean(L, 0);
-        return 1;
-    }
-    const float strength = float(luaL_optnumber(L, 3, 0));
-    const float lifetime = float(luaL_optnumber(L, 5, 0));
+	ScriptEngine* self = From(L);
+	const int srcHandle = HandleArg(L, 1);
+	Entity* src = self->Find(srcHandle);
+	const char* packArg = lua_isstring(L, 2) ? lua_tostring(L, 2) : nullptr;
+	if (!src || !packArg || !*packArg) {
+		lua_pushboolean(L, 0);
+		return 1;
+	}
+	const float strength = float(luaL_optnumber(L, 3, 0));
+	const float lifetime = float(luaL_optnumber(L, 5, 0));
 
-    DatPack pack;
-    if (!DatPack::Load(self->host_->ResolvePath(packArg), pack) || pack.objects.empty()) {
-        lua_pushboolean(L, 0);
-        return 1;
-    }
+	DatPack pack;
+	if (!DatPack::Load(self->host_->ResolvePath(packArg), pack) || pack.objects.empty()) {
+		lua_pushboolean(L, 0);
+		return 1;
+	}
 
-    // Taken before the registry grows: the parts inherit the item's pose.
-    const std::string source = packArg;
-    const float scale = src->scale;
-    // THE PARTS INHERIT THE ITEM'S VELOCITY - this is what makes wreckage carry
-    // the blast that broke it, or the momentum of the fall. CItem:DestroyItemFX
-    // reads it, scales it by Destroy.VelocityFactor and writes it back just
-    // before calling this, and the only two templates that set that factor use
-    // (0,0,0) - so the factor is an opt-OUT and inheriting is the default.
-    // The body is read first: it carries the impulse WORLD.Explosion2 just
-    // applied, which the entity store has not seen.
-    Vec3 inherited{src->velocity[0], src->velocity[1], src->velocity[2]};
-    // Only while the body is still in the world - once DestroyItemFX has
-    // disabled it, PO_Enable's snapshot in src->velocity is the truthful one.
-    if (src->poEnabled && self->physics_ && src->physicsBody >= 0) {
-        Vec3 v;
-        if (self->physics_->GetScriptBodyVelocity(src->physicsBody, v))
-            inherited = v;
-    }
-    const Vec3 pos = src->pos;
-    const Quat rot = src->rot;
+	// Taken before the registry grows: the parts inherit the item's pose.
+	const std::string source = packArg;
+	const float scale = src->scale;
+	// THE PARTS INHERIT THE ITEM'S VELOCITY - this is what makes wreckage carry
+	// the blast that broke it, or the momentum of the fall. CItem:DestroyItemFX
+	// reads it, scales it by Destroy.VelocityFactor and writes it back just
+	// before calling this, and the only two templates that set that factor use
+	// (0,0,0) - so the factor is an opt-OUT and inheriting is the default.
+	// The body is read first: it carries the impulse WORLD.Explosion2 just
+	// applied, which the entity store has not seen.
+	Vec3 inherited{src->velocity[0], src->velocity[1], src->velocity[2]};
+	// Only while the body is still in the world - once DestroyItemFX has
+	// disabled it, PO_Enable's snapshot in src->velocity is the truthful one.
+	if (src->poEnabled && self->physics_ && src->physicsBody >= 0) {
+		Vec3 v;
+		if (self->physics_->GetScriptBodyVelocity(src->physicsBody, v))
+			inherited = v;
+	}
+	const Vec3 pos = src->pos;
+	const Quat rot = src->rot;
 
-    std::string packName;
-    const bool haveShape = self->SplitPackSource(source, packName);
+	std::string packName;
+	const bool haveShape = self->SplitPackSource(source, packName);
 
-    std::vector<int>& parts = self->lastExploded_[srcHandle];
-    parts.clear();
-    parts.reserve(pack.objects.size());
+	std::vector<int>& parts = self->lastExploded_[srcHandle];
+	parts.clear();
+	parts.reserve(pack.objects.size());
 
-    for (const MapObject& object : pack.objects) {
-        Entity part;
-        part.type = kMesh;
-        part.source = source;
-        part.mesh = object.name;
-        part.scale = scale;
-        part.pos = pos;
-        part.rot = rot;
-        part.inWorld = true;
-        // LifetimeAfterExplosion. Without it the debris is permanent, and it
-        // is debris with real bodies - it would pile up as collision.
-        part.timeToDie = lifetime > 0.f ? lifetime : 3.f;
+	for (const MapObject& object : pack.objects) {
+		Entity part;
+		part.type = kMesh;
+		part.source = source;
+		part.mesh = object.name;
+		part.scale = scale;
+		part.pos = pos;
+		part.rot = rot;
+		part.inWorld = true;
+		// LifetimeAfterExplosion. Without it the debris is permanent, and it
+		// is debris with real bodies - it would pile up as collision.
+		part.timeToDie = lifetime > 0.f ? lifetime : 3.f;
 
-        // Which way a piece goes: its own offset inside the pack. The parts are
-        // modelled in place - a barrel's staves sit where they were before it
-        // came apart - so each centre already points away from the middle, and
-        // the wreck separates the way it was assembled.
-        Vec3 dir;
-        float len = 0.f;
-        for (int c = 0; c < 3; ++c) {
-            dir[c] = 0.5f * (object.bboxMin[c] + object.bboxMax[c]);
-            len += dir[c] * dir[c];
-        }
-        len = std::sqrt(len);
-        if (len > 1e-4f) for (int c = 0; c < 3; ++c) dir[c] /= len;
-        else            { dir[0] = 0.f; dir[1] = 1.f; dir[2] = 0.f; }
+		// Which way a piece goes: its own offset inside the pack. The parts are
+		// modelled in place - a barrel's staves sit where they were before it
+		// came apart - so each centre already points away from the middle, and
+		// the wreck separates the way it was assembled.
+		Vec3 dir;
+		float len = 0.f;
+		for (int c = 0; c < 3; ++c) {
+			dir[c] = 0.5f * (object.bboxMin[c] + object.bboxMax[c]);
+			len += dir[c] * dir[c];
+		}
+		len = std::sqrt(len);
+		if (len > 1e-4f) for (int c = 0; c < 3; ++c) dir[c] /= len;
+		else { dir[0] = 0.f; dir[1] = 1.f; dir[2] = 0.f; }
 
-        // Destroy.Strength runs from 1 to 50 across the shipped items. How the
-        // engine turns that into a speed has NOT been recovered from the binary
-        // yet, so this is an approximation with a lift on it - enough that the
-        // pieces leave the ground rather than sliding apart along the floor.
-        const float speed = 0.5f + strength * 0.05f;
-        for (int c = 0; c < 3; ++c) part.velocity[c] = inherited[c] + dir[c] * speed;
-        part.velocity[1] += speed * 0.5f;
+		// Destroy.Strength runs from 1 to 50 across the shipped items. How the
+		// engine turns that into a speed has NOT been recovered from the binary
+		// yet, so this is an approximation with a lift on it - enough that the
+		// pieces leave the ground rather than sliding apart along the floor.
+		const float speed = 0.5f + strength * 0.05f;
+		for (int c = 0; c < 3; ++c) part.velocity[c] = inherited[c] + dir[c] * speed;
+		part.velocity[1] += speed * 0.5f;
 
-        const int handle = self->nextHandle_++;
-        Entity& live = self->entities_.emplace(handle, part).first->second;
-        ++self->created_;
-        self->CreateRendererInstance(live);
+		const int handle = self->nextHandle_++;
+		Entity& live = self->entities_.emplace(handle, part).first->second;
+		++self->created_;
+		self->CreateRendererInstance(live);
 
-        // A real body, so the wreckage falls, bounces and settles instead of
-        // hanging where the item was.
-        //
-        // BodyTypes.FromMesh (4), NOT Default (0).
-        //
-        // Nothing in a .dat carries collision - an object is geometry, a
-        // material and a bbox - so the shape is derived, and Default derives a
-        // SPHERE sized by the largest half-extent. For a barrel stave measuring
-        // 0.50 x 3.84 x 1.12 that is a ball of radius 1.9 wrapped around a
-        // plank: the wreckage rolls like barrels because every piece of it
-        // literally is one. FromMesh takes the convex hull instead, which for
-        // these parts is 50-70 points apiece.
-        if (self->physics_ && haveShape) {
-            const int slot = self->physics_->CreateScriptBody(
-                4, "", packName, live.mesh, live.scale, live.pos, live.rot,
-                self->dataRoot_, 3 /* ECollisionGroups.Normal */);
-            if (slot >= 0) {
-                live.physicsBody = slot;
-                self->bodyToEntity_[slot] = handle;
-                self->physics_->SetScriptBodyVelocity(slot, live.velocity);
-            }
-        }
-        parts.push_back(handle);
-    }
+		// A real body, so the wreckage falls, bounces and settles instead of
+		// hanging where the item was.
+		//
+		// BodyTypes.FromMesh (4), NOT Default (0).
+		//
+		// Nothing in a .dat carries collision - an object is geometry, a
+		// material and a bbox - so the shape is derived, and Default derives a
+		// SPHERE sized by the largest half-extent. For a barrel stave measuring
+		// 0.50 x 3.84 x 1.12 that is a ball of radius 1.9 wrapped around a
+		// plank: the wreckage rolls like barrels because every piece of it
+		// literally is one. FromMesh takes the convex hull instead, which for
+		// these parts is 50-70 points apiece.
+		if (self->physics_ && haveShape) {
+			const int slot = self->physics_->CreateScriptBody(
+					4, "", packName, live.mesh, live.scale, live.pos, live.rot,
+					self->dataRoot_, 3 /* ECollisionGroups.Normal */);
+			if (slot >= 0) {
+				live.physicsBody = slot;
+				self->bodyToEntity_[slot] = handle;
+				self->physics_->SetScriptBodyVelocity(slot, live.velocity);
+			}
+		}
+		parts.push_back(handle);
+	}
 
-    // What is left standing is the debris, not the item - and the item has to
-    // stop being SOLID as well as stop being drawn. DestroyItemFX turns its
-    // physics off just before calling this, but PO_Enable(false) only sleeps a
-    // body, and a sleeping body still collides. Hiding it alone left an
-    // invisible barrel standing exactly where the barrel had been, which reads
-    // as the debris having inherited the whole item's collision.
-    src->visible = false;
-    self->SyncPose(*src);
-    src->bodyNonColliding = true;
-    if (self->physics_ && src->physicsBody >= 0)
-        self->physics_->MakeScriptBodyNonColliding(src->physicsBody);
+	// What is left standing is the debris, not the item - and the item has to
+	// stop being SOLID as well as stop being drawn. DestroyItemFX turns its
+	// physics off just before calling this, but PO_Enable(false) only sleeps a
+	// body, and a sleeping body still collides. Hiding it alone left an
+	// invisible barrel standing exactly where the barrel had been, which reads
+	// as the debris having inherited the whole item's collision.
+	src->visible = false;
+	self->SyncPose(*src);
+	src->bodyNonColliding = true;
+	if (self->physics_ && src->physicsBody >= 0)
+		self->physics_->MakeScriptBodyNonColliding(src->physicsBody);
 
-    lua_pushboolean(L, 1);
-    return 1;
+	lua_pushboolean(L, 1);
+	return 1;
 }
 
 // ENTITY.SetTimeToDie(e, seconds) - the engine reaps the entity itself once
@@ -492,102 +492,102 @@ int EntityNatives::L_ENTITY_ExplodeItem(lua_State* L) {
 // up as collision the player walks into - which reads as the impact effect
 // itself being solid.
 int EntityNatives::L_SetTimeToDie(lua_State* L) {
-    if (Entity* e = From(L)->Find(HandleArg(L, 1)))
-        e->timeToDie = float(luaL_optnumber(L, 2, 0));
-    return 0;
+	if (Entity* e = From(L)->Find(HandleArg(L, 1)))
+		e->timeToDie = float(luaL_optnumber(L, 2, 0));
+	return 0;
 }
 
 
 void ScriptEngine::TickLifetimes(float dt) {
-    if (dt <= 0.f) return;
-    expired_.clear();
-    // Decal::Tick, then World::DeleteEntityDelayed on the ones that ran out.
-    decals_.Tick(dt);
-    for (auto& kv : entities_) {
-        Entity& e = kv.second;
-        if (e.timeToDie >= 0.f) {
-            e.timeToDie -= dt;
-            if (e.timeToDie <= 0.f) {
-                expired_.push_back(kv.first);
-                continue;
-            }
-        }
-        if (e.decalSlot >= 0 && decals_.Finished(e.decalSlot)) {
-            expired_.push_back(kv.first);
-            continue;
-        }
-        // A spent one-shot effect. AddPFX creates an entity per impact and
-        // never takes it back, so the engine has to: once every emitter has
-        // burnt its budget and its last particle has gone, the effect is
-        // over. A level-placed effect never reaches this, because its
-        // emitters are forced to keep evolving.
-        if (e.type == kParticleFX && particles_ && !e.emitterSlots.empty()) {
-            bool done = true;
-            for (int slot : e.emitterSlots)
-                if (slot >= 0 && !particles_->ScriptEmitterFinished(slot)) done = false;
-            if (done) expired_.push_back(kv.first);
-        }
-    }
-    for (int handle : expired_) ReleaseEntity(handle);
+	if (dt <= 0.f) return;
+	expired_.clear();
+	// Decal::Tick, then World::DeleteEntityDelayed on the ones that ran out.
+	decals_.Tick(dt);
+	for (auto& kv : entities_) {
+		Entity& e = kv.second;
+		if (e.timeToDie >= 0.f) {
+			e.timeToDie -= dt;
+			if (e.timeToDie <= 0.f) {
+				expired_.push_back(kv.first);
+				continue;
+			}
+		}
+		if (e.decalSlot >= 0 && decals_.Finished(e.decalSlot)) {
+			expired_.push_back(kv.first);
+			continue;
+		}
+		// A spent one-shot effect. AddPFX creates an entity per impact and
+		// never takes it back, so the engine has to: once every emitter has
+		// burnt its budget and its last particle has gone, the effect is
+		// over. A level-placed effect never reaches this, because its
+		// emitters are forced to keep evolving.
+		if (e.type == kParticleFX && particles_ && !e.emitterSlots.empty()) {
+			bool done = true;
+			for (int slot : e.emitterSlots)
+				if (slot >= 0 && !particles_->ScriptEmitterFinished(slot)) done = false;
+			if (done) expired_.push_back(kv.first);
+		}
+	}
+	for (int handle : expired_) ReleaseEntity(handle);
 }
 
 int EntityNatives::L_SetPosition(lua_State* L) {
-    ScriptEngine* self = From(L);
-    const int handle = HandleArg(L, 1);
-    if (Entity* e = self->Find(handle)) {
-        const Vec3 p{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
-                            float(luaL_optnumber(L, 4, 0))};
-        // A script can compute a NaN - divide a velocity by its own length
-        // when that length is zero and every coordinate downstream is one -
-        // and handing that to the simulation takes the process down. The
-        // engine survives a script's bad arithmetic; so must this.
-        for (int c = 0; c < 3; ++c) {
-            if (!(p[c] == p[c]) || p[c] > 1e18f || p[c] < -1e18f) {
-                LogWarn("ENTITY.SetPosition(%d): ignoring a non-finite position", handle);
-                return 0;
-            }
-        }
-        for (int c = 0; c < 3; ++c) e->pos[c] = p[c];
-        self->SyncPose(*e);
-        if (self->physics_ && e->physicsBody >= 0)
-            self->physics_->SetScriptBodyPose(e->physicsBody, e->pos, e->rot);
-        if (self->pawn_ && handle == self->playerHandle_)
-            // SetPosition gives the FEET (see SyncPlayerFromPawn); the pawn is
-            // driven from the eye.
-            self->pawn_->SetFloorPos(e->pos);   // teleports (spawn, checkpoints)
-    }
-    return 0;
+	ScriptEngine* self = From(L);
+	const int handle = HandleArg(L, 1);
+	if (Entity* e = self->Find(handle)) {
+		const Vec3 p{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+							float(luaL_optnumber(L, 4, 0))};
+		// A script can compute a NaN - divide a velocity by its own length
+		// when that length is zero and every coordinate downstream is one -
+		// and handing that to the simulation takes the process down. The
+		// engine survives a script's bad arithmetic; so must this.
+		for (int c = 0; c < 3; ++c) {
+			if (!(p[c] == p[c]) || p[c] > 1e18f || p[c] < -1e18f) {
+				LogWarn("ENTITY.SetPosition(%d): ignoring a non-finite position", handle);
+				return 0;
+			}
+		}
+		for (int c = 0; c < 3; ++c) e->pos[c] = p[c];
+		self->SyncPose(*e);
+		if (self->physics_ && e->physicsBody >= 0)
+			self->physics_->SetScriptBodyPose(e->physicsBody, e->pos, e->rot);
+		if (self->pawn_ && handle == self->playerHandle_)
+			// SetPosition gives the FEET (see SyncPlayerFromPawn); the pawn is
+			// driven from the eye.
+			self->pawn_->SetFloorPos(e->pos); // teleports (spawn, checkpoints)
+	}
+	return 0;
 }
 
 int EntityNatives::L_GetPosition(lua_State* L) {
-    ScriptEngine* self = From(L);
-    const Entity* e = self->Find(HandleArg(L, 1));
-    lua_pushnumber(L, e ? e->pos[0] : 0);
-    lua_pushnumber(L, e ? e->pos[1] : 0);
-    lua_pushnumber(L, e ? e->pos[2] : 0);
-    return 3;
+	ScriptEngine* self = From(L);
+	const Entity* e = self->Find(HandleArg(L, 1));
+	lua_pushnumber(L, e ? e->pos[0] : 0);
+	lua_pushnumber(L, e ? e->pos[1] : 0);
+	lua_pushnumber(L, e ? e->pos[2] : 0);
+	return 3;
 }
 
 int EntityNatives::L_SetRotationQ(lua_State* L) {
-    ScriptEngine* self = From(L);
-    if (Entity* e = self->Find(HandleArg(L, 1))) {
-        e->rot = Quat(float(luaL_optnumber(L, 2, 1)), float(luaL_optnumber(L, 3, 0)),
-                      float(luaL_optnumber(L, 4, 0)), float(luaL_optnumber(L, 5, 0)));
-        self->SyncPose(*e);
-        if (self->physics_ && e->physicsBody >= 0)
-            self->physics_->SetScriptBodyPose(e->physicsBody, e->pos, e->rot);
-    }
-    return 0;
+	ScriptEngine* self = From(L);
+	if (Entity* e = self->Find(HandleArg(L, 1))) {
+		e->rot = Quat(float(luaL_optnumber(L, 2, 1)), float(luaL_optnumber(L, 3, 0)),
+				float(luaL_optnumber(L, 4, 0)), float(luaL_optnumber(L, 5, 0)));
+		self->SyncPose(*e);
+		if (self->physics_ && e->physicsBody >= 0)
+			self->physics_->SetScriptBodyPose(e->physicsBody, e->pos, e->rot);
+	}
+	return 0;
 }
 
 int EntityNatives::L_GetRotationQ(lua_State* L) {
-    ScriptEngine* self = From(L);
-    const Entity* e = self->Find(HandleArg(L, 1));
-    lua_pushnumber(L, e ? e->rot[0] : 1);
-    lua_pushnumber(L, e ? e->rot[1] : 0);
-    lua_pushnumber(L, e ? e->rot[2] : 0);
-    lua_pushnumber(L, e ? e->rot[3] : 0);
-    return 4;
+	ScriptEngine* self = From(L);
+	const Entity* e = self->Find(HandleArg(L, 1));
+	lua_pushnumber(L, e ? e->rot[0] : 1);
+	lua_pushnumber(L, e ? e->rot[1] : 0);
+	lua_pushnumber(L, e ? e->rot[2] : 0);
+	lua_pushnumber(L, e ? e->rot[3] : 0);
+	return 4;
 }
 
 // SetOrientation/GetOrientation: yaw about Y, radians.
@@ -604,17 +604,17 @@ int EntityNatives::L_GetRotationQ(lua_State* L) {
 // mirror image of where it is going - right at 0 and 180 degrees, backwards
 // at 90, which is what "close, but facing the wrong way" looks like.
 int EntityNatives::L_SetOrientation(lua_State* L) {
-    ScriptEngine* self = From(L);
-    if (Entity* e = self->Find(HandleArg(L, 1))) {
-        const float a = float(luaL_optnumber(L, 2, 0)) * 0.5f;
-        e->rot = Quat(std::cos(a), 0.f, -std::sin(a), 0.f);
-        self->SyncPose(*e);
-        // PhysicsObject::SetOrientation (0x10189F70) writes the body's
-        // rotation; a character body's yaw is the scripts', not the solver's.
-        if (self->physics_ && e->physicsBody >= 0 && e->isMonster)
-            self->physics_->SetScriptBodyRotation(e->physicsBody, e->rot);
-    }
-    return 0;
+	ScriptEngine* self = From(L);
+	if (Entity* e = self->Find(HandleArg(L, 1))) {
+		const float a = float(luaL_optnumber(L, 2, 0)) * 0.5f;
+		e->rot = Quat(std::cos(a), 0.f, -std::sin(a), 0.f);
+		self->SyncPose(*e);
+		// PhysicsObject::SetOrientation (0x10189F70) writes the body's
+		// rotation; a character body's yaw is the scripts', not the solver's.
+		if (self->physics_ && e->physicsBody >= 0 && e->isMonster)
+			self->physics_->SetScriptBodyRotation(e->physicsBody, e->rot);
+	}
+	return 0;
 }
 
 // ENTITY.GetOrientation(e) -> yaw, radians.
@@ -628,81 +628,81 @@ int EntityNatives::L_SetOrientation(lua_State* L) {
 // projectile's yaw (`-orientation + 1.57`). Answering 0 for the player put
 // every rocket's long axis 90 degrees off its flight.
 int EntityNatives::L_GetOrientation(lua_State* L) {
-    ScriptEngine* self = From(L);
-    const int handle = HandleArg(L, 1);
-    Vec3 fwd{0, 0, 1};
-    if (self->pawn_ && handle == self->playerHandle_ && self->playerHandle_) {
-        // The same basis CAM.GetForwardVector answers with.
-        const float cp = std::cos(self->camPitch_);
-        fwd[0] = std::cos(self->camYaw_) * cp;
-        fwd[1] = std::sin(self->camPitch_);
-        fwd[2] = std::sin(self->camYaw_) * cp;
-    } else if (const Entity* e = self->Find(handle)) {
-        const Vec3 z{0, 0, 1};
-        fwd = e->rot.Rotate(z);
-    } else {
-        lua_pushnumber(L, 0);
-        return 1;
-    }
-    lua_pushnumber(L, std::atan2(fwd[0], fwd[2]));
-    return 1;
+	ScriptEngine* self = From(L);
+	const int handle = HandleArg(L, 1);
+	Vec3 fwd{0, 0, 1};
+	if (self->pawn_ && handle == self->playerHandle_ && self->playerHandle_) {
+		// The same basis CAM.GetForwardVector answers with.
+		const float cp = std::cos(self->camPitch_);
+		fwd[0] = std::cos(self->camYaw_) * cp;
+		fwd[1] = std::sin(self->camPitch_);
+		fwd[2] = std::sin(self->camYaw_) * cp;
+	} else if (const Entity* e = self->Find(handle)) {
+		const Vec3 z{0, 0, 1};
+		fwd = e->rot.Rotate(z);
+	} else {
+		lua_pushnumber(L, 0);
+		return 1;
+	}
+	lua_pushnumber(L, std::atan2(fwd[0], fwd[2]));
+	return 1;
 }
 
 // ENTITY.SetScale(e, s): particle effects apply their entity scale this way.
 // A model's renderer instance keeps its creation scale for now - the shipped
 // load path never rescales one after Create.
 int EntityNatives::L_SetScale(lua_State* L) {
-    ScriptEngine* self = From(L);
-    if (Entity* e = self->Find(HandleArg(L, 1))) {
-        e->scale = float(luaL_optnumber(L, 2, 1.0));
-        self->UpdateAttachments(*e);
-    }
-    return 0;
+	ScriptEngine* self = From(L);
+	if (Entity* e = self->Find(HandleArg(L, 1))) {
+		e->scale = float(luaL_optnumber(L, 2, 1.0));
+		self->UpdateAttachments(*e);
+	}
+	return 0;
 }
 
 // PARTICLE.AddEmitter(e, file) -> the per-entity emitter index the scripts
 // hand back to SetupEmitter. The effect resolution happened script-side
 // (LoadParticleFX over ParticleFXArray); only the .ini name arrives.
 int EntityNatives::L_PARTICLE_AddEmitter(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    if (!e) return 0;
-    int slot = -1;
-    if (self->particles_ && self->emitterLib_ && self->textures_)
-        slot = self->particles_->AddScriptEmitter(luaL_optstring(L, 2, ""),
-                                                  *self->emitterLib_, *self->textures_,
-                                                  self->world_.levelName);
-    e->emitterSlots.push_back(slot);
-    Entity::EmitterRec rec;
-    rec.file = luaL_optstring(L, 2, "");
-    e->emitterRecs.push_back(rec);
-    lua_pushnumber(L, double(e->emitterSlots.size() - 1));
-    return 1;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e) return 0;
+	int slot = -1;
+	if (self->particles_ && self->emitterLib_ && self->textures_)
+		slot = self->particles_->AddScriptEmitter(luaL_optstring(L, 2, ""),
+				*self->emitterLib_, *self->textures_,
+				self->world_.levelName);
+	e->emitterSlots.push_back(slot);
+	Entity::EmitterRec rec;
+	rec.file = luaL_optstring(L, 2, "");
+	e->emitterRecs.push_back(rec);
+	lua_pushnumber(L, double(e->emitterSlots.size() - 1));
+	return 1;
 }
 
 // PARTICLE.SetupEmitter(e, i, scale, px, py, pz, rx, ry, rz) - the .pfx
 // entry's own transform; rotation in degrees, exactly what the entry stores.
 int EntityNatives::L_PARTICLE_SetupEmitter(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    if (!e || !self->particles_) return 0;
-    const size_t idx = size_t(luaL_optnumber(L, 2, -1));
-    if (idx >= e->emitterSlots.size() || e->emitterSlots[idx] < 0) return 0;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || !self->particles_) return 0;
+	const size_t idx = size_t(luaL_optnumber(L, 2, -1));
+	if (idx >= e->emitterSlots.size() || e->emitterSlots[idx] < 0) return 0;
 
-    const Vec3 offset{float(luaL_optnumber(L, 4, 0)), float(luaL_optnumber(L, 5, 0)),
-                             float(luaL_optnumber(L, 6, 0))};
-    const Vec3 rotDeg{float(luaL_optnumber(L, 7, 0)), float(luaL_optnumber(L, 8, 0)),
-                             float(luaL_optnumber(L, 9, 0))};
-    if (idx < e->emitterRecs.size()) {
-        Entity::EmitterRec& rec = e->emitterRecs[idx];
-        rec.setup = true;
-        rec.scale = float(luaL_optnumber(L, 3, 1.0));
-        for (int c = 0; c < 3; ++c) { rec.offset[c] = offset[c]; rec.rotDeg[c] = rotDeg[c]; }
-    }
-    self->particles_->SetupScriptEmitter(e->emitterSlots[idx],
-                                         float(luaL_optnumber(L, 3, 1.0)), offset, rotDeg);
-    self->UpdateAttachments(*e);
-    return 0;
+	const Vec3 offset{float(luaL_optnumber(L, 4, 0)), float(luaL_optnumber(L, 5, 0)),
+			float(luaL_optnumber(L, 6, 0))};
+	const Vec3 rotDeg{float(luaL_optnumber(L, 7, 0)), float(luaL_optnumber(L, 8, 0)),
+			float(luaL_optnumber(L, 9, 0))};
+	if (idx < e->emitterRecs.size()) {
+		Entity::EmitterRec& rec = e->emitterRecs[idx];
+		rec.setup = true;
+		rec.scale = float(luaL_optnumber(L, 3, 1.0));
+		for (int c = 0; c < 3; ++c) { rec.offset[c] = offset[c]; rec.rotDeg[c] = rotDeg[c]; }
+	}
+	self->particles_->SetupScriptEmitter(e->emitterSlots[idx],
+			float(luaL_optnumber(L, 3, 1.0)), offset, rotDeg);
+	self->UpdateAttachments(*e);
+	return 0;
 }
 
 // PARTICLE.SetEvolve / SetFixedTransform: evolve is always on in this port
@@ -714,23 +714,23 @@ int EntityNatives::L_NoOpNative(lua_State*) { return 0; }
 // size, maxDistance, offDistance, traceMargin, tex, packedColor, blendMode,
 // spriteOnly) - CBillboard:Apply's one native, field for field.
 int EntityNatives::L_BILLBOARD_SetupCorona(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    if (!e || !self->billboards_ || !self->textures_) return 0;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || !self->billboards_ || !self->textures_) return 0;
 
-    float args[9];
-    for (int i = 0; i < 9; ++i) args[i] = float(luaL_optnumber(L, 2 + i, 0));
-    e->hasCorona = true;
-    for (int i = 0; i < 9; ++i) e->coronaArgs[i] = args[i];
-    e->coronaTex = luaL_optstring(L, 11, "");
-    e->coronaColor = uint32_t(int64_t(luaL_optnumber(L, 12, 0)));
-    e->coronaBlend = int(luaL_optnumber(L, 13, 1));
-    e->coronaSpriteOnly = lua_toboolean(L, 14) != 0;
-    e->spriteSlot = self->billboards_->SetupScriptCorona(
-        e->spriteSlot, args, e->coronaTex, e->coronaColor, e->coronaBlend,
-        e->coronaSpriteOnly, *self->textures_, self->world_.levelName);
-    self->billboards_->SetScriptSpritePos(e->spriteSlot, e->pos);
-    return 0;
+	float args[9];
+	for (int i = 0; i < 9; ++i) args[i] = float(luaL_optnumber(L, 2 + i, 0));
+	e->hasCorona = true;
+	for (int i = 0; i < 9; ++i) e->coronaArgs[i] = args[i];
+	e->coronaTex = luaL_optstring(L, 11, "");
+	e->coronaColor = uint32_t(int64_t(luaL_optnumber(L, 12, 0)));
+	e->coronaBlend = int(luaL_optnumber(L, 13, 1));
+	e->coronaSpriteOnly = lua_toboolean(L, 14) != 0;
+	e->spriteSlot = self->billboards_->SetupScriptCorona(
+			e->spriteSlot, args, e->coronaTex, e->coronaColor, e->coronaBlend,
+			e->coronaSpriteOnly, *self->textures_, self->world_.levelName);
+	self->billboards_->SetScriptSpritePos(e->spriteSlot, e->pos);
+	return 0;
 }
 
 // ENTITY.EnableDraw(e, on, alsoChildren)
@@ -746,18 +746,18 @@ int EntityNatives::L_BILLBOARD_SetupCorona(lua_State* L) {
 // BindFX()es four particle effects, and BindFX makes each one a SEPARATE entity
 // registered as a child. Hiding only the parent left all four burning at spawn.
 void ScriptEngine::SetDrawEnabled(Entity& e, bool on, bool alsoChildren, int depth) {
-    e.visible = on;
-    SyncPose(e);
-    if (!alsoChildren || depth > 8) return;
-    for (int child : e.children)
-        if (Entity* c = Find(child)) SetDrawEnabled(*c, on, true, depth + 1);
+	e.visible = on;
+	SyncPose(e);
+	if (!alsoChildren || depth > 8) return;
+	for (int child : e.children)
+		if (Entity* c = Find(child)) SetDrawEnabled(*c, on, true, depth + 1);
 }
 
 int EntityNatives::L_EnableDraw(lua_State* L) {
-    ScriptEngine* self = From(L);
-    if (Entity* e = self->Find(HandleArg(L, 1)))
-        self->SetDrawEnabled(*e, lua_toboolean(L, 2) != 0, lua_toboolean(L, 3) != 0, 0);
-    return 0;
+	ScriptEngine* self = From(L);
+	if (Entity* e = self->Find(HandleArg(L, 1)))
+		self->SetDrawEnabled(*e, lua_toboolean(L, 2) != 0, lua_toboolean(L, 3) != 0, 0);
+	return 0;
 }
 
 // No physics yet, so entities are at rest.
@@ -765,54 +765,54 @@ int EntityNatives::L_EnableDraw(lua_State* L) {
 // projectiles divide by it to get their heading, so answering a flat zero
 // hands them a NaN that then travels through every position they compute.
 int EntityNatives::L_GetVelocity(lua_State* L) {
-    ScriptEngine* self = From(L);
-    const int handle = HandleArg(L, 1);
-    Vec3 v;
-    // The player has no script body - it is the pawn - so its velocity comes
-    // from there. Reading the entity store instead returns whatever last wrote
-    // to it, which is nothing until something knocks the player back and then
-    // that knockback forever: CPlayer decides it is walking from this, so the
-    // head bob stayed dead until the first hit and ran permanently after.
-    if (self->pawn_ && handle == self->playerHandle_ && self->playerHandle_) {
-        self->pawn_->Velocity(v);
-    } else if (const Entity* e = self->Find(handle)) {
-        // A projectile's velocity lives in the entity store, for the same
-        // reason its position does: TickProjectiles owns it, and gravity is
-        // integrated there. The body still holds whatever SetVelocity launched
-        // it with and never hears about the arc, so reading the body back gave
-        // a stake that was visibly falling a velocity that was still dead
-        // level - and Stake:Tick builds both its trace direction and its
-        // tumble axis out of that vector.
-        if (e->isProjectile ||
-            !(self->physics_ && e->physicsBody >= 0 &&
-              self->physics_->GetScriptBodyVelocity(e->physicsBody, v)))
-            for (int c = 0; c < 3; ++c) v[c] = e->velocity[c];
-    }
-    for (int c = 0; c < 3; ++c) lua_pushnumber(L, v[c]);
-    lua_pushnumber(L, std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]));
-    return 4;
+	ScriptEngine* self = From(L);
+	const int handle = HandleArg(L, 1);
+	Vec3 v;
+	// The player has no script body - it is the pawn - so its velocity comes
+	// from there. Reading the entity store instead returns whatever last wrote
+	// to it, which is nothing until something knocks the player back and then
+	// that knockback forever: CPlayer decides it is walking from this, so the
+	// head bob stayed dead until the first hit and ran permanently after.
+	if (self->pawn_ && handle == self->playerHandle_ && self->playerHandle_) {
+		self->pawn_->Velocity(v);
+	} else if (const Entity* e = self->Find(handle)) {
+		// A projectile's velocity lives in the entity store, for the same
+		// reason its position does: TickProjectiles owns it, and gravity is
+		// integrated there. The body still holds whatever SetVelocity launched
+		// it with and never hears about the arc, so reading the body back gave
+		// a stake that was visibly falling a velocity that was still dead
+		// level - and Stake:Tick builds both its trace direction and its
+		// tumble axis out of that vector.
+		if (e->isProjectile ||
+				!(self->physics_ && e->physicsBody >= 0 &&
+				self->physics_->GetScriptBodyVelocity(e->physicsBody, v)))
+			for (int c = 0; c < 3; ++c) v[c] = e->velocity[c];
+	}
+	for (int c = 0; c < 3; ++c) lua_pushnumber(L, v[c]);
+	lua_pushnumber(L, std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]));
+	return 4;
 }
 
 // ENTITY.SetVelocity(e, x, y, z) - how every projectile is launched, and how
 // the rocket jump lifts the player.
 int EntityNatives::L_SetVelocity(lua_State* L) {
-    ScriptEngine* self = From(L);
-    const int handle = HandleArg(L, 1);
-    Vec3 v;
-    for (int c = 0; c < 3; ++c) v[c] = float(luaL_optnumber(L, c + 2, 0));
-    // The player is the pawn, not a script body, so it needs the same special
-    // case GetVelocity has - JumpPad:OnEnter is nothing but this call, and
-    // writing the entity store alone left the pad inert.
-    if (self->pawn_ && handle == self->playerHandle_ && self->playerHandle_) {
-        self->pawn_->SetVelocity(v);
-        return 0;
-    }
-    Entity* e = self->Find(handle);
-    if (!e) return 0;
-    for (int c = 0; c < 3; ++c) e->velocity[c] = v[c];
-    if (self->physics_ && e->physicsBody >= 0)
-        self->physics_->SetScriptBodyVelocity(e->physicsBody, e->velocity);
-    return 0;
+	ScriptEngine* self = From(L);
+	const int handle = HandleArg(L, 1);
+	Vec3 v;
+	for (int c = 0; c < 3; ++c) v[c] = float(luaL_optnumber(L, c + 2, 0));
+	// The player is the pawn, not a script body, so it needs the same special
+	// case GetVelocity has - JumpPad:OnEnter is nothing but this call, and
+	// writing the entity store alone left the pad inert.
+	if (self->pawn_ && handle == self->playerHandle_ && self->playerHandle_) {
+		self->pawn_->SetVelocity(v);
+		return 0;
+	}
+	Entity* e = self->Find(handle);
+	if (!e) return 0;
+	for (int c = 0; c < 3; ++c) e->velocity[c] = v[c];
+	if (self->physics_ && e->physicsBody >= 0)
+		self->physics_->SetScriptBodyVelocity(e->physicsBody, e->velocity);
+	return 0;
 }
 
 // ENTITY.SetAngularVelocity(e, x, y, z)
@@ -824,15 +824,15 @@ int EntityNatives::L_SetVelocity(lua_State* L) {
 // horizontal axis across its own travel, which is what turns the arc into a
 // stake going nose-first into the floor rather than sliding down flat.
 int EntityNatives::L_SetAngularVelocity(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    if (!e) return 0;
-    for (int c = 0; c < 3; ++c)
-        e->angVel[c] = float(luaL_optnumber(L, c + 2, 0));
-    // A live body takes it now; a driven projectile spins in TickProjectiles.
-    if (self->physics_ && e->physicsBody >= 0 && !e->isProjectile)
-        self->physics_->SetScriptBodyAngularVelocity(e->physicsBody, e->angVel);
-    return 0;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e) return 0;
+	for (int c = 0; c < 3; ++c)
+		e->angVel[c] = float(luaL_optnumber(L, c + 2, 0));
+	// A live body takes it now; a driven projectile spins in TickProjectiles.
+	if (self->physics_ && e->physicsBody >= 0 && !e->isProjectile)
+		self->physics_->SetScriptBodyAngularVelocity(e->physicsBody, e->angVel);
+	return 0;
 }
 
 // ECollisionGroups.Fixed, from LScripts/Main/Definitions.lua. The static
@@ -851,17 +851,17 @@ constexpr int kCollisionFixed = 1;
 // TickProjectiles from the entity's own velocity, not by the solver, so that
 // has to stop too.
 int EntityNatives::L_PO_Remove(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    if (!e) return 0;
-    if (self->physics_ && e->physicsBody >= 0) {
-        self->physics_->RemoveScriptBody(e->physicsBody);
-        self->bodyToEntity_.erase(e->physicsBody);
-        e->physicsBody = -1;
-    }
-    e->isProjectile = false;
-    for (int c = 0; c < 3; ++c) { e->velocity[c] = 0.f; e->angVel[c] = 0.f; }
-    return 0;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e) return 0;
+	if (self->physics_ && e->physicsBody >= 0) {
+		self->physics_->RemoveScriptBody(e->physicsBody);
+		self->bodyToEntity_.erase(e->physicsBody);
+		e->physicsBody = -1;
+	}
+	e->isProjectile = false;
+	for (int c = 0; c < 3; ++c) { e->velocity[c] = 0.f; e->angVel[c] = 0.f; }
+	return 0;
 }
 
 // ENTITY.PO_GetCollisionGroup(e) -> ECollisionGroups, and PO_IsFixed(e).
@@ -872,10 +872,10 @@ int EntityNatives::L_PO_Remove(lua_State* L) {
 // is Fixed (1): answering 0 there made the head treat every wall as a live
 // collision group.
 int EntityNatives::L_PO_GetCollisionGroup(lua_State* L) {
-    ScriptEngine* self = From(L);
-    const Entity* e = self->Find(HandleArg(L, 1));
-    lua_pushnumber(L, e ? e->collisionGroup : kCollisionFixed);
-    return 1;
+	ScriptEngine* self = From(L);
+	const Entity* e = self->Find(HandleArg(L, 1));
+	lua_pushnumber(L, e ? e->collisionGroup : kCollisionFixed);
+	return 1;
 }
 
 // ENTITY.PO_SetCollisionGroup(e, group). A driven projectile (Noncolliding, 7)
@@ -883,43 +883,43 @@ int EntityNatives::L_PO_GetCollisionGroup(lua_State* L) {
 // made Noncolliding keeps its solver velocity for the script mover. Cans,
 // fireballs and molotovs are born 7 and switch a few ticks out of the hand.
 int EntityNatives::L_PO_SetCollisionGroup(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    if (!e || !lua_isnumber(L, 2)) return 0;
-    const int group = int(lua_tonumber(L, 2));
-    const bool wasProjectile = e->isProjectile;
-    e->collisionGroup = group;
-    e->isProjectile = group == 7;
-    if (!self->physics_ || e->physicsBody < 0) return 0;
-    if (wasProjectile && !e->isProjectile) {
-        self->physics_->SetScriptBodyCollisionGroup(e->physicsBody, group);
-        self->physics_->SetScriptBodyPose(e->physicsBody, e->pos, e->rot);
-        self->physics_->SetScriptBodyVelocity(e->physicsBody, e->velocity);
-        // The thrown axe keeps spinning: its SetAngularVelocity goes to the solver.
-        self->physics_->SetScriptBodyAngularVelocity(e->physicsBody, e->angVel);
-        // A Havok body falls unless PO_EnableGravity(false) said otherwise;
-        // gravityOn is the driven mover's own flag and defaults off.
-        self->physics_->SetScriptBodyGravityFactor(e->physicsBody, e->bodyGravity == 0 ? 0.f : 1.f);
-        e->bodyNonColliding = false;
-    } else if (!wasProjectile && e->isProjectile) {
-        self->physics_->GetScriptBodyVelocity(e->physicsBody, e->velocity);
-        self->physics_->SetScriptBodyCollisionGroup(e->physicsBody, group);
-        e->bodyNonColliding = true;
-    } else {
-        self->physics_->SetScriptBodyCollisionGroup(e->physicsBody, group);
-    }
-    return 0;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || !lua_isnumber(L, 2)) return 0;
+	const int group = int(lua_tonumber(L, 2));
+	const bool wasProjectile = e->isProjectile;
+	e->collisionGroup = group;
+	e->isProjectile = group == 7;
+	if (!self->physics_ || e->physicsBody < 0) return 0;
+	if (wasProjectile && !e->isProjectile) {
+		self->physics_->SetScriptBodyCollisionGroup(e->physicsBody, group);
+		self->physics_->SetScriptBodyPose(e->physicsBody, e->pos, e->rot);
+		self->physics_->SetScriptBodyVelocity(e->physicsBody, e->velocity);
+		// The thrown axe keeps spinning: its SetAngularVelocity goes to the solver.
+		self->physics_->SetScriptBodyAngularVelocity(e->physicsBody, e->angVel);
+		// A Havok body falls unless PO_EnableGravity(false) said otherwise;
+		// gravityOn is the driven mover's own flag and defaults off.
+		self->physics_->SetScriptBodyGravityFactor(e->physicsBody, e->bodyGravity == 0 ? 0.f : 1.f);
+		e->bodyNonColliding = false;
+	} else if (!wasProjectile && e->isProjectile) {
+		self->physics_->GetScriptBodyVelocity(e->physicsBody, e->velocity);
+		self->physics_->SetScriptBodyCollisionGroup(e->physicsBody, group);
+		e->bodyNonColliding = true;
+	} else {
+		self->physics_->SetScriptBodyCollisionGroup(e->physicsBody, group);
+	}
+	return 0;
 }
 
 // PainHead sticks into a fixed mesh and bounces off one that only LOOKS fixed:
 //     if ENTITY.IsFixedMesh(e) and not ENTITY.PO_IsFixed(e) then back end
 // Unimplemented, `not nil` was true, so every wall sent the head home.
 int EntityNatives::L_PO_IsFixed(lua_State* L) {
-    ScriptEngine* self = From(L);
-    const int handle = HandleArg(L, 1);
-    const Entity* e = self->Find(handle);
-    lua_pushboolean(L, (!e && handle == 0) || (e && e->collisionGroup == kCollisionFixed));
-    return 1;
+	ScriptEngine* self = From(L);
+	const int handle = HandleArg(L, 1);
+	const Entity* e = self->Find(handle);
+	lua_pushboolean(L, (!e && handle == 0) || (e && e->collisionGroup == kCollisionFixed));
+	return 1;
 }
 
 // R3D.DistToLine(px,py,pz, ax,ay,az, bx,by,bz) -> distance from the point to
@@ -930,29 +930,29 @@ int EntityNatives::L_PO_IsFixed(lua_State* L) {
 // with a number by raising, so an unimplemented DistToLine did not merely skip
 // the beam - it threw out of PainKiller:OnUpdate every frame the head was out.
 int EntityNatives::L_R3D_DistToLine(lua_State* L) {
-    Vec3 p, a, b;
-    for (int c = 0; c < 3; ++c) {
-        p[c] = float(luaL_optnumber(L, 1 + c, 0));
-        a[c] = float(luaL_optnumber(L, 4 + c, 0));
-        b[c] = float(luaL_optnumber(L, 7 + c, 0));
-    }
-    Vec3 ab, ap;
-    float len2 = 0.f, dot = 0.f;
-    for (int c = 0; c < 3; ++c) {
-        ab[c] = b[c] - a[c];
-        ap[c] = p[c] - a[c];
-        len2 += ab[c] * ab[c];
-        dot += ap[c] * ab[c];
-    }
-    float t = len2 > 1e-8f ? dot / len2 : 0.f;
-    t = t < 0.f ? 0.f : (t > 1.f ? 1.f : t);
-    float d2 = 0.f;
-    for (int c = 0; c < 3; ++c) {
-        const float v = ap[c] - ab[c] * t;
-        d2 += v * v;
-    }
-    lua_pushnumber(L, std::sqrt(d2));
-    return 1;
+	Vec3 p, a, b;
+	for (int c = 0; c < 3; ++c) {
+		p[c] = float(luaL_optnumber(L, 1 + c, 0));
+		a[c] = float(luaL_optnumber(L, 4 + c, 0));
+		b[c] = float(luaL_optnumber(L, 7 + c, 0));
+	}
+	Vec3 ab, ap;
+	float len2 = 0.f, dot = 0.f;
+	for (int c = 0; c < 3; ++c) {
+		ab[c] = b[c] - a[c];
+		ap[c] = p[c] - a[c];
+		len2 += ab[c] * ab[c];
+		dot += ap[c] * ab[c];
+	}
+	float t = len2 > 1e-8f ? dot / len2 : 0.f;
+	t = t < 0.f ? 0.f : (t > 1.f ? 1.f : t);
+	float d2 = 0.f;
+	for (int c = 0; c < 3; ++c) {
+		const float v = ap[c] - ab[c] * t;
+		d2 += v * v;
+	}
+	lua_pushnumber(L, std::sqrt(d2));
+	return 1;
 }
 
 // ENTITY.PO_Create(e, bodytype, scale, collisionGroup): CObject:PO_Create
@@ -962,48 +962,48 @@ int EntityNatives::L_R3D_DistToLine(lua_State* L) {
 // (the scripts' "not given") means the entity's own scale, which already
 // carries the model *0.1 rule.
 int EntityNatives::L_PO_Create(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    if (!e || !self->physics_ || e->physicsBody >= 0) return 0;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || !self->physics_ || e->physicsBody >= 0) return 0;
 
-    const int bodyType = int(luaL_optnumber(L, 2, 0));
-    float scale = float(luaL_optnumber(L, 3, -1.0));
-    if (scale <= 0.f) scale = e->scale;
+	const int bodyType = int(luaL_optnumber(L, 2, 0));
+	float scale = float(luaL_optnumber(L, 3, -1.0));
+	if (scale <= 0.f) scale = e->scale;
 
-    std::string model, pack;
-    if (e->type == kModel) {
-        model = e->source;
-    } else if (e->type == kMesh && !e->worldObject) {
-        if (!self->SplitPackSource(e->source, pack)) return 0;
-    } else {
-        return 0;
-    }
+	std::string model, pack;
+	if (e->type == kModel) {
+		model = e->source;
+	} else if (e->type == kMesh && !e->worldObject) {
+		if (!self->SplitPackSource(e->source, pack)) return 0;
+	} else {
+		return 0;
+	}
 
-    // Argument 4 is the ECollisionGroups value, and it decides whether this is
-    // a rigid body at all: Noncolliding (7) is how every projectile is made.
-    const int collisionGroup = int(luaL_optnumber(L, 4, 0));
-    // BodyTypes.Sphere / SphereSweep with an explicit scale is a sphere of
-    // radius scale * 1.1, whatever the mesh looks like (the sizer's case 1).
-    const float argScale = float(luaL_optnumber(L, 3, -1.0));
-    const float sphereRadius =
-        (bodyType == 1 || bodyType == 9) && argScale > 0.f ? argScale * 1.1f : 0.f;
-    const int slot = self->physics_->CreateScriptBody(
-        bodyType, model, pack, e->mesh, scale, e->pos, e->rot, self->dataRoot_,
-        collisionGroup, sphereRadius);
-    if (slot >= 0) {
-        e->physicsBody = slot;
-        e->bodyType = bodyType;
-        e->bodyArgScale = argScale;
-        // Noncolliding (7) only. That group means "touches nothing", which is
-        // what the stake, the bolt and the electro disk are made with, and it
-        // is the one unambiguous signal. Particles (8) is NOT included: shell
-        // casings live there too, and they are meant to tumble. Anything else
-        // that is driven says so through RemoveFromIntersectionSolver.
-        e->isProjectile = collisionGroup == 7;
-        e->collisionGroup = collisionGroup;
-        self->bodyToEntity_[slot] = HandleArg(L, 1);
-    }
-    return 0;
+	// Argument 4 is the ECollisionGroups value, and it decides whether this is
+	// a rigid body at all: Noncolliding (7) is how every projectile is made.
+	const int collisionGroup = int(luaL_optnumber(L, 4, 0));
+	// BodyTypes.Sphere / SphereSweep with an explicit scale is a sphere of
+	// radius scale * 1.1, whatever the mesh looks like (the sizer's case 1).
+	const float argScale = float(luaL_optnumber(L, 3, -1.0));
+	const float sphereRadius =
+		(bodyType == 1 || bodyType == 9) && argScale > 0.f ? argScale * 1.1f : 0.f;
+	const int slot = self->physics_->CreateScriptBody(
+			bodyType, model, pack, e->mesh, scale, e->pos, e->rot, self->dataRoot_,
+			collisionGroup, sphereRadius);
+	if (slot >= 0) {
+		e->physicsBody = slot;
+		e->bodyType = bodyType;
+		e->bodyArgScale = argScale;
+		// Noncolliding (7) only. That group means "touches nothing", which is
+		// what the stake, the bolt and the electro disk are made with, and it
+		// is the one unambiguous signal. Particles (8) is NOT included: shell
+		// casings live there too, and they are meant to tumble. Anything else
+		// that is driven says so through RemoveFromIntersectionSolver.
+		e->isProjectile = collisionGroup == 7;
+		e->collisionGroup = collisionGroup;
+		self->bodyToEntity_[slot] = HandleArg(L, 1);
+	}
+	return 0;
 }
 
 // ENTITY.PO_Move(e, x, y, z) - where this actor WANTS to go, as a velocity.
@@ -1013,13 +1013,13 @@ int EntityNatives::L_PO_Create(lua_State* L) {
 // step spends it (PhysicsWorld::StepCharacters). CActor calls this with
 // `mv * (1/delta)`, which is why the units are per second.
 int EntityNatives::L_PO_Move(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    if (!e) return 0;
-    for (int c = 0; c < 3; ++c) e->moveWish[c] = float(luaL_optnumber(L, c + 2, 0));
-    if (self->physics_ && e->physicsBody >= 0)
-        self->physics_->SetCharacterWish(e->physicsBody, e->moveWish);
-    return 0;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e) return 0;
+	for (int c = 0; c < 3; ++c) e->moveWish[c] = float(luaL_optnumber(L, c + 2, 0));
+	if (self->physics_ && e->physicsBody >= 0)
+		self->physics_->SetCharacterWish(e->physicsBody, e->moveWish);
+	return 0;
 }
 
 // ENTITY.PO_SetMonsterType(e) - this body is walked, not simulated.
@@ -1028,34 +1028,34 @@ int EntityNatives::L_PO_Move(lua_State* L) {
 // arrives AFTER PO_Create, so the body is born an ordinary dynamic prop and is
 // converted here - which is also the only moment we know it is a monster.
 int EntityNatives::L_PO_SetMonsterType(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    if (!e) return 0;
-    e->isMonster = true;
-    if (self->physics_ && e->physicsBody >= 0) {
-        // UNCONDITIONAL. Being a monster is not contingent on the shape: the
-        // engine sets the flag at PhysicsObject+0x74 whatever the rig looks
-        // like, and in CreatePhysicsObject the ROOOT test guards only the
-        // reading of that joint's position, not the object.
-        //
-        // Four of ten shipped rigs have no ROOOT at all - zombie, zombie_v2,
-        // vamp_small, raven - so gating the call on finding one left those
-        // bodies DYNAMIC. They fell out from under their monsters with their
-        // own gravity and mass, which is not a placement bug at all.
-        //
-        // A k of 0 keeps whatever shape the body already has; only the sizing
-        // depends on the joint.
-        float k = 0.f;
-        Vec3 rootOffset;
-        self->MonsterBodyScale(*e, k, rootOffset);
-        self->physics_->MakeScriptBodyCharacter(e->physicsBody, k, rootOffset);
-        // Whatever the scripts set before the flag arrived.
-        self->physics_->SetCharacterMovement(e->physicsBody, e->monsterMoveConst,
-                                             e->monsterMoveFlag);
-        self->physics_->SetCharacterFlying(e->physicsBody, e->monsterFlying);
-        self->physics_->SetCharacterWish(e->physicsBody, e->moveWish);
-    }
-    return 0;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e) return 0;
+	e->isMonster = true;
+	if (self->physics_ && e->physicsBody >= 0) {
+		// UNCONDITIONAL. Being a monster is not contingent on the shape: the
+		// engine sets the flag at PhysicsObject+0x74 whatever the rig looks
+		// like, and in CreatePhysicsObject the ROOOT test guards only the
+		// reading of that joint's position, not the object.
+		//
+		// Four of ten shipped rigs have no ROOOT at all - zombie, zombie_v2,
+		// vamp_small, raven - so gating the call on finding one left those
+		// bodies DYNAMIC. They fell out from under their monsters with their
+		// own gravity and mass, which is not a placement bug at all.
+		//
+		// A k of 0 keeps whatever shape the body already has; only the sizing
+		// depends on the joint.
+		float k = 0.f;
+		Vec3 rootOffset;
+		self->MonsterBodyScale(*e, k, rootOffset);
+		self->physics_->MakeScriptBodyCharacter(e->physicsBody, k, rootOffset);
+		// Whatever the scripts set before the flag arrived.
+		self->physics_->SetCharacterMovement(e->physicsBody, e->monsterMoveConst,
+				e->monsterMoveFlag);
+		self->physics_->SetCharacterFlying(e->physicsBody, e->monsterFlying);
+		self->physics_->SetCharacterWish(e->physicsBody, e->moveWish);
+	}
+	return 0;
 }
 
 
@@ -1073,38 +1073,38 @@ int EntityNatives::L_PO_SetMonsterType(lua_State* L) {
 // A native whose absence inverts a script's test is worse than one that does
 // nothing, because the script takes the wrong branch confidently.
 int EntityNatives::L_ENTITY_RegisterChild(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* parent = self->Find(HandleArg(L, 1));
-    const int child = HandleArg(L, 2);
-    Entity* childEntity = self->Find(child);
-    if (!parent || child == 0 || !childEntity) return 0;
-    if (std::find(parent->children.begin(), parent->children.end(), child) ==
-        parent->children.end())
-        parent->children.push_back(child);
-    // The back-link, which is what lets the child be PLACED. The parent's list
-    // alone says who owns the child, not where it goes.
-    childEntity->parent = HandleArg(L, 1);
-    // Fifth argument, default true - see Entity::dieWithParent.
-    childEntity->dieWithParent = lua_isnone(L, 5) || lua_toboolean(L, 5) != 0;
-    // Third argument, default true: the child FOLLOWS the parent. PainKiller
-    // releases its head with RegisterChild(player, head, false, -1, false) -
-    // owned, so the beam has an anchor, but flying free; bound to the player
-    // it sat at the feet. Fourth: the joint it hangs on - an index when a
-    // number, a name when a string (0x1012FAD0 branches on the Lua type) -
-    // which is how the stake rides the limb it struck. Physics.md, "The stake".
-    const bool follows = lua_isnone(L, 3) || lua_toboolean(L, 3) != 0;
-    if (!follows) {
-        childEntity->parentBound = false;
-    } else if (lua_isnumber(L, 4) && lua_tonumber(L, 4) >= 0) {
-        childEntity->parentJointIndex = int(lua_tonumber(L, 4));
-        childEntity->parentJoint.clear();
-        childEntity->parentBound = true;
-    } else if (lua_isstring(L, 4)) {
-        childEntity->parentJoint = lua_tostring(L, 4);
-        childEntity->parentJointIndex = -2;
-        childEntity->parentBound = true;
-    }
-    return 0;
+	ScriptEngine* self = From(L);
+	Entity* parent = self->Find(HandleArg(L, 1));
+	const int child = HandleArg(L, 2);
+	Entity* childEntity = self->Find(child);
+	if (!parent || child == 0 || !childEntity) return 0;
+	if (std::find(parent->children.begin(), parent->children.end(), child) ==
+			parent->children.end())
+		parent->children.push_back(child);
+	// The back-link, which is what lets the child be PLACED. The parent's list
+	// alone says who owns the child, not where it goes.
+	childEntity->parent = HandleArg(L, 1);
+	// Fifth argument, default true - see Entity::dieWithParent.
+	childEntity->dieWithParent = lua_isnone(L, 5) || lua_toboolean(L, 5) != 0;
+	// Third argument, default true: the child FOLLOWS the parent. PainKiller
+	// releases its head with RegisterChild(player, head, false, -1, false) -
+	// owned, so the beam has an anchor, but flying free; bound to the player
+	// it sat at the feet. Fourth: the joint it hangs on - an index when a
+	// number, a name when a string (0x1012FAD0 branches on the Lua type) -
+	// which is how the stake rides the limb it struck. Physics.md, "The stake".
+	const bool follows = lua_isnone(L, 3) || lua_toboolean(L, 3) != 0;
+	if (!follows) {
+		childEntity->parentBound = false;
+	} else if (lua_isnumber(L, 4) && lua_tonumber(L, 4) >= 0) {
+		childEntity->parentJointIndex = int(lua_tonumber(L, 4));
+		childEntity->parentJoint.clear();
+		childEntity->parentBound = true;
+	} else if (lua_isstring(L, 4)) {
+		childEntity->parentJoint = lua_tostring(L, 4);
+		childEntity->parentJointIndex = -2;
+		childEntity->parentBound = true;
+	}
+	return 0;
 }
 
 // ENTITY.ComputeChildMatrix(child, parent, joint) - 0x1012FCE0: the child's
@@ -1113,33 +1113,33 @@ int EntityNatives::L_ENTITY_RegisterChild(lua_State* L) {
 // keeps the child exactly where it is. This is how a stake stays in the limb
 // it struck while the corpse falls. Physics.md, "The stake".
 int EntityNatives::L_ENTITY_ComputeChildMatrix(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* child = self->Find(HandleArg(L, 1));
-    Entity* parent = self->Find(HandleArg(L, 2));
-    if (!child || !parent) return 0;
-    int joint = int(luaL_optnumber(L, 3, -1));
-    Vec3 basePos;
-    Quat baseRot;
-    bool ok = false;
-    if (joint >= 0 && parent->type == kModel) {
-        const Vec3 zero;
-        ok = self->JointToWorld(*parent, joint, zero, basePos) &&
-             self->JointWorldRotation(*parent, joint, baseRot);
-    }
-    if (!ok) {
-        basePos = parent->pos;
-        baseRot = parent->rot;
-        joint = -1;
-    }
-    // Inverse of a unit quaternion is its conjugate in any convention.
-    const Quat inv = baseRot.Conjugate();
-    child->parentOffset = inv.Rotate(child->pos - basePos);
-    child->parentRot = inv * child->rot;
-    child->parentRotBound = true;
-    child->parentBound = true;
-    child->parentJointIndex = joint;
-    child->parentJoint.clear();
-    return 0;
+	ScriptEngine* self = From(L);
+	Entity* child = self->Find(HandleArg(L, 1));
+	Entity* parent = self->Find(HandleArg(L, 2));
+	if (!child || !parent) return 0;
+	int joint = int(luaL_optnumber(L, 3, -1));
+	Vec3 basePos;
+	Quat baseRot;
+	bool ok = false;
+	if (joint >= 0 && parent->type == kModel) {
+		const Vec3 zero;
+		ok = self->JointToWorld(*parent, joint, zero, basePos) &&
+				self->JointWorldRotation(*parent, joint, baseRot);
+	}
+	if (!ok) {
+		basePos = parent->pos;
+		baseRot = parent->rot;
+		joint = -1;
+	}
+	// Inverse of a unit quaternion is its conjugate in any convention.
+	const Quat inv = baseRot.Conjugate();
+	child->parentOffset = inv.Rotate(child->pos - basePos);
+	child->parentRot = inv * child->rot;
+	child->parentRotBound = true;
+	child->parentBound = true;
+	child->parentJointIndex = joint;
+	child->parentJoint.clear();
+	return 0;
 }
 
 // ENTITY.GetPtrByIndex(entity) -> the entity's pointer, or NIL when it is gone.
@@ -1162,23 +1162,23 @@ int EntityNatives::L_ENTITY_ComputeChildMatrix(lua_State* L) {
 // stake keeps as BindedActorIndex and hands back to GetPtrByIndex every tick
 // while it drags a corpse to a wall. The handle is that index here.
 int EntityNatives::L_ENTITY_GetIndex(lua_State* L) {
-    ScriptEngine* self = From(L);
-    const int handle = HandleArg(L, 1);
-    lua_pushnumber(L, self->Find(handle) ? handle : 0);
-    return 1;
+	ScriptEngine* self = From(L);
+	const int handle = HandleArg(L, 1);
+	lua_pushnumber(L, self->Find(handle) ? handle : 0);
+	return 1;
 }
 
 int EntityNatives::L_ENTITY_GetPtrByIndex(lua_State* L) {
-    ScriptEngine* self = From(L);
-    const int handle = HandleArg(L, 1);
-    if (handle == 0 || !self->Find(handle)) {
-        lua_pushnil(L);
-        return 1;
-    }
-    // The handle IS our pointer: stable for the entity's life and never zero,
-    // which is all the scripts ask of it.
-    lua_pushnumber(L, handle);
-    return 1;
+	ScriptEngine* self = From(L);
+	const int handle = HandleArg(L, 1);
+	if (handle == 0 || !self->Find(handle)) {
+		lua_pushnil(L);
+		return 1;
+	}
+	// The handle IS our pointer: stable for the entity's life and never zero,
+	// which is all the scripts ask of it.
+	lua_pushnumber(L, handle);
+	return 1;
 }
 
 // PARTICLE.SetParentOffset(pfx, x, y, z, joint, ...)
@@ -1191,34 +1191,34 @@ int EntityNatives::L_ENTITY_GetPtrByIndex(lua_State* L) {
 // CActor:BindFX calls this for every effect a monster carries, right after
 // RegisterChild. Unimplemented, every one of them stayed at the world origin.
 int EntityNatives::L_PARTICLE_SetParentOffset(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    if (!e) return 0;
-    for (int c = 0; c < 3; ++c)
-        e->parentOffset[c] = float(luaL_optnumber(L, c + 2, 0));
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e) return 0;
+	for (int c = 0; c < 3; ++c)
+		e->parentOffset[c] = float(luaL_optnumber(L, c + 2, 0));
 
-    e->parentJoint.clear();
-    e->parentJointIndex = -2;
-    if (lua_isnumber(L, 5)) {
-        e->parentJointIndex = int(lua_tonumber(L, 5));
-    } else if (lua_isstring(L, 5)) {
-        e->parentJoint = lua_tostring(L, 5);
-    }
-    // Arguments 9..11: an Euler rotation (the engine's own qz*qy*qx order,
-    // FUN_1011bcd0) the effect carries on top of its joint. Given only when
-    // the 11th argument exists, exactly as 0x10139e30 tests it. The
-    // flamethrower binds RFT_flame with (0, 1.57, 0) to turn the emitter's +X
-    // velocity down the barrel. Arguments 6..8 are a per-axis pull toward the
-    // camera, which nothing in the shipped scripts passes non-zero.
-    e->parentRotBound = lua_gettop(L) >= 11;
-    if (e->parentRotBound) {
-        e->parentRot = Quat::FromEuler(float(luaL_optnumber(L, 9, 0)),
-                                           float(luaL_optnumber(L, 10, 0)),
-                                           float(luaL_optnumber(L, 11, 0)));
-    }
-    e->parentBound = true;
-    self->PlaceAttached(*e);
-    return 0;
+	e->parentJoint.clear();
+	e->parentJointIndex = -2;
+	if (lua_isnumber(L, 5)) {
+		e->parentJointIndex = int(lua_tonumber(L, 5));
+	} else if (lua_isstring(L, 5)) {
+		e->parentJoint = lua_tostring(L, 5);
+	}
+	// Arguments 9..11: an Euler rotation (the engine's own qz*qy*qx order,
+	// FUN_1011bcd0) the effect carries on top of its joint. Given only when
+	// the 11th argument exists, exactly as 0x10139e30 tests it. The
+	// flamethrower binds RFT_flame with (0, 1.57, 0) to turn the emitter's +X
+	// velocity down the barrel. Arguments 6..8 are a per-axis pull toward the
+	// camera, which nothing in the shipped scripts passes non-zero.
+	e->parentRotBound = lua_gettop(L) >= 11;
+	if (e->parentRotBound) {
+		e->parentRot = Quat::FromEuler(float(luaL_optnumber(L, 9, 0)),
+				float(luaL_optnumber(L, 10, 0)),
+				float(luaL_optnumber(L, 11, 0)));
+	}
+	e->parentBound = true;
+	self->PlaceAttached(*e);
+	return 0;
 }
 
 // PARTICLE.Die(pfx) - a bound effect ends: 0x10139a30 unregisters it from its
@@ -1227,129 +1227,129 @@ int EntityNatives::L_PARTICLE_SetParentOffset(lua_State* L) {
 // last particle has died (TickLifetimes). RifleFlameThrower:EnableFX calls
 // this on the flame the moment the trigger is released.
 int EntityNatives::L_PARTICLE_Die(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    if (!e) return 0;
-    if (e->parent != 0) {
-        if (Entity* parent = self->Find(e->parent)) {
-            std::vector<int>& kids = parent->children;
-            kids.erase(std::remove(kids.begin(), kids.end(), HandleArg(L, 1)), kids.end());
-        }
-        e->parent = 0;
-        e->parentBound = false;
-    }
-    for (Entity::EmitterRec& rec : e->emitterRecs) rec.stopped = true;
-    if (self->particles_)
-        for (int slot : e->emitterSlots)
-            if (slot >= 0) self->particles_->StopScriptEmitter(slot);
-    return 0;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e) return 0;
+	if (e->parent != 0) {
+		if (Entity* parent = self->Find(e->parent)) {
+			std::vector<int>& kids = parent->children;
+			kids.erase(std::remove(kids.begin(), kids.end(), HandleArg(L, 1)), kids.end());
+		}
+		e->parent = 0;
+		e->parentBound = false;
+	}
+	for (Entity::EmitterRec& rec : e->emitterRecs) rec.stopped = true;
+	if (self->particles_)
+		for (int slot : e->emitterSlots)
+			if (slot >= 0) self->particles_->StopScriptEmitter(slot);
+	return 0;
 }
 
 // A bone by name, or -1. The same lookup MDL.GetJointIndex does, factored out
 // because an attachment resolves its joint once and then rides it.
 int ScriptEngine::JointIndexByName(Entity& e, const std::string& name) {
-    if (e.type != kModel || name.empty()) return -1;
-    const SkeletonCache::Entry* skel = skeletons_.Get(e.source);
-    if (!skel) return -1;
-    for (size_t i = 0; i < skel->bones.size(); ++i)
-        if (EqualsCI(skel->bones[i].name, name.c_str())) return int(i);
-    return -1;
+	if (e.type != kModel || name.empty()) return -1;
+	const SkeletonCache::Entry* skel = skeletons_.Get(e.source);
+	if (!skel) return -1;
+	for (size_t i = 0; i < skel->bones.size(); ++i)
+		if (EqualsCI(skel->bones[i].name, name.c_str())) return int(i);
+	return -1;
 }
 
 // Puts one bound entity where its parent says it goes.
 void ScriptEngine::PlaceAttached(Entity& e) {
-    if (!e.parentBound || e.parent == 0) return;
-    Entity* parent = Find(e.parent);
-    if (!parent) return;
+	if (!e.parentBound || e.parent == 0) return;
+	Entity* parent = Find(e.parent);
+	if (!parent) return;
 
-    // A named joint is resolved once and remembered: the lookup is by string
-    // against the skeleton, and these are placed every frame.
-    if (e.parentJointIndex == -2 && !e.parentJoint.empty())
-        e.parentJointIndex = JointIndexByName(*parent, e.parentJoint);
+	// A named joint is resolved once and remembered: the lookup is by string
+	// against the skeleton, and these are placed every frame.
+	if (e.parentJointIndex == -2 && !e.parentJoint.empty())
+		e.parentJointIndex = JointIndexByName(*parent, e.parentJoint);
 
-    // ParticleEffect::Tick (0x101e59a0): with a joint, the position is the
-    // offset through the joint's transform and the rotation is the joint's
-    // composed with the bound Euler - or the PARENT's rotation when no Euler
-    // was given. Without a joint, the offset is rotated by the parent and the
-    // rotation is the parent's composed with the Euler, if any.
-    Vec3 world;
-    Quat rot;
-    bool haveRot = false;
-    if (e.parentJointIndex >= 0 && JointToWorld(*parent, e.parentJointIndex,
-                                                e.parentOffset, world)) {
-        if (e.parentRotBound) {
-            Quat joint;
-            if (JointWorldRotation(*parent, e.parentJointIndex, joint)) {
-                rot = joint * e.parentRot;
-                haveRot = true;
-            }
-        } else {
-            rot = parent->rot;
-            haveRot = true;
-        }
-    } else {
-        world = parent->pos + parent->rot.Rotate(e.parentOffset);
-        if (e.parentRotBound) {
-            rot = parent->rot * e.parentRot;
-            haveRot = true;
-        }
-    }
-    e.pos = world;
-    if (haveRot) e.rot = rot;
-    SyncPose(e);
+	// ParticleEffect::Tick (0x101e59a0): with a joint, the position is the
+	// offset through the joint's transform and the rotation is the joint's
+	// composed with the bound Euler - or the PARENT's rotation when no Euler
+	// was given. Without a joint, the offset is rotated by the parent and the
+	// rotation is the parent's composed with the Euler, if any.
+	Vec3 world;
+	Quat rot;
+	bool haveRot = false;
+	if (e.parentJointIndex >= 0 && JointToWorld(*parent, e.parentJointIndex,
+			e.parentOffset, world)) {
+		if (e.parentRotBound) {
+			Quat joint;
+			if (JointWorldRotation(*parent, e.parentJointIndex, joint)) {
+				rot = joint * e.parentRot;
+				haveRot = true;
+			}
+		} else {
+			rot = parent->rot;
+			haveRot = true;
+		}
+	} else {
+		world = parent->pos + parent->rot.Rotate(e.parentOffset);
+		if (e.parentRotBound) {
+			rot = parent->rot * e.parentRot;
+			haveRot = true;
+		}
+	}
+	e.pos = world;
+	if (haveRot) e.rot = rot;
+	SyncPose(e);
 }
 
 // Every bound entity, once the parents have finished moving for the frame.
 void ScriptEngine::UpdateAttached() {
-    for (auto& kv : entities_)
-        if (kv.second.parentBound) PlaceAttached(kv.second);
+	for (auto& kv : entities_)
+		if (kv.second.parentBound) PlaceAttached(kv.second);
 }
 
 
 void BindEntity(ScriptEngine& engine, LuaHost& host) {
-    const ScriptNative natives[] = {
-        {"ENTITY", "Create", EntityNatives::L_Create},
-        {"ENTITY", "Release", EntityNatives::L_Release},
-        {"ENTITY", "SetPosition", EntityNatives::L_SetPosition},
-        {"ENTITY", "GetPosition", EntityNatives::L_GetPosition},
-        {"ENTITY", "SetRotationQ", EntityNatives::L_SetRotationQ},
-        {"ENTITY", "GetRotationQ", EntityNatives::L_GetRotationQ},
-        {"ENTITY", "SetOrientation", EntityNatives::L_SetOrientation},
-        {"ENTITY", "GetOrientation", EntityNatives::L_GetOrientation},
-        {"ENTITY", "SetScale", EntityNatives::L_SetScale},
-        {"ENTITY", "EnableDraw", EntityNatives::L_EnableDraw},
-        {"ENTITY", "PO_Remove", EntityNatives::L_PO_Remove},
-        {"ENTITY", "PO_GetCollisionGroup", EntityNatives::L_PO_GetCollisionGroup},
-        {"ENTITY", "PO_IsFixed", EntityNatives::L_PO_IsFixed},
-        {"R3D", "DistToLine", EntityNatives::L_R3D_DistToLine},
-        {"PARTICLE", "AddEmitter", EntityNatives::L_PARTICLE_AddEmitter},
-        {"PARTICLE", "SetupEmitter", EntityNatives::L_PARTICLE_SetupEmitter},
-        {"PARTICLE", "SetParentOffset", EntityNatives::L_PARTICLE_SetParentOffset},
-        {"PARTICLE", "Die", EntityNatives::L_PARTICLE_Die},
-        {"PARTICLE", "SetFixedTransform", EntityNatives::L_NoOpNative},
-        {"BILLBOARD", "SetupCorona", EntityNatives::L_BILLBOARD_SetupCorona},
-        {"ENTITY", "GetVelocity", EntityNatives::L_GetVelocity},
-        {"ENTITY", "SetVelocity", EntityNatives::L_SetVelocity},
-        {"ENTITY", "SetAngularVelocity", EntityNatives::L_SetAngularVelocity},
-        {"ENTITY", "SetTimeToDie", EntityNatives::L_SetTimeToDie},
-        {"ENTITY", "ExplodeItem", EntityNatives::L_ENTITY_ExplodeItem},
-        {"ENTITY", "PO_Hit", EntityNatives::L_PO_Hit},
-        {"WORLD", "HitPhysicObject", EntityNatives::L_WORLD_HitPhysicObject},
-        {"WORLD", "GetLastExplodedEntities", EntityNatives::L_WORLD_GetLastExplodedEntities},
-        {"ENTITY", "PO_Create", EntityNatives::L_PO_Create},
-        {"ENTITY", "PO_Move", EntityNatives::L_PO_Move},
-        {"ENTITY", "PO_SetMonsterType", EntityNatives::L_PO_SetMonsterType},
-        {"ENTITY", "GetWorldPosition", EntityNatives::L_GetPosition},
-        {"ENTITY", "PO_SetCollisionGroup", EntityNatives::L_PO_SetCollisionGroup},
-        {"MDL", "ApplyPointImpulseToRagdoll", EntityNatives::L_MDL_ApplyPointImpulseToRagdoll},
-        {"ENTITY", "PO_ScaleInertiaTensor", EntityNatives::L_PO_ScaleInertiaTensor},
-        {"ENTITY", "PO_AccumulateRotation", EntityNatives::L_PO_AccumulateRotation},
-        {"ENTITY", "GetPtrByIndex", EntityNatives::L_ENTITY_GetPtrByIndex},
-        {"ENTITY", "GetIndex", EntityNatives::L_ENTITY_GetIndex},
-        {"ENTITY", "RegisterChild", EntityNatives::L_ENTITY_RegisterChild},
-        {"ENTITY", "ComputeChildMatrix", EntityNatives::L_ENTITY_ComputeChildMatrix},
-    };
-    RegisterFamily(engine, host, natives);
+	const ScriptNative natives[] = {
+		{"ENTITY", "Create", EntityNatives::L_Create},
+		{"ENTITY", "Release", EntityNatives::L_Release},
+		{"ENTITY", "SetPosition", EntityNatives::L_SetPosition},
+		{"ENTITY", "GetPosition", EntityNatives::L_GetPosition},
+		{"ENTITY", "SetRotationQ", EntityNatives::L_SetRotationQ},
+		{"ENTITY", "GetRotationQ", EntityNatives::L_GetRotationQ},
+		{"ENTITY", "SetOrientation", EntityNatives::L_SetOrientation},
+		{"ENTITY", "GetOrientation", EntityNatives::L_GetOrientation},
+		{"ENTITY", "SetScale", EntityNatives::L_SetScale},
+		{"ENTITY", "EnableDraw", EntityNatives::L_EnableDraw},
+		{"ENTITY", "PO_Remove", EntityNatives::L_PO_Remove},
+		{"ENTITY", "PO_GetCollisionGroup", EntityNatives::L_PO_GetCollisionGroup},
+		{"ENTITY", "PO_IsFixed", EntityNatives::L_PO_IsFixed},
+		{"R3D", "DistToLine", EntityNatives::L_R3D_DistToLine},
+		{"PARTICLE", "AddEmitter", EntityNatives::L_PARTICLE_AddEmitter},
+		{"PARTICLE", "SetupEmitter", EntityNatives::L_PARTICLE_SetupEmitter},
+		{"PARTICLE", "SetParentOffset", EntityNatives::L_PARTICLE_SetParentOffset},
+		{"PARTICLE", "Die", EntityNatives::L_PARTICLE_Die},
+		{"PARTICLE", "SetFixedTransform", EntityNatives::L_NoOpNative},
+		{"BILLBOARD", "SetupCorona", EntityNatives::L_BILLBOARD_SetupCorona},
+		{"ENTITY", "GetVelocity", EntityNatives::L_GetVelocity},
+		{"ENTITY", "SetVelocity", EntityNatives::L_SetVelocity},
+		{"ENTITY", "SetAngularVelocity", EntityNatives::L_SetAngularVelocity},
+		{"ENTITY", "SetTimeToDie", EntityNatives::L_SetTimeToDie},
+		{"ENTITY", "ExplodeItem", EntityNatives::L_ENTITY_ExplodeItem},
+		{"ENTITY", "PO_Hit", EntityNatives::L_PO_Hit},
+		{"WORLD", "HitPhysicObject", EntityNatives::L_WORLD_HitPhysicObject},
+		{"WORLD", "GetLastExplodedEntities", EntityNatives::L_WORLD_GetLastExplodedEntities},
+		{"ENTITY", "PO_Create", EntityNatives::L_PO_Create},
+		{"ENTITY", "PO_Move", EntityNatives::L_PO_Move},
+		{"ENTITY", "PO_SetMonsterType", EntityNatives::L_PO_SetMonsterType},
+		{"ENTITY", "GetWorldPosition", EntityNatives::L_GetPosition},
+		{"ENTITY", "PO_SetCollisionGroup", EntityNatives::L_PO_SetCollisionGroup},
+		{"MDL", "ApplyPointImpulseToRagdoll", EntityNatives::L_MDL_ApplyPointImpulseToRagdoll},
+		{"ENTITY", "PO_ScaleInertiaTensor", EntityNatives::L_PO_ScaleInertiaTensor},
+		{"ENTITY", "PO_AccumulateRotation", EntityNatives::L_PO_AccumulateRotation},
+		{"ENTITY", "GetPtrByIndex", EntityNatives::L_ENTITY_GetPtrByIndex},
+		{"ENTITY", "GetIndex", EntityNatives::L_ENTITY_GetIndex},
+		{"ENTITY", "RegisterChild", EntityNatives::L_ENTITY_RegisterChild},
+		{"ENTITY", "ComputeChildMatrix", EntityNatives::L_ENTITY_ComputeChildMatrix},
+	};
+	RegisterFamily(engine, host, natives);
 }
 
-}  // namespace painful
+} // namespace painful

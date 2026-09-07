@@ -30,12 +30,12 @@ namespace painful {
 // Objects are reused as MapObject so the renderer treats them like world
 // geometry (uvChannels == 1 layout: normals inline, UVs at floats 6/7).
 struct DatPack {
-    std::string meshName;                // from the header
-    std::vector<MapObject> objects;
-    std::string error;
-    size_t size = 0;
+	std::string meshName; // from the header
+	std::vector<MapObject> objects;
+	std::string error;
+	size_t size = 0;
 
-    static bool Load(const std::string& path, DatPack& out);
+	static bool Load(const std::string& path, DatPack& out);
 };
 
 } // namespace painful

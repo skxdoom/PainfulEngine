@@ -8,9 +8,9 @@
 
 set(PAINFUL_DEPLOY_DIR "" CACHE PATH "Copy PainfulEngine.exe here after each build")
 if(PAINFUL_DEPLOY_DIR)
-  add_custom_command(TARGET PainfulEngine POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:PainfulEngine>
-            ${PAINFUL_DEPLOY_DIR}/PainfulEngine.exe
-    COMMENT "deploy -> ${PAINFUL_DEPLOY_DIR}"
-  )
+	add_custom_command(TARGET PainfulEngine POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:PainfulEngine>
+			${PAINFUL_DEPLOY_DIR}/PainfulEngine.exe
+			COMMENT "deploy -> ${PAINFUL_DEPLOY_DIR}"
+			)
 endif()

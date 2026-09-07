@@ -16,9 +16,9 @@ namespace painful {
 namespace {
 
 struct ParticleVertex {
-    float x, y, z;
-    uint32_t abgr;
-    float u, v;
+	float x, y, z;
+	uint32_t abgr;
+	float u, v;
 };
 
 float Lerp(float a, float b, float t) { return a + (b - a) * t; }
@@ -28,605 +28,605 @@ float Lerp(float a, float b, float t) { return a + (b - a) * t; }
 // A row-vector 3x3 applied to a vector - the convention the rest of the port
 // uses for entity orientation.
 Vec3 Rotate(const float m[9], const Vec3& v) {
-    return Vec3(v.x * m[0] + v.y * m[3] + v.z * m[6],
-                v.x * m[1] + v.y * m[4] + v.z * m[7],
-                v.x * m[2] + v.y * m[5] + v.z * m[8]);
+	return Vec3(v.x * m[0] + v.y * m[3] + v.z * m[6],
+			v.x * m[1] + v.y * m[4] + v.z * m[7],
+			v.x * m[2] + v.y * m[5] + v.z * m[8]);
 }
 
 // Euler degrees (the .pfx Rotation triple) to the same row-vector 3x3 form
 // entity angles produce - Y then X then Z.
 void EulerDegreesToMatrix(const Vec3& degrees, float out[9]) {
-    const float k = 0.01745329252f;
-    const float ax = degrees[0] * k, ay = degrees[1] * k, az = degrees[2] * k;
-    const float sx = std::sin(ax), cx = std::cos(ax);
-    const float sy = std::sin(ay), cy = std::cos(ay);
-    const float sz = std::sin(az), cz = std::cos(az);
-    out[0] = cy * cz + sy * sx * sz;  out[1] = cx * sz;  out[2] = -sy * cz + cy * sx * sz;
-    out[3] = -cy * sz + sy * sx * cz; out[4] = cx * cz;  out[5] = sy * sz + cy * sx * cz;
-    out[6] = sy * cx;                 out[7] = -sx;      out[8] = cy * cx;
+	const float k = 0.01745329252f;
+	const float ax = degrees[0] * k, ay = degrees[1] * k, az = degrees[2] * k;
+	const float sx = std::sin(ax), cx = std::cos(ax);
+	const float sy = std::sin(ay), cy = std::cos(ay);
+	const float sz = std::sin(az), cz = std::cos(az);
+	out[0] = cy * cz + sy * sx * sz; out[1] = cx * sz; out[2] = -sy * cz + cy * sx * sz;
+	out[3] = -cy * sz + sy * sx * cz; out[4] = cx * cz; out[5] = sy * sz + cy * sx * cz;
+	out[6] = sy * cx; out[7] = -sx; out[8] = cy * cx;
 }
 
 void MatMul3(const float a[9], const float b[9], float out[9]) {
-    for (int r = 0; r < 3; ++r)
-        for (int c = 0; c < 3; ++c)
-            out[r * 3 + c] = a[r * 3 + 0] * b[c] + a[r * 3 + 1] * b[3 + c] +
-                             a[r * 3 + 2] * b[6 + c];
+	for (int r = 0; r < 3; ++r)
+		for (int c = 0; c < 3; ++c)
+			out[r * 3 + c] = a[r * 3 + 0] * b[c] + a[r * 3 + 1] * b[3 + c] +
+					a[r * 3 + 2] * b[6 + c];
 }
 
 uint32_t PackAbgr(const Vec3& rgb, float alpha) {
-    auto byteOf = [](float v) {
-        const int i = static_cast<int>(v * 255.f + 0.5f);
-        return static_cast<uint32_t>(i < 0 ? 0 : (i > 255 ? 255 : i));
-    };
-    return (byteOf(alpha) << 24) | (byteOf(rgb[2]) << 16) | (byteOf(rgb[1]) << 8) | byteOf(rgb[0]);
+	auto byteOf = [](float v) {
+		const int i = static_cast<int>(v * 255.f + 0.5f);
+		return static_cast<uint32_t>(i < 0 ? 0 : (i > 255 ? 255 : i));
+	};
+	return (byteOf(alpha) << 24) | (byteOf(rgb[2]) << 16) | (byteOf(rgb[1]) << 8) | byteOf(rgb[0]);
 }
 
-}  // namespace
+} // namespace
 
 float ParticleRenderer::Rand01() {
-    // xorshift32; the original calls rand()/RAND_MAX, which has the same
-    // uniform shape but would perturb every other rand() user in the process.
-    rng_ ^= rng_ << 13;
-    rng_ ^= rng_ >> 17;
-    rng_ ^= rng_ << 5;
-    return static_cast<float>(rng_ >> 8) * (1.f / 16777216.f);
+	// xorshift32; the original calls rand()/RAND_MAX, which has the same
+	// uniform shape but would perturb every other rand() user in the process.
+	rng_ ^= rng_ << 13;
+	rng_ ^= rng_ >> 17;
+	rng_ ^= rng_ << 5;
+	return static_cast<float>(rng_ >> 8) * (1.f / 16777216.f);
 }
 
 float ParticleRenderer::RandRange(float lo, float hi) {
-    return lo == hi ? lo : Lerp(lo, hi, Rand01());
+	return lo == hi ? lo : Lerp(lo, hi, Rand01());
 }
 
 void ParticleRenderer::RandVec(const Vec3& lo, const Vec3& hi, Vec3& out) {
-    for (int i = 0; i < 3; ++i) out[i] = RandRange(lo[i], hi[i]);
+	for (int i = 0; i < 3; ++i) out[i] = RandRange(lo[i], hi[i]);
 }
 
 bool ParticleRenderer::Init(const std::string& shaderDir) {
-    bgfx::ShaderHandle vs = LoadShader(shaderDir, "vs_particle");
-    bgfx::ShaderHandle fs = LoadShader(shaderDir, "fs_particle");
-    if (!bgfx::isValid(vs) || !bgfx::isValid(fs)) {
-        LogWarn("particles: missing vs_particle/fs_particle in %s", shaderDir.c_str());
-        return false;
-    }
-    program_ = bgfx::createProgram(vs, fs, true);
-    sDiffuse_ = bgfx::createUniform("s_diffuse", bgfx::UniformType::Sampler);
-    uFog_ = bgfx::createUniform("u_fog", bgfx::UniformType::Vec4);
-    uFogColor_ = bgfx::createUniform("u_fogColor", bgfx::UniformType::Vec4);
+	bgfx::ShaderHandle vs = LoadShader(shaderDir, "vs_particle");
+	bgfx::ShaderHandle fs = LoadShader(shaderDir, "fs_particle");
+	if (!bgfx::isValid(vs) || !bgfx::isValid(fs)) {
+		LogWarn("particles: missing vs_particle/fs_particle in %s", shaderDir.c_str());
+		return false;
+	}
+	program_ = bgfx::createProgram(vs, fs, true);
+	sDiffuse_ = bgfx::createUniform("s_diffuse", bgfx::UniformType::Sampler);
+	uFog_ = bgfx::createUniform("u_fog", bgfx::UniformType::Vec4);
+	uFogColor_ = bgfx::createUniform("u_fogColor", bgfx::UniformType::Vec4);
 
-    layout_.begin()
-        .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
-        .add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Uint8, true)
-        .add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
-        .end();
-    return bgfx::isValid(program_);
+	layout_.begin()
+		.add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
+		.add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Uint8, true)
+		.add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
+		.end();
+	return bgfx::isValid(program_);
 }
 
 void ParticleRenderer::Shutdown() {
-    if (bgfx::isValid(program_)) bgfx::destroy(program_);
-    if (bgfx::isValid(sDiffuse_)) bgfx::destroy(sDiffuse_);
-    if (bgfx::isValid(uFog_)) { bgfx::destroy(uFog_); uFog_ = BGFX_INVALID_HANDLE; }
-    if (bgfx::isValid(uFogColor_)) { bgfx::destroy(uFogColor_); uFogColor_ = BGFX_INVALID_HANDLE; }
-    program_ = BGFX_INVALID_HANDLE;
-    sDiffuse_ = BGFX_INVALID_HANDLE;
-    emitters_.clear();
+	if (bgfx::isValid(program_)) bgfx::destroy(program_);
+	if (bgfx::isValid(sDiffuse_)) bgfx::destroy(sDiffuse_);
+	if (bgfx::isValid(uFog_)) { bgfx::destroy(uFog_); uFog_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uFogColor_)) { bgfx::destroy(uFogColor_); uFogColor_ = BGFX_INVALID_HANDLE; }
+	program_ = BGFX_INVALID_HANDLE;
+	sDiffuse_ = BGFX_INVALID_HANDLE;
+	emitters_.clear();
 }
 
 void ParticleRenderer::ApplyScale(Emitter& e, float scale) const {
-    const EmitterParams& p = *e.params;
-    // ParticleEmitter::SetScale (0x100a19a0) multiplies exactly this set and
-    // nothing else: distances, velocities, accelerations, sizes and the spark
-    // dimensions. Lifetimes, colours, alpha, fade timings and spin are left
-    // alone, which is why a scaled-down flame still burns for as long.
-    for (int i = 0; i < 3; ++i) {
-        e.posMin[i] = p.posMin[i] * scale;
-        e.posMax[i] = p.posMax[i] * scale;
-        e.velMin[i] = p.velMin[i] * scale;
-        e.velMax[i] = p.velMax[i] * scale;
-        e.velEndMin[i] = p.velEndMin[i] * scale;
-        e.velEndMax[i] = p.velEndMax[i] * scale;
-        e.accelMin[i] = p.accelMin[i] * scale;
-        e.accelMax[i] = p.accelMax[i] * scale;
-    }
-    e.startSizeMin = p.startSizeMin * scale;
-    e.startSizeMax = p.startSizeMax * scale;
-    e.endSizeMin = p.endSizeMin * scale;
-    e.endSizeMax = p.endSizeMax * scale;
-    e.thicknessMin = p.thicknessMin * scale;
-    e.thicknessMax = p.thicknessMax * scale;
-    e.lengthMin = p.lengthMin * scale;
-    e.lengthMax = p.lengthMax * scale;
+	const EmitterParams& p = *e.params;
+	// ParticleEmitter::SetScale (0x100a19a0) multiplies exactly this set and
+	// nothing else: distances, velocities, accelerations, sizes and the spark
+	// dimensions. Lifetimes, colours, alpha, fade timings and spin are left
+	// alone, which is why a scaled-down flame still burns for as long.
+	for (int i = 0; i < 3; ++i) {
+		e.posMin[i] = p.posMin[i] * scale;
+		e.posMax[i] = p.posMax[i] * scale;
+		e.velMin[i] = p.velMin[i] * scale;
+		e.velMax[i] = p.velMax[i] * scale;
+		e.velEndMin[i] = p.velEndMin[i] * scale;
+		e.velEndMax[i] = p.velEndMax[i] * scale;
+		e.accelMin[i] = p.accelMin[i] * scale;
+		e.accelMax[i] = p.accelMax[i] * scale;
+	}
+	e.startSizeMin = p.startSizeMin * scale;
+	e.startSizeMax = p.startSizeMax * scale;
+	e.endSizeMin = p.endSizeMin * scale;
+	e.endSizeMax = p.endSizeMax * scale;
+	e.thicknessMin = p.thicknessMin * scale;
+	e.thicknessMax = p.thicknessMax * scale;
+	e.lengthMin = p.lengthMin * scale;
+	e.lengthMax = p.lengthMax * scale;
 }
 
 void ParticleRenderer::Build(const Level& level, TemplateCache& templates,
-                             EmitterLibrary& library, TextureCache& textures,
-                             const std::string& dataRoot) {
-    (void)dataRoot;
-    emitters_.clear();
-    effects_ = 0;
-    unresolved_ = 0;
+		EmitterLibrary& library, TextureCache& textures,
+		const std::string& dataRoot) {
+	(void)dataRoot;
+	emitters_.clear();
+	effects_ = 0;
+	unresolved_ = 0;
 
-    for (const Entity& entity : level.entities()) {
-        if (entity.type != "CParticleFX") continue;
+	for (const Entity& entity : level.entities()) {
+		if (entity.type != "CParticleFX") continue;
 
-        // CParticleFX.lua declares Effect = "Default" as the class default and
-        // instances rarely override it - the template names the effect.
-        std::string effectName = entity.props.String("Effect", "");
-        if (effectName.empty()) effectName = templates.ResolveString(entity.baseObj, "Effect");
-        if (effectName.empty()) effectName = "Default";
+		// CParticleFX.lua declares Effect = "Default" as the class default and
+		// instances rarely override it - the template names the effect.
+		std::string effectName = entity.props.String("Effect", "");
+		if (effectName.empty()) effectName = templates.ResolveString(entity.baseObj, "Effect");
+		if (effectName.empty()) effectName = "Default";
 
-        const ParticleFxDef* fx = library.Effect(effectName);
-        if (!fx || fx->emitters.empty()) {
-            ++unresolved_;
-            continue;
-        }
+		const ParticleFxDef* fx = library.Effect(effectName);
+		if (!fx || fx->emitters.empty()) {
+			++unresolved_;
+			continue;
+		}
 
-        // Same precedence EntityRenderer uses: the instance wins, then the
-        // template chain, then the class default of 1.0.
-        const double templateScale = templates.ResolveNumber(entity.baseObj, "Scale", 1.0);
-        const float entityScale = static_cast<float>(
-            entity.props.Has("Scale") ? entity.props.Number("Scale", templateScale)
-                                      : templateScale);
+		// Same precedence EntityRenderer uses: the instance wins, then the
+		// template chain, then the class default of 1.0.
+		const double templateScale = templates.ResolveNumber(entity.baseObj, "Scale", 1.0);
+		const float entityScale = static_cast<float>(
+				entity.props.Has("Scale") ? entity.props.Number("Scale", templateScale)
+				: templateScale);
 
-        float entityRot[9];
-        ReadRotation(entity.props, entityRot);
+		float entityRot[9];
+		ReadRotation(entity.props, entityRot);
 
-        ++effects_;
-        for (const ParticleFxDef::Ref& ref : fx->emitters) {
-            const EmitterParams* params = library.Emitter(ref.file);
-            if (!params) {
-                ++unresolved_;
-                continue;
-            }
+		++effects_;
+		for (const ParticleFxDef::Ref& ref : fx->emitters) {
+			const EmitterParams* params = library.Emitter(ref.file);
+			if (!params) {
+				++unresolved_;
+				continue;
+			}
 
-            Emitter e;
-            e.params = params;
-            // Level placement always emits continuously, whatever the .ini
-            // says: CParticleFX:LoadData follows every load with
-            // PARTICLE.SetEvolve(entity, true). This path is the hand-driven
-            // stand-in for that load, so it makes the same override - a
-            // placed torch burns rather than puffing once.
-            e.evolve = true;
+			Emitter e;
+			e.params = params;
+			// Level placement always emits continuously, whatever the .ini
+			// says: CParticleFX:LoadData follows every load with
+			// PARTICLE.SetEvolve(entity, true). This path is the hand-driven
+			// stand-in for that load, so it makes the same override - a
+			// placed torch burns rather than puffing once.
+			e.evolve = true;
 
-            // EmitterDef::SetupTransform (0x101e4a60): the entry's offset is
-            // scaled by the parent entity but NOT rotated by it, the
-            // orientations compose, and the emitter's own scale is the product
-            // of both. scaleMultiplier_ is this port's level-scale factor, the
-            // same one EntityRenderer applies to placed models.
-            float defRot[9];
-            EulerDegreesToMatrix(ref.rotation, defRot);
-            MatMul3(entityRot, defRot, e.rot9);
+			// EmitterDef::SetupTransform (0x101e4a60): the entry's offset is
+			// scaled by the parent entity but NOT rotated by it, the
+			// orientations compose, and the emitter's own scale is the product
+			// of both. scaleMultiplier_ is this port's level-scale factor, the
+			// same one EntityRenderer applies to placed models.
+			float defRot[9];
+			EulerDegreesToMatrix(ref.rotation, defRot);
+			MatMul3(entityRot, defRot, e.rot9);
 
-            for (int i = 0; i < 3; ++i) {
-                e.pos[i] = (entity.pos[i] + entityScale * ref.position[i]) * scaleMultiplier_;
-                e.prevPos[i] = e.pos[i];
-                e.ownerPos[i] = entity.pos[i] * scaleMultiplier_;
-            }
-            ApplyScale(e, entityScale * ref.scale * scaleMultiplier_);
+			for (int i = 0; i < 3; ++i) {
+				e.pos[i] = (entity.pos[i] + entityScale * ref.position[i]) * scaleMultiplier_;
+				e.prevPos[i] = e.pos[i];
+				e.ownerPos[i] = entity.pos[i] * scaleMultiplier_;
+			}
+			ApplyScale(e, entityScale * ref.scale * scaleMultiplier_);
 
-            e.texture = textures.Get(params->texture, level.name());
-            e.blendState = BlendModeState(params->blendMode);
-            e.particles.reserve(std::min(params->maxParticles, 4096));
-            emitters_.push_back(std::move(e));
-        }
-    }
-    LogInfo("particles: %zu effects, %zu emitters (%zu unresolved)", effects_, emitters_.size(),
-            unresolved_);
+			e.texture = textures.Get(params->texture, level.name());
+			e.blendState = BlendModeState(params->blendMode);
+			e.particles.reserve(std::min(params->maxParticles, 4096));
+			emitters_.push_back(std::move(e));
+		}
+	}
+	LogInfo("particles: %zu effects, %zu emitters (%zu unresolved)", effects_, emitters_.size(),
+			unresolved_);
 }
 
 void ParticleRenderer::SetScaleMultiplier(float k) {
-    if (k == scaleMultiplier_) return;
-    // Rebuilding needs the source scale, which is folded into the ranges. The
-    // simplest correct move is to rescale by the ratio, exactly as the layout
-    // scales about world zero in EntityRenderer.
-    const float ratio = scaleMultiplier_ != 0.f ? k / scaleMultiplier_ : k;
-    scaleMultiplier_ = k;
-    for (Emitter& e : emitters_) {
-        for (int i = 0; i < 3; ++i) {
-            e.pos[i] *= ratio;
-            e.prevPos[i] *= ratio;
-            e.ownerPos[i] *= ratio;
-            e.posMin[i] *= ratio;   e.posMax[i] *= ratio;
-            e.velMin[i] *= ratio;   e.velMax[i] *= ratio;
-            e.velEndMin[i] *= ratio; e.velEndMax[i] *= ratio;
-            e.accelMin[i] *= ratio; e.accelMax[i] *= ratio;
-        }
-        e.startSizeMin *= ratio; e.startSizeMax *= ratio;
-        e.endSizeMin *= ratio;   e.endSizeMax *= ratio;
-        e.thicknessMin *= ratio; e.thicknessMax *= ratio;
-        e.lengthMin *= ratio;    e.lengthMax *= ratio;
-        e.particles.clear();
-    }
+	if (k == scaleMultiplier_) return;
+	// Rebuilding needs the source scale, which is folded into the ranges. The
+	// simplest correct move is to rescale by the ratio, exactly as the layout
+	// scales about world zero in EntityRenderer.
+	const float ratio = scaleMultiplier_ != 0.f ? k / scaleMultiplier_ : k;
+	scaleMultiplier_ = k;
+	for (Emitter& e : emitters_) {
+		for (int i = 0; i < 3; ++i) {
+			e.pos[i] *= ratio;
+			e.prevPos[i] *= ratio;
+			e.ownerPos[i] *= ratio;
+			e.posMin[i] *= ratio; e.posMax[i] *= ratio;
+			e.velMin[i] *= ratio; e.velMax[i] *= ratio;
+			e.velEndMin[i] *= ratio; e.velEndMax[i] *= ratio;
+			e.accelMin[i] *= ratio; e.accelMax[i] *= ratio;
+		}
+		e.startSizeMin *= ratio; e.startSizeMax *= ratio;
+		e.endSizeMin *= ratio; e.endSizeMax *= ratio;
+		e.thicknessMin *= ratio; e.thicknessMax *= ratio;
+		e.lengthMin *= ratio; e.lengthMax *= ratio;
+		e.particles.clear();
+	}
 }
 
 void ParticleRenderer::InitParticle(const Emitter& e, Particle& p) const {
-    ParticleRenderer* self = const_cast<ParticleRenderer*>(this);
-    const EmitterParams& src = *e.params;
+	ParticleRenderer* self = const_cast<ParticleRenderer*>(this);
+	const EmitterParams& src = *e.params;
 
-    // The velocity pair is drawn first and both ends are rotated into world
-    // space by the emitter's orientation; acceleration is NOT rotated.
-    Vec3 v;
-    self->RandVec(e.velEndMin, e.velEndMax, v);
-    p.velEnd = Rotate(e.rot9, v);
-    self->RandVec(e.velMin, e.velMax, v);
-    p.velStart = Rotate(e.rot9, v);
-    p.vel = p.velStart;
+	// The velocity pair is drawn first and both ends are rotated into world
+	// space by the emitter's orientation; acceleration is NOT rotated.
+	Vec3 v;
+	self->RandVec(e.velEndMin, e.velEndMax, v);
+	p.velEnd = Rotate(e.rot9, v);
+	self->RandVec(e.velMin, e.velMax, v);
+	p.velStart = Rotate(e.rot9, v);
+	p.vel = p.velStart;
 
-    self->RandVec(e.accelMin, e.accelMax, p.accel);
-    p.accelVel = Vec3();
+	self->RandVec(e.accelMin, e.accelMax, p.accel);
+	p.accelVel = Vec3();
 
-    // Colour is always the Min -> Max ramp: the constructor sets the
-    // colour-range flag and LoadEmitter never clears it, so InitParticle's
-    // random-colour branch is unreachable for .ini emitters. Seeded at Min so
-    // a particle drawn before its first update is not black.
-    p.color = src.colorMin;
+	// Colour is always the Min -> Max ramp: the constructor sets the
+	// colour-range flag and LoadEmitter never clears it, so InitParticle's
+	// random-colour branch is unreachable for .ini emitters. Seeded at Min so
+	// a particle drawn before its first update is not black.
+	p.color = src.colorMin;
 
-    p.rotSpeed = self->RandRange(src.rotMin, src.rotMax);
-    p.rotAngle = 0.f;
-    p.life = self->RandRange(src.lifeMin, src.lifeMax);
-    p.age = 0.f;
-    p.animTime = 0.f;
-    p.endSize = self->RandRange(e.endSizeMin, e.endSizeMax);
-    p.startSize = self->RandRange(e.startSizeMin, e.startSizeMax);
-    p.size = p.startSize;
-    p.alpha = src.alphaMin;
-    p.sparkThickness = 0.f;
-    p.sparkLength = 0.f;
-    if (src.type == 2) {
-        p.sparkThickness = self->RandRange(e.thicknessMin, e.thicknessMax);
-        p.sparkLength = self->RandRange(e.lengthMin, e.lengthMax);
-    }
+	p.rotSpeed = self->RandRange(src.rotMin, src.rotMax);
+	p.rotAngle = 0.f;
+	p.life = self->RandRange(src.lifeMin, src.lifeMax);
+	p.age = 0.f;
+	p.animTime = 0.f;
+	p.endSize = self->RandRange(e.endSizeMin, e.endSizeMax);
+	p.startSize = self->RandRange(e.startSizeMin, e.startSizeMax);
+	p.size = p.startSize;
+	p.alpha = src.alphaMin;
+	p.sparkThickness = 0.f;
+	p.sparkLength = 0.f;
+	if (src.type == 2) {
+		p.sparkThickness = self->RandRange(e.thicknessMin, e.thicknessMax);
+		p.sparkLength = self->RandRange(e.lengthMin, e.lengthMax);
+	}
 }
 
 void ParticleRenderer::TickEmitter(Emitter& e, float dt) {
-    const EmitterParams& src = *e.params;
-    const int maxParticles = std::max(1, src.maxParticles);
+	const EmitterParams& src = *e.params;
+	const int maxParticles = std::max(1, src.maxParticles);
 
-    // ---------------------------------------------------------------- spawn
-    //
-    // Evolve = 0 makes an emitter a one-shot burst of MaxParticles: it emits
-    // that many and never again. That is what an impact effect is, and
-    // without it every bullet hole smokes forever. Level placement never
-    // sees it - CParticleFX:LoadData calls PARTICLE.SetEvolve(entity, true)
-    // right after loading, and Apply calls it again - so a placed torch keeps
-    // burning whatever its .ini says.
-    int count = 0;
-    const bool exhausted = !e.evolve && e.spawnedTotal >= maxParticles;
-    if (!exhausted && src.spawnInterval > 0.f) {
-        e.spawnAccum += dt;
-        if (e.spawnAccum >= src.spawnInterval) {
-            count = static_cast<int>(e.spawnAccum / src.spawnInterval + 0.5f);
-            const int used = e.evolve ? static_cast<int>(e.particles.size()) : e.spawnedTotal;
-            if (used + count >= maxParticles) count = maxParticles - used;
-            if (count < 0) count = 0;
-            e.spawnAccum -= count * src.spawnInterval;
-        }
-    }
-    // Evolve = 0 makes an emitter a one-shot burst of MaxParticles. Level
-    // placement never sees that: CParticleFX:LoadData calls
-    // PARTICLE.SetEvolve(entity, true) right after loading, and Apply calls it
-    // again, so a placed effect always keeps emitting whatever the .ini says.
+	// ---------------------------------------------------------------- spawn
+	//
+	// Evolve = 0 makes an emitter a one-shot burst of MaxParticles: it emits
+	// that many and never again. That is what an impact effect is, and
+	// without it every bullet hole smokes forever. Level placement never
+	// sees it - CParticleFX:LoadData calls PARTICLE.SetEvolve(entity, true)
+	// right after loading, and Apply calls it again - so a placed torch keeps
+	// burning whatever its .ini says.
+	int count = 0;
+	const bool exhausted = !e.evolve && e.spawnedTotal >= maxParticles;
+	if (!exhausted && src.spawnInterval > 0.f) {
+		e.spawnAccum += dt;
+		if (e.spawnAccum >= src.spawnInterval) {
+			count = static_cast<int>(e.spawnAccum / src.spawnInterval + 0.5f);
+			const int used = e.evolve ? static_cast<int>(e.particles.size()) : e.spawnedTotal;
+			if (used + count >= maxParticles) count = maxParticles - used;
+			if (count < 0) count = 0;
+			e.spawnAccum -= count * src.spawnInterval;
+		}
+	}
+	// Evolve = 0 makes an emitter a one-shot burst of MaxParticles. Level
+	// placement never sees that: CParticleFX:LoadData calls
+	// PARTICLE.SetEvolve(entity, true) right after loading, and Apply calls it
+	// again, so a placed effect always keeps emitting whatever the .ini says.
 
-    for (int i = 1; i <= count; ++i) {
-        const float f = static_cast<float>(i) / static_cast<float>(count);
-        Particle p{};
-        Vec3 offset;
-        RandVec(e.posMin, e.posMax, offset);
-        const Vec3 rotated = Rotate(e.rot9, offset);
-        // Spawns are spread along the path the emitter travelled this frame,
-        // so a moving effect leaves a trail instead of a clump.
-        p.pos = Lerp(e.prevPos, e.pos, f) + rotated;
-        InitParticle(e, p);
-        // Sub-frame timestep for the frame it was born in. The original
-        // indexes this off the PREVIOUS loop counter, so the particle placed
-        // furthest back along the path gets a zero step and the newest gets
-        // very nearly a whole frame. Reproduced as-is.
-        p.spawnDelta = static_cast<float>(i - 1) * (dt / static_cast<float>(count));
-        e.particles.push_back(p);
-        ++e.spawnedTotal;
-    }
+	for (int i = 1; i <= count; ++i) {
+		const float f = static_cast<float>(i) / static_cast<float>(count);
+		Particle p{};
+		Vec3 offset;
+		RandVec(e.posMin, e.posMax, offset);
+		const Vec3 rotated = Rotate(e.rot9, offset);
+		// Spawns are spread along the path the emitter travelled this frame,
+		// so a moving effect leaves a trail instead of a clump.
+		p.pos = Lerp(e.prevPos, e.pos, f) + rotated;
+		InitParticle(e, p);
+		// Sub-frame timestep for the frame it was born in. The original
+		// indexes this off the PREVIOUS loop counter, so the particle placed
+		// furthest back along the path gets a zero step and the newest gets
+		// very nearly a whole frame. Reproduced as-is.
+		p.spawnDelta = static_cast<float>(i - 1) * (dt / static_cast<float>(count));
+		e.particles.push_back(p);
+		++e.spawnedTotal;
+	}
 
-    // --------------------------------------------------------------- update
-    const Vec3 wrapLo{e.pos[0] + e.posMin[0], e.pos[1] + e.posMin[1],
-                             e.pos[2] + e.posMin[2]};
-    const Vec3 wrapHi{e.pos[0] + e.posMax[0], e.pos[1] + e.posMax[1],
-                             e.pos[2] + e.posMax[2]};
-    const Vec3 wrapSpan{e.posMax[0] - e.posMin[0], e.posMax[1] - e.posMin[1],
-                               e.posMax[2] - e.posMin[2]};
+	// --------------------------------------------------------------- update
+	const Vec3 wrapLo{e.pos[0] + e.posMin[0], e.pos[1] + e.posMin[1],
+			e.pos[2] + e.posMin[2]};
+	const Vec3 wrapHi{e.pos[0] + e.posMax[0], e.pos[1] + e.posMax[1],
+			e.pos[2] + e.posMax[2]};
+	const Vec3 wrapSpan{e.posMax[0] - e.posMin[0], e.posMax[1] - e.posMin[1],
+			e.posMax[2] - e.posMin[2]};
 
-    size_t out = 0;
-    for (size_t i = 0; i < e.particles.size(); ++i) {
-        Particle p = e.particles[i];
-        // -1 is the "already had its first update" marker the original writes
-        // (as -2) once a particle has been stepped at least once.
-        const float step = p.spawnDelta <= -1.f ? dt : p.spawnDelta;
-        p.age += step;
-        if (p.age > p.life) {
-            if (!src.immortal) continue;      // dead: drop it
-            p.age = 0.f;                      // immortal particles simply restart
-        }
-        const float life = p.life > 1e-6f ? p.life : 1e-6f;
-        const float t = p.age / life;
-        const float pct = t * 100.f;
+	size_t out = 0;
+	for (size_t i = 0; i < e.particles.size(); ++i) {
+		Particle p = e.particles[i];
+		// -1 is the "already had its first update" marker the original writes
+		// (as -2) once a particle has been stepped at least once.
+		const float step = p.spawnDelta <= -1.f ? dt : p.spawnDelta;
+		p.age += step;
+		if (p.age > p.life) {
+			if (!src.immortal) continue; // dead: drop it
+			p.age = 0.f; // immortal particles simply restart
+		}
+		const float life = p.life > 1e-6f ? p.life : 1e-6f;
+		const float t = p.age / life;
+		const float pct = t * 100.f;
 
-        // Velocity blends from the [Velocity] draw to the [VelocityEnd] draw
-        // between the two VelBlend percentages of the particle's life.
-        if (pct < src.velBlendMin) {
-            p.vel = p.velStart;
-        } else if (pct >= src.velBlendMax) {
-            p.vel = p.velEnd;
-        } else {
-            const float lo = src.velBlendMin * life * 0.01f;
-            const float hi = src.velBlendMax * life * 0.01f;
-            const float k = hi > lo ? (p.age - lo) / (hi - lo) : 1.f;
-            for (int a = 0; a < 3; ++a) p.vel[a] = Lerp(p.velStart[a], p.velEnd[a], k);
-        }
-        // Acceleration accumulates into its own velocity and rides on top of
-        // the blend, so it survives the blend snapping between endpoints.
-        for (int a = 0; a < 3; ++a) {
-            p.accelVel[a] += p.accel[a] * step;
-            p.vel[a] += p.accelVel[a];
-        }
+		// Velocity blends from the [Velocity] draw to the [VelocityEnd] draw
+		// between the two VelBlend percentages of the particle's life.
+		if (pct < src.velBlendMin) {
+			p.vel = p.velStart;
+		} else if (pct >= src.velBlendMax) {
+			p.vel = p.velEnd;
+		} else {
+			const float lo = src.velBlendMin * life * 0.01f;
+			const float hi = src.velBlendMax * life * 0.01f;
+			const float k = hi > lo ? (p.age - lo) / (hi - lo) : 1.f;
+			for (int a = 0; a < 3; ++a) p.vel[a] = Lerp(p.velStart[a], p.velEnd[a], k);
+		}
+		// Acceleration accumulates into its own velocity and rides on top of
+		// the blend, so it survives the blend snapping between endpoints.
+		for (int a = 0; a < 3; ++a) {
+			p.accelVel[a] += p.accel[a] * step;
+			p.vel[a] += p.accelVel[a];
+		}
 
-        // Alpha is a three-point curve: Min -> Mid over the first FadeTimeMin
-        // percent, flat at Mid until FadeTimeMax percent, then Mid -> Max.
-        // Both timings default to 100, which collapses it to a plain Min -> Mid
-        // ramp - and Mid defaults to Max.
-        if (pct < src.fadeTimeMin) {
-            const float span = src.fadeTimeMin * life * 0.01f;
-            p.alpha = Lerp(src.alphaMin, src.alphaMid, span > 0.f ? p.age / span : 1.f);
-        } else if (pct < src.fadeTimeMax) {
-            p.alpha = src.alphaMid;
-        } else {
-            const float from = src.fadeTimeMax * life * 0.01f;
-            const float span = life - from;
-            p.alpha = Lerp(src.alphaMid, src.alphaMax, span > 1e-6f ? (p.age - from) / span : 1.f);
-        }
+		// Alpha is a three-point curve: Min -> Mid over the first FadeTimeMin
+		// percent, flat at Mid until FadeTimeMax percent, then Mid -> Max.
+		// Both timings default to 100, which collapses it to a plain Min -> Mid
+		// ramp - and Mid defaults to Max.
+		if (pct < src.fadeTimeMin) {
+			const float span = src.fadeTimeMin * life * 0.01f;
+			p.alpha = Lerp(src.alphaMin, src.alphaMid, span > 0.f ? p.age / span : 1.f);
+		} else if (pct < src.fadeTimeMax) {
+			p.alpha = src.alphaMid;
+		} else {
+			const float from = src.fadeTimeMax * life * 0.01f;
+			const float span = life - from;
+			p.alpha = Lerp(src.alphaMid, src.alphaMax, span > 1e-6f ? (p.age - from) / span : 1.f);
+		}
 
-        for (int a = 0; a < 3; ++a) p.pos[a] += p.vel[a] * step;
+		for (int a = 0; a < 3; ++a) p.pos[a] += p.vel[a] * step;
 
-        // Immortal particles are pinned to the owning entity every frame -
-        // they are a ring around an object, not a stream leaving it.
-        if (src.immortal) p.pos = e.ownerPos;
+		// Immortal particles are pinned to the owning entity every frame -
+		// they are a ring around an object, not a stream leaving it.
+		if (src.immortal) p.pos = e.ownerPos;
 
-        // Warp wraps a particle back into the PosRange box around the emitter,
-        // which is how the rain and mist emitters keep a volume filled.
-        if (src.warp) {
-            for (int a = 0; a < 3; ++a) {
-                if (p.pos[a] > wrapHi[a]) p.pos[a] -= wrapSpan[a];
-                else if (p.pos[a] < wrapLo[a]) p.pos[a] += wrapSpan[a];
-            }
-        }
+		// Warp wraps a particle back into the PosRange box around the emitter,
+		// which is how the rain and mist emitters keep a volume filled.
+		if (src.warp) {
+			for (int a = 0; a < 3; ++a) {
+				if (p.pos[a] > wrapHi[a]) p.pos[a] -= wrapSpan[a];
+				else if (p.pos[a] < wrapLo[a]) p.pos[a] += wrapSpan[a];
+			}
+		}
 
-        p.size = Lerp(p.startSize, p.endSize, t);
-        if (p.rotSpeed != 0.f) p.rotAngle += p.rotSpeed * step;
-        for (int a = 0; a < 3; ++a) p.color[a] = Lerp(src.colorMin[a], src.colorMax[a], t);
-        p.animTime += step;
-        p.spawnDelta = -2.f;
+		p.size = Lerp(p.startSize, p.endSize, t);
+		if (p.rotSpeed != 0.f) p.rotAngle += p.rotSpeed * step;
+		for (int a = 0; a < 3; ++a) p.color[a] = Lerp(src.colorMin[a], src.colorMax[a], t);
+		p.animTime += step;
+		p.spawnDelta = -2.f;
 
-        e.particles[out++] = p;
-    }
-    e.particles.resize(out);
+		e.particles[out++] = p;
+	}
+	e.particles.resize(out);
 
-    e.prevPos = e.pos;
+	e.prevPos = e.pos;
 }
 
 void ParticleRenderer::Tick(float dt) {
-    if (dt <= 0.f) return;
-    // A long hitch (level load, breakpoint) would otherwise spawn a whole
-    // emitter's worth of particles in one step and integrate them off-screen.
-    dt = std::min(dt, 0.1f);
-    live_ = 0;
-    for (Emitter& e : emitters_) {
-        if (!e.alive || !e.visible) continue;
-        TickEmitter(e, dt);
-        live_ += e.particles.size();
-    }
+	if (dt <= 0.f) return;
+	// A long hitch (level load, breakpoint) would otherwise spawn a whole
+	// emitter's worth of particles in one step and integrate them off-screen.
+	dt = std::min(dt, 0.1f);
+	live_ = 0;
+	for (Emitter& e : emitters_) {
+		if (!e.alive || !e.visible) continue;
+		TickEmitter(e, dt);
+		live_ += e.particles.size();
+	}
 }
 
 int ParticleRenderer::AddScriptEmitter(const std::string& emitterFile,
-                                       EmitterLibrary& library, TextureCache& textures,
-                                       const std::string& levelHint) {
-    const EmitterParams* params = library.Emitter(emitterFile);
-    if (!params) {
-        ++unresolved_;
-        return -1;
-    }
-    Emitter e;
-    e.params = params;
-    e.evolve = params->evolve;
-    e.texture = textures.Get(params->texture, levelHint);
-    e.blendState = BlendModeState(params->blendMode);
-    e.particles.reserve(std::min(params->maxParticles, 4096));
-    ApplyScale(e, scaleMultiplier_);
-    emitters_.push_back(std::move(e));
-    return int(emitters_.size() - 1);
+		EmitterLibrary& library, TextureCache& textures,
+		const std::string& levelHint) {
+	const EmitterParams* params = library.Emitter(emitterFile);
+	if (!params) {
+		++unresolved_;
+		return -1;
+	}
+	Emitter e;
+	e.params = params;
+	e.evolve = params->evolve;
+	e.texture = textures.Get(params->texture, levelHint);
+	e.blendState = BlendModeState(params->blendMode);
+	e.particles.reserve(std::min(params->maxParticles, 4096));
+	ApplyScale(e, scaleMultiplier_);
+	emitters_.push_back(std::move(e));
+	return int(emitters_.size() - 1);
 }
 
 bool ParticleRenderer::ScriptEmitterFinished(int slot) const {
-    if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < emitters_.size(),
-                       "ParticleRenderer: emitter slot %d of %zu", slot, emitters_.size()))
-        return true;
-    const Emitter& e = emitters_[slot];
-    if (!e.alive) return true;
-    if (e.evolve) return false;                 // still emitting
-    const int cap = std::max(1, e.params->maxParticles);
-    return e.spawnedTotal >= cap && e.particles.empty();
+	if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < emitters_.size(),
+			"ParticleRenderer: emitter slot %d of %zu", slot, emitters_.size()))
+		return true;
+	const Emitter& e = emitters_[slot];
+	if (!e.alive) return true;
+	if (e.evolve) return false; // still emitting
+	const int cap = std::max(1, e.params->maxParticles);
+	return e.spawnedTotal >= cap && e.particles.empty();
 }
 
 void ParticleRenderer::SetScriptEmitterEvolve(int slot, bool evolve) {
-    if (PAINFUL_CHECK(slot >= 0 && size_t(slot) < emitters_.size(),
-                      "ParticleRenderer: emitter slot %d of %zu", slot, emitters_.size()))
-        emitters_[slot].evolve = evolve;
+	if (PAINFUL_CHECK(slot >= 0 && size_t(slot) < emitters_.size(),
+			"ParticleRenderer: emitter slot %d of %zu", slot, emitters_.size()))
+		emitters_[slot].evolve = evolve;
 }
 
 void ParticleRenderer::StopScriptEmitter(int slot) {
-    if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < emitters_.size(),
-                       "ParticleRenderer: emitter slot %d of %zu", slot, emitters_.size()))
-        return;
-    Emitter& e = emitters_[slot];
-    e.evolve = false;
-    e.spawnedTotal = std::max(e.spawnedTotal, std::max(1, e.params->maxParticles));
+	if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < emitters_.size(),
+			"ParticleRenderer: emitter slot %d of %zu", slot, emitters_.size()))
+		return;
+	Emitter& e = emitters_[slot];
+	e.evolve = false;
+	e.spawnedTotal = std::max(e.spawnedTotal, std::max(1, e.params->maxParticles));
 }
 
 void ParticleRenderer::SetupScriptEmitter(int slot, float refScale,
-                                          const Vec3& refOffset,
-                                          const Vec3& refRotDegrees) {
-    if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < emitters_.size(),
-                       "ParticleRenderer: emitter slot %d of %zu", slot, emitters_.size()))
-        return;
-    Emitter& e = emitters_[slot];
-    for (int i = 0; i < 3; ++i) {
-        e.refOffset[i] = refOffset[i];
-        e.refRotDeg[i] = refRotDegrees[i];
-    }
-    e.refScale = refScale > 0.f ? refScale : 1.f;
-    RecomposeScript(e);
+		const Vec3& refOffset,
+		const Vec3& refRotDegrees) {
+	if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < emitters_.size(),
+			"ParticleRenderer: emitter slot %d of %zu", slot, emitters_.size()))
+		return;
+	Emitter& e = emitters_[slot];
+	for (int i = 0; i < 3; ++i) {
+		e.refOffset[i] = refOffset[i];
+		e.refRotDeg[i] = refRotDegrees[i];
+	}
+	e.refScale = refScale > 0.f ? refScale : 1.f;
+	RecomposeScript(e);
 }
 
 void ParticleRenderer::SetScriptEmitterOwner(int slot, const Vec3& ownerPos,
-                                             const float ownerRot9[9],
-                                             float entityScale, bool visible) {
-    if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < emitters_.size(),
-                       "ParticleRenderer: emitter slot %d of %zu", slot, emitters_.size()))
-        return;
-    Emitter& e = emitters_[slot];
-    for (int i = 0; i < 3; ++i) e.ownerPos[i] = ownerPos[i] * scaleMultiplier_;
-    for (int i = 0; i < 9; ++i) e.ownerRot9[i] = ownerRot9[i];
-    e.entityScale = entityScale > 0.f ? entityScale : 1.f;
-    e.visible = visible;
-    RecomposeScript(e);
+		const float ownerRot9[9],
+		float entityScale, bool visible) {
+	if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < emitters_.size(),
+			"ParticleRenderer: emitter slot %d of %zu", slot, emitters_.size()))
+		return;
+	Emitter& e = emitters_[slot];
+	for (int i = 0; i < 3; ++i) e.ownerPos[i] = ownerPos[i] * scaleMultiplier_;
+	for (int i = 0; i < 9; ++i) e.ownerRot9[i] = ownerRot9[i];
+	e.entityScale = entityScale > 0.f ? entityScale : 1.f;
+	e.visible = visible;
+	RecomposeScript(e);
 }
 
 void ParticleRenderer::RemoveScriptEmitter(int slot) {
-    if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < emitters_.size(),
-                       "ParticleRenderer: emitter slot %d of %zu", slot, emitters_.size()))
-        return;
-    emitters_[slot].alive = false;
-    emitters_[slot].particles.clear();
+	if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < emitters_.size(),
+			"ParticleRenderer: emitter slot %d of %zu", slot, emitters_.size()))
+		return;
+	emitters_[slot].alive = false;
+	emitters_[slot].particles.clear();
 }
 
 void ParticleRenderer::RecomposeScript(Emitter& e) {
-    // The same EmitterDef::SetupTransform rule Build applies: the entry's
-    // offset is scaled by the parent entity but NOT rotated by it, the
-    // orientations compose, and the emitter's scale is the product of the
-    // entity's, the entry's and the level multiplier.
-    float defRot[9];
-    EulerDegreesToMatrix(e.refRotDeg, defRot);
-    MatMul3(e.ownerRot9, defRot, e.rot9);
-    for (int i = 0; i < 3; ++i) {
-        e.pos[i] = e.ownerPos[i] + e.entityScale * e.refOffset[i] * scaleMultiplier_;
-        e.prevPos[i] = e.pos[i];
-    }
-    ApplyScale(e, e.entityScale * e.refScale * scaleMultiplier_);
+	// The same EmitterDef::SetupTransform rule Build applies: the entry's
+	// offset is scaled by the parent entity but NOT rotated by it, the
+	// orientations compose, and the emitter's scale is the product of the
+	// entity's, the entry's and the level multiplier.
+	float defRot[9];
+	EulerDegreesToMatrix(e.refRotDeg, defRot);
+	MatMul3(e.ownerRot9, defRot, e.rot9);
+	for (int i = 0; i < 3; ++i) {
+		e.pos[i] = e.ownerPos[i] + e.entityScale * e.refOffset[i] * scaleMultiplier_;
+		e.prevPos[i] = e.pos[i];
+	}
+	ApplyScale(e, e.entityScale * e.refScale * scaleMultiplier_);
 }
 
 void ParticleRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int height) {
-    drawCalls_ = 0;
-    if (!bgfx::isValid(program_) || emitters_.empty()) return;
-    (void)width;
-    (void)height;
+	drawCalls_ = 0;
+	if (!bgfx::isValid(program_) || emitters_.empty()) return;
+	(void)width;
+	(void)height;
 
-    const Vec3 forward = camera.Forward();
-    const Vec3 right = camera.Right();
-    const Vec3 up = Cross(right, forward);
+	const Vec3 forward = camera.Forward();
+	const Vec3 right = camera.Right();
+	const Vec3 up = Cross(right, forward);
 
-    for (Emitter& e : emitters_) {
-        if (!e.alive || !e.visible) continue;
-        const size_t n = e.particles.size();
-        if (n == 0) continue;
+	for (Emitter& e : emitters_) {
+		if (!e.alive || !e.visible) continue;
+		const size_t n = e.particles.size();
+		if (n == 0) continue;
 
-        const uint32_t vertexCount = static_cast<uint32_t>(n * 4);
-        const uint32_t indexCount = static_cast<uint32_t>(n * 6);
-        if (bgfx::getAvailTransientVertexBuffer(vertexCount, layout_) < vertexCount) continue;
-        if (bgfx::getAvailTransientIndexBuffer(indexCount) < indexCount) continue;
+		const uint32_t vertexCount = static_cast<uint32_t>(n * 4);
+		const uint32_t indexCount = static_cast<uint32_t>(n * 6);
+		if (bgfx::getAvailTransientVertexBuffer(vertexCount, layout_) < vertexCount) continue;
+		if (bgfx::getAvailTransientIndexBuffer(indexCount) < indexCount) continue;
 
-        bgfx::TransientVertexBuffer tvb;
-        bgfx::TransientIndexBuffer tib;
-        bgfx::allocTransientVertexBuffer(&tvb, vertexCount, layout_);
-        bgfx::allocTransientIndexBuffer(&tib, indexCount);
-        ParticleVertex* vtx = reinterpret_cast<ParticleVertex*>(tvb.data);
-        uint16_t* idx = reinterpret_cast<uint16_t*>(tib.data);
+		bgfx::TransientVertexBuffer tvb;
+		bgfx::TransientIndexBuffer tib;
+		bgfx::allocTransientVertexBuffer(&tvb, vertexCount, layout_);
+		bgfx::allocTransientIndexBuffer(&tib, indexCount);
+		ParticleVertex* vtx = reinterpret_cast<ParticleVertex*>(tvb.data);
+		uint16_t* idx = reinterpret_cast<uint16_t*>(tib.data);
 
-        const bool spark = e.params->type == 2;
-        for (size_t i = 0; i < n; ++i) {
-            const Particle& p = e.particles[i];
-            const Vec3 rgb{p.color[0] * colorScale_, p.color[1] * colorScale_,
-                                  p.color[2] * colorScale_};
-            const uint32_t abgr = PackAbgr(rgb, p.alpha);
-            Vec3 a, b, c, d;
+		const bool spark = e.params->type == 2;
+		for (size_t i = 0; i < n; ++i) {
+			const Particle& p = e.particles[i];
+			const Vec3 rgb{p.color[0] * colorScale_, p.color[1] * colorScale_,
+					p.color[2] * colorScale_};
+			const uint32_t abgr = PackAbgr(rgb, p.alpha);
+			Vec3 a, b, c, d;
 
-            if (spark) {
-                // A streak: one edge sits on the particle, the other is the
-                // velocity vector scaled by Length. Thickness runs along the
-                // normalised cross of velocity and the view ray, so the streak
-                // always presents its width to the camera.
-                const Vec3 toCam = AsVec3(p.pos) - AsVec3(camera.pos);
-                Vec3 sideV = Cross(AsVec3(p.vel), toCam);
-                const float len = sideV.Length();
-                if (len > 1e-6f) sideV /= len;
-                for (int k = 0; k < 3; ++k) {
-                    const float tail = p.pos[k] + p.vel[k] * p.sparkLength;
-                    a[k] = p.pos[k] + sideV[k] * p.sparkThickness;
-                    b[k] = tail + sideV[k] * p.sparkThickness;
-                    c[k] = tail;
-                    d[k] = p.pos[k];
-                }
-            } else {
-                // Camera-facing quad, optionally spun about the view axis.
-                Vec3 rx, uy;
-                if (p.rotAngle != 0.f) {
-                    const float s = std::sin(p.rotAngle), co = std::cos(p.rotAngle);
-                    for (int k = 0; k < 3; ++k) {
-                        rx[k] = (right[k] * co + up[k] * s) * p.size;
-                        uy[k] = (up[k] * co - right[k] * s) * p.size;
-                    }
-                } else {
-                    for (int k = 0; k < 3; ++k) {
-                        rx[k] = right[k] * p.size;
-                        uy[k] = up[k] * p.size;
-                    }
-                }
-                for (int k = 0; k < 3; ++k) {
-                    a[k] = p.pos[k] - rx[k] + uy[k];
-                    b[k] = p.pos[k] + rx[k] + uy[k];
-                    c[k] = p.pos[k] + rx[k] - uy[k];
-                    d[k] = p.pos[k] - rx[k] - uy[k];
-                }
-            }
+			if (spark) {
+				// A streak: one edge sits on the particle, the other is the
+				// velocity vector scaled by Length. Thickness runs along the
+				// normalised cross of velocity and the view ray, so the streak
+				// always presents its width to the camera.
+				const Vec3 toCam = AsVec3(p.pos) - AsVec3(camera.pos);
+				Vec3 sideV = Cross(AsVec3(p.vel), toCam);
+				const float len = sideV.Length();
+				if (len > 1e-6f) sideV /= len;
+				for (int k = 0; k < 3; ++k) {
+					const float tail = p.pos[k] + p.vel[k] * p.sparkLength;
+					a[k] = p.pos[k] + sideV[k] * p.sparkThickness;
+					b[k] = tail + sideV[k] * p.sparkThickness;
+					c[k] = tail;
+					d[k] = p.pos[k];
+				}
+			} else {
+				// Camera-facing quad, optionally spun about the view axis.
+				Vec3 rx, uy;
+				if (p.rotAngle != 0.f) {
+					const float s = std::sin(p.rotAngle), co = std::cos(p.rotAngle);
+					for (int k = 0; k < 3; ++k) {
+						rx[k] = (right[k] * co + up[k] * s) * p.size;
+						uy[k] = (up[k] * co - right[k] * s) * p.size;
+					}
+				} else {
+					for (int k = 0; k < 3; ++k) {
+						rx[k] = right[k] * p.size;
+						uy[k] = up[k] * p.size;
+					}
+				}
+				for (int k = 0; k < 3; ++k) {
+					a[k] = p.pos[k] - rx[k] + uy[k];
+					b[k] = p.pos[k] + rx[k] + uy[k];
+					c[k] = p.pos[k] + rx[k] - uy[k];
+					d[k] = p.pos[k] - rx[k] - uy[k];
+				}
+			}
 
-            // Corner order and UVs are the engine's own: (0,1) (1,1) (1,0) (0,0).
-            ParticleVertex* v = vtx + i * 4;
-            v[0] = {a[0], a[1], a[2], abgr, 0.f, 1.f};
-            v[1] = {b[0], b[1], b[2], abgr, 1.f, 1.f};
-            v[2] = {c[0], c[1], c[2], abgr, 1.f, 0.f};
-            v[3] = {d[0], d[1], d[2], abgr, 0.f, 0.f};
+			// Corner order and UVs are the engine's own: (0,1) (1,1) (1,0) (0,0).
+			ParticleVertex* v = vtx + i * 4;
+			v[0] = {a[0], a[1], a[2], abgr, 0.f, 1.f};
+			v[1] = {b[0], b[1], b[2], abgr, 1.f, 1.f};
+			v[2] = {c[0], c[1], c[2], abgr, 1.f, 0.f};
+			v[3] = {d[0], d[1], d[2], abgr, 0.f, 0.f};
 
-            const uint16_t base = static_cast<uint16_t>(i * 4);
-            uint16_t* q = idx + i * 6;
-            q[0] = base;     q[1] = static_cast<uint16_t>(base + 1);
-            q[2] = static_cast<uint16_t>(base + 2);
-            q[3] = base;     q[4] = static_cast<uint16_t>(base + 2);
-            q[5] = static_cast<uint16_t>(base + 3);
-        }
+			const uint16_t base = static_cast<uint16_t>(i * 4);
+			uint16_t* q = idx + i * 6;
+			q[0] = base; q[1] = static_cast<uint16_t>(base + 1);
+			q[2] = static_cast<uint16_t>(base + 2);
+			q[3] = base; q[4] = static_cast<uint16_t>(base + 2);
+			q[5] = static_cast<uint16_t>(base + 3);
+		}
 
-        // Depth write stays off for every mode: the two the data actually uses
-        // (alpha and add) disable it explicitly in the original, and the
-        // translucent path inherits a particle material that does not write
-        // depth either. DepthTest is the emitter's own flag.
-        uint64_t state = BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_MSAA |
-                         e.blendState;
-        if (e.params->depthTest) state |= BGFX_STATE_DEPTH_TEST_LESS;
+		// Depth write stays off for every mode: the two the data actually uses
+		// (alpha and add) disable it explicitly in the original, and the
+		// translucent path inherits a particle material that does not write
+		// depth either. DepthTest is the emitter's own flag.
+		uint64_t state = BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_MSAA |
+				e.blendState;
+		if (e.params->depthTest) state |= BGFX_STATE_DEPTH_TEST_LESS;
 
-        bgfx::setState(state);
-        bgfx::setVertexBuffer(0, &tvb, 0, vertexCount);
-        bgfx::setIndexBuffer(&tib, 0, indexCount);
-        float fogColor[4];
-        FogColorForBlend(e.params->blendMode, fogColor_, fogColor);
-        bgfx::setUniform(uFog_, fog_);
-        bgfx::setUniform(uFogColor_, fogColor);
-        bgfx::setTexture(0, sDiffuse_, e.texture);
-        bgfx::submit(view, program_);
-        ++drawCalls_;
-    }
+		bgfx::setState(state);
+		bgfx::setVertexBuffer(0, &tvb, 0, vertexCount);
+		bgfx::setIndexBuffer(&tib, 0, indexCount);
+		float fogColor[4];
+		FogColorForBlend(e.params->blendMode, fogColor_, fogColor);
+		bgfx::setUniform(uFog_, fog_);
+		bgfx::setUniform(uFogColor_, fogColor);
+		bgfx::setTexture(0, sDiffuse_, e.texture);
+		bgfx::submit(view, program_);
+		++drawCalls_;
+	}
 }
 
 } // namespace painful

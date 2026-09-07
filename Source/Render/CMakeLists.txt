@@ -1,22 +1,22 @@
 # Render - bgfx and everything drawn through it.
 add_library(Render STATIC
-  Window.cpp             Window.h
-  Renderer.cpp           Renderer.h
-  TextureCache.cpp       TextureCache.h
-  WorldRenderer.cpp      WorldRenderer.h
-  EntityRenderer.cpp     EntityRenderer.h
-  MaterialState.cpp      MaterialState.h
-  SkyRenderer.cpp        SkyRenderer.h
-  ParticleRenderer.cpp   ParticleRenderer.h
-  BillboardRenderer.cpp  BillboardRenderer.h
-  DecalRenderer.cpp      DecalRenderer.h
-  DebugLines.cpp         DebugLines.h
-  FontCache.cpp          FontCache.h
-  HudRenderer.cpp        HudRenderer.h
-  ShaderLoad.cpp         ShaderLoad.h
-                         Camera.h
-                         MeshVertex.h
-)
+		Window.cpp Window.h
+		Renderer.cpp Renderer.h
+		TextureCache.cpp TextureCache.h
+		WorldRenderer.cpp WorldRenderer.h
+		EntityRenderer.cpp EntityRenderer.h
+		MaterialState.cpp MaterialState.h
+		SkyRenderer.cpp SkyRenderer.h
+		ParticleRenderer.cpp ParticleRenderer.h
+		BillboardRenderer.cpp BillboardRenderer.h
+		DecalRenderer.cpp DecalRenderer.h
+		DebugLines.cpp DebugLines.h
+		FontCache.cpp FontCache.h
+		HudRenderer.cpp HudRenderer.h
+		ShaderLoad.cpp ShaderLoad.h
+		Camera.h
+		MeshVertex.h
+		)
 
 # bimg_decode provides imageParse (DDS/PNG/etc); bimg alone is just the core.
 # bimg_decode must come BEFORE bimg: both ship the miniz symbols (bimg in a
@@ -31,7 +31,7 @@ target_link_libraries(Render PUBLIC World SDL3::SDL3-static bgfx bimg_decode bim
 # bgfx's third-party tree, so the font rasteriser needs no new dependency -
 # only the include path to reach them.
 target_include_directories(Render PRIVATE
-  ${PAINFUL_ROOT}/External/bgfx/bgfx/3rdparty/stb)
+		${PAINFUL_ROOT}/External/bgfx/bgfx/3rdparty/stb)
 
 # The shaders are compiled and turned into C arrays by the Shaders target,
 # which the top-level CMakeLists adds BEFORE this one so the generated

@@ -18,20 +18,20 @@ SAMPLER2D(s_diffuse, 0);
 // so the stage-0 pan/tile do not reach it.
 SAMPLER2D(s_stage1, 1);
 
-uniform vec4 u_params;      // y: alpha-test ref (<0 off)
-uniform vec4 u_uvanim;      // xy: stage-0 scroll offset
-uniform vec4 u_uv0;         // slot UV transform: scale xy, offset zw
-uniform vec4 u_tile;        // xy: stage-0 tiling
-uniform vec4 u_ambient;     // rgb: ambient for this model
+uniform vec4 u_params; // y: alpha-test ref (<0 off)
+uniform vec4 u_uvanim; // xy: stage-0 scroll offset
+uniform vec4 u_uv0; // slot UV transform: scale xy, offset zw
+uniform vec4 u_tile; // xy: stage-0 tiling
+uniform vec4 u_ambient; // rgb: ambient for this model
 uniform vec4 u_fogColor;
-uniform vec4 u_fog;         // x: mode, y: start, z: end, w: density
+uniform vec4 u_fog; // x: mode, y: start, z: end, w: density
 // Four lights, three registers each, in the engine's own order - this is the
 // c12..c23 block Entity::ComputeVSLights fills.
-uniform vec4 u_lightColor[4];   // rgb: colour x intensity x attenuation
-uniform vec4 u_lightDir[4];     // xyz: direction to the light, w: slot used
-uniform vec4 u_lightHalf[4];    // xyz: half-vector, w: diffuse weight (0 = specular-only)
-uniform vec4 u_specular;        // x: exponent, y: strength, z: N.L gate softening
-uniform vec4 u_stage1;          // x: op - 0 off, 1 modulate, 2 add, 3 modulatealphaadd
+uniform vec4 u_lightColor[4]; // rgb: colour x intensity x attenuation
+uniform vec4 u_lightDir[4]; // xyz: direction to the light, w: slot used
+uniform vec4 u_lightHalf[4]; // xyz: half-vector, w: diffuse weight (0 = specular-only)
+uniform vec4 u_specular; // x: exponent, y: strength, z: N.L gate softening
+uniform vec4 u_stage1; // x: op - 0 off, 1 modulate, 2 add, 3 modulatealphaadd
 
 void main()
 {
@@ -80,7 +80,7 @@ void main()
 		float ndoth = dot(n, u_lightHalf[i].xyz);
 		diffuse += u_lightColor[i].rgb * max(ndotl, 0.0) * u_lightHalf[i].w;
 		specular += u_lightColor[i].rgb * pow(max(ndoth, 0.0), u_specular.x) *
-		            smoothstep(0.0, u_specular.z, ndotl);
+					smoothstep(0.0, u_specular.z, ndotl);
 	}
 
 	// `texture modulate diffuse`, then `specular true` adds on top - the
@@ -94,9 +94,9 @@ void main()
 	if (u_stage1.x > 0.5)
 	{
 		vec4 s1 = texture2D(s_stage1, v_texcoord0);
-		if (u_stage1.x < 1.5)       color *= s1.rgb;              // modulate
-		else if (u_stage1.x < 2.5)  color += s1.rgb;              // add
-		else                        color = s1.rgb + s1.a * color; // modulatealphaadd
+		if (u_stage1.x < 1.5) color *= s1.rgb; // modulate
+		else if (u_stage1.x < 2.5) color += s1.rgb; // add
+		else color = s1.rgb + s1.a * color; // modulatealphaadd
 	}
 
 	float fog = 1.0;

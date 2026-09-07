@@ -34,6 +34,23 @@ commit.** Not later, not in a follow-up.
 lived in four places and drifted in all of them. If something belongs in
 Reference, the README and Status link to it instead of repeating it.
 
+## Whitespace
+
+Indentation is **tabs**, four columns wide. Nothing is padded with spaces to
+line up with anything else - not declarations, not trailing comments, not
+arguments under an opening bracket. A continuation sits **two tabs** past the
+line that started the statement, so the file reads the same at any tab width.
+
+Inside a comment or a string literal the spacing is the author's business and
+is left alone - the tables and diagrams in the comment prose depend on it, and
+a report's format strings are load-bearing. The vendored `External/` keeps
+whatever upstream ships.
+
+This applies to the C++, the shaders, the CMake and the scripts. There is no
+formatter: clang-format cannot express it, because it breaks the compact
+one-liners (`uint32_t u32() { uint32_t v = peekU32(p_); p_ += 4; return v; }`)
+that several headers are built out of.
+
 ## Comments
 
 Short and technical. A comment says what the code does and which constraint it

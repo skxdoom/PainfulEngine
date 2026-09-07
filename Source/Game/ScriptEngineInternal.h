@@ -48,53 +48,53 @@ namespace painful {
 // EntityToObject keys, all of which numbers satisfy. Zero is never handed out,
 // so nil/absent arguments read as "no entity".
 inline int HandleArg(lua_State* L, int idx) {
-    return lua_isnumber(L, idx) ? int(lua_tonumber(L, idx)) : 0;
+	return lua_isnumber(L, idx) ? int(lua_tonumber(L, idx)) : 0;
 }
 
 // Bone names come from the model file, the names to match come from a
 // template's aiParams, and the two do not agree on case.
 inline bool EqualsCI(const std::string& a, const char* b) {
-    size_t i = 0;
-    for (; i < a.size() && b[i]; ++i)
-        if (std::tolower(static_cast<unsigned char>(a[i])) !=
-            std::tolower(static_cast<unsigned char>(b[i])))
-            return false;
-    return i == a.size() && !b[i];
+	size_t i = 0;
+	for (; i < a.size() && b[i]; ++i)
+		if (std::tolower(static_cast<unsigned char>(a[i])) !=
+				std::tolower(static_cast<unsigned char>(b[i])))
+			return false;
+	return i == a.size() && !b[i];
 }
 
 // The names a native body uses unqualified, which used to come from being a
 // member of ScriptEngine. Each family struct derives from this; friendship is
 // not inherited, so each still needs its own friend line in ScriptEngine.h.
 struct ScriptNativesBase {
-    using Entity = ScriptEngine::Entity;
-    using EType = ScriptEngine::EType;
-    using Route = ScriptEngine::Route;
-    using Destructible = ScriptEngine::Destructible;
-    using LimbHit = ScriptEngine::LimbHit;
-    using WaterSurface = ScriptEngine::WaterSurface;
-    using WorldState = ScriptEngine::WorldState;
-    using enum ScriptEngine::EType;
-    static ScriptEngine* From(lua_State* L);
-    // Static helpers the native bodies call unqualified, forwarded for the
-    // same reason as From.
-    static const Entity::AnimSlot* AnimSlotArg(const Entity* e, lua_State* L, int arg);
-    static int TraceCommon(lua_State* L, bool staticOnly);
-    static int ResolveCurveBone(Entity::AnimSlot& slot, const SkeletonCache::Entry& skel);
-    static const int kLimbHandleBase = 0x40000000;
+	using Entity = ScriptEngine::Entity;
+	using EType = ScriptEngine::EType;
+	using Route = ScriptEngine::Route;
+	using Destructible = ScriptEngine::Destructible;
+	using LimbHit = ScriptEngine::LimbHit;
+	using WaterSurface = ScriptEngine::WaterSurface;
+	using WorldState = ScriptEngine::WorldState;
+	using enum ScriptEngine::EType;
+	static ScriptEngine* From(lua_State* L);
+	// Static helpers the native bodies call unqualified, forwarded for the
+	// same reason as From.
+	static const Entity::AnimSlot* AnimSlotArg(const Entity* e, lua_State* L, int arg);
+	static int TraceCommon(lua_State* L, bool staticOnly);
+	static int ResolveCurveBone(Entity::AnimSlot& slot, const SkeletonCache::Entry& skel);
+	static const int kLimbHandleBase = 0x40000000;
 };
 
 // One row of a family's native table. A null module means a bare global.
 struct ScriptNative {
-    const char* module;
-    const char* name;
-    int (*fn)(lua_State*);
+	const char* module;
+	const char* name;
+	int (*fn)(lua_State*);
 };
 
 void RegisterFamily(ScriptEngine& engine, LuaHost& host, const ScriptNative* rows, size_t count);
 
 template <size_t N>
 inline void RegisterFamily(ScriptEngine& engine, LuaHost& host, const ScriptNative (&rows)[N]) {
-    RegisterFamily(engine, host, rows, N);
+	RegisterFamily(engine, host, rows, N);
 }
 
 // One binder per family, each defined in its own Script*.cpp beside the
@@ -118,4 +118,4 @@ void BindExplosion(ScriptEngine& engine, LuaHost& host);
 void BindSave(ScriptEngine& engine, LuaHost& host);
 void BindWater(ScriptEngine& engine, LuaHost& host);
 
-}  // namespace painful
+} // namespace painful

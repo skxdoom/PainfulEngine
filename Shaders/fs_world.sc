@@ -4,21 +4,21 @@ $input v_texcoord0, v_texcoord1, v_normal, v_viewdist
 // lightmaps authored in 2004, so the shading model stays albedo * lightmap.
 #include <bgfx_shader.sh>
 
-SAMPLER2D(s_diffuse,  0);
+SAMPLER2D(s_diffuse, 0);
 SAMPLER2D(s_lightmap, 1);
-SAMPLER2D(s_detail,   2);
-SAMPLER2D(s_blend2,   3);
-SAMPLER2D(s_mask2,    4);
+SAMPLER2D(s_detail, 2);
+SAMPLER2D(s_blend2, 3);
+SAMPLER2D(s_mask2, 4);
 
-uniform vec4 u_params;    // x: has lightmap, y: alpha-test ref (<0 off), z: terrain blend, w: unused
-uniform vec4 u_uvanim;    // xy: stage-0 scroll offset, zw: stage-1 scroll offset
-uniform vec4 u_detail;    // xy: detail tiling, z: detail on/off
-uniform vec4 u_uv0;       // diffuse slot UV transform: scale xy, offset zw
-uniform vec4 u_tile;      // tile[N]: xy stage 0, zw stage 1
-uniform vec4 u_uv1;       // blend slot UV transform: scale xy, offset zw
-uniform vec4 u_ambient;   // rgb: level ambient, w: lightmap scale (2 when Overbright)
-uniform vec4 u_fogColor;  // rgb: level fog colour
-uniform vec4 u_fog;       // x: mode (0 none, 1 exp, 2 exp2, 3 linear), y: start, z: end, w: density
+uniform vec4 u_params; // x: has lightmap, y: alpha-test ref (<0 off), z: terrain blend, w: unused
+uniform vec4 u_uvanim; // xy: stage-0 scroll offset, zw: stage-1 scroll offset
+uniform vec4 u_detail; // xy: detail tiling, z: detail on/off
+uniform vec4 u_uv0; // diffuse slot UV transform: scale xy, offset zw
+uniform vec4 u_tile; // tile[N]: xy stage 0, zw stage 1
+uniform vec4 u_uv1; // blend slot UV transform: scale xy, offset zw
+uniform vec4 u_ambient; // rgb: level ambient, w: lightmap scale (2 when Overbright)
+uniform vec4 u_fogColor; // rgb: level fog colour
+uniform vec4 u_fog; // x: mode (0 none, 1 exp, 2 exp2, 3 linear), y: start, z: end, w: density
 
 void main()
 {

@@ -24,23 +24,23 @@ namespace painful {
 // evaluator handles + - * / .
 class Tweaks {
 public:
-    // Reads <dataRoot>/LScripts/Main/Tweak.lua. Returns false if the file is
-    // missing; the accessors then answer with the caller's fallbacks.
-    bool LoadFromDataRoot(const std::string& dataRoot);
-    bool LoadFromFile(const std::string& path);
-    void LoadFromText(const std::string& text);
+	// Reads <dataRoot>/LScripts/Main/Tweak.lua. Returns false if the file is
+	// missing; the accessors then answer with the caller's fallbacks.
+	bool LoadFromDataRoot(const std::string& dataRoot);
+	bool LoadFromFile(const std::string& path);
+	void LoadFromText(const std::string& text);
 
-    bool Has(const std::string& key) const { return numbers_.count(key) || bools_.count(key); }
-    float Number(const std::string& key, float fallback) const;
-    bool  Bool(const std::string& key, bool fallback) const;
+	bool Has(const std::string& key) const { return numbers_.count(key) || bools_.count(key); }
+	float Number(const std::string& key, float fallback) const;
+	bool Bool(const std::string& key, bool fallback) const;
 
-    bool loaded() const { return loaded_; }
-    size_t size() const { return numbers_.size() + bools_.size(); }
+	bool loaded() const { return loaded_; }
+	size_t size() const { return numbers_.size() + bools_.size(); }
 
 private:
-    std::map<std::string, double> numbers_;
-    std::map<std::string, bool> bools_;
-    bool loaded_ = false;
+	std::map<std::string, double> numbers_;
+	std::map<std::string, bool> bools_;
+	bool loaded_ = false;
 };
 
 } // namespace painful

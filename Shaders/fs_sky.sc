@@ -20,9 +20,9 @@ SAMPLER2D(s_tex2, 1);
 SAMPLER2D(s_mask, 2);
 SAMPLER2D(s_lmap, 3);
 
-uniform vec4 u_tex1Xform;   // panU, panV, tileU, tileV  (pan already scaled by time)
+uniform vec4 u_tex1Xform; // panU, panV, tileU, tileV  (pan already scaled by time)
 uniform vec4 u_tex2Xform;
-uniform vec4 u_skyRot;      // rot1, rot2, unused, unused (radians)
+uniform vec4 u_skyRot; // rot1, rot2, unused, unused (radians)
 
 vec2 AnimateUv(vec2 uv, vec4 xform, float rot)
 {
@@ -48,7 +48,7 @@ void main()
 	// channel alone breaks one of those families; the product fits all.
 	vec4 maskTexel = texture2D(s_mask, v_texcoord1);
 	float mask = maskTexel.r * maskTexel.a;
-	vec3 lmap  = texture2D(s_lmap, v_texcoord1).rgb;
+	vec3 lmap = texture2D(s_lmap, v_texcoord1).rgb;
 
 	float w1 = (1.0 - mask) * t1.a;
 	float w2 = mask * t2.a;

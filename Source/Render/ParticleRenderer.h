@@ -27,165 +27,165 @@ namespace painful {
 // deviates - and it does in two places - the comment says so.
 class ParticleRenderer {
 public:
-    ~ParticleRenderer() { Shutdown(); }
-    // Owns GPU handles that Shutdown destroys, so it is not copyable: a copy
-    // would free them twice.
-    ParticleRenderer() = default;
-    ParticleRenderer(const ParticleRenderer&) = delete;
-    ParticleRenderer& operator=(const ParticleRenderer&) = delete;
+	~ParticleRenderer() { Shutdown(); }
+	// Owns GPU handles that Shutdown destroys, so it is not copyable: a copy
+	// would free them twice.
+	ParticleRenderer() = default;
+	ParticleRenderer(const ParticleRenderer&) = delete;
+	ParticleRenderer& operator=(const ParticleRenderer&) = delete;
 
-    bool Init(const std::string& shaderDir);
-    void Shutdown();
+	bool Init(const std::string& shaderDir);
+	void Shutdown();
 
-    // Walks the level's CParticleFX entities and instantiates their emitters.
-    void Build(const Level& level, TemplateCache& templates, EmitterLibrary& library,
-               TextureCache& textures, const std::string& dataRoot);
+	// Walks the level's CParticleFX entities and instantiates their emitters.
+	void Build(const Level& level, TemplateCache& templates, EmitterLibrary& library,
+			TextureCache& textures, const std::string& dataRoot);
 
-    // Advances every emitter. dt is real seconds.
-    void Tick(float dt);
+	// Advances every emitter. dt is real seconds.
+	void Tick(float dt);
 
-    // --- script-driven emitters (the PARTICLE.* native path) ---
-    // The scripts resolve the effect themselves (LoadParticleFX walks
-    // ParticleFXArray and calls PARTICLE.AddEmitter per entry), so only the
-    // emitter .ini name arrives here; the .pfx entry's offset/rotation/scale
-    // follow through SetupScriptEmitter and the owning entity's transform
-    // through SetScriptEmitterOwner - composed with the same
-    // EmitterDef::SetupTransform rule Build applies. Returns the emitter
-    // slot, or -1 when the emitter cannot be resolved.
-    int AddScriptEmitter(const std::string& emitterFile, EmitterLibrary& library,
-                         TextureCache& textures, const std::string& levelHint);
-    // PARTICLE.SetEvolve: level-placed effects force continuous emission,
-    // overriding a one-shot .ini. Applies to every emitter of the entity.
-    void SetScriptEmitterEvolve(int slot, bool evolve);
-    // PARTICLE.Die: no more spawning, ever; what is alive plays out and then
-    // ScriptEmitterFinished answers true.
-    void StopScriptEmitter(int slot);
-    // A one-shot emitter that has spent its budget and outlived its last
-    // particle. An effect whose emitters have all finished is over, and the
-    // entity holding them can go - AddPFX creates one per impact and never
-    // takes it back, so without this every shot leaks an entity.
-    bool ScriptEmitterFinished(int slot) const;
-    void SetupScriptEmitter(int slot, float refScale, const Vec3& refOffset,
-                            const Vec3& refRotDegrees);
-    void SetScriptEmitterOwner(int slot, const Vec3& ownerPos,
-                               const float ownerRot9[9], float entityScale,
-                               bool visible);
-    void RemoveScriptEmitter(int slot);
+	// --- script-driven emitters (the PARTICLE.* native path) ---
+	// The scripts resolve the effect themselves (LoadParticleFX walks
+	// ParticleFXArray and calls PARTICLE.AddEmitter per entry), so only the
+	// emitter .ini name arrives here; the .pfx entry's offset/rotation/scale
+	// follow through SetupScriptEmitter and the owning entity's transform
+	// through SetScriptEmitterOwner - composed with the same
+	// EmitterDef::SetupTransform rule Build applies. Returns the emitter
+	// slot, or -1 when the emitter cannot be resolved.
+	int AddScriptEmitter(const std::string& emitterFile, EmitterLibrary& library,
+			TextureCache& textures, const std::string& levelHint);
+	// PARTICLE.SetEvolve: level-placed effects force continuous emission,
+	// overriding a one-shot .ini. Applies to every emitter of the entity.
+	void SetScriptEmitterEvolve(int slot, bool evolve);
+	// PARTICLE.Die: no more spawning, ever; what is alive plays out and then
+	// ScriptEmitterFinished answers true.
+	void StopScriptEmitter(int slot);
+	// A one-shot emitter that has spent its budget and outlived its last
+	// particle. An effect whose emitters have all finished is over, and the
+	// entity holding them can go - AddPFX creates one per impact and never
+	// takes it back, so without this every shot leaks an entity.
+	bool ScriptEmitterFinished(int slot) const;
+	void SetupScriptEmitter(int slot, float refScale, const Vec3& refOffset,
+			const Vec3& refRotDegrees);
+	void SetScriptEmitterOwner(int slot, const Vec3& ownerPos,
+			const float ownerRot9[9], float entityScale,
+			bool visible);
+	void RemoveScriptEmitter(int slot);
 
-    void Draw(bgfx::ViewId view, const Camera& camera, int width, int height);
+	void Draw(bgfx::ViewId view, const Camera& camera, int width, int height);
 
-    // Multiplies emitter positions and sizes, like EntityRenderer's - the level
-    // o.Scale that the world mesh is drawn at.
-    void SetScaleMultiplier(float k);
-    float scaleMultiplier() const { return scaleMultiplier_; }
-    // RGB multiplier on every packed particle colour: the level's
-    // BloomFX.DimScale while bloom is on (FUN_101e4080). Particles.md, "Bloom dims".
-    void SetColorScale(float k) { colorScale_ = k; }
-    // The level fog, applied to sprite colour the way D3D vertex fog did with
-    // the original's `simple` vertex shader. Colour is 0-255 as authored.
-    void SetFog(int mode, float start, float end, float density, const Vec3& color255) {
-        fog_[0] = float(mode); fog_[1] = start; fog_[2] = end; fog_[3] = density;
-        for (int i = 0; i < 3; ++i) fogColor_[i] = color255[i] / 255.f;
-        fogColor_[3] = 1.f;
-    }
+	// Multiplies emitter positions and sizes, like EntityRenderer's - the level
+	// o.Scale that the world mesh is drawn at.
+	void SetScaleMultiplier(float k);
+	float scaleMultiplier() const { return scaleMultiplier_; }
+	// RGB multiplier on every packed particle colour: the level's
+	// BloomFX.DimScale while bloom is on (FUN_101e4080). Particles.md, "Bloom dims".
+	void SetColorScale(float k) { colorScale_ = k; }
+	// The level fog, applied to sprite colour the way D3D vertex fog did with
+	// the original's `simple` vertex shader. Colour is 0-255 as authored.
+	void SetFog(int mode, float start, float end, float density, const Vec3& color255) {
+		fog_[0] = float(mode); fog_[1] = start; fog_[2] = end; fog_[3] = density;
+		for (int i = 0; i < 3; ++i) fogColor_[i] = color255[i] / 255.f;
+		fogColor_[3] = 1.f;
+	}
 
-    size_t effects() const { return effects_; }
-    size_t emitters() const { return emitters_.size(); }
-    size_t liveParticles() const { return live_; }
-    size_t unresolved() const { return unresolved_; }
-    size_t drawCalls() const { return drawCalls_; }
+	size_t effects() const { return effects_; }
+	size_t emitters() const { return emitters_.size(); }
+	size_t liveParticles() const { return live_; }
+	size_t unresolved() const { return unresolved_; }
+	size_t drawCalls() const { return drawCalls_; }
 
 private:
-    // Mirrors the original's Particle, minus the intrusive list pointers.
-    struct Particle {
-        Vec3 pos;
-        Vec3 vel;          // this frame's velocity, rebuilt from the blend
-        Vec3 color;
-        Vec3 accelVel;     // integral of accel, added on top of the blend
-        Vec3 accel;        // per-particle constant, from the AccelMin/Max range
-        Vec3 velStart, velEnd;
-        float spawnDelta;      // sub-frame timestep for the frame it was born in
-        float life, age;
-        float size, alpha;
-        float startSize, endSize;
-        float rotSpeed, rotAngle;
-        float animTime;
-        float sparkThickness, sparkLength;   // Type 2 only
-    };
+	// Mirrors the original's Particle, minus the intrusive list pointers.
+	struct Particle {
+		Vec3 pos;
+		Vec3 vel; // this frame's velocity, rebuilt from the blend
+		Vec3 color;
+		Vec3 accelVel; // integral of accel, added on top of the blend
+		Vec3 accel; // per-particle constant, from the AccelMin/Max range
+		Vec3 velStart, velEnd;
+		float spawnDelta; // sub-frame timestep for the frame it was born in
+		float life, age;
+		float size, alpha;
+		float startSize, endSize;
+		float rotSpeed, rotAngle;
+		float animTime;
+		float sparkThickness, sparkLength; // Type 2 only
+	};
 
-    struct Emitter {
-        const EmitterParams* params = nullptr;
+	struct Emitter {
+		const EmitterParams* params = nullptr;
 
-        // The .pfx entry's Scale, times the entity scale, times the level
-        // scale. ParticleEmitter::SetScale multiplies exactly these ranges and
-        // leaves lifetimes, colours, alpha and spin alone.
-        Vec3 posMin, posMax;
-        Vec3 velMin, velMax;
-        Vec3 velEndMin, velEndMax;
-        Vec3 accelMin, accelMax;
-        float startSizeMin, startSizeMax, endSizeMin, endSizeMax;
-        float thicknessMin, thicknessMax, lengthMin, lengthMax;
+		// The .pfx entry's Scale, times the entity scale, times the level
+		// scale. ParticleEmitter::SetScale multiplies exactly these ranges and
+		// leaves lifetimes, colours, alpha and spin alone.
+		Vec3 posMin, posMax;
+		Vec3 velMin, velMax;
+		Vec3 velEndMin, velEndMax;
+		Vec3 accelMin, accelMax;
+		float startSizeMin, startSizeMax, endSizeMin, endSizeMax;
+		float thicknessMin, thicknessMax, lengthMin, lengthMax;
 
-        Vec3 pos;        // world position, this frame
-        Vec3 prevPos;    // and last frame, for spawn interpolation
-        // The owning entity's position, which is where Immortal pins particles
-        // - it is the emitter position minus the .pfx entry's offset.
-        Vec3 ownerPos;
-        float rot9[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+		Vec3 pos; // world position, this frame
+		Vec3 prevPos; // and last frame, for spawn interpolation
+		// The owning entity's position, which is where Immortal pins particles
+		// - it is the emitter position minus the .pfx entry's offset.
+		Vec3 ownerPos;
+		float rot9[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
 
-        float spawnAccum = 0.f;
-        int   spawnedTotal = 0;
-        std::vector<Particle> particles;
+		float spawnAccum = 0.f;
+		int spawnedTotal = 0;
+		std::vector<Particle> particles;
 
-        bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
-        uint64_t blendState = 0;
+		bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
+		uint64_t blendState = 0;
 
-        // Script-driven emitters keep their .pfx entry and owner state so
-        // either side can change and the pose recomposes; slots stay put so
-        // handles remain stable.
-        bool alive = true;
-        bool visible = true;
-        // General.Evolve. False makes the emitter a ONE-SHOT BURST: it spawns
-        // up to MaxParticles and then stops for good, which is what an impact
-        // effect is. Held per-emitter rather than read from the params
-        // because level-placed effects override it through
-        // PARTICLE.SetEvolve.
-        bool evolve = true;
-        Vec3 refOffset;
-        Vec3 refRotDeg;
-        float refScale = 1.f;
-        float entityScale = 1.f;
-        float ownerRot9[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
-    };
+		// Script-driven emitters keep their .pfx entry and owner state so
+		// either side can change and the pose recomposes; slots stay put so
+		// handles remain stable.
+		bool alive = true;
+		bool visible = true;
+		// General.Evolve. False makes the emitter a ONE-SHOT BURST: it spawns
+		// up to MaxParticles and then stops for good, which is what an impact
+		// effect is. Held per-emitter rather than read from the params
+		// because level-placed effects override it through
+		// PARTICLE.SetEvolve.
+		bool evolve = true;
+		Vec3 refOffset;
+		Vec3 refRotDeg;
+		float refScale = 1.f;
+		float entityScale = 1.f;
+		float ownerRot9[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+	};
 
-    // Recomposes a script emitter's pose and ranges from its stored .pfx
-    // entry and owner state.
-    void RecomposeScript(Emitter& e);
+	// Recomposes a script emitter's pose and ranges from its stored .pfx
+	// entry and owner state.
+	void RecomposeScript(Emitter& e);
 
-    // Rebuilds the scaled ranges from params, the way SetScale does.
-    void ApplyScale(Emitter& e, float scale) const;
-    void TickEmitter(Emitter& e, float dt);
-    void InitParticle(const Emitter& e, Particle& p) const;
+	// Rebuilds the scaled ranges from params, the way SetScale does.
+	void ApplyScale(Emitter& e, float scale) const;
+	void TickEmitter(Emitter& e, float dt);
+	void InitParticle(const Emitter& e, Particle& p) const;
 
-    std::vector<Emitter> emitters_;
-    float scaleMultiplier_ = 1.f;
-    float colorScale_ = 1.f;
-    float fog_[4] = {0, 0, 90.f, 0};
-    float fogColor_[4] = {0, 0, 0, 1.f};
-    bgfx::UniformHandle uFog_ = BGFX_INVALID_HANDLE;
-    bgfx::UniformHandle uFogColor_ = BGFX_INVALID_HANDLE;
-    size_t effects_ = 0, unresolved_ = 0, live_ = 0, drawCalls_ = 0;
-    // The original draws with C rand(); this keeps the same uniform shape
-    // without disturbing any other rand() user in the process.
-    uint32_t rng_ = 0x9e3779b9u;
+	std::vector<Emitter> emitters_;
+	float scaleMultiplier_ = 1.f;
+	float colorScale_ = 1.f;
+	float fog_[4] = {0, 0, 90.f, 0};
+	float fogColor_[4] = {0, 0, 0, 1.f};
+	bgfx::UniformHandle uFog_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uFogColor_ = BGFX_INVALID_HANDLE;
+	size_t effects_ = 0, unresolved_ = 0, live_ = 0, drawCalls_ = 0;
+	// The original draws with C rand(); this keeps the same uniform shape
+	// without disturbing any other rand() user in the process.
+	uint32_t rng_ = 0x9e3779b9u;
 
-    float Rand01();
-    float RandRange(float lo, float hi);
-    void  RandVec(const Vec3& lo, const Vec3& hi, Vec3& out);
+	float Rand01();
+	float RandRange(float lo, float hi);
+	void RandVec(const Vec3& lo, const Vec3& hi, Vec3& out);
 
-    bgfx::VertexLayout layout_;
-    bgfx::ProgramHandle program_ = BGFX_INVALID_HANDLE;
-    bgfx::UniformHandle sDiffuse_ = BGFX_INVALID_HANDLE;
+	bgfx::VertexLayout layout_;
+	bgfx::ProgramHandle program_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle sDiffuse_ = BGFX_INVALID_HANDLE;
 };
 
 } // namespace painful

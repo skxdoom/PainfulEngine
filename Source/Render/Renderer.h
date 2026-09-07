@@ -11,49 +11,49 @@ class Window;
 // above it needs to know which graphics API is in use.
 class Renderer {
 public:
-    // Sky is drawn first and owns the clear; the world paints over it.
-    static constexpr bgfx::ViewId kSkyView = 0;
-    static constexpr bgfx::ViewId kWorldView = 1;
-    // The 2D layer, drawn over everything: no depth, in submission order.
-    static constexpr bgfx::ViewId kHudView = 2;
+	// Sky is drawn first and owns the clear; the world paints over it.
+	static constexpr bgfx::ViewId kSkyView = 0;
+	static constexpr bgfx::ViewId kWorldView = 1;
+	// The 2D layer, drawn over everything: no depth, in submission order.
+	static constexpr bgfx::ViewId kHudView = 2;
 
-    ~Renderer() { Shutdown(); }
-    // Owns GPU handles that Shutdown destroys, so it is not copyable: a copy
-    // would free them twice.
-    Renderer() = default;
-    Renderer(const Renderer&) = delete;
-    Renderer& operator=(const Renderer&) = delete;
+	~Renderer() { Shutdown(); }
+	// Owns GPU handles that Shutdown destroys, so it is not copyable: a copy
+	// would free them twice.
+	Renderer() = default;
+	Renderer(const Renderer&) = delete;
+	Renderer& operator=(const Renderer&) = delete;
 
-    bool Init(Window& window);
-    void Shutdown();
+	bool Init(Window& window);
+	void Shutdown();
 
-    // Called when the window size changes.
-    void Resize(int width, int height);
+	// Called when the window size changes.
+	void Resize(int width, int height);
 
-    // Background colour behind the sky - the level's fog colour, so the void
-    // past the far clip reads as fog exactly like the original.
-    void SetClearColor(float r, float g, float b);
+	// Background colour behind the sky - the level's fog colour, so the void
+	// past the far clip reads as fog exactly like the original.
+	void SetClearColor(float r, float g, float b);
 
-    void BeginFrame();
-    void EndFrame();
+	void BeginFrame();
+	void EndFrame();
 
-    // Debug overlay text, one line per call, starting at the given row.
-    void DebugText(uint16_t row, const char* fmt, ...);
-    // Wireframes the GEOMETRY - every triangle the renderer submits, world and
-    // entities alike. This is a different question from the collision overlay:
-    // that one shows what physics thinks is there, this one shows what is
-    // actually being drawn, and the interesting cases are where they disagree.
-    void SetWireframe(bool on);
-    // Asks bgfx to save the next frame to disk (written as a TGA).
-    void RequestScreenshot(const std::string& path);
+	// Debug overlay text, one line per call, starting at the given row.
+	void DebugText(uint16_t row, const char* fmt, ...);
+	// Wireframes the GEOMETRY - every triangle the renderer submits, world and
+	// entities alike. This is a different question from the collision overlay:
+	// that one shows what physics thinks is there, this one shows what is
+	// actually being drawn, and the interesting cases are where they disagree.
+	void SetWireframe(bool on);
+	// Asks bgfx to save the next frame to disk (written as a TGA).
+	void RequestScreenshot(const std::string& path);
 
 
-    // Human-readable name of the backend bgfx actually selected.
-    std::string BackendName() const;
+	// Human-readable name of the backend bgfx actually selected.
+	std::string BackendName() const;
 
 private:
-    bool  initialised_ = false;
-    int   width_ = 0, height_ = 0;
+	bool initialised_ = false;
+	int width_ = 0, height_ = 0;
 };
 
 } // namespace painful

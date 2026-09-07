@@ -19,17 +19,17 @@ namespace painful {
 
 // One call site that has failed, with the first failure's message.
 struct CheckFailure {
-    const char* file = nullptr;
-    int line = 0;
-    const char* expr = nullptr;
-    std::string detail;
-    size_t count = 0;
+	const char* file = nullptr;
+	int line = 0;
+	const char* expr = nullptr;
+	std::string detail;
+	size_t count = 0;
 };
 
 // Logs the first failure at this site and counts the rest. Always returns
 // false, so it reads as the failing branch of the condition it guards.
 bool CheckFailed(const char* file, int line, const char* expr,
-                 PAINFUL_FORMAT_STRING(const char* fmt), ...) PAINFUL_FORMAT_ATTR(4, 5);
+		PAINFUL_FORMAT_STRING(const char* fmt), ...) PAINFUL_FORMAT_ATTR(4, 5);
 
 // Every site that has failed, in first-failure order.
 const std::vector<CheckFailure>& CheckFailures();
@@ -41,7 +41,7 @@ size_t CheckFailureCount();
 void ReportChecks();
 void ResetChecks();
 
-}  // namespace painful
+} // namespace painful
 
 #if defined(_MSC_VER)
 #define PAINFUL_TRAP() __debugbreak()
@@ -56,12 +56,12 @@ void ResetChecks();
 // off __VA_OPT__, which MSVC only offers under /Zc:preprocessor.)
 
 #define PAINFUL_CHECK(cond, ...) \
-    ((cond) ? true               \
-            : ::painful::CheckFailed(__FILE__, __LINE__, #cond, __VA_ARGS__))
+	((cond) ? true \
+			: ::painful::CheckFailed(__FILE__, __LINE__, #cond, __VA_ARGS__))
 
 #ifdef NDEBUG
 #define PAINFUL_ASSERT(cond, ...) PAINFUL_CHECK(cond, __VA_ARGS__)
 #else
 #define PAINFUL_ASSERT(cond, ...) \
-    ((cond) ? true : (PAINFUL_CHECK(cond, __VA_ARGS__), PAINFUL_TRAP(), false))
+	((cond) ? true : (PAINFUL_CHECK(cond, __VA_ARGS__), PAINFUL_TRAP(), false))
 #endif

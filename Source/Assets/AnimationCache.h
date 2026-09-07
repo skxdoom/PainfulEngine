@@ -19,23 +19,23 @@ namespace painful {
 // load is cached as a miss rather than retried every time an actor asks.
 class AnimationCache {
 public:
-    void SetRoot(const std::string& modelsRoot) { root_ = modelsRoot; }
+	void SetRoot(const std::string& modelsRoot) { root_ = modelsRoot; }
 
-    // The parsed animation, or nullptr when the model has no such track.
-    const Animation* Get(const std::string& model, const std::string& anim);
+	// The parsed animation, or nullptr when the model has no such track.
+	const Animation* Get(const std::string& model, const std::string& anim);
 
-    size_t loaded() const { return loaded_; }
-    size_t missing() const { return missing_; }
+	size_t loaded() const { return loaded_; }
+	size_t missing() const { return missing_; }
 
 private:
-    struct Entry {
-        Animation anim;
-        bool ok = false;
-    };
+	struct Entry {
+		Animation anim;
+		bool ok = false;
+	};
 
-    std::string root_;
-    std::unordered_map<std::string, Entry> cache_;   // "model|anim"
-    size_t loaded_ = 0, missing_ = 0;
+	std::string root_;
+	std::unordered_map<std::string, Entry> cache_; // "model|anim"
+	size_t loaded_ = 0, missing_ = 0;
 };
 
 } // namespace painful

@@ -5,11 +5,11 @@
 # native 1280x720 when fine texture detail is the actual question, or -Crop
 # "x,y,w,h" to look at one region.
 param(
-    [Parameter(Mandatory = $true)][string]$Tga,
-    [string]$Out = "",
-    [double]$Scale = 0.5,
-    [switch]$Full,
-    [string]$Crop = ""
+	[Parameter(Mandatory = $true)][string]$Tga,
+	[string]$Out = "",
+	[double]$Scale = 0.5,
+	[switch]$Full,
+	[string]$Crop = ""
 )
 
 Add-Type -AssemblyName System.Drawing
@@ -31,19 +31,19 @@ $data = $src.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::WriteOnly, 
 $stride = $data.Stride
 $row = New-Object byte[] ($w * 4)
 for ($y = 0; $y -lt $h; $y++) {
-    $srcY = if ($topDown) { $y } else { $h - 1 - $y }
-    [Array]::Copy($bytes, 18 + $srcY * $w * 4, $row, 0, $w * 4)
-    [System.Runtime.InteropServices.Marshal]::Copy($row, 0, [IntPtr]($data.Scan0.ToInt64() + $y * $stride), $w * 4)
+	$srcY = if ($topDown) { $y } else { $h - 1 - $y }
+	[Array]::Copy($bytes, 18 + $srcY * $w * 4, $row, 0, $w * 4)
+	[System.Runtime.InteropServices.Marshal]::Copy($row, 0, [IntPtr]($data.Scan0.ToInt64() + $y * $stride), $w * 4)
 }
 $src.UnlockBits($data)
 
 # Crop first so the scale applies to the region actually being reviewed.
 if ($Crop) {
-    $c = $Crop -split ','
-    $cropRect = New-Object System.Drawing.Rectangle ([int]$c[0]), ([int]$c[1]), ([int]$c[2]), ([int]$c[3])
-    $cropped = $src.Clone($cropRect, $src.PixelFormat)
-    $src.Dispose()
-    $src = $cropped
+	$c = $Crop -split ','
+	$cropRect = New-Object System.Drawing.Rectangle ([int]$c[0]), ([int]$c[1]), ([int]$c[2]), ([int]$c[3])
+	$cropped = $src.Clone($cropRect, $src.PixelFormat)
+	$src.Dispose()
+	$src = $cropped
 }
 
 $dw = [int][Math]::Round($src.Width * $Scale)

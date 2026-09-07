@@ -33,11 +33,11 @@ namespace painful {
 // The Collision natives. The struct is declared here rather than in
 // ScriptEngine.h so that adding one touches only this file.
 struct CollisionNatives : ScriptNativesBase {
-    static int L_ENTITY_EnableCollisions(lua_State* L);
-    static int L_PHYSICS_GetHavokBodyVelocity(lua_State* L);
-    static int L_INP_GetTimeMultiplier(lua_State* L);
-    static int L_INP_SetTimeMultiplier(lua_State* L);
-    static int L_PO_SetGrenade(lua_State* L);
+	static int L_ENTITY_EnableCollisions(lua_State* L);
+	static int L_PHYSICS_GetHavokBodyVelocity(lua_State* L);
+	static int L_INP_GetTimeMultiplier(lua_State* L);
+	static int L_INP_SetTimeMultiplier(lua_State* L);
+	static int L_PO_SetGrenade(lua_State* L);
 };
 
 // ENTITY.EnableCollisions(entity, on = true, minTime = 0.4, minStrength = 0.6)
@@ -48,14 +48,14 @@ struct CollisionNatives : ScriptNativesBase {
 // `CollisionDetect = { MinTime = 0.3, MinStren = 5.0 }`, which is the same two
 // numbers by another name.
 int CollisionNatives::L_ENTITY_EnableCollisions(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    if (!e || e->physicsBody < 0) return 0;
-    e->collisionsOn = lua_isnone(L, 2) ? true : (lua_toboolean(L, 2) != 0);
-    e->collisionMinTime = float(luaL_optnumber(L, 3, 0.4));
-    e->collisionMinStrength = float(luaL_optnumber(L, 4, 0.6));
-    e->collisionCooldown = 0.f;
-    return 0;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || e->physicsBody < 0) return 0;
+	e->collisionsOn = lua_isnone(L, 2) ? true : (lua_toboolean(L, 2) != 0);
+	e->collisionMinTime = float(luaL_optnumber(L, 3, 0.4));
+	e->collisionMinStrength = float(luaL_optnumber(L, 4, 0.6));
+	e->collisionCooldown = 0.f;
+	return 0;
 }
 
 // PHYSICS.GetHavokBodyVelocity(body) -> vx, vy, vz, speed
@@ -64,30 +64,30 @@ int CollisionNatives::L_ENTITY_EnableCollisions(lua_State* L) {
 // was. Four returns: the vector and its magnitude, because every caller wants
 // the magnitude and none of them should have to compute it.
 int CollisionNatives::L_PHYSICS_GetHavokBodyVelocity(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Vec3 v;
-    const int slot = lua_isnumber(L, 1) ? int(lua_tonumber(L, 1)) : -1;
-    // A body involved in this frame's collisions answers with the velocity it
-    // had AT THE CONTACT. The scripts ask this while handling the message, by
-    // which point the solver has already spent the impact and the live value is
-    // near zero - so the live value would report every crash as a nudge.
-    const auto remembered = self->contactVelocity_.find(slot);
-    int owner = 0, joint = -1;
-    if (remembered != self->contactVelocity_.end()) {
-        for (int c = 0; c < 3; ++c) v[c] = remembered->second[c];
-    } else if (self->physics_ && self->LimbFromHandle(slot, owner, joint)) {
-        // A limb handle: the ragdoll part's own velocity.
-        Vec3 ang;
-        if (Entity* e = self->Find(owner)) {
-            const int part = self->RagdollPartForJoint(*e, joint);
-            if (part >= 0) self->physics_->GetRagdollPartVelocity(e->ragdollSlot, part, v, ang);
-        }
-    } else if (self->physics_ && slot >= 0) {
-        self->physics_->GetScriptBodyVelocity(slot, v);
-    }
-    for (int c = 0; c < 3; ++c) lua_pushnumber(L, v[c]);
-    lua_pushnumber(L, AsVec3(v).Length());
-    return 4;
+	ScriptEngine* self = From(L);
+	Vec3 v;
+	const int slot = lua_isnumber(L, 1) ? int(lua_tonumber(L, 1)) : -1;
+	// A body involved in this frame's collisions answers with the velocity it
+	// had AT THE CONTACT. The scripts ask this while handling the message, by
+	// which point the solver has already spent the impact and the live value is
+	// near zero - so the live value would report every crash as a nudge.
+	const auto remembered = self->contactVelocity_.find(slot);
+	int owner = 0, joint = -1;
+	if (remembered != self->contactVelocity_.end()) {
+		for (int c = 0; c < 3; ++c) v[c] = remembered->second[c];
+	} else if (self->physics_ && self->LimbFromHandle(slot, owner, joint)) {
+		// A limb handle: the ragdoll part's own velocity.
+		Vec3 ang;
+		if (Entity* e = self->Find(owner)) {
+			const int part = self->RagdollPartForJoint(*e, joint);
+			if (part >= 0) self->physics_->GetRagdollPartVelocity(e->ragdollSlot, part, v, ang);
+		}
+	} else if (self->physics_ && slot >= 0) {
+		self->physics_->GetScriptBodyVelocity(slot, v);
+	}
+	for (int c = 0; c < 3; ++c) lua_pushnumber(L, v[c]);
+	lua_pushnumber(L, AsVec3(v).Length());
+	return 4;
 }
 
 // INP.GetTimeMultiplier / SetTimeMultiplier - the game-speed scale.
@@ -98,15 +98,15 @@ int CollisionNatives::L_PHYSICS_GetHavokBodyVelocity(lua_State* L) {
 // speed by it: unbound, `vl * nil` throws inside the handler rather than
 // merely reading wrong, which would take the whole collision path down.
 int CollisionNatives::L_INP_GetTimeMultiplier(lua_State* L) {
-    lua_pushnumber(L, From(L)->timeMultiplier_);
-    return 1;
+	lua_pushnumber(L, From(L)->timeMultiplier_);
+	return 1;
 }
 
 int CollisionNatives::L_INP_SetTimeMultiplier(lua_State* L) {
-    ScriptEngine* self = From(L);
-    const float v = float(luaL_optnumber(L, 1, 1.0));
-    if (v > 0.f) self->timeMultiplier_ = v;
-    return 0;
+	ScriptEngine* self = From(L);
+	const float v = float(luaL_optnumber(L, 1, 1.0));
+	if (v > 0.f) self->timeMultiplier_ = v;
+	return 0;
 }
 
 // One frame's contacts, turned into messages.
@@ -117,130 +117,130 @@ int CollisionNatives::L_INP_SetTimeMultiplier(lua_State* L) {
 // run out. That mirrors the original, where the callback lives on the
 // PhysicsObject rather than on the pair.
 void ScriptEngine::TickCollisions(float dt) {
-    for (auto& kv : entities_) {
-        if (kv.second.collisionCooldown > 0.f) kv.second.collisionCooldown -= dt;
-        for (auto& cb : kv.second.ragdollCallbacks)
-            if (cb.second.cooldown > 0.f) cb.second.cooldown -= dt;
-    }
+	for (auto& kv : entities_) {
+		if (kv.second.collisionCooldown > 0.f) kv.second.collisionCooldown -= dt;
+		for (auto& cb : kv.second.ragdollCallbacks)
+			if (cb.second.cooldown > 0.f) cb.second.cooldown -= dt;
+	}
 
-    if (!physics_ || !host_) return;
-    contactVelocity_.clear();
-    physics_->CollectScriptContacts(contactScratch_);
-    if (contactScratch_.empty()) return;
+	if (!physics_ || !host_) return;
+	contactVelocity_.clear();
+	physics_->CollectScriptContacts(contactScratch_);
+	if (contactScratch_.empty()) return;
 
-    // What each body was doing when it hit, for the whole of this dispatch.
-    // Filled before any message goes out, because a script handling the first
-    // collision may ask about a body involved in the second.
-    for (const ScriptContact& c : contactScratch_) {
-        if (c.slotA >= 0) contactVelocity_[c.slotA] = {c.velA[0], c.velA[1], c.velA[2]};
-        if (c.slotB >= 0) contactVelocity_[c.slotB] = {c.velB[0], c.velB[1], c.velB[2]};
-    }
+	// What each body was doing when it hit, for the whole of this dispatch.
+	// Filled before any message goes out, because a script handling the first
+	// collision may ask about a body involved in the second.
+	for (const ScriptContact& c : contactScratch_) {
+		if (c.slotA >= 0) contactVelocity_[c.slotA] = {c.velA[0], c.velA[1], c.velA[2]};
+		if (c.slotB >= 0) contactVelocity_[c.slotB] = {c.velB[0], c.velB[1], c.velB[2]};
+	}
 
-    // A ragdoll limb as one side of a contact: the owning entity, the joint
-    // the part corresponds to, and the limb handle the scripts hand back to
-    // MDL.GetJointFromHavokBody. -1 handle when the side is not a limb.
-    auto limbSide = [&](int ragdoll, int part, int& owner, int& joint) -> int {
-        owner = 0;
-        joint = -1;
-        if (ragdoll < 0) return -1;
-        for (const auto& kv : entities_)
-            if (kv.second.ragdollSlot == ragdoll) { owner = kv.first; break; }
-        Entity* e = owner != 0 ? Find(owner) : nullptr;
-        if (e == nullptr) return -1;
-        const std::vector<std::string>& parts = physics_->RagdollBones(ragdoll);
-        if (part < 0 || size_t(part) >= parts.size()) return -1;
-        joint = JointIndexByName(*e, parts[size_t(part)]);
-        return LimbHandle(owner, joint);
-    };
+	// A ragdoll limb as one side of a contact: the owning entity, the joint
+	// the part corresponds to, and the limb handle the scripts hand back to
+	// MDL.GetJointFromHavokBody. -1 handle when the side is not a limb.
+	auto limbSide = [&](int ragdoll, int part, int& owner, int& joint) -> int {
+		owner = 0;
+		joint = -1;
+		if (ragdoll < 0) return -1;
+		for (const auto& kv : entities_)
+			if (kv.second.ragdollSlot == ragdoll) { owner = kv.first; break; }
+		Entity* e = owner != 0 ? Find(owner) : nullptr;
+		if (e == nullptr) return -1;
+		const std::vector<std::string>& parts = physics_->RagdollBones(ragdoll);
+		if (part < 0 || size_t(part) >= parts.size()) return -1;
+		joint = JointIndexByName(*e, parts[size_t(part)]);
+		return LimbHandle(owner, joint);
+	};
 
-    for (const ScriptContact& c : contactScratch_) {
-        // Both directions, each gated on the side that would receive it.
-        for (int side = 0; side < 2; ++side) {
-            const int mySlot = side == 0 ? c.slotA : c.slotB;
-            const int otherSlot = side == 0 ? c.slotB : c.slotA;
-            const int myRagdoll = side == 0 ? c.ragdollA : c.ragdollB;
-            const int myPart = side == 0 ? c.partA : c.partB;
-            const int otherRagdoll = side == 0 ? c.ragdollB : c.ragdollA;
-            const int otherPart = side == 0 ? c.partB : c.partA;
-            const float* vMe = side == 0 ? c.velA : c.velB;
-            const float* vOther = side == 0 ? c.velB : c.velA;
+	for (const ScriptContact& c : contactScratch_) {
+		// Both directions, each gated on the side that would receive it.
+		for (int side = 0; side < 2; ++side) {
+			const int mySlot = side == 0 ? c.slotA : c.slotB;
+			const int otherSlot = side == 0 ? c.slotB : c.slotA;
+			const int myRagdoll = side == 0 ? c.ragdollA : c.ragdollB;
+			const int myPart = side == 0 ? c.partA : c.partB;
+			const int otherRagdoll = side == 0 ? c.ragdollB : c.ragdollA;
+			const int otherPart = side == 0 ? c.partB : c.partA;
+			const float* vMe = side == 0 ? c.velA : c.velB;
+			const float* vOther = side == 0 ? c.velB : c.velA;
 
-            // The engine's own strength gate, before the script's. Measured as
-            // the closing speed along the contact normal, which is what "how
-            // hard" means for a contact; the scripts' MinSpeedOnCollision is a
-            // second, coarser test on the relative speed they compute
-            // themselves.
-            const Vec3 rel{vMe[0] - vOther[0], vMe[1] - vOther[1], vMe[2] - vOther[2]};
-            const float closing = std::fabs(rel[0] * c.normal[0] + rel[1] * c.normal[1] +
-                                            rel[2] * c.normal[2]);
+			// The engine's own strength gate, before the script's. Measured as
+			// the closing speed along the contact normal, which is what "how
+			// hard" means for a contact; the scripts' MinSpeedOnCollision is a
+			// second, coarser test on the relative speed they compute
+			// themselves.
+			const Vec3 rel{vMe[0] - vOther[0], vMe[1] - vOther[1], vMe[2] - vOther[2]};
+			const float closing = std::fabs(rel[0] * c.normal[0] + rel[1] * c.normal[1] +
+					rel[2] * c.normal[2]);
 
-            int myEntity = 0, myHandle = -1;
-            float minTime = 0.f;
-            if (mySlot >= 0) {
-                auto me = bodyToEntity_.find(mySlot);
-                if (me == bodyToEntity_.end()) continue;
-                Entity* e = Find(me->second);
-                if (!e || !e->collisionsOn || e->collisionCooldown > 0.f) continue;
-                if (closing < e->collisionMinStrength) continue;
-                myEntity = me->second;
-                myHandle = mySlot;
-                minTime = e->collisionMinTime;
-            } else if (myRagdoll >= 0) {
-                // A limb reports only if EnableCollisionsToRagdoll named its
-                // joint, with that joint's own gate and cooldown.
-                int joint = -1;
-                myHandle = limbSide(myRagdoll, myPart, myEntity, joint);
-                Entity* e = myEntity != 0 ? Find(myEntity) : nullptr;
-                if (e == nullptr || myHandle < 0) continue;
-                auto cb = e->ragdollCallbacks.find(joint);
-                static const bool kTrace = DebugFlag("PAINFUL_CONTACT_TRACE");
-                if (kTrace)
-                    LogInfo("limb contact %s part %d joint %d closing %.2f armed %d cooldown %.2f min %.2f",
-                            e->name.c_str(), myPart, joint, closing,
-                            cb != e->ragdollCallbacks.end() ? 1 : 0,
-                            cb != e->ragdollCallbacks.end() ? cb->second.cooldown : 0.f,
-                            cb != e->ragdollCallbacks.end() ? cb->second.minStrength : 0.f);
-                if (cb == e->ragdollCallbacks.end() || cb->second.cooldown > 0.f) continue;
-                if (closing < cb->second.minStrength) continue;
-                minTime = cb->second.minTime;
-            } else {
-                // The world is never the receiver: it has no script object to tell.
-                continue;
-            }
+			int myEntity = 0, myHandle = -1;
+			float minTime = 0.f;
+			if (mySlot >= 0) {
+				auto me = bodyToEntity_.find(mySlot);
+				if (me == bodyToEntity_.end()) continue;
+				Entity* e = Find(me->second);
+				if (!e || !e->collisionsOn || e->collisionCooldown > 0.f) continue;
+				if (closing < e->collisionMinStrength) continue;
+				myEntity = me->second;
+				myHandle = mySlot;
+				minTime = e->collisionMinTime;
+			} else if (myRagdoll >= 0) {
+				// A limb reports only if EnableCollisionsToRagdoll named its
+				// joint, with that joint's own gate and cooldown.
+				int joint = -1;
+				myHandle = limbSide(myRagdoll, myPart, myEntity, joint);
+				Entity* e = myEntity != 0 ? Find(myEntity) : nullptr;
+				if (e == nullptr || myHandle < 0) continue;
+				auto cb = e->ragdollCallbacks.find(joint);
+				static const bool kTrace = DebugFlag("PAINFUL_CONTACT_TRACE");
+				if (kTrace)
+					LogInfo("limb contact %s part %d joint %d closing %.2f armed %d cooldown %.2f min %.2f",
+							e->name.c_str(), myPart, joint, closing,
+							cb != e->ragdollCallbacks.end() ? 1 : 0,
+							cb != e->ragdollCallbacks.end() ? cb->second.cooldown : 0.f,
+							cb != e->ragdollCallbacks.end() ? cb->second.minStrength : 0.f);
+				if (cb == e->ragdollCallbacks.end() || cb->second.cooldown > 0.f) continue;
+				if (closing < cb->second.minStrength) continue;
+				minTime = cb->second.minTime;
+			} else {
+				// The world is never the receiver: it has no script object to tell.
+				continue;
+			}
 
-            int otherEntity = 0, otherHandle = otherSlot;
-            const bool otherPawn = side == 0 ? c.pawnB : c.pawnA;
-            if (otherSlot >= 0) {
-                auto other = bodyToEntity_.find(otherSlot);
-                if (other != bodyToEntity_.end()) otherEntity = other->second;
-            } else if (otherRagdoll >= 0) {
-                int joint = -1;
-                otherHandle = limbSide(otherRagdoll, otherPart, otherEntity, joint);
-            } else if (otherPawn) {
-                // The player's pusher: the original's player body (group 23)
-                // is what a can, a flung barrel or a landing corpse reports.
-                otherEntity = playerHandle_;
-                otherHandle = -1;
-            }
-            // Game_GetMsg reads both handles back through GetHavokBodyVelocity.
-            contactVelocity_[myHandle] = {vMe[0], vMe[1], vMe[2]};
-            if (otherHandle >= 0) contactVelocity_[otherHandle] = {vOther[0], vOther[1], vOther[2]};
+			int otherEntity = 0, otherHandle = otherSlot;
+			const bool otherPawn = side == 0 ? c.pawnB : c.pawnA;
+			if (otherSlot >= 0) {
+				auto other = bodyToEntity_.find(otherSlot);
+				if (other != bodyToEntity_.end()) otherEntity = other->second;
+			} else if (otherRagdoll >= 0) {
+				int joint = -1;
+				otherHandle = limbSide(otherRagdoll, otherPart, otherEntity, joint);
+			} else if (otherPawn) {
+				// The player's pusher: the original's player body (group 23)
+				// is what a can, a flung barrel or a landing corpse reports.
+				otherEntity = playerHandle_;
+				otherHandle = -1;
+			}
+			// Game_GetMsg reads both handles back through GetHavokBodyVelocity.
+			contactVelocity_[myHandle] = {vMe[0], vMe[1], vMe[2]};
+			if (otherHandle >= 0) contactVelocity_[otherHandle] = {vOther[0], vOther[1], vOther[2]};
 
-            const double args[10] = {double(myEntity),
-                                     c.point[0], c.point[1], c.point[2],
-                                     c.normal[0], c.normal[1], c.normal[2],
-                                     double(otherEntity),
-                                     double(myHandle), double(otherHandle)};
-            host_->PostMsg("COLLISION_WITH_OTHER_ENTITY", args, 10);
-            if (mySlot >= 0) {
-                Find(myEntity)->collisionCooldown = minTime;
-            } else if (Entity* e = Find(myEntity)) {
-                int joint = -1, owner = 0;
-                LimbFromHandle(myHandle, owner, joint);
-                e->ragdollCallbacks[joint].cooldown = minTime;
-            }
-        }
-    }
+			const double args[10] = {double(myEntity),
+					c.point[0], c.point[1], c.point[2],
+					c.normal[0], c.normal[1], c.normal[2],
+					double(otherEntity),
+					double(myHandle), double(otherHandle)};
+			host_->PostMsg("COLLISION_WITH_OTHER_ENTITY", args, 10);
+			if (mySlot >= 0) {
+				Find(myEntity)->collisionCooldown = minTime;
+			} else if (Entity* e = Find(myEntity)) {
+				int joint = -1, owner = 0;
+				LimbFromHandle(myHandle, owner, joint);
+				e->ragdollCallbacks[joint].cooldown = minTime;
+			}
+		}
+	}
 }
 
 // ENTITY.PO_SetGrenade(e, on = true): flag 0x20 at PhysicsObject+0x74
@@ -250,9 +250,9 @@ void ScriptEngine::TickCollisions(float dt) {
 // nothing without the NetworkDevice2 at GEngine+0xdc, which single player
 // never creates - so it stays a stub.
 int CollisionNatives::L_PO_SetGrenade(lua_State* L) {
-    if (Entity* e = From(L)->Find(HandleArg(L, 1)))
-        e->isGrenade = lua_isnoneornil(L, 2) ? true : (lua_toboolean(L, 2) != 0);
-    return 0;
+	if (Entity* e = From(L)->Find(HandleArg(L, 1)))
+		e->isGrenade = lua_isnoneornil(L, 2) ? true : (lua_toboolean(L, 2) != 0);
+	return 0;
 }
 
 // PhysicsObject::FixGrenadeFlight (0x1018d990), for every flagged body.
@@ -267,68 +267,68 @@ int CollisionNatives::L_PO_SetGrenade(lua_State* L) {
 // Ten hits without escaping stops it dead. Constants: 0x102c852c (1.6),
 // 0x102c8530 (0.002).
 void ScriptEngine::TickGrenades() {
-    if (!physics_) return;
-    for (auto& kv : entities_) {
-        Entity& e = kv.second;
-        if (!e.isGrenade || !e.poEnabled || e.physicsBody < 0) continue;
-        if (!physics_->ScriptBodyExists(e.physicsBody)) continue;
+	if (!physics_) return;
+	for (auto& kv : entities_) {
+		Entity& e = kv.second;
+		if (!e.isGrenade || !e.poEnabled || e.physicsBody < 0) continue;
+		if (!physics_->ScriptBodyExists(e.physicsBody)) continue;
 
-        Vec3 end, vel;
-        if (!physics_->GetScriptBodyPosition(e.physicsBody, end)) continue;
-        if (!physics_->GetScriptBodyVelocity(e.physicsBody, vel)) continue;
-        Vec3 start = e.pos;
+		Vec3 end, vel;
+		if (!physics_->GetScriptBodyPosition(e.physicsBody, end)) continue;
+		if (!physics_->GetScriptBodyVelocity(e.physicsBody, vel)) continue;
+		Vec3 start = e.pos;
 
-        const int exclude[1] = {e.physicsBody};
-        int hits = 0;
-        for (; hits < 10; ++hits) {
-            PhysicsWorld::RayHit hit;
-            if (!physics_->RayCast(start, end, hit, false, exclude, 1)) break;
-            const Vec3& n = hit.normal;
+		const int exclude[1] = {e.physicsBody};
+		int hits = 0;
+		for (; hits < 10; ++hits) {
+			PhysicsWorld::RayHit hit;
+			if (!physics_->RayCast(start, end, hit, false, exclude, 1)) break;
+			const Vec3& n = hit.normal;
 
-            if (e.collisionsOn) {
-                auto other = bodyToEntity_.find(hit.bodySlot);
-                const int otherEntity = other == bodyToEntity_.end() ? 0 : other->second;
-                const double args[10] = {double(kv.first),
-                                         hit.point[0], hit.point[1], hit.point[2],
-                                         n[0], n[1], n[2],
-                                         double(otherEntity),
-                                         double(e.physicsBody), double(hit.bodySlot)};
-                host_->PostMsg("COLLISION_WITH_OTHER_ENTITY", args, 10);
-                e.collisionCooldown = e.collisionMinTime;
-            }
+			if (e.collisionsOn) {
+				auto other = bodyToEntity_.find(hit.bodySlot);
+				const int otherEntity = other == bodyToEntity_.end() ? 0 : other->second;
+				const double args[10] = {double(kv.first),
+						hit.point[0], hit.point[1], hit.point[2],
+						n[0], n[1], n[2],
+						double(otherEntity),
+						double(e.physicsBody), double(hit.bodySlot)};
+				host_->PostMsg("COLLISION_WITH_OTHER_ENTITY", args, 10);
+				e.collisionCooldown = e.collisionMinTime;
+			}
 
-            const float vn = 2.f * Dot(vel, n);
-            vel -= n * vn;
+			const float vn = 2.f * Dot(vel, n);
+			vel -= n * vn;
 
-            Vec3 rest = end - hit.point;
-            const float rn = 2.f * Dot(rest, n);
-            end -= n * rn;
-            rest -= n * rn;
-            const float len = rest.Length();
-            if (len > 0.002f) rest *= 0.002f / len;
-            start = hit.point + rest;
-        }
-        if (hits == 0) continue;
-        if (hits >= 10) {
-            for (int c = 0; c < 3; ++c) vel[c] = 0.f;
-        } else {
-            const float k = 1.6f - e.bodyFriction;
-            for (int c = 0; c < 3; ++c) vel[c] *= k;
-        }
-        physics_->SetScriptBodyPose(e.physicsBody, end, e.rot);
-        physics_->SetScriptBodyVelocity(e.physicsBody, vel);
-    }
+			Vec3 rest = end - hit.point;
+			const float rn = 2.f * Dot(rest, n);
+			end -= n * rn;
+			rest -= n * rn;
+			const float len = rest.Length();
+			if (len > 0.002f) rest *= 0.002f / len;
+			start = hit.point + rest;
+		}
+		if (hits == 0) continue;
+		if (hits >= 10) {
+			for (int c = 0; c < 3; ++c) vel[c] = 0.f;
+		} else {
+			const float k = 1.6f - e.bodyFriction;
+			for (int c = 0; c < 3; ++c) vel[c] *= k;
+		}
+		physics_->SetScriptBodyPose(e.physicsBody, end, e.rot);
+		physics_->SetScriptBodyVelocity(e.physicsBody, vel);
+	}
 }
 
 void BindCollision(ScriptEngine& engine, LuaHost& host) {
-    const ScriptNative natives[] = {
-        {"ENTITY", "PO_SetGrenade", CollisionNatives::L_PO_SetGrenade},
-        {"PHYSICS", "GetHavokBodyVelocity", CollisionNatives::L_PHYSICS_GetHavokBodyVelocity},
-        {"ENTITY", "EnableCollisions", CollisionNatives::L_ENTITY_EnableCollisions},
-        {"INP", "GetTimeMultiplier", CollisionNatives::L_INP_GetTimeMultiplier},
-        {"INP", "SetTimeMultiplier", CollisionNatives::L_INP_SetTimeMultiplier},
-    };
-    RegisterFamily(engine, host, natives);
+	const ScriptNative natives[] = {
+		{"ENTITY", "PO_SetGrenade", CollisionNatives::L_PO_SetGrenade},
+		{"PHYSICS", "GetHavokBodyVelocity", CollisionNatives::L_PHYSICS_GetHavokBodyVelocity},
+		{"ENTITY", "EnableCollisions", CollisionNatives::L_ENTITY_EnableCollisions},
+		{"INP", "GetTimeMultiplier", CollisionNatives::L_INP_GetTimeMultiplier},
+		{"INP", "SetTimeMultiplier", CollisionNatives::L_INP_SetTimeMultiplier},
+	};
+	RegisterFamily(engine, host, natives);
 }
 
-}  // namespace painful
+} // namespace painful

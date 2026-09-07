@@ -3,17 +3,17 @@
 # otherwise fight the rest of the build.
 
 # ------------------------------------------------------------------------ SDL3
-set(SDL_SHARED   OFF CACHE BOOL "" FORCE)
-set(SDL_STATIC   ON  CACHE BOOL "" FORCE)
-set(SDL_TESTS    OFF CACHE BOOL "" FORCE)
+set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+set(SDL_STATIC ON CACHE BOOL "" FORCE)
+set(SDL_TESTS OFF CACHE BOOL "" FORCE)
 set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(SDL_INSTALL  OFF CACHE BOOL "" FORCE)
+set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory(${PAINFUL_ROOT}/External/SDL ${CMAKE_BINARY_DIR}/External/SDL EXCLUDE_FROM_ALL)
 
 # ------------------------------------------------------------------------ bgfx
 set(BGFX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(BGFX_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
-set(BGFX_INSTALL        OFF CACHE BOOL "" FORCE)
+set(BGFX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(BGFX_INSTALL OFF CACHE BOOL "" FORCE)
 # The bgfx-examples / bgfx-tools convenience aggregates. Their own option, not
 # BGFX_BUILD_EXAMPLES, so with examples off bgfx-examples stayed as an empty
 # target in the startup list; nothing here depends on either.
@@ -21,19 +21,19 @@ set(BGFX_CUSTOM_TARGETS OFF CACHE BOOL "" FORCE)
 # Two of bgfx's tools: shaderc compiles the .sc sources, bin2c turns each
 # compiled .bin into a C array for Shaders/CMakeLists.txt to embed. The other
 # three - texturec, geometryc and the two viewers - are never invoked here.
-set(BGFX_BUILD_TOOLS          ON  CACHE BOOL "" FORCE)
-set(BGFX_BUILD_TOOLS_SHADER   ON  CACHE BOOL "" FORCE)
-set(BGFX_BUILD_TOOLS_BIN2C    ON  CACHE BOOL "" FORCE)
+set(BGFX_BUILD_TOOLS ON CACHE BOOL "" FORCE)
+set(BGFX_BUILD_TOOLS_SHADER ON CACHE BOOL "" FORCE)
+set(BGFX_BUILD_TOOLS_BIN2C ON CACHE BOOL "" FORCE)
 set(BGFX_BUILD_TOOLS_GEOMETRY OFF CACHE BOOL "" FORCE)
-set(BGFX_BUILD_TOOLS_TEXTURE  OFF CACHE BOOL "" FORCE)
-set(BGFX_AMALGAMATED    ON  CACHE BOOL "" FORCE)
-set(BX_AMALGAMATED      ON  CACHE BOOL "" FORCE)
+set(BGFX_BUILD_TOOLS_TEXTURE OFF CACHE BOOL "" FORCE)
+set(BGFX_AMALGAMATED ON CACHE BOOL "" FORCE)
+set(BX_AMALGAMATED ON CACHE BOOL "" FORCE)
 # Handle pools. bgfx's default of 4096 each is under what one buffer per world
 # object needs on a map that turns most of itself into active meshes (Enclave:
 # 2367 objects, 1585 of them bodies), and an exhausted pool fails silently.
 # Docs/Reference/Physics.md, "Active meshes".
 set(BGFX_CONFIG_MAX_VERTEX_BUFFERS 16384 CACHE STRING "" FORCE)
-set(BGFX_CONFIG_MAX_INDEX_BUFFERS  16384 CACHE STRING "" FORCE)
+set(BGFX_CONFIG_MAX_INDEX_BUFFERS 16384 CACHE STRING "" FORCE)
 # Not EXCLUDE_FROM_ALL: we need the shaderc target addressable for shader builds.
 add_subdirectory(${PAINFUL_ROOT}/External/bgfx ${CMAKE_BINARY_DIR}/External/bgfx)
 
@@ -43,11 +43,11 @@ add_subdirectory(${PAINFUL_ROOT}/External/bgfx ${CMAKE_BINARY_DIR}/External/bgfx
 # The exclusions only drop them from the default build - were a link ever to
 # need one, it would still be built as a dependency.
 foreach(unused example-common bimg_encode)
-  if(TARGET ${unused})
-    set_target_properties(${unused} PROPERTIES
-      EXCLUDE_FROM_ALL           TRUE   # out of the ALL_BUILD target
-      EXCLUDE_FROM_DEFAULT_BUILD TRUE)  # and unticked in the solution itself
-  endif()
+	if(TARGET ${unused})
+		set_target_properties(${unused} PROPERTIES
+				EXCLUDE_FROM_ALL TRUE # out of the ALL_BUILD target
+				EXCLUDE_FROM_DEFAULT_BUILD TRUE) # and unticked in the solution itself
+	endif()
 endforeach()
 
 # ------------------------------------------------------------------------ Jolt
@@ -58,17 +58,17 @@ endforeach()
 #  - its SIMD flags are PUBLIC, so anything linking Jolt is compiled with them.
 #    Stopping at SSE4.2 keeps the executable runnable on older machines; the
 #    physics load here is a few hundred bodies, not a reason for AVX2.
-set(OVERRIDE_CXX_FLAGS              OFF CACHE BOOL "" FORCE)
+set(OVERRIDE_CXX_FLAGS OFF CACHE BOOL "" FORCE)
 set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF CACHE BOOL "" FORCE)
-set(ENABLE_ALL_WARNINGS             OFF CACHE BOOL "" FORCE)
-set(INTERPROCEDURAL_OPTIMIZATION    OFF CACHE BOOL "" FORCE)
-set(ENABLE_OBJECT_STREAM            OFF CACHE BOOL "" FORCE)
-set(ENABLE_INSTALL                  OFF CACHE BOOL "" FORCE)
+set(ENABLE_ALL_WARNINGS OFF CACHE BOOL "" FORCE)
+set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
+set(ENABLE_OBJECT_STREAM OFF CACHE BOOL "" FORCE)
+set(ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 set(DEBUG_RENDERER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)
-set(PROFILER_IN_DEBUG_AND_RELEASE       OFF CACHE BOOL "" FORCE)
-set(USE_AVX   OFF CACHE BOOL "" FORCE)
-set(USE_AVX2  OFF CACHE BOOL "" FORCE)
-set(USE_F16C  OFF CACHE BOOL "" FORCE)
+set(PROFILER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)
+set(USE_AVX OFF CACHE BOOL "" FORCE)
+set(USE_AVX2 OFF CACHE BOOL "" FORCE)
+set(USE_F16C OFF CACHE BOOL "" FORCE)
 set(USE_FMADD OFF CACHE BOOL "" FORCE)
 set(USE_LZCNT OFF CACHE BOOL "" FORCE)
 set(USE_TZCNT OFF CACHE BOOL "" FORCE)
@@ -90,7 +90,7 @@ target_compile_definitions(Jolt PUBLIC $<$<NOT:$<CONFIG:Release>>:JPH_ENABLE_ASS
 # header; the executable gets the implementation through bimg_decode.
 add_library(miniz INTERFACE)
 target_include_directories(miniz INTERFACE
-  ${PAINFUL_ROOT}/External/bgfx/bimg/3rdparty/tinyexr/deps/miniz)
+		${PAINFUL_ROOT}/External/bgfx/bimg/3rdparty/tinyexr/deps/miniz)
 
 # ------------------------------------------------------------------- Lua 5.0.2
 # Vendored verbatim from lua.org (MIT licence). The version is load-bearing:
@@ -99,46 +99,46 @@ target_include_directories(miniz INTERFACE
 # exactly this interpreter. It is 2003-era ANSI C, so its warnings are not ours.
 set(PAINFUL_LUA_DIR ${PAINFUL_ROOT}/External/lua-5.0.2)
 add_library(Lua STATIC
-  ${PAINFUL_LUA_DIR}/src/lapi.c
-  ${PAINFUL_LUA_DIR}/src/lcode.c
-  ${PAINFUL_LUA_DIR}/src/ldebug.c
-  ${PAINFUL_LUA_DIR}/src/ldo.c
-  ${PAINFUL_LUA_DIR}/src/ldump.c
-  ${PAINFUL_LUA_DIR}/src/lfunc.c
-  ${PAINFUL_LUA_DIR}/src/lgc.c
-  ${PAINFUL_LUA_DIR}/src/llex.c
-  ${PAINFUL_LUA_DIR}/src/lmem.c
-  ${PAINFUL_LUA_DIR}/src/lobject.c
-  ${PAINFUL_LUA_DIR}/src/lopcodes.c
-  ${PAINFUL_LUA_DIR}/src/lparser.c
-  ${PAINFUL_LUA_DIR}/src/lstate.c
-  ${PAINFUL_LUA_DIR}/src/lstring.c
-  ${PAINFUL_LUA_DIR}/src/ltable.c
-  ${PAINFUL_LUA_DIR}/src/ltm.c
-  ${PAINFUL_LUA_DIR}/src/lundump.c
-  ${PAINFUL_LUA_DIR}/src/lvm.c
-  ${PAINFUL_LUA_DIR}/src/lzio.c
-  ${PAINFUL_LUA_DIR}/src/lib/lauxlib.c
-  ${PAINFUL_LUA_DIR}/src/lib/lbaselib.c
-  ${PAINFUL_LUA_DIR}/src/lib/ldblib.c
-  ${PAINFUL_LUA_DIR}/src/lib/liolib.c
-  ${PAINFUL_LUA_DIR}/src/lib/lmathlib.c
-  ${PAINFUL_LUA_DIR}/src/lib/loadlib.c
-  ${PAINFUL_LUA_DIR}/src/lib/lstrlib.c
-  ${PAINFUL_LUA_DIR}/src/lib/ltablib.c
-)
+		${PAINFUL_LUA_DIR}/src/lapi.c
+		${PAINFUL_LUA_DIR}/src/lcode.c
+		${PAINFUL_LUA_DIR}/src/ldebug.c
+		${PAINFUL_LUA_DIR}/src/ldo.c
+		${PAINFUL_LUA_DIR}/src/ldump.c
+		${PAINFUL_LUA_DIR}/src/lfunc.c
+		${PAINFUL_LUA_DIR}/src/lgc.c
+		${PAINFUL_LUA_DIR}/src/llex.c
+		${PAINFUL_LUA_DIR}/src/lmem.c
+		${PAINFUL_LUA_DIR}/src/lobject.c
+		${PAINFUL_LUA_DIR}/src/lopcodes.c
+		${PAINFUL_LUA_DIR}/src/lparser.c
+		${PAINFUL_LUA_DIR}/src/lstate.c
+		${PAINFUL_LUA_DIR}/src/lstring.c
+		${PAINFUL_LUA_DIR}/src/ltable.c
+		${PAINFUL_LUA_DIR}/src/ltm.c
+		${PAINFUL_LUA_DIR}/src/lundump.c
+		${PAINFUL_LUA_DIR}/src/lvm.c
+		${PAINFUL_LUA_DIR}/src/lzio.c
+		${PAINFUL_LUA_DIR}/src/lib/lauxlib.c
+		${PAINFUL_LUA_DIR}/src/lib/lbaselib.c
+		${PAINFUL_LUA_DIR}/src/lib/ldblib.c
+		${PAINFUL_LUA_DIR}/src/lib/liolib.c
+		${PAINFUL_LUA_DIR}/src/lib/lmathlib.c
+		${PAINFUL_LUA_DIR}/src/lib/loadlib.c
+		${PAINFUL_LUA_DIR}/src/lib/lstrlib.c
+		${PAINFUL_LUA_DIR}/src/lib/ltablib.c
+		)
 target_include_directories(Lua
-  PUBLIC  ${PAINFUL_LUA_DIR}/include
-  PRIVATE ${PAINFUL_LUA_DIR}/src)
+		PUBLIC ${PAINFUL_LUA_DIR}/include
+		PRIVATE ${PAINFUL_LUA_DIR}/src)
 if(MSVC)
-  target_compile_options(Lua PRIVATE /w)
+	target_compile_options(Lua PRIVATE /w)
 else()
-  target_compile_options(Lua PRIVATE -w)
+	target_compile_options(Lua PRIVATE -w)
 endif()
 
 # --------------------------------------------------------------- IDE grouping
-painful_group_directory(${PAINFUL_ROOT}/External/SDL                "External/SDL")
-painful_group_directory(${PAINFUL_ROOT}/External/bgfx               "External/bgfx")
-painful_group_directory(${PAINFUL_ROOT}/External/JoltPhysics/Build  "External/Jolt")
-set_target_properties(Lua   PROPERTIES FOLDER "External/Lua")
+painful_group_directory(${PAINFUL_ROOT}/External/SDL "External/SDL")
+painful_group_directory(${PAINFUL_ROOT}/External/bgfx "External/bgfx")
+painful_group_directory(${PAINFUL_ROOT}/External/JoltPhysics/Build "External/Jolt")
+set_target_properties(Lua PROPERTIES FOLDER "External/Lua")
 set_target_properties(miniz PROPERTIES FOLDER "External")

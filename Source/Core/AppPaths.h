@@ -28,4 +28,4 @@ std::string ExeDir(const char* exePath);
 
 std::string MapNameWithoutExtension(const std::string& mapFile);
 
-}  // namespace painful
+} // namespace painful

@@ -31,51 +31,51 @@ namespace painful {
 // The Water natives. The struct is declared here rather than in
 // ScriptEngine.h so that adding one touches only this file.
 struct WaterNatives : ScriptNativesBase {
-    static int L_ENTITY_IsWater(lua_State* L);
+	static int L_ENTITY_IsWater(lua_State* L);
 };
 
 namespace {
 
 // The engine's test is case-sensitive and the shipped names are lowercase.
 bool NameSaysWater(const std::string& name) {
-    return name.find("water") != std::string::npos;
+	return name.find("water") != std::string::npos;
 }
 
-}  // namespace
+} // namespace
 
 // Called once the map is loaded. Each water object becomes a world-object
 // entity, the same kind WORLD.FindEntityByName hands out: it has a name and a
 // handle the scripts can carry, but no body and no renderer instance.
 void ScriptEngine::BuildWaterSurfaces() {
-    water_.clear();
-    if (!mapLoaded_) return;
+	water_.clear();
+	if (!mapLoaded_) return;
 
-    const float scale = world_.scale > 0.f ? world_.scale : 1.f;
-    for (const MapObject& o : map_.objects) {
-        if (!NameSaysWater(o.name)) continue;
-        // Flat by construction - the shipped surfaces are a single horizontal
-        // plane, which is why their y bounds are equal. Take the top either
-        // way, so a surface with any thickness still reads as its surface.
-        WaterSurface w;
-        w.y = o.bboxMax[1] * scale;
-        w.lo[0] = o.bboxMin[0] * scale;
-        w.lo[1] = o.bboxMin[2] * scale;
-        w.hi[0] = o.bboxMax[0] * scale;
-        w.hi[1] = o.bboxMax[2] * scale;
+	const float scale = world_.scale > 0.f ? world_.scale : 1.f;
+	for (const MapObject& o : map_.objects) {
+		if (!NameSaysWater(o.name)) continue;
+		// Flat by construction - the shipped surfaces are a single horizontal
+		// plane, which is why their y bounds are equal. Take the top either
+		// way, so a surface with any thickness still reads as its surface.
+		WaterSurface w;
+		w.y = o.bboxMax[1] * scale;
+		w.lo[0] = o.bboxMin[0] * scale;
+		w.lo[1] = o.bboxMin[2] * scale;
+		w.hi[0] = o.bboxMax[0] * scale;
+		w.hi[1] = o.bboxMax[2] * scale;
 
-        Entity e;
-        e.type = kMesh;
-        e.name = o.name;
-        e.worldObject = true;
-        e.inWorld = true;
-        e.visible = false;          // the renderer draws the world mesh itself
-        w.entity = nextHandle_++;
-        entities_.emplace(w.entity, e);
-        ++created_;
-        water_.push_back(w);
-        LogInfo("water surface \"%s\" at y=%.2f, x[%.0f..%.0f] z[%.0f..%.0f]",
-                o.name.c_str(), w.y, w.lo[0], w.hi[0], w.lo[1], w.hi[1]);
-    }
+		Entity e;
+		e.type = kMesh;
+		e.name = o.name;
+		e.worldObject = true;
+		e.inWorld = true;
+		e.visible = false; // the renderer draws the world mesh itself
+		w.entity = nextHandle_++;
+		entities_.emplace(w.entity, e);
+		++created_;
+		water_.push_back(w);
+		LogInfo("water surface \"%s\" at y=%.2f, x[%.0f..%.0f] z[%.0f..%.0f]",
+				o.name.c_str(), w.y, w.lo[0], w.hi[0], w.lo[1], w.hi[1]);
+	}
 }
 
 // Where the segment first crosses a surface, as a fraction along it. Only a
@@ -83,23 +83,23 @@ void ScriptEngine::BuildWaterSurfaces() {
 // not hit the water, which is what keeps a shot fired across a lake from
 // reporting one.
 bool ScriptEngine::TraceWater(const Vec3& from, const Vec3& to, float& t,
-                              int& entity) const {
-    bool got = false;
-    float best = 1.f;
-    for (const WaterSurface& w : water_) {
-        const float dy = to[1] - from[1];
-        if (std::fabs(dy) < 1e-6f) continue;              // parallel to the surface
-        const float k = (w.y - from[1]) / dy;
-        if (k < 0.f || k > 1.f || k > best) continue;
-        const float x = from[0] + (to[0] - from[0]) * k;
-        const float z = from[2] + (to[2] - from[2]) * k;
-        if (x < w.lo[0] || x > w.hi[0] || z < w.lo[1] || z > w.hi[1]) continue;
-        best = k;
-        entity = w.entity;
-        got = true;
-    }
-    if (got) t = best;
-    return got;
+		int& entity) const {
+	bool got = false;
+	float best = 1.f;
+	for (const WaterSurface& w : water_) {
+		const float dy = to[1] - from[1];
+		if (std::fabs(dy) < 1e-6f) continue; // parallel to the surface
+		const float k = (w.y - from[1]) / dy;
+		if (k < 0.f || k > 1.f || k > best) continue;
+		const float x = from[0] + (to[0] - from[0]) * k;
+		const float z = from[2] + (to[2] - from[2]) * k;
+		if (x < w.lo[0] || x > w.hi[0] || z < w.lo[1] || z > w.hi[1]) continue;
+		best = k;
+		entity = w.entity;
+		got = true;
+	}
+	if (got) t = best;
+	return got;
 }
 
 // ENTITY.IsWater(e)
@@ -108,17 +108,17 @@ bool ScriptEngine::TraceWater(const Vec3& from, const Vec3& to, float& t,
 // tests. Answers false for anything else, including the world handle 0 - a
 // solid wall is not water, and the scripts branch on exactly that.
 int WaterNatives::L_ENTITY_IsWater(lua_State* L) {
-    ScriptEngine* self = From(L);
-    const Entity* e = self->Find(HandleArg(L, 1));
-    lua_pushboolean(L, e && e->type == kMesh && NameSaysWater(e->name) ? 1 : 0);
-    return 1;
+	ScriptEngine* self = From(L);
+	const Entity* e = self->Find(HandleArg(L, 1));
+	lua_pushboolean(L, e && e->type == kMesh && NameSaysWater(e->name) ? 1 : 0);
+	return 1;
 }
 
 void BindWater(ScriptEngine& engine, LuaHost& host) {
-    const ScriptNative natives[] = {
-        {"ENTITY", "IsWater", WaterNatives::L_ENTITY_IsWater},
-    };
-    RegisterFamily(engine, host, natives);
+	const ScriptNative natives[] = {
+		{"ENTITY", "IsWater", WaterNatives::L_ENTITY_IsWater},
+	};
+	RegisterFamily(engine, host, natives);
 }
 
-}  // namespace painful
+} // namespace painful

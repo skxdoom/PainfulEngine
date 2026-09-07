@@ -20,11 +20,11 @@ $output v_texcoord0, v_texcoord1, v_wpos, v_viewdist
 
 void main()
 {
-	vec4 world   = mul(u_model[0], vec4(a_position, 1.0));
-	v_wpos       = world.xyz;
+	vec4 world = mul(u_model[0], vec4(a_position, 1.0));
+	v_wpos = world.xyz;
 	vec4 viewPos = mul(u_modelView, vec4(a_position, 1.0));
-	gl_Position  = mul(u_proj, viewPos);
-	v_viewdist   = length(viewPos.xyz);
-	v_texcoord0  = a_texcoord0;
-	v_texcoord1  = a_texcoord1;
+	gl_Position = mul(u_proj, viewPos);
+	v_viewdist = length(viewPos.xyz);
+	v_texcoord0 = a_texcoord0;
+	v_texcoord1 = a_texcoord1;
 }

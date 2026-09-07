@@ -13,31 +13,31 @@
 #
 # Usage:  powershell -File Tools/GenNativeList.ps1 [-LScripts <dir>]
 param(
-  [string]$ApiDoc   = "$PSScriptRoot\..\..\PainfulEngineHelpers\Engine_LuaAPI.md",
-  [string]$LScripts = "$PSScriptRoot\..\..\PainfulEngineHelpers\Data_Extracted\LScripts",
-  [string]$Out      = "$PSScriptRoot\..\Source\Script\NativeList.inc"
+	[string]$ApiDoc   = "$PSScriptRoot\..\..\PainfulEngineHelpers\Engine_LuaAPI.md",
+	[string]$LScripts = "$PSScriptRoot\..\..\PainfulEngineHelpers\Data_Extracted\LScripts",
+	[string]$Out      = "$PSScriptRoot\..\Source\Script\NativeList.inc"
 )
 
 # --- 1. usage index: (prefix, function) -> call-site count --------------------
 $usage = @{}
 $rx = [regex]'(?<![\w.])([A-Z][A-Z0-9_]{1,12})\.([A-Za-z_][A-Za-z0-9_]*)'
-  [string]$LScripts = "$PSScriptRoot\..\..\PainfulEngineHelpers\Data_Extracted\LScripts",
-  foreach ($m in $rx.Matches((Get-Content $f.FullName -Raw))) {
-    $key = "$($m.Groups[1].Value).$($m.Groups[2].Value)"
-    $usage[$key] = 1 + $usage[$key]
-  }
+	[string]$LScripts = "$PSScriptRoot\..\..\PainfulEngineHelpers\Data_Extracted\LScripts",
+	foreach ($m in $rx.Matches((Get-Content $f.FullName -Raw))) {
+		$key = "$($m.Groups[1].Value).$($m.Groups[2].Value)"
+		$usage[$key] = 1 + $usage[$key]
+	}
 }
 
 # --- 2. parse the API doc into groups ----------------------------------------
 $groups = @()   # list of @{ Label; Addr; Fns }
 $cur = $null
-  [string]$ApiDoc   = "$PSScriptRoot\..\..\PainfulEngineHelpers\Engine_LuaAPI.md",
-  if ($line -match '^### (.+?) - (\d+) functions(?: \(table at (0x[0-9A-Fa-f]+)\))?') {
-    $cur = @{ Label = $Matches[1]; Addr = $Matches[3]; Fns = @() }
-    $groups += $cur
-  } elseif ($cur -and $line -match '^\| `([A-Za-z_][A-Za-z0-9_]*)` \|') {
-    $cur.Fns += $Matches[1]
-  }
+	[string]$ApiDoc   = "$PSScriptRoot\..\..\PainfulEngineHelpers\Engine_LuaAPI.md",
+	if ($line -match '^### (.+?) - (\d+) functions(?: \(table at (0x[0-9A-Fa-f]+)\))?') {
+		$cur = @{ Label = $Matches[1]; Addr = $Matches[3]; Fns = @() }
+		$groups += $cur
+	} elseif ($cur -and $line -match '^\| `([A-Za-z_][A-Za-z0-9_]*)` \|') {
+		$cur.Fns += $Matches[1]
+	}
 }
 
 # --- 3. vote a Lua table name per group --------------------------------------
@@ -50,40 +50,40 @@ $sb = New-Object System.Text.StringBuilder
 
 $named = 0; $unnamed = 0
 foreach ($g in $groups) {
-  if ($g.Label -like 'Lua stdlib*') { continue }
+	if ($g.Label -like 'Lua stdlib*') { continue }
 
-  if ($g.Label -eq 'Registered individually (direct RegisterFunction call sites)') {
-    [void]$sb.AppendLine("// --- global functions (registered individually) ---")
-    foreach ($fn in $g.Fns) { [void]$sb.AppendLine("PK_GLOBAL(`"$fn`")") }
-    [void]$sb.AppendLine()
-    continue
-  }
+	if ($g.Label -eq 'Registered individually (direct RegisterFunction call sites)') {
+		[void]$sb.AppendLine("// --- global functions (registered individually) ---")
+		foreach ($fn in $g.Fns) { [void]$sb.AppendLine("PK_GLOBAL(`"$fn`")") }
+		[void]$sb.AppendLine()
+		continue
+	}
 
-  $votes = @{}
-  foreach ($fn in $g.Fns) {
-    foreach ($k in $usage.Keys) {
-      if ($k.EndsWith(".$fn") -and $k.Substring(0, $k.Length - $fn.Length - 1) -notmatch '\.') {
-        $p = $k.Substring(0, $k.Length - $fn.Length - 1)
-        $votes[$p] = $usage[$k] + $votes[$p]
-      }
-    }
-  }
-  $ranked = $votes.GetEnumerator() | Sort-Object Value -Descending
-  $tally = ($ranked | Select-Object -First 4 | ForEach-Object { "$($_.Key):$($_.Value)" }) -join ' '
+	$votes = @{}
+	foreach ($fn in $g.Fns) {
+		foreach ($k in $usage.Keys) {
+			if ($k.EndsWith(".$fn") -and $k.Substring(0, $k.Length - $fn.Length - 1) -notmatch '\.') {
+				$p = $k.Substring(0, $k.Length - $fn.Length - 1)
+				$votes[$p] = $usage[$k] + $votes[$p]
+			}
+		}
+	}
+	$ranked = $votes.GetEnumerator() | Sort-Object Value -Descending
+	$tally = ($ranked | Select-Object -First 4 | ForEach-Object { "$($_.Key):$($_.Value)" }) -join ' '
 
-  if (-not $ranked -or $ranked[0].Value -lt 2) {
-    $unnamed++
-    [void]$sb.AppendLine("// --- UNNAMED group `"$($g.Label)`" at $($g.Addr) ($($g.Fns.Count) fns, votes: $tally) ---")
-    foreach ($fn in $g.Fns) { [void]$sb.AppendLine("// PK_NATIVE(?, `"$fn`")") }
-    [void]$sb.AppendLine()
-    continue
-  }
+	if (-not $ranked -or $ranked[0].Value -lt 2) {
+		$unnamed++
+		[void]$sb.AppendLine("// --- UNNAMED group `"$($g.Label)`" at $($g.Addr) ($($g.Fns.Count) fns, votes: $tally) ---")
+		foreach ($fn in $g.Fns) { [void]$sb.AppendLine("// PK_NATIVE(?, `"$fn`")") }
+		[void]$sb.AppendLine()
+		continue
+	}
 
-  $named++
-  $name = @($ranked)[0].Key
-  [void]$sb.AppendLine("// --- $name : `"$($g.Label)`" at $($g.Addr) ($($g.Fns.Count) fns, votes: $tally) ---")
-  foreach ($fn in $g.Fns) { [void]$sb.AppendLine("PK_NATIVE(`"$name`", `"$fn`")") }
-  [void]$sb.AppendLine()
+	$named++
+	$name = @($ranked)[0].Key
+	[void]$sb.AppendLine("// --- $name : `"$($g.Label)`" at $($g.Addr) ($($g.Fns.Count) fns, votes: $tally) ---")
+	foreach ($fn in $g.Fns) { [void]$sb.AppendLine("PK_NATIVE(`"$name`", `"$fn`")") }
+	[void]$sb.AppendLine()
 }
 
 Set-Content -Path $Out -Value $sb.ToString() -Encoding ascii

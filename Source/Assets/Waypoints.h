@@ -31,41 +31,41 @@ namespace painful {
 // linkStart[i+1]. That invariant is what confirms the record stride, and
 // `painful wps` checks it on load rather than trusting it.
 struct WaypointSet {
-    struct Node {
-        Vec3 pos;
-        // 24-bit floor index. The Cathedral uses 0..52 and its floors section
-        // opens with 53, which is what identifies these three bytes.
-        uint32_t floor = 0;
-        uint32_t linkStart = 0;
-        uint32_t linkCount = 0;
-    };
+	struct Node {
+		Vec3 pos;
+		// 24-bit floor index. The Cathedral uses 0..52 and its floors section
+		// opens with 53, which is what identifies these three bytes.
+		uint32_t floor = 0;
+		uint32_t linkStart = 0;
+		uint32_t linkCount = 0;
+	};
 
-    std::vector<Node> nodes;
-    std::vector<uint32_t> links;      // neighbour indices, indexed by linkStart
-    std::vector<float> costs;         // parallel to links: the edge weights
-    std::string error;
-    size_t size = 0, consumed = 0;
-    size_t floorBytes = 0;            // the trailing floors section, unparsed
+	std::vector<Node> nodes;
+	std::vector<uint32_t> links; // neighbour indices, indexed by linkStart
+	std::vector<float> costs; // parallel to links: the edge weights
+	std::string error;
+	size_t size = 0, consumed = 0;
+	size_t floorBytes = 0; // the trailing floors section, unparsed
 
-    bool ok() const { return error.empty() && !nodes.empty(); }
+	bool ok() const { return error.empty() && !nodes.empty(); }
 
-    // Nearest node to a point, or -1 when the set is empty. `maxDist` of 0 or
-    // less accepts any distance; otherwise a node further away than that is
-    // no answer at all, which is how an actor standing somewhere the level
-    // designer never marked ends up walking straight instead of teleporting
-    // its route across the map.
-    int Closest(const Vec3& p, float maxDist = 0.f) const;
+	// Nearest node to a point, or -1 when the set is empty. `maxDist` of 0 or
+	// less accepts any distance; otherwise a node further away than that is
+	// no answer at all, which is how an actor standing somewhere the level
+	// designer never marked ends up walking straight instead of teleporting
+	// its route across the map.
+	int Closest(const Vec3& p, float maxDist = 0.f) const;
 
-    // Shortest route from one waypoint to another, as node indices INCLUDING
-    // both ends. Returns false when they are not connected.
-    //
-    // A* over the file's own edge costs, with straight-line distance as the
-    // heuristic. The costs are stored rather than derived because the level
-    // designers could weight a link - a route the AI should avoid costs more
-    // than its length.
-    bool FindPath(int from, int to, std::vector<int>& outNodes) const;
+	// Shortest route from one waypoint to another, as node indices INCLUDING
+	// both ends. Returns false when they are not connected.
+	//
+	// A* over the file's own edge costs, with straight-line distance as the
+	// heuristic. The costs are stored rather than derived because the level
+	// designers could weight a link - a route the AI should avoid costs more
+	// than its length.
+	bool FindPath(int from, int to, std::vector<int>& outNodes) const;
 
-    static bool Load(const std::string& path, WaypointSet& out);
+	static bool Load(const std::string& path, WaypointSet& out);
 };
 
 } // namespace painful

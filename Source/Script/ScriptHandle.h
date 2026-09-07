@@ -15,26 +15,26 @@ extern "C" {
 namespace painful {
 
 enum class HandleKind : uintptr_t {
-    kMaterial = 1,
-    kPack = 2,
+	kMaterial = 1,
+	kPack = 2,
 };
 
 inline void PushHandle(lua_State* L, HandleKind kind, int handle) {
-    if (handle <= 0) {
-        lua_pushnil(L);
-        return;
-    }
-    const uintptr_t tagged = (static_cast<uintptr_t>(kind) << 24) | uintptr_t(handle);
-    lua_pushlightuserdata(L, reinterpret_cast<void*>(tagged));
+	if (handle <= 0) {
+		lua_pushnil(L);
+		return;
+	}
+	const uintptr_t tagged = (static_cast<uintptr_t>(kind) << 24) | uintptr_t(handle);
+	lua_pushlightuserdata(L, reinterpret_cast<void*>(tagged));
 }
 
 // The handle, or 0 when the argument is absent, nil, or a handle of another
 // kind. Scripts pass a literal 0 for "none", which arrives as a number.
 inline int ToHandle(lua_State* L, int index, HandleKind kind) {
-    if (!lua_islightuserdata(L, index)) return 0;
-    const uintptr_t tagged = reinterpret_cast<uintptr_t>(lua_touserdata(L, index));
-    if ((tagged >> 24) != static_cast<uintptr_t>(kind)) return 0;
-    return int(tagged & 0xFFFFFF);
+	if (!lua_islightuserdata(L, index)) return 0;
+	const uintptr_t tagged = reinterpret_cast<uintptr_t>(lua_touserdata(L, index));
+	if ((tagged >> 24) != static_cast<uintptr_t>(kind)) return 0;
+	return int(tagged & 0xFFFFFF);
 }
 
-}  // namespace painful
+} // namespace painful

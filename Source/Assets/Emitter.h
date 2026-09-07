@@ -29,18 +29,18 @@ namespace painful {
 // Note "alpha" is NOT ordinary alpha blending - it is additive weighted by the
 // source alpha. "translucent" is the ordinary one.
 enum BlendMode {
-    kBlendNone = 0,
-    kBlendAlpha = 1,
-    kBlendAdd = 2,
-    kBlendModulate = 3,
-    kBlendFilter = 4,
-    kBlendTranslucent = 5,
-    kBlendInvModulate = 6,
-    kBlendSubtract = 7,
-    kBlendRevSubtract = 8,
-    kBlendDestTranslucent = 9,
-    kBlendDestAlpha = 10,
-    kBlendModulate2x = 11,
+	kBlendNone = 0,
+	kBlendAlpha = 1,
+	kBlendAdd = 2,
+	kBlendModulate = 3,
+	kBlendFilter = 4,
+	kBlendTranslucent = 5,
+	kBlendInvModulate = 6,
+	kBlendSubtract = 7,
+	kBlendRevSubtract = 8,
+	kBlendDestTranslucent = 9,
+	kBlendDestAlpha = 10,
+	kBlendModulate2x = 11,
 };
 
 // One Data/Scripts/Emitters/<name>.ini.
@@ -59,62 +59,62 @@ enum BlendMode {
 //   Scale         - read with atof and thrown away; per-emitter scale comes
 //                   from the .pfx entry instead.
 struct EmitterParams {
-    std::string name;                 // file stem, e.g. "Flame_factory1"
+	std::string name; // file stem, e.g. "Flame_factory1"
 
-    std::string texture;              // General.Texture
-    std::string material;             // General.Material
-    std::string warpTex;              // General.WarpTex
-    float texAnimFps = 10.f;          // General.TexAnimFPS
-    int   type = 1;                   // 1 = camera-facing sprite, 2 = spark
-    int   blendMode = kBlendAlpha;    // General.BlendMode, already remapped
-    bool  randomNormal = false;       // General.UseRandomNormal
-    bool  depthTest = true;           // General.DepthTest
-    bool  evolve = true;              // General.Evolve - keep spawning forever
-    bool  warp = false;               // General.Warp - wrap inside the PosRange box
-    int   maxParticles = 128;         // General.MaxParticles
-    // General.SpawnRate is stored inverted by the original: seconds between
-    // particles, not particles per second. Rate 0 therefore means "never".
-    float spawnInterval = 0.01f;
-    float killDistSq = 0.f;           // General.KillDist, squared on load
+	std::string texture; // General.Texture
+	std::string material; // General.Material
+	std::string warpTex; // General.WarpTex
+	float texAnimFps = 10.f; // General.TexAnimFPS
+	int type = 1; // 1 = camera-facing sprite, 2 = spark
+	int blendMode = kBlendAlpha; // General.BlendMode, already remapped
+	bool randomNormal = false; // General.UseRandomNormal
+	bool depthTest = true; // General.DepthTest
+	bool evolve = true; // General.Evolve - keep spawning forever
+	bool warp = false; // General.Warp - wrap inside the PosRange box
+	int maxParticles = 128; // General.MaxParticles
+	// General.SpawnRate is stored inverted by the original: seconds between
+	// particles, not particles per second. Rate 0 therefore means "never".
+	float spawnInterval = 0.01f;
+	float killDistSq = 0.f; // General.KillDist, squared on load
 
-    Vec3 editorPos;   // [EditorPosition] - authoring aid only
+	Vec3 editorPos; // [EditorPosition] - authoring aid only
 
-    Vec3 posMin{-1, -1, -1};   // [PosRange]
-    Vec3 posMax{1, 1, 1};
+	Vec3 posMin{-1, -1, -1}; // [PosRange]
+	Vec3 posMax{1, 1, 1};
 
-    Vec3 velMin{-80, -6, 0};   // [Velocity] Min/Max
-    Vec3 velMax{-64, 6, 0};
-    // Acceleration.* writes BOTH ends of the range; AccelMax.* then overrides
-    // the maximum, so a file with only Acceleration gets a constant.
-    Vec3 accelMin{0, -0.1f, 0};
-    Vec3 accelMax{0, -0.1f, 0};
+	Vec3 velMin{-80, -6, 0}; // [Velocity] Min/Max
+	Vec3 velMax{-64, 6, 0};
+	// Acceleration.* writes BOTH ends of the range; AccelMax.* then overrides
+	// the maximum, so a file with only Acceleration gets a constant.
+	Vec3 accelMin{0, -0.1f, 0};
+	Vec3 accelMax{0, -0.1f, 0};
 
-    // [VelocityEnd] - the velocity a particle blends towards. Defaults to the
-    // matching [Velocity] value, which makes the blend a no-op.
-    Vec3 velEndMin{-80, -6, 0};
-    Vec3 velEndMax{-64, 6, 0};
+	// [VelocityEnd] - the velocity a particle blends towards. Defaults to the
+	// matching [Velocity] value, which makes the blend a no-op.
+	Vec3 velEndMin{-80, -6, 0};
+	Vec3 velEndMax{-64, 6, 0};
 
-    Vec3 colorMin{0.5f, 0.1f, 0};   // [Color] Min/Max, 0..1 linear
-    Vec3 colorMax{1.f, 0.5f, 0};
-    float alphaMin = 0.8f, alphaMax = 0.f;
-    float alphaMid = 0.f;             // defaults to AlphaMax when absent
-    // Fade and velocity-blend timings are PERCENTAGES of a particle's life.
-    // Both default to 100, i.e. the mid value is never reached.
-    float fadeTimeMin = 100.f, fadeTimeMax = 100.f;
-    float velBlendMin = 100.f, velBlendMax = 100.f;
-    // Spin, radians per second. The constructor's -1..1 is zeroed by
-    // LoadEmitter before reading, so an .ini without these does not spin.
-    float rotMin = 0.f, rotMax = 0.f;
+	Vec3 colorMin{0.5f, 0.1f, 0}; // [Color] Min/Max, 0..1 linear
+	Vec3 colorMax{1.f, 0.5f, 0};
+	float alphaMin = 0.8f, alphaMax = 0.f;
+	float alphaMid = 0.f; // defaults to AlphaMax when absent
+	// Fade and velocity-blend timings are PERCENTAGES of a particle's life.
+	// Both default to 100, i.e. the mid value is never reached.
+	float fadeTimeMin = 100.f, fadeTimeMax = 100.f;
+	float velBlendMin = 100.f, velBlendMax = 100.f;
+	// Spin, radians per second. The constructor's -1..1 is zeroed by
+	// LoadEmitter before reading, so an .ini without these does not spin.
+	float rotMin = 0.f, rotMax = 0.f;
 
-    float startSizeMin = 2.f, startSizeMax = 4.f;    // [SizeLife]
-    float endSizeMin = 8.f, endSizeMax = 12.f;
-    float lifeMin = 0.5f, lifeMax = 0.8f;
-    bool  immortal = false;           // pins particles to the emitter, never dies
+	float startSizeMin = 2.f, startSizeMax = 4.f; // [SizeLife]
+	float endSizeMin = 8.f, endSizeMax = 12.f;
+	float lifeMin = 0.5f, lifeMax = 0.8f;
+	bool immortal = false; // pins particles to the emitter, never dies
 
-    // [SparkEmitter] - Type 2 only. Thickness is the quad's width across the
-    // velocity; length multiplies the velocity vector to get its extent.
-    float thicknessMin = 0.3f, thicknessMax = 0.5f;
-    float lengthMin = 0.3f, lengthMax = 0.5f;
+	// [SparkEmitter] - Type 2 only. Thickness is the quad's width across the
+	// velocity; length multiplies the velocity vector to get its extent.
+	float thicknessMin = 0.3f, thicknessMax = 0.5f;
+	float lengthMin = 0.3f, lengthMax = 0.5f;
 };
 
 // One Data/Scripts/Effects/<name>.pfx: the list of emitters that make up a
@@ -130,37 +130,37 @@ struct EmitterParams {
 //         FixedTransform = false
 //     }
 struct ParticleFxDef {
-    struct Ref {
-        std::string file;                  // emitter .ini name
-        float scale = 1.f;
-        Vec3 position;     // emitter-space offset from the entity
-        Vec3 rotation;     // degrees, euler
-    };
-    std::string name;
-    std::vector<Ref> emitters;
-    bool fixedTransform = false;           // effect ignores the parent's transform
+	struct Ref {
+		std::string file; // emitter .ini name
+		float scale = 1.f;
+		Vec3 position; // emitter-space offset from the entity
+		Vec3 rotation; // degrees, euler
+	};
+	std::string name;
+	std::vector<Ref> emitters;
+	bool fixedTransform = false; // effect ignores the parent's transform
 };
 
 // Loads and caches both halves of the particle data, from Data/Scripts.
 class EmitterLibrary {
 public:
-    // scriptsRoot is <DataRoot>/Scripts (holding Emitters/ and Effects/).
-    bool Init(const std::string& scriptsRoot);
+	// scriptsRoot is <DataRoot>/Scripts (holding Emitters/ and Effects/).
+	bool Init(const std::string& scriptsRoot);
 
-    // Both take a bare name ("Flame_factory1"); a trailing extension is fine.
-    const EmitterParams* Emitter(const std::string& name);
-    const ParticleFxDef* Effect(const std::string& name);
+	// Both take a bare name ("Flame_factory1"); a trailing extension is fine.
+	const EmitterParams* Emitter(const std::string& name);
+	const ParticleFxDef* Effect(const std::string& name);
 
-    size_t indexedEmitters() const { return emitterIndex_.size(); }
-    size_t indexedEffects() const { return effectIndex_.size(); }
-    const std::vector<std::string>& errors() const { return errors_; }
+	size_t indexedEmitters() const { return emitterIndex_.size(); }
+	size_t indexedEffects() const { return effectIndex_.size(); }
+	const std::vector<std::string>& errors() const { return errors_; }
 
 private:
-    std::map<std::string, std::string> emitterIndex_;   // lowercase stem -> path
-    std::map<std::string, std::string> effectIndex_;
-    std::map<std::string, std::unique_ptr<EmitterParams>> emitters_;
-    std::map<std::string, std::unique_ptr<ParticleFxDef>> effects_;
-    std::vector<std::string> errors_;
+	std::map<std::string, std::string> emitterIndex_; // lowercase stem -> path
+	std::map<std::string, std::string> effectIndex_;
+	std::map<std::string, std::unique_ptr<EmitterParams>> emitters_;
+	std::map<std::string, std::unique_ptr<ParticleFxDef>> effects_;
+	std::vector<std::string> errors_;
 };
 
 // Exposed for tests and diagnostics: the two file parsers.

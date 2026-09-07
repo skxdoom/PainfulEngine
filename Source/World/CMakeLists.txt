@@ -6,16 +6,16 @@
 # characters they walk; PhysicsRagdolls.cpp the corpses. PhysicsWorldInternal.h
 # carries the Jolt filters, the contact listener and Impl.
 add_library(World STATIC
-  Level.cpp          Level.h
-  Lighting.cpp       Lighting.h
-  Templates.cpp      Templates.h
-  Zones.cpp          Zones.h
-  CollisionMesh.cpp  CollisionMesh.h
-  PhysicsWorld.cpp   PhysicsWorld.h
-  PhysicsScriptBodies.cpp
-  PhysicsRagdolls.cpp
-                     PhysicsWorldInternal.h
-  Decals.cpp         Decals.h
-)
+		Level.cpp Level.h
+		Lighting.cpp Lighting.h
+		Templates.cpp Templates.h
+		Zones.cpp Zones.h
+		CollisionMesh.cpp CollisionMesh.h
+		PhysicsWorld.cpp PhysicsWorld.h
+		PhysicsScriptBodies.cpp
+		PhysicsRagdolls.cpp
+		PhysicsWorldInternal.h
+		Decals.cpp Decals.h
+		)
 target_link_libraries(World PUBLIC Assets Jolt)
 painful_layer(World)

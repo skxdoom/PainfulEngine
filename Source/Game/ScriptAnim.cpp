@@ -9,24 +9,24 @@ namespace painful {
 // The Anim natives. The struct is declared here rather than in
 // ScriptEngine.h so that adding one touches only this file.
 struct AnimNatives : ScriptNativesBase {
-    static int L_MDL_SetAnim(lua_State* L);
-    static int L_MDL_GetAnimLength(lua_State* L);
-    static int L_MDL_GetAnimTime(lua_State* L);
-    static int L_MDL_SetAnimTime(lua_State* L);
-    static int L_MDL_GetAnimTimeScale(lua_State* L);
-    static int L_MDL_SetAnimTimeScale(lua_State* L);
-    static int L_MDL_ResetFrame(lua_State* L);
-    static int L_MDL_LoadAnim(lua_State* L);
-    static int L_MDL_GetAnimMovement(lua_State* L);
-    static int L_MDL_GetJointIndex(lua_State* L);
-    static int L_MDL_GetJointName(lua_State* L);
-    static int L_MDL_TransformPointByJoint(lua_State* L);
-    static int L_MDL_GetJointPos(lua_State* L);
-    static int L_MDL_ApplyJointRotation(lua_State* L);
-    static int L_MDL_GetVelocitiesFromJoint(lua_State* L);
-    static int L_MDL_GetJointRotation(lua_State* L);
-    static int L_MDL_SetMeshVisibility(lua_State* L);
-    static int L_MDL_SetMaterial(lua_State* L);
+	static int L_MDL_SetAnim(lua_State* L);
+	static int L_MDL_GetAnimLength(lua_State* L);
+	static int L_MDL_GetAnimTime(lua_State* L);
+	static int L_MDL_SetAnimTime(lua_State* L);
+	static int L_MDL_GetAnimTimeScale(lua_State* L);
+	static int L_MDL_SetAnimTimeScale(lua_State* L);
+	static int L_MDL_ResetFrame(lua_State* L);
+	static int L_MDL_LoadAnim(lua_State* L);
+	static int L_MDL_GetAnimMovement(lua_State* L);
+	static int L_MDL_GetJointIndex(lua_State* L);
+	static int L_MDL_GetJointName(lua_State* L);
+	static int L_MDL_TransformPointByJoint(lua_State* L);
+	static int L_MDL_GetJointPos(lua_State* L);
+	static int L_MDL_ApplyJointRotation(lua_State* L);
+	static int L_MDL_GetVelocitiesFromJoint(lua_State* L);
+	static int L_MDL_GetJointRotation(lua_State* L);
+	static int L_MDL_SetMeshVisibility(lua_State* L);
+	static int L_MDL_SetMaterial(lua_State* L);
 };
 
 namespace {
@@ -34,15 +34,15 @@ namespace {
 // A posed bone can carry scale; EngineRot9ToQuat needs a pure rotation, and
 // would otherwise fold the scale into the quaternion as a bogus twist.
 void Normalize3x3Rows(float m[9]) {
-    for (int r = 0; r < 3; ++r) {
-        float* row = &m[r * 3];
-        const float len = std::sqrt(row[0]*row[0] + row[1]*row[1] + row[2]*row[2]);
-        if (len > 1e-8f) { row[0] /= len; row[1] /= len; row[2] /= len; }
-        else             { row[0] = row[1] = row[2] = 0.f; row[r] = 1.f; }
-    }
+	for (int r = 0; r < 3; ++r) {
+		float* row = &m[r * 3];
+		const float len = std::sqrt(row[0]*row[0] + row[1]*row[1] + row[2]*row[2]);
+		if (len > 1e-8f) { row[0] /= len; row[1] /= len; row[2] /= len; }
+		else { row[0] = row[1] = row[2] = 0.f; row[r] = 1.f; }
+	}
 }
 
-}  // namespace
+} // namespace
 
 // ------------------------------------------------------------ the anim clock
 //
@@ -66,160 +66,160 @@ void Normalize3x3Rows(float m[9]) {
 // root motion are their own problems, and guessing at them is how conventions
 // get broken here. See Docs/Reference/Animation.md.
 int AnimNatives::L_MDL_SetAnim(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    const char* name = lua_isstring(L, 2) ? lua_tostring(L, 2) : nullptr;
-    if (!e || !name || !*name) {
-        lua_pushnumber(L, -1);
-        return 1;
-    }
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	const char* name = lua_isstring(L, 2) ? lua_tostring(L, 2) : nullptr;
+	if (!e || !name || !*name) {
+		lua_pushnumber(L, -1);
+		return 1;
+	}
 
-    const Animation* anim = self->animations_.Get(e->source, name);
-    // PAINFUL_ANIM_TRACE=1: every SetAnim, with the entity, its model and
-    // the state it interrupts.
-    static const bool kTrace = DebugFlag("PAINFUL_ANIM_TRACE");
-    if (kTrace) {
-        std::printf("anim: SetAnim e=%d (%s) \"%s\" loop=%d speed=%.2f blend=%.3f found=%d "
-                    "was index %d time %.3f\n",
-                    HandleArg(L, 1), e->source.c_str(), name,
-                    lua_isnil(L, 3) || lua_isnone(L, 3) ? 1 : lua_toboolean(L, 3),
-                    luaL_optnumber(L, 4, 1.0), luaL_optnumber(L, 5, 0.201), anim != nullptr,
-                    e->animIndex, e->animTime);
-    }
-    if (!anim) {
-        lua_pushnumber(L, -1);
-        return 1;
-    }
+	const Animation* anim = self->animations_.Get(e->source, name);
+	// PAINFUL_ANIM_TRACE=1: every SetAnim, with the entity, its model and
+	// the state it interrupts.
+	static const bool kTrace = DebugFlag("PAINFUL_ANIM_TRACE");
+	if (kTrace) {
+		std::printf("anim: SetAnim e=%d (%s) \"%s\" loop=%d speed=%.2f blend=%.3f found=%d "
+				"was index %d time %.3f\n",
+				HandleArg(L, 1), e->source.c_str(), name,
+				lua_isnil(L, 3) || lua_isnone(L, 3) ? 1 : lua_toboolean(L, 3),
+				luaL_optnumber(L, 4, 1.0), luaL_optnumber(L, 5, 0.201), anim != nullptr,
+				e->animIndex, e->animTime);
+	}
+	if (!anim) {
+		lua_pushnumber(L, -1);
+		return 1;
+	}
 
-    // Find the slot this animation already has on the entity, or append one.
-    int index = -1;
-    for (size_t i = 0; i < e->animSlots.size(); ++i) {
-        if (e->animSlots[i].name == name) {
-            index = int(i);
-            break;
-        }
-    }
-    if (index < 0) {
-        e->animSlots.push_back({name, anim->duration(), anim});
-        index = int(e->animSlots.size()) - 1;
-    }
+	// Find the slot this animation already has on the entity, or append one.
+	int index = -1;
+	for (size_t i = 0; i < e->animSlots.size(); ++i) {
+		if (e->animSlots[i].name == name) {
+			index = int(i);
+			break;
+		}
+	}
+	if (index < 0) {
+		e->animSlots.push_back({name, anim->duration(), anim});
+		index = int(e->animSlots.size()) - 1;
+	}
 
-    // Start the cross-fade out of whatever was playing, before the index moves.
-    // Only when the animation actually changes: CActor re-sets the same
-    // animation constantly, and restarting the fade every tick would leave an
-    // actor permanently half-way between a pose and itself.
-    const Animation* previous =
-        (e->animIndex >= 0 && size_t(e->animIndex) < e->animSlots.size())
-            ? e->animSlots[size_t(e->animIndex)].anim
-            : nullptr;
-    if (previous && previous != anim) {
-        // A fade still in flight is not thrown away: the new fade starts from
-        // the pose on screen, frozen as local matrices. Starting it from the
-        // outgoing animation alone snapped the mesh to that animation's pose
-        // - a weapon toggled walk/idle/walk jumped at every toggle.
-        const SkeletonCache::Entry* skel = self->skeletons_.Get(e->source);
-        std::vector<Mat4> snapshot;
-        Vec3 snapshotOffset;
-        if (e->blendFrom && e->blendLeft > 0.f && e->blendTotal > 1e-6f && skel &&
-            !skel->bones.empty()) {
-            const float u = 1.f - e->blendLeft / e->blendTotal;
-            if (e->pose.tracks.size() != skel->bones.size() || e->pose.anim != previous)
-                ResolveAnimTracks(skel->bones, *previous, e->pose.tracks);
-            Vec3 at;
-            self->CurveOffset(*e, skel, e->animIndex, e->pose.tracks, e->animTime, at);
-            if (!e->blendFromLocal.empty()) {
-                ComputeBoneLocalFromLocals(skel->bones, e->blendFromLocal, e->pose.tracks,
-                                           e->animTime, u, snapshot);
-                for (int c = 0; c < 3; ++c)
-                    snapshotOffset[c] = e->blendFromOffset[c] * (1.f - u) + at[c] * u;
-            } else {
-                if (e->blendFromTracks.size() != skel->bones.size())
-                    ResolveAnimTracks(skel->bones, *e->blendFrom, e->blendFromTracks);
-                ComputeBoneLocalBlended(skel->bones, e->blendFromTracks, e->blendFromTime,
-                                        e->pose.tracks, e->animTime, u, snapshot);
-                int fromSlot = -1;
-                for (size_t i = 0; i < e->animSlots.size(); ++i)
-                    if (e->animSlots[i].anim == e->blendFrom) fromSlot = int(i);
-                Vec3 from;
-                self->CurveOffset(*e, skel, fromSlot, e->blendFromTracks, e->blendFromTime, from);
-                for (int c = 0; c < 3; ++c)
-                    snapshotOffset[c] = from[c] * (1.f - u) + at[c] * u;
-            }
-        }
-        e->blendFrom = previous;
-        e->blendFromTime = e->animTime;
-        e->blendFromTracks.clear();      // resolved lazily against the skeleton
-        e->blendFromLocal.swap(snapshot);
-        for (int c = 0; c < 3; ++c) e->blendFromOffset[c] = snapshotOffset[c];
-        e->blendTotal = float(luaL_optnumber(L, 5, 0.201));
-        e->blendLeft = e->blendTotal;
-    }
+	// Start the cross-fade out of whatever was playing, before the index moves.
+	// Only when the animation actually changes: CActor re-sets the same
+	// animation constantly, and restarting the fade every tick would leave an
+	// actor permanently half-way between a pose and itself.
+	const Animation* previous =
+		(e->animIndex >= 0 && size_t(e->animIndex) < e->animSlots.size())
+			? e->animSlots[size_t(e->animIndex)].anim
+			: nullptr;
+	if (previous && previous != anim) {
+		// A fade still in flight is not thrown away: the new fade starts from
+		// the pose on screen, frozen as local matrices. Starting it from the
+		// outgoing animation alone snapped the mesh to that animation's pose
+		// - a weapon toggled walk/idle/walk jumped at every toggle.
+		const SkeletonCache::Entry* skel = self->skeletons_.Get(e->source);
+		std::vector<Mat4> snapshot;
+		Vec3 snapshotOffset;
+		if (e->blendFrom && e->blendLeft > 0.f && e->blendTotal > 1e-6f && skel &&
+				!skel->bones.empty()) {
+			const float u = 1.f - e->blendLeft / e->blendTotal;
+			if (e->pose.tracks.size() != skel->bones.size() || e->pose.anim != previous)
+				ResolveAnimTracks(skel->bones, *previous, e->pose.tracks);
+			Vec3 at;
+			self->CurveOffset(*e, skel, e->animIndex, e->pose.tracks, e->animTime, at);
+			if (!e->blendFromLocal.empty()) {
+				ComputeBoneLocalFromLocals(skel->bones, e->blendFromLocal, e->pose.tracks,
+						e->animTime, u, snapshot);
+				for (int c = 0; c < 3; ++c)
+					snapshotOffset[c] = e->blendFromOffset[c] * (1.f - u) + at[c] * u;
+			} else {
+				if (e->blendFromTracks.size() != skel->bones.size())
+					ResolveAnimTracks(skel->bones, *e->blendFrom, e->blendFromTracks);
+				ComputeBoneLocalBlended(skel->bones, e->blendFromTracks, e->blendFromTime,
+						e->pose.tracks, e->animTime, u, snapshot);
+				int fromSlot = -1;
+				for (size_t i = 0; i < e->animSlots.size(); ++i)
+					if (e->animSlots[i].anim == e->blendFrom) fromSlot = int(i);
+				Vec3 from;
+				self->CurveOffset(*e, skel, fromSlot, e->blendFromTracks, e->blendFromTime, from);
+				for (int c = 0; c < 3; ++c)
+					snapshotOffset[c] = from[c] * (1.f - u) + at[c] * u;
+			}
+		}
+		e->blendFrom = previous;
+		e->blendFromTime = e->animTime;
+		e->blendFromTracks.clear(); // resolved lazily against the skeleton
+		e->blendFromLocal.swap(snapshot);
+		for (int c = 0; c < 3; ++c) e->blendFromOffset[c] = snapshotOffset[c];
+		e->blendTotal = float(luaL_optnumber(L, 5, 0.201));
+		e->blendLeft = e->blendTotal;
+	}
 
-    e->animIndex = index;
-    e->animTime = 0.f;
-    // Every default here is Engine.dll's own (SetAnim, 0x1013BFC0): looping is
-    // GetBool(3, TRUE), not false - a plain SetAnim(e, "idle") is a looping
-    // idle, and several shipped call sites rely on that by omitting the
-    // argument entirely.
-    e->animLoop = lua_isnil(L, 3) || lua_isnone(L, 3) ? true : lua_toboolean(L, 3) != 0;
-    // The template's declared speed. A speed of zero would stall the event
-    // loop the moment it started, so an unspecified or zero speed plays at 1.
-    const float speed = float(luaL_optnumber(L, 4, 1.0));
-    e->animScale = speed > 0.f ? speed : 1.f;
+	e->animIndex = index;
+	e->animTime = 0.f;
+	// Every default here is Engine.dll's own (SetAnim, 0x1013BFC0): looping is
+	// GetBool(3, TRUE), not false - a plain SetAnim(e, "idle") is a looping
+	// idle, and several shipped call sites rely on that by omitting the
+	// argument entirely.
+	e->animLoop = lua_isnil(L, 3) || lua_isnone(L, 3) ? true : lua_toboolean(L, 3) != 0;
+	// The template's declared speed. A speed of zero would stall the event
+	// loop the moment it started, so an unspecified or zero speed plays at 1.
+	const float speed = float(luaL_optnumber(L, 4, 1.0));
+	e->animScale = speed > 0.f ? speed : 1.f;
 
-    // The movement curve. Only set when the mask is positive, exactly as the
-    // engine does - it calls SetAnimationMovementCurve only for mcurve > 0 and
-    // otherwise leaves whatever the animation already had.
-    Entity::AnimSlot& slot = e->animSlots[size_t(index)];
-    const uint32_t mask = uint32_t(luaL_optnumber(L, 6, 0));
-    if (mask > 0) {
-        const char* bone = lua_isstring(L, 7) ? lua_tostring(L, 7) : "ROOOT";
-        if (slot.curveMask != mask || slot.curveBone != bone) {
-            slot.curveMask = mask;
-            slot.curveBone = bone;
-            slot.curveBoneIndex = -2;      // resolve against the skeleton lazily
-        }
-    }
+	// The movement curve. Only set when the mask is positive, exactly as the
+	// engine does - it calls SetAnimationMovementCurve only for mcurve > 0 and
+	// otherwise leaves whatever the animation already had.
+	Entity::AnimSlot& slot = e->animSlots[size_t(index)];
+	const uint32_t mask = uint32_t(luaL_optnumber(L, 6, 0));
+	if (mask > 0) {
+		const char* bone = lua_isstring(L, 7) ? lua_tostring(L, 7) : "ROOOT";
+		if (slot.curveMask != mask || slot.curveBone != bone) {
+			slot.curveMask = mask;
+			slot.curveBone = bone;
+			slot.curveBoneIndex = -2; // resolve against the skeleton lazily
+		}
+	}
 
-    lua_pushnumber(L, index);
-    return 1;
+	lua_pushnumber(L, index);
+	return 1;
 }
 
 // The slot an MDL call is asking about. Defaults to the one playing, since
 // that is what the scripts pass in every case that matters.
 const ScriptEngine::Entity::AnimSlot* ScriptEngine::AnimSlotArg(const Entity* e,
-                                                                lua_State* L, int arg) {
-    if (!e) return nullptr;
-    const int index = lua_isnumber(L, arg) ? int(lua_tonumber(L, arg)) : e->animIndex;
-    if (index < 0 || size_t(index) >= e->animSlots.size()) return nullptr;
-    return &e->animSlots[index];
+		lua_State* L, int arg) {
+	if (!e) return nullptr;
+	const int index = lua_isnumber(L, arg) ? int(lua_tonumber(L, arg)) : e->animIndex;
+	if (index < 0 || size_t(index) >= e->animSlots.size()) return nullptr;
+	return &e->animSlots[index];
 }
 
 // MDL.GetAnimLength(e, index) -> the track's duration in seconds. CActor
 // stores it as _CurAnimLength and sequences against it.
 int AnimNatives::L_MDL_GetAnimLength(lua_State* L) {
-    ScriptEngine* self = From(L);
-    const Entity* e = self->Find(HandleArg(L, 1));
-    const Entity::AnimSlot* slot = AnimSlotArg(e, L, 2);
-    lua_pushnumber(L, slot ? slot->length : 0.0);
-    return 1;
+	ScriptEngine* self = From(L);
+	const Entity* e = self->Find(HandleArg(L, 1));
+	const Entity::AnimSlot* slot = AnimSlotArg(e, L, 2);
+	lua_pushnumber(L, slot ? slot->length : 0.0);
+	return 1;
 }
 
 // MDL.GetAnimTime(e, index) -> how far into it we are. Only the playing
 // animation has a clock; anything else reads as not started.
 int AnimNatives::L_MDL_GetAnimTime(lua_State* L) {
-    ScriptEngine* self = From(L);
-    const Entity* e = self->Find(HandleArg(L, 1));
-    const int index = lua_isnumber(L, 2) ? int(lua_tonumber(L, 2)) : (e ? e->animIndex : -1);
-    lua_pushnumber(L, (e && index == e->animIndex) ? e->animTime : 0.0);
-    return 1;
+	ScriptEngine* self = From(L);
+	const Entity* e = self->Find(HandleArg(L, 1));
+	const int index = lua_isnumber(L, 2) ? int(lua_tonumber(L, 2)) : (e ? e->animIndex : -1);
+	lua_pushnumber(L, (e && index == e->animIndex) ? e->animTime : 0.0);
+	return 1;
 }
 
 int AnimNatives::L_MDL_SetAnimTime(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    if (e) e->animTime = float(luaL_optnumber(L, 3, 0));
-    return 0;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (e) e->animTime = float(luaL_optnumber(L, 3, 0));
+	return 0;
 }
 
 // MDL.GetAnimTimeScale / SetAnimTimeScale - the playback speed, and the gate
@@ -227,46 +227,46 @@ int AnimNatives::L_MDL_SetAnimTime(lua_State* L) {
 // setting it to 0 and restoring it later, which is what says this is a speed
 // rather than a flag.
 int AnimNatives::L_MDL_GetAnimTimeScale(lua_State* L) {
-    ScriptEngine* self = From(L);
-    const Entity* e = self->Find(HandleArg(L, 1));
-    const bool playing = e && e->animIndex >= 0;
-    lua_pushnumber(L, playing ? e->animScale : 0.0);
-    return 1;
+	ScriptEngine* self = From(L);
+	const Entity* e = self->Find(HandleArg(L, 1));
+	const bool playing = e && e->animIndex >= 0;
+	lua_pushnumber(L, playing ? e->animScale : 0.0);
+	return 1;
 }
 
 int AnimNatives::L_MDL_SetAnimTimeScale(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    if (e) e->animScale = float(luaL_optnumber(L, 3, 1.0));
-    return 0;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (e) e->animScale = float(luaL_optnumber(L, 3, 1.0));
+	return 0;
 }
 
 // MDL.ResetFrame(e) - back to the first frame without changing which
 // animation is playing.
 int AnimNatives::L_MDL_ResetFrame(lua_State* L) {
-    if (Entity* e = From(L)->Find(HandleArg(L, 1))) e->animTime = 0.f;
-    return 0;
+	if (Entity* e = From(L)->Find(HandleArg(L, 1))) e->animTime = 0.f;
+	return 0;
 }
 
 // MDL.LoadAnim(e, anim) - preload, so the first play does not read a file
 // mid-frame. Answers the same index SetAnim would.
 int AnimNatives::L_MDL_LoadAnim(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    const char* name = lua_isstring(L, 2) ? lua_tostring(L, 2) : nullptr;
-    if (!e || !name || !*name || !self->animations_.Get(e->source, name)) {
-        lua_pushnumber(L, -1);
-        return 1;
-    }
-    for (size_t i = 0; i < e->animSlots.size(); ++i)
-        if (e->animSlots[i].name == name) {
-            lua_pushnumber(L, double(i));
-            return 1;
-        }
-    const Animation* loaded = self->animations_.Get(e->source, name);
-    e->animSlots.push_back({name, loaded->duration(), loaded});
-    lua_pushnumber(L, double(e->animSlots.size() - 1));
-    return 1;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	const char* name = lua_isstring(L, 2) ? lua_tostring(L, 2) : nullptr;
+	if (!e || !name || !*name || !self->animations_.Get(e->source, name)) {
+		lua_pushnumber(L, -1);
+		return 1;
+	}
+	for (size_t i = 0; i < e->animSlots.size(); ++i)
+		if (e->animSlots[i].name == name) {
+			lua_pushnumber(L, double(i));
+			return 1;
+		}
+	const Animation* loaded = self->animations_.Get(e->source, name);
+	e->animSlots.push_back({name, loaded->duration(), loaded});
+	lua_pushnumber(L, double(e->animSlots.size() - 1));
+	return 1;
 }
 
 // MDL.GetAnimMovement(e, index, delta) -> how far the animation itself moves
@@ -290,65 +290,65 @@ int AnimNatives::L_MDL_LoadAnim(lua_State* L) {
 // error that aborts the whole tick - which is how this need first announced
 // itself.
 int AnimNatives::L_MDL_GetAnimMovement(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    const int index = int(luaL_optnumber(L, 2, -1));
-    const float delta = float(luaL_optnumber(L, 3, 0));
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	const int index = int(luaL_optnumber(L, 2, -1));
+	const float delta = float(luaL_optnumber(L, 3, 0));
 
-    Vec3 move;
-    if (e && index >= 0 && size_t(index) < e->animSlots.size())
-        self->AnimMovement(*e, index, delta, move);
+	Vec3 move;
+	if (e && index >= 0 && size_t(index) < e->animSlots.size())
+		self->AnimMovement(*e, index, delta, move);
 
-    for (int c = 0; c < 3; ++c) lua_pushnumber(L, move[c]);
-    return 3;
+	for (int c = 0; c < 3; ++c) lua_pushnumber(L, move[c]);
+	return 3;
 }
 
 // The bone the movement curve names, looked up once per slot. -1 when the
 // model has no such bone, which is an ordinary answer for a model whose
 // template names a curve bone it does not carry.
 int ScriptEngine::ResolveCurveBone(Entity::AnimSlot& slot,
-                                   const SkeletonCache::Entry& skel) {
-    if (slot.curveBoneIndex == -2) {
-        slot.curveBoneIndex = -1;
-        for (size_t i = 0; i < skel.bones.size(); ++i)
-            if (EqualsCI(skel.bones[i].name, slot.curveBone.c_str())) {
-                slot.curveBoneIndex = int(i);
-                break;
-            }
-    }
-    return slot.curveBoneIndex;
+		const SkeletonCache::Entry& skel) {
+	if (slot.curveBoneIndex == -2) {
+		slot.curveBoneIndex = -1;
+		for (size_t i = 0; i < skel.bones.size(); ++i)
+			if (EqualsCI(skel.bones[i].name, slot.curveBone.c_str())) {
+				slot.curveBoneIndex = int(i);
+				break;
+			}
+	}
+	return slot.curveBoneIndex;
 }
 
 void ScriptEngine::AnimMovement(Entity& e, int index, float delta, Vec3& out) {
-    Entity::AnimSlot& slot = e.animSlots[size_t(index)];
-    if (slot.curveMask == 0 || !slot.anim) return;
+	Entity::AnimSlot& slot = e.animSlots[size_t(index)];
+	if (slot.curveMask == 0 || !slot.anim) return;
 
-    const SkeletonCache::Entry* skel = skeletons_.Get(e.source);
-    if (!skel) return;
+	const SkeletonCache::Entry* skel = skeletons_.Get(e.source);
+	if (!skel) return;
 
-    if (ResolveCurveBone(slot, *skel) < 0) return;
+	if (ResolveCurveBone(slot, *skel) < 0) return;
 
-    // The curve is read off the animation named by this slot, which is not
-    // necessarily the one playing - the scripts pass an explicit index.
-    ResolveAnimTracks(skel->bones, *slot.anim, curveTracks_);
+	// The curve is read off the animation named by this slot, which is not
+	// necessarily the one playing - the scripts pass an explicit index.
+	ResolveAnimTracks(skel->bones, *slot.anim, curveTracks_);
 
-    const float t0 = e.animTime;
-    // Held at the last key rather than wrapped. A looping animation crossing
-    // its own end would otherwise report the whole loop's travel as one
-    // backwards lurch; holding makes that step contribute nothing, which loses
-    // a fraction of a frame of travel instead of teleporting the actor.
-    const float t1 = std::min(t0 + delta * e.animScale, slot.length);
+	const float t0 = e.animTime;
+	// Held at the last key rather than wrapped. A looping animation crossing
+	// its own end would otherwise report the whole loop's travel as one
+	// backwards lurch; holding makes that step contribute nothing, which loses
+	// a fraction of a frame of travel instead of teleporting the actor.
+	const float t1 = std::min(t0 + delta * e.animScale, slot.length);
 
-    Vec3 a, b;
-    if (!ComputeBonePositionAtTime(skel->bones, curveTracks_, slot.curveBoneIndex, t0, a) ||
-        !ComputeBonePositionAtTime(skel->bones, curveTracks_, slot.curveBoneIndex, t1, b))
-        return;
+	Vec3 a, b;
+	if (!ComputeBonePositionAtTime(skel->bones, curveTracks_, slot.curveBoneIndex, t0, a) ||
+			!ComputeBonePositionAtTime(skel->bones, curveTracks_, slot.curveBoneIndex, t1, b))
+		return;
 
-    // MovingCurve, Definitions.lua: ETransX 1, ETransY 2, ETransZ 4. ERot (8)
-    // is a rotation channel and does not belong in a translation.
-    static const uint32_t kAxisBit[3] = {1, 2, 4};
-    for (int c = 0; c < 3; ++c)
-        if (slot.curveMask & kAxisBit[c]) out[c] = (b[c] - a[c]) * e.scale;
+	// MovingCurve, Definitions.lua: ETransX 1, ETransY 2, ETransZ 4. ERot (8)
+	// is a rotation channel and does not belong in a translation.
+	static const uint32_t kAxisBit[3] = {1, 2, 4};
+	for (int c = 0; c < 3; ++c)
+		if (slot.curveMask & kAxisBit[c]) out[c] = (b[c] - a[c]) * e.scale;
 }
 
 namespace {
@@ -356,147 +356,147 @@ namespace {
 // Which slot holds this animation, or -1. A cross-fade knows the outgoing
 // Animation* but not the slot that carries its movement curve.
 int SlotOfAnim(const ScriptEngine::Entity& e, const Animation* anim) {
-    if (!anim) return -1;
-    for (size_t i = 0; i < e.animSlots.size(); ++i)
-        if (e.animSlots[i].anim == anim) return int(i);
-    return -1;
+	if (!anim) return -1;
+	for (size_t i = 0; i < e.animSlots.size(); ++i)
+		if (e.animSlots[i].anim == anim) return int(i);
+	return -1;
 }
 
-}  // namespace
+} // namespace
 
 // How far one animation's curve bone has travelled at `time`, on the axes that
 // animation declares. Zero for a slot with no curve, which is what makes the
 // blend arithmetic below work without a special case.
 void ScriptEngine::CurveOffset(Entity& e, const SkeletonCache::Entry* skel, int slotIndex,
-                               const std::vector<const AnimTrack*>& tracks, float time,
-                               Vec3& out) {
-    out[0] = out[1] = out[2] = 0.f;
-    if (!skel || slotIndex < 0 || size_t(slotIndex) >= e.animSlots.size()) return;
-    Entity::AnimSlot& slot = e.animSlots[size_t(slotIndex)];
-    if (slot.curveMask == 0 || ResolveCurveBone(slot, *skel) < 0) return;
-    if (tracks.size() != skel->bones.size()) return;
+		const std::vector<const AnimTrack*>& tracks, float time,
+		Vec3& out) {
+	out[0] = out[1] = out[2] = 0.f;
+	if (!skel || slotIndex < 0 || size_t(slotIndex) >= e.animSlots.size()) return;
+	Entity::AnimSlot& slot = e.animSlots[size_t(slotIndex)];
+	if (slot.curveMask == 0 || ResolveCurveBone(slot, *skel) < 0) return;
+	if (tracks.size() != skel->bones.size()) return;
 
-    Vec3 at;
-    if (!ComputeBonePositionAtTime(skel->bones, tracks, slot.curveBoneIndex, time, at)) return;
-    static const uint32_t kAxisBit[3] = {1, 2, 4};
-    for (int c = 0; c < 3; ++c)
-        if (slot.curveMask & kAxisBit[c]) out[c] = at[c];
+	Vec3 at;
+	if (!ComputeBonePositionAtTime(skel->bones, tracks, slot.curveBoneIndex, time, at)) return;
+	static const uint32_t kAxisBit[3] = {1, 2, 4};
+	for (int c = 0; c < 3; ++c)
+		if (slot.curveMask & kAxisBit[c]) out[c] = at[c];
 }
 
 const std::vector<Mat4>* ScriptEngine::PosedBones(Entity& e) {
-    if (e.type != kModel || e.source.empty()) return nullptr;
-    const SkeletonCache::Entry* skel = skeletons_.Get(e.source);
-    if (!skel || skel->bones.empty()) return nullptr;
+	if (e.type != kModel || e.source.empty()) return nullptr;
+	const SkeletonCache::Entry* skel = skeletons_.Get(e.source);
+	if (!skel || skel->bones.empty()) return nullptr;
 
-    // ONCE THE SOLVER HAS IT, THE ANIMATION DOES NOT. A ragdoll is not a pose
-    // the clock can advance - CActor stops the clock itself by setting
-    // _CurAnimLength to 99999 - so everything that asks where a bone is, from
-    // the draw to GetJointPos to the limb traces, has to be answered from the
-    // simulation instead.
-    if (e.ragdollSlot >= 0 && e.ragdollPose.size() == skel->bones.size())
-        return &e.ragdollPose;
-    const Animation* anim = (e.animIndex >= 0 && size_t(e.animIndex) < e.animSlots.size())
-                                ? e.animSlots[size_t(e.animIndex)].anim
-                                : nullptr;
+	// ONCE THE SOLVER HAS IT, THE ANIMATION DOES NOT. A ragdoll is not a pose
+	// the clock can advance - CActor stops the clock itself by setting
+	// _CurAnimLength to 99999 - so everything that asks where a bone is, from
+	// the draw to GetJointPos to the limb traces, has to be answered from the
+	// simulation instead.
+	if (e.ragdollSlot >= 0 && e.ragdollPose.size() == skel->bones.size())
+		return &e.ragdollPose;
+	const Animation* anim = (e.animIndex >= 0 && size_t(e.animIndex) < e.animSlots.size())
+								? e.animSlots[size_t(e.animIndex)].anim
+								: nullptr;
 
-    // Matching bone names to tracks is a string lookup per bone, so it happens
-    // only when the animation itself changes - not on every query, and not on
-    // every frame.
-    if (e.pose.anim != anim || e.pose.tracks.size() != skel->bones.size()) {
-        e.pose.anim = anim;
-        if (anim) ResolveAnimTracks(skel->bones, *anim, e.pose.tracks);
-        else      e.pose.tracks.assign(skel->bones.size(), nullptr);
-        e.pose.time = -1.f;                      // force a rebuild below
-    }
+	// Matching bone names to tracks is a string lookup per bone, so it happens
+	// only when the animation itself changes - not on every query, and not on
+	// every frame.
+	if (e.pose.anim != anim || e.pose.tracks.size() != skel->bones.size()) {
+		e.pose.anim = anim;
+		if (anim) ResolveAnimTracks(skel->bones, *anim, e.pose.tracks);
+		else e.pose.tracks.assign(skel->bones.size(), nullptr);
+		e.pose.time = -1.f; // force a rebuild below
+	}
 
-    // The weight is 0 at the moment of the switch and 1 when the fade is done.
-    const float blendU = (e.blendFrom && e.blendTotal > 1e-6f)
-                             ? 1.f - e.blendLeft / e.blendTotal
-                             : 1.f;
+	// The weight is 0 at the moment of the switch and 1 when the fade is done.
+	const float blendU = (e.blendFrom && e.blendTotal > 1e-6f)
+			? 1.f - e.blendLeft / e.blendTotal
+			: 1.f;
 
-    if (e.pose.time != e.animTime || e.pose.rotVersion != e.jointRotVersion ||
-        e.pose.blendU != blendU || e.pose.boneWorld.size() != skel->bones.size()) {
-        if (e.blendFrom && blendU < 1.f && !e.blendFromLocal.empty()) {
-            // Fading from a frozen pose - an interrupted fade's snapshot.
-            ComputeBoneWorldFromLocals(skel->bones, e.blendFromLocal, e.pose.tracks, e.animTime,
-                                       blendU, e.pose.boneWorld, e.jointRot.data(),
-                                       e.jointRot.size());
-        } else if (e.blendFrom && blendU < 1.f) {
-            if (e.blendFromTracks.size() != skel->bones.size())
-                ResolveAnimTracks(skel->bones, *e.blendFrom, e.blendFromTracks);
-            ComputeBoneWorldBlended(skel->bones, e.blendFromTracks, e.blendFromTime,
-                                    e.pose.tracks, e.animTime, blendU, e.pose.boneWorld,
-                                    e.jointRot.data(), e.jointRot.size());
-        } else {
-            ComputeBoneWorldAtTime(skel->bones, e.pose.tracks, e.animTime, e.pose.boneWorld,
-                                   e.jointRot.data(), e.jointRot.size());
-        }
-        e.pose.time = e.animTime;
-        e.pose.rotVersion = e.jointRotVersion;
-        e.pose.blendU = blendU;
-        // Take the root motion back out of the POSE.
-        //
-        // An animation with a movement curve carries its own travel: the walk
-        // cycle slides ROOOT 25.9 model units down +Z, and every bone hangs off
-        // it. The mover is what actually carries the actor (see "The mover
-        // drives, the animation plays in place" in Docs/Reference/Animation.md),
-        // so that travel has to come out or the mesh strides away from the
-        // monster and snaps back every time the loop wraps.
-        //
-        // Only the axes the curve declares are removed. ETransZ takes the
-        // forward travel out and deliberately leaves the vertical, so the
-        // actor still bobs as it walks.
-        //
-        // BOTH SIDES OF A CROSS-FADE, weighted the same way the pose is.
-        //
-        // A blended pose contains the OUTGOING animation's bones too, and its
-        // root travel is still in them. Subtracting only the incoming
-        // animation's curve left the walk's accumulated stride in the blend:
-        // switching to idle snapped the mesh 2.922 units in one frame and slid
-        // it back over the 0.2s fade. Fading to an animation with no curve at
-        // all is the common case - every walk that ends in idle - which is why
-        // it read as the monster jumping whenever it stopped.
-        {
-            Vec3 at;
-            CurveOffset(e, skel, e.animIndex, e.pose.tracks, e.animTime, at);
-            if (e.blendFrom && blendU < 1.f) {
-                Vec3 from;
-                if (!e.blendFromLocal.empty())
-                    for (int c = 0; c < 3; ++c) from[c] = e.blendFromOffset[c];
-                else
-                    CurveOffset(e, skel, SlotOfAnim(e, e.blendFrom), e.blendFromTracks,
-                                e.blendFromTime, from);
-                for (int c = 0; c < 3; ++c)
-                    at[c] = from[c] * (1.f - blendU) + at[c] * blendU;
-            }
-            if (at[0] != 0.f || at[1] != 0.f || at[2] != 0.f)
-                for (Mat4& m : e.pose.boneWorld)
-                    for (int c = 0; c < 3; ++c) m.m[12 + c] -= at[c];
-        }
-    }
-    return &e.pose.boneWorld;
+	if (e.pose.time != e.animTime || e.pose.rotVersion != e.jointRotVersion ||
+			e.pose.blendU != blendU || e.pose.boneWorld.size() != skel->bones.size()) {
+		if (e.blendFrom && blendU < 1.f && !e.blendFromLocal.empty()) {
+			// Fading from a frozen pose - an interrupted fade's snapshot.
+			ComputeBoneWorldFromLocals(skel->bones, e.blendFromLocal, e.pose.tracks, e.animTime,
+					blendU, e.pose.boneWorld, e.jointRot.data(),
+					e.jointRot.size());
+		} else if (e.blendFrom && blendU < 1.f) {
+			if (e.blendFromTracks.size() != skel->bones.size())
+				ResolveAnimTracks(skel->bones, *e.blendFrom, e.blendFromTracks);
+			ComputeBoneWorldBlended(skel->bones, e.blendFromTracks, e.blendFromTime,
+					e.pose.tracks, e.animTime, blendU, e.pose.boneWorld,
+					e.jointRot.data(), e.jointRot.size());
+		} else {
+			ComputeBoneWorldAtTime(skel->bones, e.pose.tracks, e.animTime, e.pose.boneWorld,
+					e.jointRot.data(), e.jointRot.size());
+		}
+		e.pose.time = e.animTime;
+		e.pose.rotVersion = e.jointRotVersion;
+		e.pose.blendU = blendU;
+		// Take the root motion back out of the POSE.
+		//
+		// An animation with a movement curve carries its own travel: the walk
+		// cycle slides ROOOT 25.9 model units down +Z, and every bone hangs off
+		// it. The mover is what actually carries the actor (see "The mover
+		// drives, the animation plays in place" in Docs/Reference/Animation.md),
+		// so that travel has to come out or the mesh strides away from the
+		// monster and snaps back every time the loop wraps.
+		//
+		// Only the axes the curve declares are removed. ETransZ takes the
+		// forward travel out and deliberately leaves the vertical, so the
+		// actor still bobs as it walks.
+		//
+		// BOTH SIDES OF A CROSS-FADE, weighted the same way the pose is.
+		//
+		// A blended pose contains the OUTGOING animation's bones too, and its
+		// root travel is still in them. Subtracting only the incoming
+		// animation's curve left the walk's accumulated stride in the blend:
+		// switching to idle snapped the mesh 2.922 units in one frame and slid
+		// it back over the 0.2s fade. Fading to an animation with no curve at
+		// all is the common case - every walk that ends in idle - which is why
+		// it read as the monster jumping whenever it stopped.
+		{
+			Vec3 at;
+			CurveOffset(e, skel, e.animIndex, e.pose.tracks, e.animTime, at);
+			if (e.blendFrom && blendU < 1.f) {
+				Vec3 from;
+				if (!e.blendFromLocal.empty())
+					for (int c = 0; c < 3; ++c) from[c] = e.blendFromOffset[c];
+				else
+					CurveOffset(e, skel, SlotOfAnim(e, e.blendFrom), e.blendFromTracks,
+							e.blendFromTime, from);
+				for (int c = 0; c < 3; ++c)
+					at[c] = from[c] * (1.f - blendU) + at[c] * blendU;
+			}
+			if (at[0] != 0.f || at[1] != 0.f || at[2] != 0.f)
+				for (Mat4& m : e.pose.boneWorld)
+					for (int c = 0; c < 3; ++c) m.m[12 + c] -= at[c];
+		}
+	}
+	return &e.pose.boneWorld;
 }
 
 bool ScriptEngine::JointToWorld(Entity& e, int joint, const Vec3& local,
-                                Vec3& out) {
-    const std::vector<Mat4>* bones = PosedBones(e);
-    if (!bones || joint < 0 || size_t(joint) >= bones->size()) return false;
+		Vec3& out) {
+	const std::vector<Mat4>* bones = PosedBones(e);
+	if (!bones || joint < 0 || size_t(joint) >= bones->size()) return false;
 
-    // Bone-local -> model space by the posed bone, then model -> world by the
-    // entity's own transform, built exactly as the renderer builds it
-    // (Properties.cpp ReadRotation's matrix form, scaled by the entity scale
-    // the scripts' *0.1 rule already produced). If these two ever disagree, a
-    // muzzle flash drifts off the barrel it is drawn on.
-    Vec3 model;
-    (*bones)[size_t(joint)].TransformPoint(local[0], local[1], local[2], model);
+	// Bone-local -> model space by the posed bone, then model -> world by the
+	// entity's own transform, built exactly as the renderer builds it
+	// (Properties.cpp ReadRotation's matrix form, scaled by the entity scale
+	// the scripts' *0.1 rule already produced). If these two ever disagree, a
+	// muzzle flash drifts off the barrel it is drawn on.
+	Vec3 model;
+	(*bones)[size_t(joint)].TransformPoint(local[0], local[1], local[2], model);
 
-    float rot9[9];
-    EngineQuatToRot9(e.rot, rot9);
-    for (int c = 0; c < 3; ++c)
-        out[c] = e.pos[c] + e.scale * (model[0] * rot9[0 * 3 + c] +
-                                       model[1] * rot9[1 * 3 + c] +
-                                       model[2] * rot9[2 * 3 + c]);
-    return true;
+	float rot9[9];
+	EngineQuatToRot9(e.rot, rot9);
+	for (int c = 0; c < 3; ++c)
+		out[c] = e.pos[c] + e.scale * (model[0] * rot9[0 * 3 + c] +
+				model[1] * rot9[1 * 3 + c] +
+				model[2] * rot9[2 * 3 + c]);
+	return true;
 }
 
 // MDL.GetJointIndex(e, name) -> the bone's index, or -1.
@@ -505,36 +505,36 @@ bool ScriptEngine::JointToWorld(Entity& e, int joint, const Vec3& local,
 // bone a weapon rides) and pass it back to every other joint call, so the
 // index has to be the bone's own position in the model's bone list.
 int AnimNatives::L_MDL_GetJointIndex(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    const char* name = lua_tostring(L, 2);
-    lua_pushnumber(L, -1);
-    if (!e || !name || e->type != kModel) return 1;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	const char* name = lua_tostring(L, 2);
+	lua_pushnumber(L, -1);
+	if (!e || !name || e->type != kModel) return 1;
 
-    const SkeletonCache::Entry* skel = self->skeletons_.Get(e->source);
-    if (!skel) return 1;
-    for (size_t i = 0; i < skel->bones.size(); ++i)
-        if (EqualsCI(skel->bones[i].name, name)) {
-            lua_pop(L, 1);
-            lua_pushnumber(L, double(i));
-            return 1;
-        }
-    return 1;   // -1: a model without that bone is an answer the scripts test
+	const SkeletonCache::Entry* skel = self->skeletons_.Get(e->source);
+	if (!skel) return 1;
+	for (size_t i = 0; i < skel->bones.size(); ++i)
+		if (EqualsCI(skel->bones[i].name, name)) {
+			lua_pop(L, 1);
+			lua_pushnumber(L, double(i));
+			return 1;
+		}
+	return 1; // -1: a model without that bone is an answer the scripts test
 }
 
 // MDL.GetJointName(e, joint) -> the bone's name, or nothing.
 int AnimNatives::L_MDL_GetJointName(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    const int joint = int(lua_tonumber(L, 2));
-    const SkeletonCache::Entry* skel =
-        (e && e->type == kModel) ? self->skeletons_.Get(e->source) : nullptr;
-    if (!skel || joint < 0 || size_t(joint) >= skel->bones.size()) {
-        lua_pushstring(L, "");
-        return 1;
-    }
-    lua_pushstring(L, skel->bones[size_t(joint)].name.c_str());
-    return 1;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	const int joint = int(lua_tonumber(L, 2));
+	const SkeletonCache::Entry* skel =
+		(e && e->type == kModel) ? self->skeletons_.Get(e->source) : nullptr;
+	if (!skel || joint < 0 || size_t(joint) >= skel->bones.size()) {
+		lua_pushstring(L, "");
+		return 1;
+	}
+	lua_pushstring(L, skel->bones[size_t(joint)].name.c_str());
+	return 1;
 }
 
 // MDL.TransformPointByJoint(e, joint, x,y,z) -> a point carried by a bone,
@@ -550,38 +550,38 @@ int AnimNatives::L_MDL_GetJointName(lua_State* L) {
 // all, the nils flowed into Vector:New and threw an error that aborted
 // Game_Tick entirely - every frame a weapon fired.
 int AnimNatives::L_MDL_TransformPointByJoint(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    const int joint = int(lua_tonumber(L, 2));
-    const Vec3 local{float(lua_tonumber(L, 3)), float(lua_tonumber(L, 4)),
-                            float(lua_tonumber(L, 5))};
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	const int joint = int(lua_tonumber(L, 2));
+	const Vec3 local{float(lua_tonumber(L, 3)), float(lua_tonumber(L, 4)),
+							float(lua_tonumber(L, 5))};
 
-    Vec3 world;
-    if (!e || !self->JointToWorld(*e, joint, local, world))
-        for (int c = 0; c < 3; ++c) world[c] = e ? e->pos[c] : 0.f;
-    for (int c = 0; c < 3; ++c) lua_pushnumber(L, world[c]);
+	Vec3 world;
+	if (!e || !self->JointToWorld(*e, joint, local, world))
+		for (int c = 0; c < 3; ++c) world[c] = e ? e->pos[c] : 0.f;
+	for (int c = 0; c < 3; ++c) lua_pushnumber(L, world[c]);
 
-    // The bone's orientation, composed with the entity's own so the result is
-    // a world rotation - which is what the callers hand to ENTITY.SetRotation.
-    Quat quat;
-    if (e) self->JointWorldRotation(*e, joint, quat);
-    for (int c = 0; c < 4; ++c) lua_pushnumber(L, quat[c]);
-    return 7;
+	// The bone's orientation, composed with the entity's own so the result is
+	// a world rotation - which is what the callers hand to ENTITY.SetRotation.
+	Quat quat;
+	if (e) self->JointWorldRotation(*e, joint, quat);
+	for (int c = 0; c < 4; ++c) lua_pushnumber(L, quat[c]);
+	return 7;
 }
 
 // MDL.GetJointPos(e, joint) -> where a bone is, in world space. The bone's
 // own origin, which is TransformPointByJoint with a zero point.
 int AnimNatives::L_MDL_GetJointPos(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    const int joint = int(lua_tonumber(L, 2));
-    const Vec3 origin;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	const int joint = int(lua_tonumber(L, 2));
+	const Vec3 origin;
 
-    Vec3 world;
-    if (!e || !self->JointToWorld(*e, joint, origin, world))
-        for (int c = 0; c < 3; ++c) world[c] = e ? e->pos[c] : 0.f;
-    for (int c = 0; c < 3; ++c) lua_pushnumber(L, world[c]);
-    return 3;
+	Vec3 world;
+	if (!e || !self->JointToWorld(*e, joint, origin, world))
+		for (int c = 0; c < 3; ++c) world[c] = e ? e->pos[c] : 0.f;
+	for (int c = 0; c < 3; ++c) lua_pushnumber(L, world[c]);
+	return 3;
 }
 
 // MDL.ApplyJointRotation(e, joint, ax, ay, az) - turns one bone on top of the
@@ -593,28 +593,28 @@ int AnimNatives::L_MDL_GetJointPos(lua_State* L) {
 // a turret's _barrelPitch, an actor's head angle toward the player. Made
 // additive, a turret would wind up and spin.
 int AnimNatives::L_MDL_ApplyJointRotation(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    const int joint = int(lua_tonumber(L, 2));
-    if (!e || joint < 0) return 0;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	const int joint = int(lua_tonumber(L, 2));
+	if (!e || joint < 0) return 0;
 
-    const Vec3 euler{float(lua_tonumber(L, 3)), float(lua_tonumber(L, 4)),
-                            float(lua_tonumber(L, 5))};
-    for (JointOverride& o : e->jointRot) {
-        if (o.bone != joint) continue;
-        if (o.euler[0] == euler[0] && o.euler[1] == euler[1] && o.euler[2] == euler[2])
-            return 0;                     // unchanged: leave the cached pose alone
-        for (int c = 0; c < 3; ++c) o.euler[c] = euler[c];
-        ++e->jointRotVersion;
-        return 0;
-    }
+	const Vec3 euler{float(lua_tonumber(L, 3)), float(lua_tonumber(L, 4)),
+							float(lua_tonumber(L, 5))};
+	for (JointOverride& o : e->jointRot) {
+		if (o.bone != joint) continue;
+		if (o.euler[0] == euler[0] && o.euler[1] == euler[1] && o.euler[2] == euler[2])
+			return 0; // unchanged: leave the cached pose alone
+		for (int c = 0; c < 3; ++c) o.euler[c] = euler[c];
+		++e->jointRotVersion;
+		return 0;
+	}
 
-    JointOverride add;
-    add.bone = joint;
-    for (int c = 0; c < 3; ++c) add.euler[c] = euler[c];
-    e->jointRot.push_back(add);
-    ++e->jointRotVersion;
-    return 0;
+	JointOverride add;
+	add.bone = joint;
+	for (int c = 0; c < 3; ++c) add.euler[c] = euler[c];
+	e->jointRot.push_back(add);
+	++e->jointRotVersion;
+	return 0;
 }
 
 // MDL.GetJointRotation(e, joint) -> the bone's world orientation, engine
@@ -639,96 +639,96 @@ int AnimNatives::L_MDL_ApplyJointRotation(lua_State* L) {
 // are driven along the animation, not simulated, and the engine reads no
 // velocity off them.
 int AnimNatives::L_MDL_GetVelocitiesFromJoint(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    Vec3 lin, ang;
-    if (e && e->ragdollSlot >= 0 && self->physics_ &&
-        self->physics_->RagdollActive(e->ragdollSlot)) {
-        const int part = self->RagdollPartOfJoint(*e, int(luaL_optnumber(L, 2, -1)));
-        if (part >= 0) self->physics_->GetRagdollPartVelocity(e->ragdollSlot, part, lin, ang);
-    }
-    for (int c = 0; c < 3; ++c) lua_pushnumber(L, lin[c]);
-    lua_pushnumber(L, std::sqrt(lin[0] * lin[0] + lin[1] * lin[1] + lin[2] * lin[2]));
-    for (int c = 0; c < 3; ++c) lua_pushnumber(L, ang[c]);
-    lua_pushnumber(L, std::sqrt(ang[0] * ang[0] + ang[1] * ang[1] + ang[2] * ang[2]));
-    return 8;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	Vec3 lin, ang;
+	if (e && e->ragdollSlot >= 0 && self->physics_ &&
+			self->physics_->RagdollActive(e->ragdollSlot)) {
+		const int part = self->RagdollPartOfJoint(*e, int(luaL_optnumber(L, 2, -1)));
+		if (part >= 0) self->physics_->GetRagdollPartVelocity(e->ragdollSlot, part, lin, ang);
+	}
+	for (int c = 0; c < 3; ++c) lua_pushnumber(L, lin[c]);
+	lua_pushnumber(L, std::sqrt(lin[0] * lin[0] + lin[1] * lin[1] + lin[2] * lin[2]));
+	for (int c = 0; c < 3; ++c) lua_pushnumber(L, ang[c]);
+	lua_pushnumber(L, std::sqrt(ang[0] * ang[0] + ang[1] * ang[1] + ang[2] * ang[2]));
+	return 8;
 }
 
 bool ScriptEngine::JointWorldRotation(Entity& e, int joint, Quat& out) {
-    const std::vector<Mat4>* bones = PosedBones(e);
-    if (!bones || joint < 0 || size_t(joint) >= bones->size()) return false;
-    const Mat4& m = (*bones)[size_t(joint)];
-    float rot9[9];
-    for (int r = 0; r < 3; ++r)
-        for (int c = 0; c < 3; ++c) rot9[r * 3 + c] = m.m[r * 4 + c];
-    Normalize3x3Rows(rot9);
-    const Quat boneQuat = EngineRot9ToQuat(rot9);
-    out = e.rot * boneQuat;
-    return true;
+	const std::vector<Mat4>* bones = PosedBones(e);
+	if (!bones || joint < 0 || size_t(joint) >= bones->size()) return false;
+	const Mat4& m = (*bones)[size_t(joint)];
+	float rot9[9];
+	for (int r = 0; r < 3; ++r)
+		for (int c = 0; c < 3; ++c) rot9[r * 3 + c] = m.m[r * 4 + c];
+	Normalize3x3Rows(rot9);
+	const Quat boneQuat = EngineRot9ToQuat(rot9);
+	out = e.rot * boneQuat;
+	return true;
 }
 
 int AnimNatives::L_MDL_GetJointRotation(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    const int joint = int(lua_tonumber(L, 2));
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	const int joint = int(lua_tonumber(L, 2));
 
-    Quat quat;
-    if (e) self->JointWorldRotation(*e, joint, quat);
-    for (int c = 0; c < 4; ++c) lua_pushnumber(L, quat[c]);
-    return 4;
+	Quat quat;
+	if (e) self->JointWorldRotation(*e, joint, quat);
+	for (int c = 0; c < 4; ++c) lua_pushnumber(L, quat[c]);
+	return 4;
 }
 
 void ScriptEngine::TickAnimations(float dt) {
-    if (dt <= 0.f) return;
-    for (auto& kv : entities_) {
-        Entity& e = kv.second;
-        if (e.animIndex < 0 || e.animScale <= 0.f) continue;   // none, or paused
-        const float length = e.animSlots[size_t(e.animIndex)].length;
-        e.animTime += dt * e.animScale;
-        if (length <= 0.f) {
-            e.animTime = 0.f;
-        } else if (e.animLoop) {
-            while (e.animTime >= length) e.animTime -= length;
-        } else if (e.animTime > length) {
-            // A one-shot holds on its last frame. It must not wrap: the event
-            // loop walks forward through the declared times and would fire
-            // the whole list again on every pass.
-            e.animTime = length;
-        }
+	if (dt <= 0.f) return;
+	for (auto& kv : entities_) {
+		Entity& e = kv.second;
+		if (e.animIndex < 0 || e.animScale <= 0.f) continue; // none, or paused
+		const float length = e.animSlots[size_t(e.animIndex)].length;
+		e.animTime += dt * e.animScale;
+		if (length <= 0.f) {
+			e.animTime = 0.f;
+		} else if (e.animLoop) {
+			while (e.animTime >= length) e.animTime -= length;
+		} else if (e.animTime > length) {
+			// A one-shot holds on its last frame. It must not wrap: the event
+			// loop walks forward through the declared times and would fire
+			// the whole list again on every pass.
+			e.animTime = length;
+		}
 
-        // Run the cross-fade down. It is spent in real seconds, not animation
-        // time, so a blend lasts as long as the template says whatever speed
-        // the outgoing animation was playing at.
-        if (e.blendLeft > 0.f) {
-            e.blendLeft -= dt;
-            if (e.blendLeft <= 0.f) {
-                e.blendLeft = 0.f;
-                e.blendFrom = nullptr;
-                e.blendFromTracks.clear();
-                e.blendFromLocal.clear();
-            }
-        }
+		// Run the cross-fade down. It is spent in real seconds, not animation
+		// time, so a blend lasts as long as the template says whatever speed
+		// the outgoing animation was playing at.
+		if (e.blendLeft > 0.f) {
+			e.blendLeft -= dt;
+			if (e.blendLeft <= 0.f) {
+				e.blendLeft = 0.f;
+				e.blendFrom = nullptr;
+				e.blendFromTracks.clear();
+				e.blendFromLocal.clear();
+			}
+		}
 
-        // Hand the pose to the renderer. Headless runs have none attached,
-        // which is why the clock is useful on its own.
-        //
-        // The bones are posed HERE rather than in the renderer so that a joint
-        // query and the drawn mesh cannot disagree. It costs one pass over the
-        // skeleton per animated entity - about forty of them in a level, sixty
-        // bones each - while the expensive half, deforming the vertices, stays
-        // behind the renderer's frustum test where an actor across the map
-        // still costs nothing.
-        if (renderer_ && e.rendererInstance >= 0) {
-            const std::vector<Mat4>* boneWorld = PosedBones(e);
-            const SkeletonCache::Entry* skel =
-                boneWorld ? skeletons_.Get(e.source) : nullptr;
-            if (skel) {
-                BoneWorldToSkinning(skel->inverseBind, *boneWorld, skinScratch_);
-                renderer_->SetScriptSkinning(e.rendererInstance, skinScratch_.data(),
-                                             skinScratch_.size());
-            }
-        }
-    }
+		// Hand the pose to the renderer. Headless runs have none attached,
+		// which is why the clock is useful on its own.
+		//
+		// The bones are posed HERE rather than in the renderer so that a joint
+		// query and the drawn mesh cannot disagree. It costs one pass over the
+		// skeleton per animated entity - about forty of them in a level, sixty
+		// bones each - while the expensive half, deforming the vertices, stays
+		// behind the renderer's frustum test where an actor across the map
+		// still costs nothing.
+		if (renderer_ && e.rendererInstance >= 0) {
+			const std::vector<Mat4>* boneWorld = PosedBones(e);
+			const SkeletonCache::Entry* skel =
+				boneWorld ? skeletons_.Get(e.source) : nullptr;
+			if (skel) {
+				BoneWorldToSkinning(skel->inverseBind, *boneWorld, skinScratch_);
+				renderer_->SetScriptSkinning(e.rendererInstance, skinScratch_.data(),
+						skinScratch_.size());
+			}
+		}
+	}
 }
 
 
@@ -743,60 +743,60 @@ void ScriptEngine::TickAnimations(float dt) {
 // while its head is away, and BackHeadSFX shows them again when it returns.
 // Monsters use the same call to drop gib parts, and the menu to swap heads.
 int AnimNatives::L_MDL_SetMeshVisibility(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    if (!e || e->type != kModel) return 0;
-    const char* mesh = luaL_optstring(L, 2, "");
-    if (!mesh || !*mesh) return 0;
-    const bool on = lua_toboolean(L, 3) != 0;
-    // Remembered on the entity as well as pushed at the renderer: a script
-    // instance is rebuilt whenever its model is reassigned, and the hidden
-    // set has to survive that or the blades come back on their own.
-    e->hiddenMeshes[mesh] = on;
-    if (self->renderer_ && e->rendererInstance >= 0)
-        self->renderer_->SetScriptMeshVisibility(e->rendererInstance, mesh, on);
-    return 0;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || e->type != kModel) return 0;
+	const char* mesh = luaL_optstring(L, 2, "");
+	if (!mesh || !*mesh) return 0;
+	const bool on = lua_toboolean(L, 3) != 0;
+	// Remembered on the entity as well as pushed at the renderer: a script
+	// instance is rebuilt whenever its model is reassigned, and the hidden
+	// set has to survive that or the blades come back on their own.
+	e->hiddenMeshes[mesh] = on;
+	if (self->renderer_ && e->rendererInstance >= 0)
+		self->renderer_->SetScriptMeshVisibility(e->rendererInstance, mesh, on);
+	return 0;
 }
 
 // MDL.SetMaterial(entity, name) - swap the model to another material family.
 // CActor hands every gib its template's gibShader ("palskinned_bloody" in 64
 // of them) and the freeze effect swaps the whole actor.
 int AnimNatives::L_MDL_SetMaterial(lua_State* L) {
-    ScriptEngine* self = From(L);
-    Entity* e = self->Find(HandleArg(L, 1));
-    if (!e) return 0;
-    const char* name = luaL_optstring(L, 2, "");
-    if (!name || !*name) return 0;
-    // Kept on the entity as well: a rebuilt renderer instance would otherwise
-    // fall back to the plain skin, the way hiddenMeshes would.
-    e->materialName = name;
-    if (self->renderer_ && self->textures_ && e->rendererInstance >= 0)
-        self->renderer_->SetScriptMaterial(e->rendererInstance, name, *self->textures_);
-    return 0;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e) return 0;
+	const char* name = luaL_optstring(L, 2, "");
+	if (!name || !*name) return 0;
+	// Kept on the entity as well: a rebuilt renderer instance would otherwise
+	// fall back to the plain skin, the way hiddenMeshes would.
+	e->materialName = name;
+	if (self->renderer_ && self->textures_ && e->rendererInstance >= 0)
+		self->renderer_->SetScriptMaterial(e->rendererInstance, name, *self->textures_);
+	return 0;
 }
 
 void BindAnim(ScriptEngine& engine, LuaHost& host) {
-    const ScriptNative natives[] = {
-        {"MDL", "SetAnim", AnimNatives::L_MDL_SetAnim},
-        {"MDL", "SetMeshVisibility", AnimNatives::L_MDL_SetMeshVisibility},
-        {"MDL", "SetMaterial", AnimNatives::L_MDL_SetMaterial},
-        {"MDL", "GetAnimLength", AnimNatives::L_MDL_GetAnimLength},
-        {"MDL", "GetAnimTime", AnimNatives::L_MDL_GetAnimTime},
-        {"MDL", "SetAnimTime", AnimNatives::L_MDL_SetAnimTime},
-        {"MDL", "GetAnimTimeScale", AnimNatives::L_MDL_GetAnimTimeScale},
-        {"MDL", "SetAnimTimeScale", AnimNatives::L_MDL_SetAnimTimeScale},
-        {"MDL", "ResetFrame", AnimNatives::L_MDL_ResetFrame},
-        {"MDL", "LoadAnim", AnimNatives::L_MDL_LoadAnim},
-        {"MDL", "GetAnimMovement", AnimNatives::L_MDL_GetAnimMovement},
-        {"MDL", "TransformPointByJoint", AnimNatives::L_MDL_TransformPointByJoint},
-        {"MDL", "GetJointPos", AnimNatives::L_MDL_GetJointPos},
-        {"MDL", "GetJointIndex", AnimNatives::L_MDL_GetJointIndex},
-        {"MDL", "GetJointName", AnimNatives::L_MDL_GetJointName},
-        {"MDL", "GetJointRotation", AnimNatives::L_MDL_GetJointRotation},
-        {"MDL", "ApplyJointRotation", AnimNatives::L_MDL_ApplyJointRotation},
-        {"MDL", "GetVelocitiesFromJoint", AnimNatives::L_MDL_GetVelocitiesFromJoint},
-    };
-    RegisterFamily(engine, host, natives);
+	const ScriptNative natives[] = {
+		{"MDL", "SetAnim", AnimNatives::L_MDL_SetAnim},
+		{"MDL", "SetMeshVisibility", AnimNatives::L_MDL_SetMeshVisibility},
+		{"MDL", "SetMaterial", AnimNatives::L_MDL_SetMaterial},
+		{"MDL", "GetAnimLength", AnimNatives::L_MDL_GetAnimLength},
+		{"MDL", "GetAnimTime", AnimNatives::L_MDL_GetAnimTime},
+		{"MDL", "SetAnimTime", AnimNatives::L_MDL_SetAnimTime},
+		{"MDL", "GetAnimTimeScale", AnimNatives::L_MDL_GetAnimTimeScale},
+		{"MDL", "SetAnimTimeScale", AnimNatives::L_MDL_SetAnimTimeScale},
+		{"MDL", "ResetFrame", AnimNatives::L_MDL_ResetFrame},
+		{"MDL", "LoadAnim", AnimNatives::L_MDL_LoadAnim},
+		{"MDL", "GetAnimMovement", AnimNatives::L_MDL_GetAnimMovement},
+		{"MDL", "TransformPointByJoint", AnimNatives::L_MDL_TransformPointByJoint},
+		{"MDL", "GetJointPos", AnimNatives::L_MDL_GetJointPos},
+		{"MDL", "GetJointIndex", AnimNatives::L_MDL_GetJointIndex},
+		{"MDL", "GetJointName", AnimNatives::L_MDL_GetJointName},
+		{"MDL", "GetJointRotation", AnimNatives::L_MDL_GetJointRotation},
+		{"MDL", "ApplyJointRotation", AnimNatives::L_MDL_ApplyJointRotation},
+		{"MDL", "GetVelocitiesFromJoint", AnimNatives::L_MDL_GetVelocitiesFromJoint},
+	};
+	RegisterFamily(engine, host, natives);
 }
 
-}  // namespace painful
+} // namespace painful

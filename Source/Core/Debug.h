@@ -13,9 +13,9 @@
 // caching in a `static const`.
 namespace painful {
 
-bool        DebugFlag(const char* name);
-int         DebugInt(const char* name, int fallback);
-float       DebugFloat(const char* name, float fallback);
+bool DebugFlag(const char* name);
+int DebugInt(const char* name, int fallback);
+float DebugFloat(const char* name, float fallback);
 // Null when unset, so a caller can tell "absent" from "empty".
 const char* DebugText(const char* name);
 
@@ -25,4 +25,4 @@ void DebugList();
 // Empty when none are.
 std::string DebugActive();
 
-}  // namespace painful
+} // namespace painful

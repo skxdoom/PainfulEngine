@@ -16,42 +16,42 @@ namespace painful {
 ScriptEngine* ScriptNativesBase::From(lua_State* L) { return ScriptEngine::From(L); }
 
 const ScriptEngine::Entity::AnimSlot* ScriptNativesBase::AnimSlotArg(const Entity* e, lua_State* L,
-                                                                   int arg) {
-    return ScriptEngine::AnimSlotArg(e, L, arg);
+		int arg) {
+	return ScriptEngine::AnimSlotArg(e, L, arg);
 }
 
 int ScriptNativesBase::TraceCommon(lua_State* L, bool staticOnly) {
-    return ScriptEngine::TraceCommon(L, staticOnly);
+	return ScriptEngine::TraceCommon(L, staticOnly);
 }
 
 int ScriptNativesBase::ResolveCurveBone(Entity::AnimSlot& slot, const SkeletonCache::Entry& skel) {
-    return ScriptEngine::ResolveCurveBone(slot, skel);
+	return ScriptEngine::ResolveCurveBone(slot, skel);
 }
 
 void RegisterFamily(ScriptEngine& engine, LuaHost& host, const ScriptNative* rows, size_t count) {
-    for (size_t i = 0; i < count; ++i)
-        host.RegisterNative(rows[i].module, rows[i].name, rows[i].fn, &engine);
+	for (size_t i = 0; i < count; ++i)
+		host.RegisterNative(rows[i].module, rows[i].name, rows[i].fn, &engine);
 }
 
 void ScriptEngine::Bind(LuaHost& host) {
-    host_ = &host;
-    BindEntity(*this, host);
-    BindPlayer(*this, host);
-    BindWorld(*this, host);
-    BindAnim(*this, host);
-    BindSound(*this, host);
-    BindHud(*this, host);
-    BindMenu(*this, host);
-    BindConsole(*this, host);
-    BindInput(*this, host);
-    BindTrace(*this, host);
-    BindCollision(*this, host);
-    BindExplosion(*this, host);
-    BindDeath(*this, host);
-    BindLimbs(*this, host);
-    BindDecal(*this, host);
-    BindWater(*this, host);
-    BindSave(*this, host);
+	host_ = &host;
+	BindEntity(*this, host);
+	BindPlayer(*this, host);
+	BindWorld(*this, host);
+	BindAnim(*this, host);
+	BindSound(*this, host);
+	BindHud(*this, host);
+	BindMenu(*this, host);
+	BindConsole(*this, host);
+	BindInput(*this, host);
+	BindTrace(*this, host);
+	BindCollision(*this, host);
+	BindExplosion(*this, host);
+	BindDeath(*this, host);
+	BindLimbs(*this, host);
+	BindDecal(*this, host);
+	BindWater(*this, host);
+	BindSave(*this, host);
 }
 
-}  // namespace painful
+} // namespace painful

@@ -19,37 +19,37 @@ namespace painful {
 // flow) is skipped, so the same parser handles both plain data files and the
 // level scripts that mix data with behaviour.
 struct Value {
-    enum class Kind { Number, String, Bool, Ctor };
-    Kind kind = Kind::Number;
-    double number = 0;
-    bool boolean = false;
-    std::string text;              // string contents, or ctor name ("Vector")
-    std::vector<double> args;      // ctor arguments
+	enum class Kind { Number, String, Bool, Ctor };
+	Kind kind = Kind::Number;
+	double number = 0;
+	bool boolean = false;
+	std::string text; // string contents, or ctor name ("Vector")
+	std::vector<double> args; // ctor arguments
 
-    float Arg(size_t i, float fallback = 0.f) const {
-        return i < args.size() ? static_cast<float>(args[i]) : fallback;
-    }
+	float Arg(size_t i, float fallback = 0.f) const {
+		return i < args.size() ? static_cast<float>(args[i]) : fallback;
+	}
 };
 
 class Properties {
 public:
-    // Parses every "o.<path> = <value>" assignment it can understand.
-    bool LoadFromFile(const std::string& path);
-    void LoadFromText(const std::string& text);
+	// Parses every "o.<path> = <value>" assignment it can understand.
+	bool LoadFromFile(const std::string& path);
+	void LoadFromText(const std::string& text);
 
-    bool Has(const std::string& key) const { return values_.count(key) != 0; }
-    const Value* Find(const std::string& key) const;
+	bool Has(const std::string& key) const { return values_.count(key) != 0; }
+	const Value* Find(const std::string& key) const;
 
-    double     Number(const std::string& key, double fallback = 0) const;
-    std::string String(const std::string& key, const std::string& fallback = "") const;
-    bool       Bool(const std::string& key, bool fallback = false) const;
-    // Reads a Vector:New(x,y,z) style value into three floats.
-    bool       Vector3(const std::string& key, Vec3& out) const;
+	double Number(const std::string& key, double fallback = 0) const;
+	std::string String(const std::string& key, const std::string& fallback = "") const;
+	bool Bool(const std::string& key, bool fallback = false) const;
+	// Reads a Vector:New(x,y,z) style value into three floats.
+	bool Vector3(const std::string& key, Vec3& out) const;
 
-    const std::map<std::string, Value>& all() const { return values_; }
+	const std::map<std::string, Value>& all() const { return values_; }
 
 private:
-    std::map<std::string, Value> values_;
+	std::map<std::string, Value> values_;
 };
 
 // Reads a placed object's orientation into a row-vector 3x3, from whichever of

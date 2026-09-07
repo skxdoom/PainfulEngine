@@ -16,7 +16,7 @@
 // from both, which is how "%s" with an int compiles silently.
 #if defined(__GNUC__) || defined(__clang__)
 #define PAINFUL_FORMAT_ATTR(fmtIndex, firstArg) \
-    __attribute__((format(printf, fmtIndex, firstArg)))
+	__attribute__((format(printf, fmtIndex, firstArg)))
 #define PAINFUL_FORMAT_STRING(decl) decl
 #else
 #define PAINFUL_FORMAT_ATTR(fmtIndex, firstArg)
@@ -52,4 +52,4 @@ void LogTrace(PAINFUL_FORMAT_STRING(const char* fmt), ...) PAINFUL_FORMAT_ATTR(1
 void LogScript(PAINFUL_FORMAT_STRING(const char* fmt), ...) PAINFUL_FORMAT_ATTR(1, 2);
 void LogShader(PAINFUL_FORMAT_STRING(const char* fmt), ...) PAINFUL_FORMAT_ATTR(1, 2);
 
-}  // namespace painful
+} // namespace painful

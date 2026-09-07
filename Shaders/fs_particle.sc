@@ -9,8 +9,8 @@ $input v_color0, v_texcoord0, v_viewdist
 #include <bgfx_shader.sh>
 
 SAMPLER2D(s_diffuse, 0);
-uniform vec4 u_fogColor;  // rgb: level fog colour
-uniform vec4 u_fog;       // x: mode (0 none, 1 exp, 2 exp2, 3 linear), y: start, z: end, w: density
+uniform vec4 u_fogColor; // rgb: level fog colour
+uniform vec4 u_fog; // x: mode (0 none, 1 exp, 2 exp2, 3 linear), y: start, z: end, w: density
 
 void main()
 {

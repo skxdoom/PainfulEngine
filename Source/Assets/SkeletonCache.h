@@ -23,40 +23,40 @@ namespace painful {
 // query.
 class SkeletonCache {
 public:
-    struct Entry {
-        std::vector<Bone> bones;         // hierarchy already resolved
-        std::vector<Mat4> bindWorld;
-        std::vector<Mat4> inverseBind;
-        // Model-space bounds of the meshes, for callers that need the shape
-        // rather than the skeleton - a character radius is the horizontal
-        // half-extent, and a T-posed humanoid's widest axis is its ARMS.
-        Vec3 lo, hi;
-        // The lowest vertex in the idle pose (first frame of idle / idle1),
-        // or lo[1] when there is none. The body sizer measures from the
-        // entity's local box, which is the POSED model's: the Giant's bind
-        // pose floats 0.48 above its origin while every animation plants its
-        // feet below it. Docs/Reference/MonsterMovement.md, "The body".
-        float poseLo = 0.f, poseHi = 0.f;
-    };
+	struct Entry {
+		std::vector<Bone> bones; // hierarchy already resolved
+		std::vector<Mat4> bindWorld;
+		std::vector<Mat4> inverseBind;
+		// Model-space bounds of the meshes, for callers that need the shape
+		// rather than the skeleton - a character radius is the horizontal
+		// half-extent, and a T-posed humanoid's widest axis is its ARMS.
+		Vec3 lo, hi;
+		// The lowest vertex in the idle pose (first frame of idle / idle1),
+		// or lo[1] when there is none. The body sizer measures from the
+		// entity's local box, which is the POSED model's: the Giant's bind
+		// pose floats 0.48 above its origin while every animation plants its
+		// feet below it. Docs/Reference/MonsterMovement.md, "The body".
+		float poseLo = 0.f, poseHi = 0.f;
+	};
 
-    void SetRoot(const std::string& modelsRoot) { root_ = modelsRoot; }
+	void SetRoot(const std::string& modelsRoot) { root_ = modelsRoot; }
 
-    // The skeleton, or nullptr when the model has no bones or cannot be read.
-    // The cache is node-based, so the pointer stays valid as more load.
-    const Entry* Get(const std::string& model);
+	// The skeleton, or nullptr when the model has no bones or cannot be read.
+	// The cache is node-based, so the pointer stays valid as more load.
+	const Entry* Get(const std::string& model);
 
-    size_t loaded() const { return loaded_; }
-    size_t missing() const { return missing_; }
+	size_t loaded() const { return loaded_; }
+	size_t missing() const { return missing_; }
 
 private:
-    struct Slot {
-        Entry entry;
-        bool ok = false;
-    };
+	struct Slot {
+		Entry entry;
+		bool ok = false;
+	};
 
-    std::string root_;
-    std::unordered_map<std::string, Slot> cache_;
-    size_t loaded_ = 0, missing_ = 0;
+	std::string root_;
+	std::unordered_map<std::string, Slot> cache_;
+	size_t loaded_ = 0, missing_ = 0;
 };
 
 } // namespace painful

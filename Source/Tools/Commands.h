@@ -67,10 +67,10 @@ using namespace painful;
 
 // -------------------------------------------------------------- the viewer
 int RunCmd(const char* levelDir, const char* dataRoot,
-           const std::string& shotPath, const char* exePath,
-           const float* startPos, const float* startAngles,
-           int cullMode, int entityCull, float entityScale, bool skyOnly,
-           bool novis, bool startNoclip, bool startPhysicsDebug);
+		const std::string& shotPath, const char* exePath,
+		const float* startPos, const float* startAngles,
+		int cullMode, int entityCull, float entityScale, bool skyOnly,
+		bool novis, bool startNoclip, bool startPhysicsDebug);
 
 // --------------------------------------------------------------- the level
 int SelfTestCmd();
@@ -81,16 +81,16 @@ int LevelsCmd(const char* dataRoot);
 int FilesCmd(const char* dataRoot, const char* dir);
 int PakCheckCmd(const char* dataRoot);
 int LightingCmd(const char* levelDir, const char* dataRoot,
-                const float* at, const float* eye);
+		const float* at, const float* eye);
 int ZonesCmd(const char* levelDir, const char* dataRoot, const float* pos);
 int GroundCmd(const char* levelDir, const char* dataRoot,
-              float x, float y, float z, float radius);
+		float x, float y, float z, float radius);
 int ScaleCmd(const char* levelDir, const char* dataRoot);
 
 // ---------------------------------------------------------------- geometry
 int DatCmd(const char* path);
 int BonesCmd(const char* path, const char* animName, const char* timeArg,
-             const char* rotArg);
+		const char* rotArg);
 int MapCmd(const char* path, const char* nameFilter = nullptr);
 // Copies one file out of the mounted view (a pak entry or a loose file).
 int ExtractCmd(const char* dataRoot, const char* path, const char* outPath);
@@ -121,10 +121,10 @@ int RagdollCmd(const char* path, const char* modelsRoot);
 // ------------------------------------------------------------------ script
 int LuaCmd(const char* dataRoot, int frames, const char* level, const char* exec);
 int BlendCmd(const char* path, const char* animA, const char* animB,
-             const char* timeArg);
+		const char* timeArg);
 int WpsCmd(const char* path);
 int SoundCmd(const char* root, const char* name, const char* seconds);
 int MkLevelCmd(const char* dataRoot, const char* levelName, float extent,
-               float height, const char* texture, const char* steps,
-               const char* lightmap);
+		float height, const char* texture, const char* steps,
+		const char* lightmap);
 int PoseCmd(const char* modelPath, const char* animName, const char* timeArg);

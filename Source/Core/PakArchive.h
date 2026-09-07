@@ -27,47 +27,47 @@ namespace painful {
 // printable ASCII. Docs/Reference/Formats.md, "Name obfuscation".
 class PakArchive {
 public:
-    // The keystream byte for character j of an entry with this name length
-    // and directory index. Shared with PakWriter, so the two cannot drift.
-    static uint8_t NameKey(size_t nameLen, uint32_t entryIndex, size_t j) {
-        return uint8_t(2 * (nameLen + j) + nameLen % 5 + entryIndex);
-    }
-    // Diagnostics: decode every name by brute-force scoring alone and count
-    // how often that disagrees with the formula. Zero across the shipped
-    // archives is what validates the formula.
-    static size_t VerifyNameFormula(const std::string& path, size_t* entriesOut);
+	// The keystream byte for character j of an entry with this name length
+	// and directory index. Shared with PakWriter, so the two cannot drift.
+	static uint8_t NameKey(size_t nameLen, uint32_t entryIndex, size_t j) {
+		return uint8_t(2 * (nameLen + j) + nameLen % 5 + entryIndex);
+	}
+	// Diagnostics: decode every name by brute-force scoring alone and count
+	// how often that disagrees with the formula. Zero across the shipped
+	// archives is what validates the formula.
+	static size_t VerifyNameFormula(const std::string& path, size_t* entriesOut);
 
-    struct Entry {
-        std::string name;              // decoded, '/'-separated; dirs end with '/'
-        uint32_t offset = 0;
-        uint32_t uncompressedSize = 0;
-        uint32_t compressedSize = 0;
-        bool isDirectory = false;
-    };
+	struct Entry {
+		std::string name; // decoded, '/'-separated; dirs end with '/'
+		uint32_t offset = 0;
+		uint32_t uncompressedSize = 0;
+		uint32_t compressedSize = 0;
+		bool isDirectory = false;
+	};
 
-    PakArchive() = default;
-    ~PakArchive();
-    PakArchive(const PakArchive&) = delete;
-    PakArchive& operator=(const PakArchive&) = delete;
+	PakArchive() = default;
+	~PakArchive();
+	PakArchive(const PakArchive&) = delete;
+	PakArchive& operator=(const PakArchive&) = delete;
 
-    // Parses and decodes the directory, and keeps the file handle open for
-    // subsequent Read calls. On failure error() says why.
-    bool Open(const std::string& path);
+	// Parses and decodes the directory, and keeps the file handle open for
+	// subsequent Read calls. On failure error() says why.
+	bool Open(const std::string& path);
 
-    // Decompresses one entry into out. Returns false for directory entries
-    // and on any decode failure.
-    bool Read(const Entry& e, std::vector<uint8_t>& out) const;
+	// Decompresses one entry into out. Returns false for directory entries
+	// and on any decode failure.
+	bool Read(const Entry& e, std::vector<uint8_t>& out) const;
 
-    const std::vector<Entry>& entries() const { return entries_; }
-    const std::string& path() const { return path_; }
-    const std::string& error() const { return error_; }
+	const std::vector<Entry>& entries() const { return entries_; }
+	const std::string& path() const { return path_; }
+	const std::string& error() const { return error_; }
 
 private:
-    std::string path_;
-    std::string error_;
-    std::vector<Entry> entries_;
-    std::FILE* fp_ = nullptr;
-    mutable std::mutex ioMutex_;   // guards seek+read on the shared handle
+	std::string path_;
+	std::string error_;
+	std::vector<Entry> entries_;
+	std::FILE* fp_ = nullptr;
+	mutable std::mutex ioMutex_; // guards seek+read on the shared handle
 };
 
 // Writes one archive in the same layout: the save system's Save.dat is a
@@ -77,23 +77,23 @@ private:
 // also when the header's directory offset is known.
 class PakWriter {
 public:
-    bool Begin(const std::string& path);
-    // Adds one file; `name` is stored as given (the original stores the bare
-    // basename of what File_Open was asked for).
-    bool Add(const std::string& name, const std::vector<uint8_t>& data);
-    bool End();
-    bool open() const { return open_; }
-    const std::string& path() const { return path_; }
+	bool Begin(const std::string& path);
+	// Adds one file; `name` is stored as given (the original stores the bare
+	// basename of what File_Open was asked for).
+	bool Add(const std::string& name, const std::vector<uint8_t>& data);
+	bool End();
+	bool open() const { return open_; }
+	const std::string& path() const { return path_; }
 
 private:
-    struct Entry {
-        std::string name;
-        uint32_t offset = 0, uncompressedSize = 0, compressedSize = 0;
-    };
-    std::string path_;
-    std::vector<uint8_t> body_;
-    std::vector<Entry> dir_;
-    bool open_ = false;
+	struct Entry {
+		std::string name;
+		uint32_t offset = 0, uncompressedSize = 0, compressedSize = 0;
+	};
+	std::string path_;
+	std::vector<uint8_t> body_;
+	std::vector<Entry> dir_;
+	bool open_ = false;
 };
 
 } // namespace painful

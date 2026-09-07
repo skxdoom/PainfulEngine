@@ -24,40 +24,40 @@ namespace painful {
 
 class EngineBoot {
 public:
-    // Opens the window and brings the device and the caches up. False when the
-    // window or the renderer will not start, which is the caller's cue to give
-    // up rather than draw into nothing.
-    bool Init(const std::string& dataRoot, const char* exePath, const char* title,
-              int width = 1280, int height = 720);
+	// Opens the window and brings the device and the caches up. False when the
+	// window or the renderer will not start, which is the caller's cue to give
+	// up rather than draw into nothing.
+	bool Init(const std::string& dataRoot, const char* exePath, const char* title,
+			int width = 1280, int height = 720);
 
-    const std::string& root() const { return root_; }
-    // Where the per-backend compiled shaders live, for a subsystem that loads
-    // its own. Empty when the executable carries them embedded.
-    const std::string& shaderDir() const { return shaderDir_; }
+	const std::string& root() const { return root_; }
+	// Where the per-backend compiled shaders live, for a subsystem that loads
+	// its own. Empty when the executable carries them embedded.
+	const std::string& shaderDir() const { return shaderDir_; }
 
-    Window& window() { return window_; }
-    Renderer& renderer() { return renderer_; }
-    TextureCache& textures() { return textures_; }
-    ShaderLibrary& shaders() { return shaders_; }
-    EmitterLibrary& emitters() { return emitters_; }
-    PhysicsWorld& physics() { return physics_; }
-    DebugLines& debugLines() { return debugLines_; }
-    // The overlay is optional: a backend that will not compile its shader
-    // leaves the rest of the run working.
-    bool debugLinesReady() const { return debugLinesReady_; }
+	Window& window() { return window_; }
+	Renderer& renderer() { return renderer_; }
+	TextureCache& textures() { return textures_; }
+	ShaderLibrary& shaders() { return shaders_; }
+	EmitterLibrary& emitters() { return emitters_; }
+	PhysicsWorld& physics() { return physics_; }
+	DebugLines& debugLines() { return debugLines_; }
+	// The overlay is optional: a backend that will not compile its shader
+	// leaves the rest of the run working.
+	bool debugLinesReady() const { return debugLinesReady_; }
 
 private:
-    std::string root_;
-    std::string shaderDir_;
+	std::string root_;
+	std::string shaderDir_;
 
-    Window window_;
-    Renderer renderer_;
-    TextureCache textures_;
-    ShaderLibrary shaders_;
-    EmitterLibrary emitters_;
-    PhysicsWorld physics_;
-    DebugLines debugLines_;
-    bool debugLinesReady_ = false;
+	Window window_;
+	Renderer renderer_;
+	TextureCache textures_;
+	ShaderLibrary shaders_;
+	EmitterLibrary emitters_;
+	PhysicsWorld physics_;
+	DebugLines debugLines_;
+	bool debugLinesReady_ = false;
 };
 
-}  // namespace painful
+} // namespace painful

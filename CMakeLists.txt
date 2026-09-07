@@ -19,7 +19,7 @@ project(PainfulEngine LANGUAGES C CXX)
 #   RelWithDebInfo  optimised and keeps a .pdb - the day-to-day config
 #   Release         optimised, no symbols - what ships
 if(CMAKE_CONFIGURATION_TYPES)
-  set(CMAKE_CONFIGURATION_TYPES "Debug;RelWithDebInfo;Release" CACHE STRING "" FORCE)
+	set(CMAKE_CONFIGURATION_TYPES "Debug;RelWithDebInfo;Release" CACHE STRING "" FORCE)
 endif()
 
 set(PAINFUL_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
@@ -42,15 +42,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # downstream inherits it.
 add_library(EngineWarnings INTERFACE)
 if(MSVC)
-  target_compile_options(EngineWarnings INTERFACE /W4 /permissive-)
+	target_compile_options(EngineWarnings INTERFACE /W4 /permissive-)
 else()
-  target_compile_options(EngineWarnings INTERFACE -Wall -Wextra)
+	target_compile_options(EngineWarnings INTERFACE -Wall -Wextra)
 endif()
 
 # The executable icons (Source/App and Source/Tools .rc files). Visual Studio
 # compiles .rc unasked; Ninja and the Makefile generators do not.
 if(WIN32)
-  enable_language(RC)
+	enable_language(RC)
 endif()
 
 include(Folders)
