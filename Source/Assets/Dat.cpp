@@ -1,4 +1,8 @@
 #include "Dat.h"
+#include "../Core/FileSystem.h"
+#include "../Core/Reader.h"
+#include <string>
+#include <vector>
 
 namespace painful {
 

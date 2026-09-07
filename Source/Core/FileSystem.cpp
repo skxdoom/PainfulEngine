@@ -7,6 +7,8 @@
 #include <cstdlib>
 #include <filesystem>
 #include <set>
+#include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -308,4 +310,44 @@ std::vector<std::string> FileSystem::ListRecursive(const std::string& dir) const
     return out;
 }
 
-} // namespace painful
+bool ReadFile(const std::string& path, std::vector<uint8_t>& out) {
+    // Mounted .pak archives shadow loose files, matching the original
+    // engine's mount order; anything they don't serve is read from disk.
+    if (FileSystem::Get().ReadPakFile(path, out)) return true;
+
+    FILE* fp = nullptr;
+#ifdef _MSC_VER
+    if (fopen_s(&fp, path.c_str(), "rb") != 0 || !fp) return false;
+#else
+    fp = std::fopen(path.c_str(), "rb");
+    if (!fp) return false;
+#endif
+    std::fseek(fp, 0, SEEK_END);
+    long n = std::ftell(fp);
+    std::fseek(fp, 0, SEEK_SET);
+    if (n < 0) { std::fclose(fp); return false; }
+    out.resize(static_cast<size_t>(n));
+    size_t rd = out.empty() ? 0 : std::fread(out.data(), 1, out.size(), fp);
+    std::fclose(fp);
+    return rd == out.size();
+}
+
+bool WriteFile(const std::string& path, const std::vector<uint8_t>& data) {
+    std::error_code ec;
+    const std::filesystem::path p(path);
+    if (p.has_parent_path()) std::filesystem::create_directories(p.parent_path(), ec);
+
+    FILE* fp = nullptr;
+#ifdef _MSC_VER
+    if (fopen_s(&fp, path.c_str(), "wb") != 0 || !fp) return false;
+#else
+    fp = std::fopen(path.c_str(), "wb");
+    if (!fp) return false;
+#endif
+    const bool ok = data.empty() ||
+                    std::fwrite(data.data(), 1, data.size(), fp) == data.size();
+    std::fclose(fp);
+    return ok;
+}
+
+}  // namespace painful

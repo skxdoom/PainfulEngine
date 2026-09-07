@@ -1,11 +1,12 @@
 #include "ShaderLoad.h"
 
-#include "../Core/Common.h"
+#include "../Core/FileSystem.h"
 #include "../Core/Log.h"
 
 #include <vector>
 
 #include "ShaderBlobs.h"        // generated: the arrays and PAINFUL_SHADER_LIST
+#include <string>
 
 namespace painful {
 

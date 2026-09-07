@@ -4,6 +4,9 @@
 // The recovered rules are in Docs/Reference/Physics.md.
 
 #include "PhysicsWorldInternal.h"
+#include "../Core/Vectors.h"
+#include <string>
+#include <vector>
 
 namespace painful {
 
@@ -325,13 +328,13 @@ void PhysicsWorld::LoadProps(const Level& level, TemplateCache& templates,
         JPH::ShapeSettings::ShapeResult final = BuildScaledPropShape(mesh, bodyType, finalScale);
         if (final.HasError()) { ++impl_->unresolvedProps; continue; }
 
-        float rot[9];
-        ReadRotation(e.props, rot);
+        float rot9[9];
+        ReadRotation(e.props, rot9);
         // The engine's 3x3 is row-vector; Jolt is column-vector, and the two
         // are transposes, so engine row j is Jolt column j.
         JPH::Mat44 basis = JPH::Mat44::sIdentity();
         for (int j = 0; j < 3; ++j)
-            basis.SetColumn3(j, JPH::Vec3(rot[j * 3 + 0], rot[j * 3 + 1], rot[j * 3 + 2]));
+            basis.SetColumn3(j, JPH::Vec3(rot9[j * 3 + 0], rot9[j * 3 + 1], rot9[j * 3 + 2]));
 
         // CObject:PO_Create reads exactly these off the object, and only sets
         // what the object declares:
@@ -521,7 +524,7 @@ void PhysicsWorld::CollectPoses(std::vector<BodyPose>& out, bool activeOnly) con
         const JPH::Mat44 basis = JPH::Mat44::sRotation(rotation);
         for (int j = 0; j < 3; ++j) {
             const JPH::Vec3 column = basis.GetColumn3(j);
-            for (int c = 0; c < 3; ++c) pose.rot[j * 3 + c] = column[c];
+            for (int c = 0; c < 3; ++c) pose.rot9[j * 3 + c] = column[c];
         }
         out.push_back(pose);
     }

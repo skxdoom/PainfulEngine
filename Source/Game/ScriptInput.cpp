@@ -1,6 +1,8 @@
 // ScriptEngine: the INP / MOUSE natives and the action state machine.
 
 #include "ScriptEngineInternal.h"
+#include "../Core/Vectors.h"
+#include <string>
 
 namespace painful {
 

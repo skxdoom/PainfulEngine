@@ -5,6 +5,8 @@
 #include "../Core/Debug.h"
 #include "../Core/Log.h"
 #include <SDL3/SDL.h>
+#include <string>
+#include <vector>
 
 namespace painful {
 

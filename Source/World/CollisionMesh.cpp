@@ -1,9 +1,11 @@
 #include "CollisionMesh.h"
+#include "../Core/Vectors.h"
 #include "../Core/Log.h"
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <vector>
 
 namespace painful {
 

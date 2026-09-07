@@ -2,6 +2,7 @@
 
 #include "ScriptEngineInternal.h"
 #include "../Script/ScriptHandle.h"
+#include <string>
 
 namespace painful {
 

@@ -7,7 +7,10 @@
 // rule that sizes the body. Docs/Reference/MonsterMovement.md.
 
 #include "ScriptEngineInternal.h"
+#include "../Core/Vectors.h"
 #include <set>
+#include <string>
+#include <vector>
 
 namespace painful {
 

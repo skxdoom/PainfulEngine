@@ -16,11 +16,10 @@
 #include "../Assets/Emitter.h"
 #include "../Assets/Properties.h"
 #include "../Assets/Skeleton.h"
-#include "../Core/Common.h"
 #include "../Core/Debug.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
-#include "../Core/Vec3.h"
+#include "../Core/Vectors.h"
 #include "../Render/BillboardRenderer.h"
 #include "../Render/EntityRenderer.h"
 #include "../Render/HudRenderer.h"
@@ -40,6 +39,7 @@ extern "C" {
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <string>
 
 namespace painful {
 

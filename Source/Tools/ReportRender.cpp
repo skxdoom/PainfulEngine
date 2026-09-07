@@ -1,5 +1,8 @@
 // What the renderer will be handed: materials, emitters and billboards.
 #include "Commands.h"
+#include <string>
+#include <vector>
+#include <map>
 
 int ShadersCmd(const char* dataRoot, const char* single) {
     ShaderLibrary lib;

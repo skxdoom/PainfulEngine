@@ -5,6 +5,8 @@
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
+#include <string>
+#include <map>
 
 namespace painful {
 

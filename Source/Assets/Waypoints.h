@@ -1,6 +1,5 @@
 #pragma once
-#include "../Core/Common.h"
-#include "../Core/Vec3.h"
+#include "../Core/Vectors.h"
 
 #include <string>
 #include <vector>

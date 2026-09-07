@@ -1,7 +1,12 @@
 // What is in a level: settings, entities, placement and the visibility graph.
-#include "Core/Vec3.h"
+#include "Core/Vectors.h"
+#include "../Core/FileSystem.h"
+#include "../Core/Vectors.h"
 #include "LevelStats.h"
 #include "Commands.h"
+#include <string>
+#include <vector>
+#include <map>
 
 int LevelCmd(const char* levelDir, const char* dataRoot) {
     Level level;

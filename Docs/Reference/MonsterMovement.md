@@ -840,7 +840,7 @@ see-through, the dark receiver body missing against the floor.
 
 It was the negated turn again, in the one path that had not been fixed.
 `ENTITY.SetPosAndRotRelativeToCamera` - the viewmodel transform, and the only
-caller is `CWeapon:Apply` - passed its Euler angles to `EngineEulerToQuat`
+caller is `CWeapon:Apply` - passed its Euler angles to `Quat::FromEuler`
 raw, where `SetOrientation` negates the turn. `StakeGunGL` asks for a yaw of
 **-1.57**, so with the wrong sign the gun sat in exactly the right place while
 presenting its far side. The gaps between its parts then read as holes punched

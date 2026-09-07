@@ -1,10 +1,11 @@
 #include "ShaderScript.h"
-#include "../Core/Common.h"
 #include "../Core/FileSystem.h"
 
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <string>
+#include <vector>
 
 namespace painful {
 

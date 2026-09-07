@@ -1,5 +1,5 @@
 #include "Emitter.h"
-#include "../Core/Common.h"
+#include "../Core/Vectors.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
 
@@ -7,6 +7,9 @@
 #include <cctype>
 #include <cstdlib>
 #include <filesystem>
+#include <string>
+#include <vector>
+#include <map>
 
 namespace painful {
 

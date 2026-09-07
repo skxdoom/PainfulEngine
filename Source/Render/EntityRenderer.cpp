@@ -1,9 +1,9 @@
 #include "EntityRenderer.h"
 #include "ShaderLoad.h"
-#include "../Core/Vec3.h"
+#include "../Core/Vectors.h"
 #include "../Core/Check.h"
 #include "../Core/Debug.h"
-#include "../Core/Common.h"
+#include "../Core/Matrix.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Frustum.h"
 #include "../Core/Log.h"
@@ -17,6 +17,8 @@
 #include <cstring>
 #include <filesystem>
 #include <set>
+#include <string>
+#include <vector>
 
 namespace painful {
 
@@ -32,11 +34,11 @@ bool EqualsNoCase(const std::string& a, const std::string& b) {
     return true;
 }
 // Row-vector transform: uniform scale, then rotation, then translation in row 3.
-// "rot" is a row-major 3x3 rotation already in row-vector form.
-Mat4 MakeTransform(const Vec3& pos, const float rot[9], float scale) {
+// "rot9" is a row-major 3x3 rotation already in row-vector form.
+Mat4 MakeTransform(const Vec3& pos, const float rot9[9], float scale) {
     Mat4 m;
     for (int r = 0; r < 3; ++r) {
-        for (int c = 0; c < 3; ++c) m.m[r * 4 + c] = rot[r * 3 + c] * scale;
+        for (int c = 0; c < 3; ++c) m.m[r * 4 + c] = rot9[r * 3 + c] * scale;
         m.m[r * 4 + 3] = 0.f;
     }
     m.m[12] = pos[0]; m.m[13] = pos[1]; m.m[14] = pos[2]; m.m[15] = 1.f;
@@ -475,13 +477,13 @@ void EntityRenderer::Build(const Level& level, TemplateCache& templates,
         instance.pos[0] = e.pos[0];
         instance.pos[1] = e.pos[1];
         instance.pos[2] = e.pos[2];
-        ReadRotation(e.props, instance.rot);
+        ReadRotation(e.props, instance.rot9);
         instance.scale = finalScale;
         // Same math as SetScaleMultiplier: the layout scales about world zero.
         const Vec3 scaledPos{instance.pos[0] * scaleMultiplier_,
                                     instance.pos[1] * scaleMultiplier_,
                                     instance.pos[2] * scaleMultiplier_};
-        instance.transform = MakeTransform(scaledPos, instance.rot,
+        instance.transform = MakeTransform(scaledPos, instance.rot9,
                                            finalScale * scaleMultiplier_);
         UpdateBounds(instance, models_[modelSlot]);
         instances_.push_back(instance);
@@ -498,7 +500,7 @@ int EntityRenderer::CreateScriptModel(const std::string& modelName, float scale,
     instance.model = slot;
     instance.scale = scale;
     instance.entity = SIZE_MAX;
-    instance.transform = MakeTransform(instance.pos, instance.rot, scale);
+    instance.transform = MakeTransform(instance.pos, instance.rot9, scale);
     UpdateBounds(instance, models_[slot]);
     instances_.push_back(instance);
     return int(instances_.size() - 1);
@@ -590,7 +592,7 @@ int EntityRenderer::CreateWorldObject(const MapObject& o, float worldScale,
     instance.scale = 1.f;
     instance.entity = SIZE_MAX;
     for (int c = 0; c < 3; ++c) instance.pos[c] = origin[c];
-    instance.transform = MakeTransform(instance.pos, instance.rot, 1.f);
+    instance.transform = MakeTransform(instance.pos, instance.rot9, 1.f);
     UpdateBounds(instance, models_[model]);
     instances_.push_back(instance);
     return int(instances_.size() - 1);
@@ -607,20 +609,20 @@ int EntityRenderer::CreateScriptPack(const std::string& packName,
     instance.model = slot;
     instance.scale = scale;
     instance.entity = SIZE_MAX;
-    instance.transform = MakeTransform(instance.pos, instance.rot, scale);
+    instance.transform = MakeTransform(instance.pos, instance.rot9, scale);
     UpdateBounds(instance, models_[slot]);
     instances_.push_back(instance);
     return int(instances_.size() - 1);
 }
 
-void EntityRenderer::SetScriptPose(int slot, const Vec3& pos, const float rotWXYZ[4]) {
+void EntityRenderer::SetScriptPose(int slot, const Vec3& pos, const Quat& rot) {
     if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
                        "EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
         return;
     Instance& instance = instances_[slot];
     for (int c = 0; c < 3; ++c) instance.pos[c] = pos[c];
-    EngineQuatToRot9(rotWXYZ, instance.rot);
-    instance.transform = MakeTransform(instance.pos, instance.rot, instance.scale);
+    EngineQuatToRot9(rot, instance.rot9);
+    instance.transform = MakeTransform(instance.pos, instance.rot9, instance.scale);
     UpdateBounds(instance, models_[instance.model]);
 }
 
@@ -723,15 +725,15 @@ bool EntityRenderer::GetScriptDimensions(int slot, Vec3& out) const {
     return true;
 }
 
-void EntityRenderer::SetEntityPose(size_t entityIndex, const Vec3& pos, const float rot[9]) {
+void EntityRenderer::SetEntityPose(size_t entityIndex, const Vec3& pos, const float rot9[9]) {
     for (Instance& instance : instances_) {
         if (instance.entity != entityIndex) continue;
         for (int c = 0; c < 3; ++c) instance.pos[c] = pos[c];
-        for (int c = 0; c < 9; ++c) instance.rot[c] = rot[c];
+        for (int c = 0; c < 9; ++c) instance.rot9[c] = rot9[c];
         const Vec3 scaledPos{instance.pos[0] * scaleMultiplier_,
                                     instance.pos[1] * scaleMultiplier_,
                                     instance.pos[2] * scaleMultiplier_};
-        instance.transform = MakeTransform(scaledPos, instance.rot,
+        instance.transform = MakeTransform(scaledPos, instance.rot9,
                                            instance.scale * scaleMultiplier_);
         UpdateBounds(instance, models_[instance.model]);
         return;
@@ -761,7 +763,7 @@ void EntityRenderer::SetScaleMultiplier(float k) {
     for (Instance& instance : instances_) {
         const Vec3 pos{instance.pos[0] * k, instance.pos[1] * k,
                               instance.pos[2] * k};
-        instance.transform = MakeTransform(pos, instance.rot,
+        instance.transform = MakeTransform(pos, instance.rot9,
                                            instance.scale * k);
         UpdateBounds(instance, models_[instance.model]);
     }

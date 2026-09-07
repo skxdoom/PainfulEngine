@@ -1,6 +1,11 @@
 // Geometry as it is stored: world meshes, models, skeletons and item packs.
-#include "Core/Vec3.h"
+#include "Core/Vectors.h"
+#include "../Core/Vectors.h"
+#include "../Core/Matrix.h"
 #include "Commands.h"
+#include <string>
+#include <vector>
+#include <map>
 
 int DatCmd(const char* path) {
     namespace fs = std::filesystem;

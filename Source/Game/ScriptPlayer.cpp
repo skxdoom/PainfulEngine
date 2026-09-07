@@ -1,6 +1,7 @@
 // ScriptEngine: the player pawn, trigger regions and the camera natives.
 
 #include "ScriptEngineInternal.h"
+#include "../Core/Vectors.h"
 
 #include <algorithm>
 

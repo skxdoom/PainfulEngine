@@ -1,9 +1,13 @@
 #include <cctype>
+#include "../Core/FileSystem.h"
+#include "../Core/Reader.h"
 #include <cstring>
 #include "Pkmdl.h"
 #include "Skeleton.h"
 #include <algorithm>
 #include <cmath>
+#include <string>
+#include <vector>
 
 namespace painful {
 // Case-insensitive substring, the same test MapObject::nameHas applies to world

@@ -1,9 +1,10 @@
 #include "DebugLines.h"
 #include "ShaderLoad.h"
-#include "../Core/Common.h"
 #include "../Core/Log.h"
 
 #include <algorithm>
+#include <string>
+#include <vector>
 
 namespace painful {
 

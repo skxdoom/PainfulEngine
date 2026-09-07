@@ -3,6 +3,9 @@
 // corona and child-entity hookups that hang off one.
 
 #include "ScriptEngineInternal.h"
+#include "../Core/Vectors.h"
+#include <string>
+#include <vector>
 
 namespace painful {
 
@@ -389,12 +392,10 @@ int EntityNatives::L_ENTITY_ExplodeItem(lua_State* L) {
     if (src->poEnabled && self->physics_ && src->physicsBody >= 0) {
         Vec3 v;
         if (self->physics_->GetScriptBodyVelocity(src->physicsBody, v))
-            for (int c = 0; c < 3; ++c) inherited[c] = v[c];
+            inherited = v;
     }
-    Vec3 pos;
-    float rot[4];
-    for (int c = 0; c < 3; ++c) pos[c] = src->pos[c];
-    for (int c = 0; c < 4; ++c) rot[c] = src->rotWXYZ[c];
+    const Vec3 pos = src->pos;
+    const Quat rot = src->rot;
 
     std::string packName;
     const bool haveShape = self->SplitPackSource(source, packName);
@@ -409,8 +410,8 @@ int EntityNatives::L_ENTITY_ExplodeItem(lua_State* L) {
         part.source = source;
         part.mesh = object.name;
         part.scale = scale;
-        for (int c = 0; c < 3; ++c) part.pos[c] = pos[c];
-        for (int c = 0; c < 4; ++c) part.rotWXYZ[c] = rot[c];
+        part.pos = pos;
+        part.rot = rot;
         part.inWorld = true;
         // LifetimeAfterExplosion. Without it the debris is permanent, and it
         // is debris with real bodies - it would pile up as collision.
@@ -457,7 +458,7 @@ int EntityNatives::L_ENTITY_ExplodeItem(lua_State* L) {
         // these parts is 50-70 points apiece.
         if (self->physics_ && haveShape) {
             const int slot = self->physics_->CreateScriptBody(
-                4, "", packName, live.mesh, live.scale, live.pos, live.rotWXYZ,
+                4, "", packName, live.mesh, live.scale, live.pos, live.rot,
                 self->dataRoot_, 3 /* ECollisionGroups.Normal */);
             if (slot >= 0) {
                 live.physicsBody = slot;
@@ -549,7 +550,7 @@ int EntityNatives::L_SetPosition(lua_State* L) {
         for (int c = 0; c < 3; ++c) e->pos[c] = p[c];
         self->SyncPose(*e);
         if (self->physics_ && e->physicsBody >= 0)
-            self->physics_->SetScriptBodyPose(e->physicsBody, e->pos, e->rotWXYZ);
+            self->physics_->SetScriptBodyPose(e->physicsBody, e->pos, e->rot);
         if (self->pawn_ && handle == self->playerHandle_)
             // SetPosition gives the FEET (see SyncPlayerFromPawn); the pawn is
             // driven from the eye.
@@ -570,11 +571,11 @@ int EntityNatives::L_GetPosition(lua_State* L) {
 int EntityNatives::L_SetRotationQ(lua_State* L) {
     ScriptEngine* self = From(L);
     if (Entity* e = self->Find(HandleArg(L, 1))) {
-        for (int i = 0; i < 4; ++i)
-            e->rotWXYZ[i] = float(luaL_optnumber(L, 2 + i, i == 0 ? 1 : 0));
+        e->rot = Quat(float(luaL_optnumber(L, 2, 1)), float(luaL_optnumber(L, 3, 0)),
+                      float(luaL_optnumber(L, 4, 0)), float(luaL_optnumber(L, 5, 0)));
         self->SyncPose(*e);
         if (self->physics_ && e->physicsBody >= 0)
-            self->physics_->SetScriptBodyPose(e->physicsBody, e->pos, e->rotWXYZ);
+            self->physics_->SetScriptBodyPose(e->physicsBody, e->pos, e->rot);
     }
     return 0;
 }
@@ -582,10 +583,10 @@ int EntityNatives::L_SetRotationQ(lua_State* L) {
 int EntityNatives::L_GetRotationQ(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
-    lua_pushnumber(L, e ? e->rotWXYZ[0] : 1);
-    lua_pushnumber(L, e ? e->rotWXYZ[1] : 0);
-    lua_pushnumber(L, e ? e->rotWXYZ[2] : 0);
-    lua_pushnumber(L, e ? e->rotWXYZ[3] : 0);
+    lua_pushnumber(L, e ? e->rot[0] : 1);
+    lua_pushnumber(L, e ? e->rot[1] : 0);
+    lua_pushnumber(L, e ? e->rot[2] : 0);
+    lua_pushnumber(L, e ? e->rot[3] : 0);
     return 4;
 }
 
@@ -606,15 +607,12 @@ int EntityNatives::L_SetOrientation(lua_State* L) {
     ScriptEngine* self = From(L);
     if (Entity* e = self->Find(HandleArg(L, 1))) {
         const float a = float(luaL_optnumber(L, 2, 0)) * 0.5f;
-        e->rotWXYZ[0] = std::cos(a);
-        e->rotWXYZ[1] = 0;
-        e->rotWXYZ[2] = -std::sin(a);
-        e->rotWXYZ[3] = 0;
+        e->rot = Quat(std::cos(a), 0.f, -std::sin(a), 0.f);
         self->SyncPose(*e);
         // PhysicsObject::SetOrientation (0x10189F70) writes the body's
         // rotation; a character body's yaw is the scripts', not the solver's.
         if (self->physics_ && e->physicsBody >= 0 && e->isMonster)
-            self->physics_->SetScriptBodyRotation(e->physicsBody, e->rotWXYZ);
+            self->physics_->SetScriptBodyRotation(e->physicsBody, e->rot);
     }
     return 0;
 }
@@ -641,7 +639,7 @@ int EntityNatives::L_GetOrientation(lua_State* L) {
         fwd[2] = std::sin(self->camYaw_) * cp;
     } else if (const Entity* e = self->Find(handle)) {
         const Vec3 z{0, 0, 1};
-        EngineQuatRotate(e->rotWXYZ, z, fwd);
+        fwd = e->rot.Rotate(z);
     } else {
         lua_pushnumber(L, 0);
         return 1;
@@ -895,7 +893,7 @@ int EntityNatives::L_PO_SetCollisionGroup(lua_State* L) {
     if (!self->physics_ || e->physicsBody < 0) return 0;
     if (wasProjectile && !e->isProjectile) {
         self->physics_->SetScriptBodyCollisionGroup(e->physicsBody, group);
-        self->physics_->SetScriptBodyPose(e->physicsBody, e->pos, e->rotWXYZ);
+        self->physics_->SetScriptBodyPose(e->physicsBody, e->pos, e->rot);
         self->physics_->SetScriptBodyVelocity(e->physicsBody, e->velocity);
         // The thrown axe keeps spinning: its SetAngularVelocity goes to the solver.
         self->physics_->SetScriptBodyAngularVelocity(e->physicsBody, e->angVel);
@@ -990,7 +988,7 @@ int EntityNatives::L_PO_Create(lua_State* L) {
     const float sphereRadius =
         (bodyType == 1 || bodyType == 9) && argScale > 0.f ? argScale * 1.1f : 0.f;
     const int slot = self->physics_->CreateScriptBody(
-        bodyType, model, pack, e->mesh, scale, e->pos, e->rotWXYZ, self->dataRoot_,
+        bodyType, model, pack, e->mesh, scale, e->pos, e->rot, self->dataRoot_,
         collisionGroup, sphereRadius);
     if (slot >= 0) {
         e->physicsBody = slot;
@@ -1121,7 +1119,7 @@ int EntityNatives::L_ENTITY_ComputeChildMatrix(lua_State* L) {
     if (!child || !parent) return 0;
     int joint = int(luaL_optnumber(L, 3, -1));
     Vec3 basePos;
-    float baseRot[4];
+    Quat baseRot;
     bool ok = false;
     if (joint >= 0 && parent->type == kModel) {
         const Vec3 zero;
@@ -1129,15 +1127,14 @@ int EntityNatives::L_ENTITY_ComputeChildMatrix(lua_State* L) {
              self->JointWorldRotation(*parent, joint, baseRot);
     }
     if (!ok) {
-        for (int c = 0; c < 3; ++c) basePos[c] = parent->pos[c];
-        for (int c = 0; c < 4; ++c) baseRot[c] = parent->rotWXYZ[c];
+        basePos = parent->pos;
+        baseRot = parent->rot;
         joint = -1;
     }
     // Inverse of a unit quaternion is its conjugate in any convention.
-    const float inv[4] = {baseRot[0], -baseRot[1], -baseRot[2], -baseRot[3]};
-    const Vec3 delta = child->pos - AsVec3(basePos);
-    child->parentOffset = EngineQuatRotate(inv, delta);
-    EngineQuatMul(inv, child->rotWXYZ, child->parentRotWXYZ);
+    const Quat inv = baseRot.Conjugate();
+    child->parentOffset = inv.Rotate(child->pos - basePos);
+    child->parentRot = inv * child->rot;
     child->parentRotBound = true;
     child->parentBound = true;
     child->parentJointIndex = joint;
@@ -1215,8 +1212,9 @@ int EntityNatives::L_PARTICLE_SetParentOffset(lua_State* L) {
     // camera, which nothing in the shipped scripts passes non-zero.
     e->parentRotBound = lua_gettop(L) >= 11;
     if (e->parentRotBound) {
-        EngineEulerToQuat(float(luaL_optnumber(L, 9, 0)), float(luaL_optnumber(L, 10, 0)),
-                          float(luaL_optnumber(L, 11, 0)), e->parentRotWXYZ);
+        e->parentRot = Quat::FromEuler(float(luaL_optnumber(L, 9, 0)),
+                                           float(luaL_optnumber(L, 10, 0)),
+                                           float(luaL_optnumber(L, 11, 0)));
     }
     e->parentBound = true;
     self->PlaceAttached(*e);
@@ -1275,32 +1273,29 @@ void ScriptEngine::PlaceAttached(Entity& e) {
     // was given. Without a joint, the offset is rotated by the parent and the
     // rotation is the parent's composed with the Euler, if any.
     Vec3 world;
-    float rot[4];
+    Quat rot;
     bool haveRot = false;
     if (e.parentJointIndex >= 0 && JointToWorld(*parent, e.parentJointIndex,
                                                 e.parentOffset, world)) {
         if (e.parentRotBound) {
-            float joint[4];
+            Quat joint;
             if (JointWorldRotation(*parent, e.parentJointIndex, joint)) {
-                EngineQuatMul(joint, e.parentRotWXYZ, rot);
+                rot = joint * e.parentRot;
                 haveRot = true;
             }
         } else {
-            for (int c = 0; c < 4; ++c) rot[c] = parent->rotWXYZ[c];
+            rot = parent->rot;
             haveRot = true;
         }
     } else {
-        Vec3 turned;
-        EngineQuatRotate(parent->rotWXYZ, e.parentOffset, turned);
-        for (int c = 0; c < 3; ++c) world[c] = parent->pos[c] + turned[c];
+        world = parent->pos + parent->rot.Rotate(e.parentOffset);
         if (e.parentRotBound) {
-            EngineQuatMul(parent->rotWXYZ, e.parentRotWXYZ, rot);
+            rot = parent->rot * e.parentRot;
             haveRot = true;
         }
     }
-    for (int c = 0; c < 3; ++c) e.pos[c] = world[c];
-    if (haveRot)
-        for (int c = 0; c < 4; ++c) e.rotWXYZ[c] = rot[c];
+    e.pos = world;
+    if (haveRot) e.rot = rot;
     SyncPose(e);
 }
 

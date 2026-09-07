@@ -2,7 +2,7 @@
 #include "ScriptHandle.h"
 
 #include "../Core/Check.h"
-#include "../Core/Common.h"
+#include "../Core/Vectors.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
 
@@ -90,16 +90,19 @@ uint32_t ArgU32(lua_State* L, int i) {
     return static_cast<uint32_t>(static_cast<int64_t>(luaL_checknumber(L, i)));
 }
 
-struct Quat { double w, x, y, z; };
+// The script-facing quaternion is DOUBLE: the Lua stack is doubles and these
+// natives compose in that precision. Core's float Quat is the engine-internal
+// one; the two must not be mixed, which is what the D distinguishes.
+struct QuatD { double w, x, y, z; };
 
-Quat QuatMul(const Quat& a, const Quat& b) {
+QuatD QuatMul(const QuatD& a, const QuatD& b) {
     return {a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
             a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
             a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
             a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w};
 }
 
-int PushQuat(lua_State* L, const Quat& q) {
+int PushQuat(lua_State* L, const QuatD& q) {
     lua_pushnumber(L, q.w);
     lua_pushnumber(L, q.x);
     lua_pushnumber(L, q.y);
@@ -252,7 +255,7 @@ int L_ReplaceBitFlag(lua_State* L) {
 // and a reversed quaternion product is a different rotation, not the inverse
 // of one; every scripted Euler rotation was wrong away from the axes.
 
-Quat QuatFromAxisAngle(double angle, double x, double y, double z) {
+QuatD QuatFromAxisAngle(double angle, double x, double y, double z) {
     const double len = std::sqrt(x * x + y * y + z * z);
     if (len < 1e-12) return {1, 0, 0, 0};
     const double s = std::sin(angle * 0.5) / len;
@@ -260,9 +263,8 @@ Quat QuatFromAxisAngle(double angle, double x, double y, double z) {
 }
 
 int L_EulerToQuat(lua_State* L) {
-    float q[4];
-    EngineEulerToQuat(float(Arg(L, 1)), float(Arg(L, 2)), float(Arg(L, 3)), q);
-    return PushQuat(L, {q[0], q[1], q[2], q[3]});
+    const Quat q = Quat::FromEuler(float(Arg(L, 1)), float(Arg(L, 2)), float(Arg(L, 3)));
+    return PushQuat(L, {q.w, q.x, q.y, q.z});
 }
 
 int L_QuatToEuler(lua_State* L) {
@@ -281,10 +283,10 @@ int L_QuatToEuler(lua_State* L) {
 
 int RotateVector(lua_State* L, bool inverse) {
     const double vx = Arg(L, 1), vy = Arg(L, 2), vz = Arg(L, 3);
-    Quat q = {Arg(L, 4), Arg(L, 5), Arg(L, 6), Arg(L, 7)};
+    QuatD q = {Arg(L, 4), Arg(L, 5), Arg(L, 6), Arg(L, 7)};
     if (inverse) { q.x = -q.x; q.y = -q.y; q.z = -q.z; }
-    const Quat inv = {q.w, -q.x, -q.y, -q.z};
-    const Quat r = QuatMul(QuatMul(q, {0, vx, vy, vz}), inv);
+    const QuatD inv = {q.w, -q.x, -q.y, -q.z};
+    const QuatD r = QuatMul(QuatMul(q, {0, vx, vy, vz}), inv);
     lua_pushnumber(L, r.x);
     lua_pushnumber(L, r.y);
     lua_pushnumber(L, r.z);
@@ -309,13 +311,12 @@ int L_VectorInverseRotateByQuat(lua_State* L) { return RotateVector(L, false); }
 // back nil and the arithmetic in CActor aborted the tick.
 int L_VectorRotate(lua_State* L) {
     const double vx = Arg(L, 1), vy = Arg(L, 2), vz = Arg(L, 3);
-    float q[4];
-    EngineEulerToQuat(float(Arg(L, 4)), float(Arg(L, 5)), float(Arg(L, 6)), q);
-    const Quat quat = {q[0], q[1], q[2], q[3]};
-    const Quat inv = {quat.w, -quat.x, -quat.y, -quat.z};
+    const Quat q = Quat::FromEuler(float(Arg(L, 4)), float(Arg(L, 5)), float(Arg(L, 6)));
+    const QuatD quat = {q.w, q.x, q.y, q.z};
+    const QuatD inv = {quat.w, -quat.x, -quat.y, -quat.z};
     // Same handedness as VectorRotateByQuat: the engine rotates a vector as
     // q^-1 * v * q, which is why that native negates the axis before use.
-    const Quat r = QuatMul(QuatMul(inv, {0, vx, vy, vz}), quat);
+    const QuatD r = QuatMul(QuatMul(inv, {0, vx, vy, vz}), quat);
     lua_pushnumber(L, r.x);
     lua_pushnumber(L, r.y);
     lua_pushnumber(L, r.z);
@@ -323,8 +324,8 @@ int L_VectorRotate(lua_State* L) {
 }
 
 int L_RotateQuatByAxisAngle(lua_State* L) {
-    const Quat q = {Arg(L, 1), Arg(L, 2), Arg(L, 3), Arg(L, 4)};
-    const Quat r = QuatFromAxisAngle(Arg(L, 5), Arg(L, 6), Arg(L, 7), Arg(L, 8));
+    const QuatD q = {Arg(L, 1), Arg(L, 2), Arg(L, 3), Arg(L, 4)};
+    const QuatD r = QuatFromAxisAngle(Arg(L, 5), Arg(L, 6), Arg(L, 7), Arg(L, 8));
     return PushQuat(L, QuatMul(r, q));
 }
 

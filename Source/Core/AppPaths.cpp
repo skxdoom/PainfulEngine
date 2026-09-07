@@ -4,6 +4,7 @@
 #include "Log.h"
 
 #include <filesystem>
+#include <string>
 
 namespace painful {
 

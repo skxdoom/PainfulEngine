@@ -2,6 +2,10 @@
 // Split out of PhysicsWorld.cpp at its own banner; see PhysicsWorldInternal.h.
 
 #include "PhysicsWorldInternal.h"
+#include "../Core/Vectors.h"
+#include <string>
+#include <vector>
+#include <unordered_map>
 
 namespace painful {
 
@@ -11,16 +15,13 @@ namespace painful {
 // standard column convention is the rotation by the CONJUGATE - the same
 // transpose CollectPoses and LoadProps handle for matrices, expressed on the
 // quaternion itself.
-static JPH::Quat EngineQuatToJolt(const float q[4]) {
-    JPH::Quat j(-q[1], -q[2], -q[3], q[0]);
+static JPH::Quat EngineQuatToJolt(const Quat& q) {
+    JPH::Quat j(-q.x, -q.y, -q.z, q.w);
     return j.LengthSq() < 1e-12f ? JPH::Quat::sIdentity() : j.Normalized();
 }
 
-static void JoltQuatToEngine(const JPH::Quat& j, float out[4]) {
-    out[0] = j.GetW();
-    out[1] = -j.GetX();
-    out[2] = -j.GetY();
-    out[3] = -j.GetZ();
+static Quat JoltQuatToEngine(const JPH::Quat& j) {
+    return Quat(j.GetW(), -j.GetX(), -j.GetY(), -j.GetZ());
 }
 
 void PhysicsWorld::LoadWorldMesh(const MapMesh& map, float worldScale,
@@ -54,7 +55,7 @@ void PhysicsWorld::Settle(int steps) {
 int PhysicsWorld::CreateScriptBody(int bodyType, const std::string& modelName,
                                    const std::string& packName,
                                    const std::string& packMesh, float scale,
-                                   const Vec3& pos, const float rotWXYZ[4],
+                                   const Vec3& pos, const Quat& rot,
                                    const std::string& dataRoot, int collisionGroup,
                                    float sphereRadius) {
     if (impl_->worldBody.IsInvalid()) return -1;   // no world, nothing to rest on
@@ -118,7 +119,7 @@ int PhysicsWorld::CreateScriptBody(int bodyType, const std::string& modelName,
     // never against the pusher bodies - see Layers::kMissile.
     const bool missile = collisionGroup == 5 || collisionGroup == 8;
     JPH::BodyCreationSettings body(shape.Get(), JPH::RVec3(pos[0], pos[1], pos[2]),
-                                   EngineQuatToJolt(rotWXYZ),
+                                   EngineQuatToJolt(rot),
                                    (projectile || fixedRigid) ? JPH::EMotionType::Kinematic
                                                               : JPH::EMotionType::Dynamic,
                                    projectile ? Layers::kNoCollide
@@ -543,13 +544,13 @@ void PhysicsWorld::SetScriptBodyAngularDamping(int slot, float damping) {
 }
 
 void PhysicsWorld::SetScriptBodyPose(int slot, const Vec3& pos,
-                                     const float rotWXYZ[4]) {
+                                     const Quat& rot) {
     if (!ScriptBodyExists(slot)) return;
     // A disabled body is out of the world; Jolt will not move one.
     if (!impl_->scriptBodies[size_t(slot)].inWorld) return;
     impl_->system.GetBodyInterface().SetPositionAndRotation(
         impl_->scriptBodies[slot].body, JPH::RVec3(pos[0], pos[1], pos[2]),
-        EngineQuatToJolt(rotWXYZ), JPH::EActivation::Activate);
+        EngineQuatToJolt(rot), JPH::EActivation::Activate);
     // A teleported character lands at its model origin, like a spawn.
     if (impl_->scriptBodies[size_t(slot)].character >= 0) StandCharacterOnFloor(slot, 100.f);
     // A teleport is not a motion to blend across.
@@ -888,10 +889,10 @@ bool PhysicsWorld::CharacterHeadPos(int slot, Vec3& out) const {
     return true;
 }
 
-void PhysicsWorld::SetScriptBodyRotation(int slot, const float rotWXYZ[4]) {
+void PhysicsWorld::SetScriptBodyRotation(int slot, const Quat& rot) {
     if (!ScriptBodyExists(slot) || !impl_->scriptBodies[size_t(slot)].inWorld) return;
     impl_->system.GetBodyInterface().SetRotation(impl_->scriptBodies[size_t(slot)].body,
-                                                 EngineQuatToJolt(rotWXYZ),
+                                                 EngineQuatToJolt(rot),
                                                  JPH::EActivation::DontActivate);
 }
 
@@ -1182,7 +1183,7 @@ void PhysicsWorld::CollectScriptPoses(std::vector<ScriptBodyPose>& out,
         ScriptBodyPose pose;
         pose.slot = int(slot);
         for (int c = 0; c < 3; ++c) pose.pos[c] = float(position[c]);
-        JoltQuatToEngine(rotation, pose.quatWXYZ);
+        pose.rot = JoltQuatToEngine(rotation);
         out.push_back(pose);
     }
 }

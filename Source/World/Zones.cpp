@@ -1,10 +1,12 @@
 #include "Zones.h"
+#include "../Core/Vectors.h"
 #include "../Core/Frustum.h"
 #include "../Core/Log.h"
 
 #include <algorithm>
 #include <string>
 #include <cstring>
+#include <vector>
 
 namespace painful {
 

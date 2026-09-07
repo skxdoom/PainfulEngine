@@ -1,9 +1,12 @@
 #include "SkeletonCache.h"
+#include "../Core/Matrix.h"
 #include "AnimationCache.h"
 
 #include "../Core/FileSystem.h"
 
 #include <algorithm>
+#include <string>
+#include <vector>
 
 namespace painful {
 

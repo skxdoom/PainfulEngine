@@ -1,6 +1,9 @@
 // ScriptEngine: the WORLD natives - map loading, fog, ambient and the sky.
 
 #include "ScriptEngineInternal.h"
+#include "../Core/Vectors.h"
+#include <string>
+#include <vector>
 
 namespace painful {
 

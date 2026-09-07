@@ -1,5 +1,4 @@
 #include "TextureCache.h"
-#include "../Core/Common.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
 
@@ -8,6 +7,8 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 

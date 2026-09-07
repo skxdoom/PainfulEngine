@@ -1,9 +1,8 @@
 #pragma once
 #include <string>
-#include "../Core/Vec3.h"
+#include "../Core/Vectors.h"
 #include <vector>
 
-#include "../Core/Common.h"
 
 namespace painful {
 

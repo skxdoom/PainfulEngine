@@ -1,7 +1,7 @@
 #include "AudioEngine.h"
 
 #include "../Core/Check.h"
-#include "../Core/Common.h"
+#include "../Core/Vectors.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
 
@@ -16,6 +16,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <string>
+#include <vector>
 
 namespace painful {
 

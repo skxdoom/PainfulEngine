@@ -8,9 +8,11 @@
 // text prints itself from it, and each row declares where its data root sits,
 // so the mounting cannot drift from the dispatch the way two parallel lists do.
 #include "Commands.h"
+#include "../Core/Vectors.h"
 #include "Core/Debug.h"
 
 #include <cstring>
+#include <string>
 
 namespace {
 
@@ -91,7 +93,7 @@ const Command kCommands[] = {
  [](int, char** argv) { return ScaleCmd(argv[2], argv[3]); }},
 
 {"selftest", 2, Root::kNone, "script", "",
- "numeric self-checks for Vec3 and the rotation helpers",
+ "numeric self-checks for Vec3, Quat, Mat4 and the engine conventions",
  [](int, char**) { return SelfTestCmd(); }},
 
 {"traces", 2, Root::kNone, "script", "",

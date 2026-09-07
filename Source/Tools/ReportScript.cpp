@@ -1,9 +1,15 @@
 // The script layer, and the assets it drives: animation, sound, waypoints.
 #include "Commands.h"
+#include "../Core/FileSystem.h"
+#include "../Core/Vectors.h"
+#include "../Core/Matrix.h"
 #include "Core/Debug.h"
 
 #include <chrono>
 #include <thread>
+#include <string>
+#include <vector>
+#include <map>
 
 int LuaCmd(const char* dataRoot, int frames, const char* level,
                   const char* exec) {

@@ -2,6 +2,7 @@
 #include "../Assets/Emitter.h"
 #include "../Assets/ShaderScript.h"
 #include <cstdint>
+#include <string>
 
 namespace painful {
 

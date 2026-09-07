@@ -1,10 +1,11 @@
 #include "Tweaks.h"
-#include "../Core/Common.h"
+#include "../Core/FileSystem.h"
 #include "../Core/Log.h"
 
 #include <cctype>
 #include <cstdlib>
 #include <vector>
+#include <string>
 
 namespace painful {
 

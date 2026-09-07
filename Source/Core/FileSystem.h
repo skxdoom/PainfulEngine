@@ -117,4 +117,16 @@ private:
     PakWriter writer_;
 };
 
-} // namespace painful
+
+// The mounted view as a free function: archives shadow loose files, matching
+// the original engine's mount order, and anything they do not serve is read
+// from disk. Every asset loader goes through this.
+bool ReadFile(const std::string& path, std::vector<uint8_t>& out);
+
+// Writes to DISK, creating parent directories. There is deliberately no pak
+// path here: the archives are read-only, and generated content lands as loose
+// files in the data root, which ReadFile falls through to when no archive
+// serves the name.
+bool WriteFile(const std::string& path, const std::vector<uint8_t>& data);
+
+}  // namespace painful

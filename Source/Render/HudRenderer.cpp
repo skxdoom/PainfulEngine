@@ -1,7 +1,6 @@
 #include "HudRenderer.h"
 #include "ShaderLoad.h"
 
-#include "../Core/Common.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
 #include "MeshVertex.h"
@@ -10,6 +9,7 @@
 
 #include <cmath>
 #include <filesystem>
+#include <string>
 
 namespace painful {
 

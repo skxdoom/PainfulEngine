@@ -1,6 +1,9 @@
 // ScriptEngine: per-limb hit traces against the posed skeleton.
 
 #include "ScriptEngineInternal.h"
+#include "../Core/Vectors.h"
+#include "../Core/Matrix.h"
+#include <vector>
 
 namespace painful {
 
@@ -160,11 +163,11 @@ bool ScriptEngine::TraceLimbs(const Vec3& from, const Vec3& to, float maxDistanc
         // builds it. If these two ever disagree, the box a shot tests is not
         // the box F2 draws, and no amount of looking at the picture would
         // show it.
-        float rot[9];
-        EngineQuatToRot9(e.rotWXYZ, rot);
+        float rot9[9];
+        EngineQuatToRot9(e.rot, rot9);
         Mat4 world;
         for (int r = 0; r < 3; ++r) {
-            for (int c = 0; c < 3; ++c) world.m[r * 4 + c] = e.scale * rot[r * 3 + c];
+            for (int c = 0; c < 3; ++c) world.m[r * 4 + c] = e.scale * rot9[r * 3 + c];
             world.m[r * 4 + 3] = 0.f;
         }
         for (int c = 0; c < 3; ++c) world.m[12 + c] = e.pos[c];
@@ -459,20 +462,16 @@ void ScriptEngine::TickProjectiles(float dt) {
             const float w = std::sqrt(spinSq);
             const float half = 0.5f * w * dt;
             const float s = -std::sin(half) / w;
-            const float step[4] = {std::cos(half), e.angVel[0] * s,
-                                   e.angVel[1] * s, e.angVel[2] * s};
-            float out[4];
-            EngineQuatMul(e.rotWXYZ, step, out);
-            const float len = std::sqrt(out[0]*out[0] + out[1]*out[1] +
-                                        out[2]*out[2] + out[3]*out[3]);
-            if (len > 1e-8f)
-                for (int c = 0; c < 4; ++c) e.rotWXYZ[c] = out[c] / len;
+            const Quat step(std::cos(half), e.angVel[0] * s,
+                            e.angVel[1] * s, e.angVel[2] * s);
+            const Quat out = e.rot * step;
+            if (out.Length() > 1e-8f) e.rot = out.Normalized();
         }
 
         // The body follows so the model draws in the right place and any query
         // against it answers truthfully; it is a carrier, not a simulation.
         if (physics_ && e.physicsBody >= 0)
-            physics_->SetScriptBodyPose(e.physicsBody, e.pos, e.rotWXYZ);
+            physics_->SetScriptBodyPose(e.physicsBody, e.pos, e.rot);
         SyncPose(e);
     }
 }

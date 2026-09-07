@@ -24,6 +24,9 @@
 // entities: without them the handler has nothing to measure.
 
 #include "ScriptEngineInternal.h"
+#include "../Core/Vectors.h"
+#include <string>
+#include <vector>
 
 namespace painful {
 
@@ -312,7 +315,7 @@ void ScriptEngine::TickGrenades() {
             const float k = 1.6f - e.bodyFriction;
             for (int c = 0; c < 3; ++c) vel[c] *= k;
         }
-        physics_->SetScriptBodyPose(e.physicsBody, end, e.rotWXYZ);
+        physics_->SetScriptBodyPose(e.physicsBody, end, e.rot);
         physics_->SetScriptBodyVelocity(e.physicsBody, vel);
     }
 }

@@ -1,10 +1,15 @@
 #include "Rde.h"
+#include "../Core/FileSystem.h"
+#include "../Core/Vectors.h"
+#include "../Core/Matrix.h"
 
 #include <algorithm>
 #include <cstdlib>
 
 #include "Pkmdl.h"
 #include "Skeleton.h"
+#include <string>
+#include <vector>
 
 namespace painful {
 

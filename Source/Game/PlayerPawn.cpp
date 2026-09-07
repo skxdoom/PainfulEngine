@@ -1,4 +1,5 @@
 #include "PlayerPawn.h"
+#include "../Core/Vectors.h"
 
 #include "../Core/Debug.h"
 
@@ -6,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <string>
 
 namespace painful {
 

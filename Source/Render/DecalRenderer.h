@@ -1,5 +1,6 @@
 #pragma once
 #include "../World/Decals.h"
+#include "../Core/Vectors.h"
 #include "Camera.h"
 #include "TextureCache.h"
 #include <bgfx/bgfx.h>

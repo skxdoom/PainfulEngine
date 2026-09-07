@@ -1,6 +1,6 @@
 #pragma once
 #include "../Assets/Mpk.h"
-#include "../Core/Vec3.h"
+#include "../Core/Vectors.h"
 #include "../Assets/Properties.h"
 #include <string>
 #include <vector>

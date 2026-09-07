@@ -1,7 +1,9 @@
 #pragma once
 #include "Ani.h"
-#include "../Core/Vec3.h"
+#include "../Core/Matrix.h"
+#include "../Core/Vectors.h"
 #include "Pkmdl.h"
+#include <vector>
 
 namespace painful {
 

@@ -1,5 +1,10 @@
 // The Jolt world, and what it does to a body dropped into it.
 #include "Commands.h"
+#include "../Core/Vectors.h"
+#include "../Core/Matrix.h"
+#include <string>
+#include <vector>
+#include <map>
 
 int RagdollDropCmd(const char* levelDir, const char* dataRoot, const char* modelName) {
     Level level;

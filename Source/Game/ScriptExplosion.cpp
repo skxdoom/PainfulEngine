@@ -15,6 +15,8 @@
 // Docs/Reference/Physics.md.
 
 #include "ScriptEngineInternal.h"
+#include "../Core/Vectors.h"
+#include <vector>
 
 namespace painful {
 

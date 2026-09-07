@@ -1,5 +1,9 @@
 // Texture references, and where each one actually resolves to.
 #include "Commands.h"
+#include "../Core/FileSystem.h"
+#include <string>
+#include <vector>
+#include <map>
 
 int SkyDumpCmd(const char* path) {
     MapMesh m;

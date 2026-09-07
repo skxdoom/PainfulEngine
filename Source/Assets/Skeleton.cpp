@@ -1,11 +1,13 @@
 #include "Skeleton.h"
 #include "Properties.h"
-#include "../Core/Common.h"
+#include "../Core/Matrix.h"
+#include "../Core/Vectors.h"
 #include <algorithm>
 #include <cmath>
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <string>
 
 namespace painful {
 
@@ -132,35 +134,15 @@ Mat4 BlendPose(const Mat4& a, const Mat4& b, float u) {
         }
     }
 
-    float qa[4], qb[4];
-    EngineRot9ToQuat(ra, qa);
-    EngineRot9ToQuat(rb, qb);
-
-    // q and -q are the same rotation; without this the blend can take the long
-    // way round and spin a bone through most of a turn between two keys.
-    float dot = qa[0]*qb[0] + qa[1]*qb[1] + qa[2]*qb[2] + qa[3]*qb[3];
-    if (dot < 0.f) { for (int c = 0; c < 4; ++c) qb[c] = -qb[c]; dot = -dot; }
-
-    // Normalised lerp. Between keys a thirtieth of a second apart the angle is
-    // small enough that its speed differs from a slerp's below what a frame
-    // can show, and it cannot divide by a vanishing sine.
-    float q[4];
-    float len = 0.f;
-    for (int c = 0; c < 4; ++c) {
-        q[c] = qa[c] + (qb[c] - qa[c]) * u;
-        len += q[c] * q[c];
-    }
-    len = std::sqrt(len);
-    if (len > 1e-8f) { for (int c = 0; c < 4; ++c) q[c] /= len; }
-    else             { for (int c = 0; c < 4; ++c) q[c] = qa[c]; }
-
-    float rot[9];
-    EngineQuatToRot9(q, rot);
+    // Rotation blends as a quaternion, scale per row: Nlerp takes the short way
+    // round, which is what stops a bone spinning most of a turn between keys.
+    float rot9[9];
+    EngineQuatToRot9(Nlerp(EngineRot9ToQuat(ra), EngineRot9ToQuat(rb), u), rot9);
 
     Mat4 out;
     for (int r = 0; r < 3; ++r) {
         const float scale = sa[r] + (sb[r] - sa[r]) * u;
-        for (int c = 0; c < 3; ++c) out.m[r * 4 + c] = rot[r * 3 + c] * scale;
+        for (int c = 0; c < 3; ++c) out.m[r * 4 + c] = rot9[r * 3 + c] * scale;
         out.m[r * 4 + 3] = 0.f;
     }
     for (int c = 0; c < 3; ++c)
@@ -183,12 +165,11 @@ Mat4 ApplyJointOverride(Mat4 local, size_t bone,
         if (overrides[o].bone != int(bone)) continue;
         const float* e = overrides[o].euler;
         if (e[0] == 0.f && e[1] == 0.f && e[2] == 0.f) break;
-        float q[4], rot[9];
-        EngineEulerToQuat(e[0], e[1], e[2], q);
-        EngineQuatToRot9(q, rot);
+        float rot9[9];
+        EngineQuatToRot9(Quat::FromEuler(e[0], e[1], e[2]), rot9);
         Mat4 r;
         for (int rr = 0; rr < 3; ++rr)
-            for (int cc = 0; cc < 3; ++cc) r.m[rr * 4 + cc] = rot[rr * 3 + cc];
+            for (int cc = 0; cc < 3; ++cc) r.m[rr * 4 + cc] = rot9[rr * 3 + cc];
         local = Mat4::Mul(r, local);
         break;
     }
@@ -220,24 +201,7 @@ Mat4 LocalAtTime(const std::vector<Bone>& bones,
         }
     }
 
-    // A script's own rotation on top of the animation. `local` maps this
-    // bone's space into its parent's, so pre-multiplying applies the turn in
-    // the BONE's frame - the head turns where it sits. Post-multiplying would
-    // apply it in the parent's frame and swing the head around the neck.
-    for (size_t o = 0; o < overrideCount; ++o) {
-        if (overrides[o].bone != int(i)) continue;
-        const float* e = overrides[o].euler;
-        if (e[0] == 0.f && e[1] == 0.f && e[2] == 0.f) break;
-        float q[4], rot[9];
-        EngineEulerToQuat(e[0], e[1], e[2], q);
-        EngineQuatToRot9(q, rot);
-        Mat4 r;
-        for (int rr = 0; rr < 3; ++rr)
-            for (int cc = 0; cc < 3; ++cc) r.m[rr * 4 + cc] = rot[rr * 3 + cc];
-        local = Mat4::Mul(r, local);
-        break;
-    }
-    return local;
+    return ApplyJointOverride(local, i, overrides, overrideCount);
 }
 
 } // namespace

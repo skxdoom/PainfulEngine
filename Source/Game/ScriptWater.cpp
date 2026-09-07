@@ -23,6 +23,8 @@
 // leaving it to the general geometry path.
 
 #include "ScriptEngineInternal.h"
+#include "../Core/Vectors.h"
+#include <string>
 
 namespace painful {
 

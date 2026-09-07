@@ -1,18 +1,16 @@
 // Numeric self-checks for the small maths types, run by `PainfulTools selftest`.
 //
 // The engine has no unit-test rig and does not need one: every subsystem is
-// checked by a report against real game data. Vec3 has no game data - it is
-// pure arithmetic - so this is its report. It exists to be run after every
-// float[3] -> Vec3 conversion. Docs/Reference/Vectors.md
+// checked by a report against real game data. These types have no game data -
+// they are pure arithmetic - so this is their report. Run it after every
+// float array -> Vec3/Quat conversion. Docs/Reference/Vectors.md
 
 #include "Commands.h"
 
-#include "Core/Common.h"
-#include "Core/Vec3.h"
+#include "../Core/Matrix.h"
+#include "../Core/Vectors.h"
 
 #include <cmath>
-
-
 
 namespace {
 using namespace painful;
@@ -131,24 +129,101 @@ void TestAgainstMat4() {
     Ok(byValue == out, "the value form agrees with the out-parameter form");
 }
 
-void TestQuaternionInterop() {
-    // Vec3 must survive the engine's (w,x,y,z) rotation helpers untouched.
-    float q[4];
-    EngineEulerToQuat(0.f, kPi * 0.5f, 0.f, q);        // 90 degrees about Y
-    Vec3 r;
-    EngineQuatRotate(q, Vec3(1.f, 0.f, 0.f), r);
-    Ok(Near(r.Length(), 1.f), "rotation preserves length");
-    Ok(Near(std::fabs(r.z), 1.f, 1e-4f) && Near(r.x, 0.f, 1e-4f),
-       "90 degrees about Y takes +X onto the Z axis");
+// Quat carries the engine's (w,x,y,z) order and its qz*qy*qx composition, both
+// recovered rules. It is the single authority for them, so the checks are
+// against the geometry itself and against the 3x3 form the renderers use.
+void TestQuat() {
+    Ok(sizeof(Quat) == 16, "Quat is four packed floats");
+    const Quat id;
+    Ok(id.w == 1.f && id.x == 0.f && id.y == 0.f && id.z == 0.f, "default Quat is the identity");
 
-    float id[4] = {1.f, 0.f, 0.f, 0.f};
-    Vec3 same;
-    EngineQuatRotate(id, Vec3(1.f, 2.f, 3.f), same);
-    Ok(Near(same, Vec3(1.f, 2.f, 3.f)), "the identity quaternion is a no-op");
-    Ok(Near(EngineQuatRotate(q, Vec3(1.f, 0.f, 0.f)), r),
-       "the value form agrees with the out-parameter form");
+    // Order: element 0 is W. A (x,y,z,w) library would fail this.
+    const Quat q(0.5f, 1.f, 2.f, 3.f);
+    Ok(q[0] == 0.5f && q[1] == 1.f && q[2] == 2.f && q[3] == 3.f, "operator[] is w,x,y,z");
+    const float* raw = q;
+    Ok(raw[0] == 0.5f && raw[3] == 3.f, "the implicit const float* is w-first");
+
+    float stored[4] = {0, 0, 0, 0};
+    q.Store(stored);
+    Ok(stored[0] == 0.5f && stored[1] == 1.f && stored[2] == 2.f && stored[3] == 3.f,
+       "Store writes w,x,y,z");
+    float rawQ[4] = {0.5f, 1.f, 2.f, 3.f};
+    Ok(AsQuat(rawQ) == q, "AsQuat reads a float[4] in place");
+
+    // FromEuler is qz*qy*qx (FUN_1011bea0): a single-axis turn must put the
+    // half-angle in that axis alone, and X must be the one applied first.
+    const Quat rx = Quat::FromEuler(0.6f, 0.f, 0.f);
+    Ok(Near(rx.w, std::cos(0.3f)) && Near(rx.x, std::sin(0.3f)) &&
+       Near(rx.y, 0.f) && Near(rx.z, 0.f), "FromEuler about X alone");
+    const Quat rz = Quat::FromEuler(0.f, 0.f, 0.6f);
+    Ok(Near(rz.w, std::cos(0.3f)) && Near(rz.z, std::sin(0.3f)) &&
+       Near(rz.x, 0.f) && Near(rz.y, 0.f), "FromEuler about Z alone");
+    Ok(Near(Dot(Quat::FromEuler(0.3f, -0.7f, 1.1f),
+                Quat::FromEuler(0.f, 0.f, 1.1f) * Quat::FromEuler(0.f, -0.7f, 0.f) *
+                    Quat::FromEuler(0.3f, 0.f, 0.f)),
+            1.f, 1e-4f),
+       "FromEuler(x,y,z) is qz*qy*qx");
+
+    // 90 degrees about Y takes +X onto the Z axis.
+    const Quat ry = Quat::FromEuler(0.f, kPi * 0.5f, 0.f);
+    const Vec3 turned = ry.Rotate(Vec3(1.f, 0.f, 0.f));
+    Ok(Near(turned.Length(), 1.f), "Quat::Rotate preserves length");
+    Ok(Near(std::fabs(turned.z), 1.f, 1e-4f) && Near(turned.x, 0.f, 1e-4f),
+       "Quat::Rotate takes +X onto Z for 90 degrees about Y");
+    Ok(Near(Quat().Rotate(Vec3(1.f, 2.f, 3.f)), Vec3(1.f, 2.f, 3.f)),
+       "the identity Quat is a no-op");
+
+    // Composition order: a * b applies a FIRST. Rotate is conj(q) * v * q, so
+    // conj(ab) v (ab) = conj(b) (conj(a) v a) b - row-vector order, the same one
+    // Matrix.h states for EngineRot9Mul.
+    const Quat qa = Quat::FromEuler(0.4f, 0.f, 0.f);
+    const Quat qb = Quat::FromEuler(0.f, 0.9f, 0.f);
+    const Vec3 v(0.3f, -1.2f, 2.f);
+    Ok(Near((qa * qb).Rotate(v), qb.Rotate(qa.Rotate(v)), 1e-4f), "a * b applies a first");
+    Ok(!Near((qa * qb).Rotate(v), qa.Rotate(qb.Rotate(v)), 1e-3f),
+       "the two composition orders differ, so the check above discriminates");
+
+    // The quaternion order must match the 3x3 one. Row i of a row-vector
+    // rotation matrix is the image of basis vector i, so R(a*b) can be compared
+    // against EngineRot9Mul(R(a), R(b)) directly.
+    const auto Rot9 = [](const Quat& r, float out[9]) {
+        r.Rotate(Vec3(1.f, 0.f, 0.f)).Store(out);
+        r.Rotate(Vec3(0.f, 1.f, 0.f)).Store(out + 3);
+        r.Rotate(Vec3(0.f, 0.f, 1.f)).Store(out + 6);
+    };
+    float ra[9], rb[9], rab[9], rmul[9];
+    Rot9(qa, ra);
+    Rot9(qb, rb);
+    Rot9(qa * qb, rab);
+    EngineRot9Mul(ra, rb, rmul);
+    bool rot9Same = true;
+    for (int i = 0; i < 9; ++i) rot9Same = rot9Same && Near(rab[i], rmul[i], 1e-4f);
+    Ok(rot9Same, "Quat and EngineRot9Mul compose in the same order");
+
+    Ok(Near(qa.Conjugate().Rotate(qa.Rotate(v)), v, 1e-4f),
+       "the conjugate undoes the rotation");
+
+    // Dot, negate, normalise: what the animation blend is built out of.
+    Ok(Near(Dot(qa, qa), 1.f), "a unit Quat dots with itself to 1");
+    Ok(Near(Dot(qa, -qa), -1.f), "negation flips the dot");
+    Ok(Near((-qa).Rotate(v), qa.Rotate(v), 1e-4f), "q and -q are the same rotation");
+    Ok(Near(Quat(0.f, 3.f, 0.f, 4.f).Length(), 5.f), "Quat::Length");
+    Ok(Near(Quat(0.f, 3.f, 0.f, 4.f).Normalized().Length(), 1.f), "Normalized is unit");
+    Ok(Quat(0.f, 0.f, 0.f, 0.f).Normalized() == Quat(),
+       "normalising zero yields the identity, not a NaN");
+
+    // Nlerp: the endpoints, the midpoint's unit length, and the short-way-round
+    // flip, which is what stops a bone spinning most of a turn between keys.
+    Ok(Near(Dot(Nlerp(qa, qb, 0.f), qa), 1.f, 1e-4f), "Nlerp at 0 is a");
+    Ok(Near(Dot(Nlerp(qa, qb, 1.f), qb), 1.f, 1e-4f), "Nlerp at 1 is b");
+    Ok(Near(Nlerp(qa, qb, 0.5f).Length(), 1.f), "Nlerp stays unit");
+    Ok(Near(Dot(Nlerp(qa, -qb, 0.5f), Nlerp(qa, qb, 0.5f)), 1.f, 1e-4f),
+       "Nlerp takes the short way round, so -b blends the same as b");
+    // The flip makes the inputs non-antipodal, so only a degenerate input can
+    // reach the fallback at all.
+    const Quat zero(0.f, 0.f, 0.f, 0.f);
+    Ok(Nlerp(zero, zero, 0.5f) == zero, "a degenerate blend falls back to a");
 }
-
 }  // namespace
 
 int SelfTestCmd() {
@@ -159,7 +234,7 @@ int SelfTestCmd() {
     TestGeometry();
     TestDegenerate();
     TestAgainstMat4();
-    TestQuaternionInterop();
+    TestQuat();
     if (g_failed == 0) {
         LogInfo("selftest: %zu checks passed", g_ran);
         return 0;

@@ -102,7 +102,7 @@ and truncated rather than wrapped; anything longer is a dump, and a dump belongs
 in a report.
 ## Truncated files
 
-`Reader` (`Source/Core/Common.h`) bounds-checks every read. Past the end it
+`Reader` (`Source/Core/Reader.h`) bounds-checks every read. Past the end it
 yields zero and latches `overran()`.
 
 The latch, rather than a check per field, is what suits these formats: a

@@ -1,5 +1,7 @@
 #pragma once
 #include "Skeleton.h"
+#include "../Core/Vectors.h"
+#include "../Core/Matrix.h"
 
 #include <string>
 #include <unordered_map>

@@ -1,4 +1,6 @@
 #include "Hke.h"
+#include "../Core/FileSystem.h"
+#include "../Core/Vectors.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -6,6 +8,8 @@
 #include <cstring>
 #include <cmath>
 #include <unordered_map>
+#include <string>
+#include <vector>
 
 namespace painful {
 

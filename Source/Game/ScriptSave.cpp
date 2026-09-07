@@ -9,10 +9,16 @@
 // the scripts saved in EntityToObject. Docs/Reference/LuaHost.md, "Saving".
 
 #include "ScriptEngineInternal.h"
+#include "../Core/FileSystem.h"
+#include "../Core/Vectors.h"
+#include "../Core/Matrix.h"
 #include "../Script/LuaHost.h"
 #include "../World/PhysicsWorld.h"
 
 #include <cstring>
+#include <string>
+#include <vector>
+#include <map>
 
 namespace painful {
 
@@ -54,9 +60,11 @@ public:
     void F(float& v) { Raw(&v, 4); }
     void F(bool& v) { uint8_t b = v ? 1 : 0; Raw(&b, 1); v = b != 0; }
     template <size_t N> void F(float (&v)[N]) { Raw(v, sizeof v); }
-    // Three packed floats, the same twelve bytes the float[3] form wrote -
-    // Vec3 static_asserts that layout, so the save format does not move.
+    // Three and four packed floats, the same bytes the float[3]/float[4] forms
+    // wrote - both types static_assert that layout, so the save format does not
+    // move.
     void F(Vec3& v) { Raw(v.p(), sizeof(float) * 3); }
+    void F(Quat& q) { Raw(q.p(), sizeof(float) * 4); }
     void F(std::string& s) {
         uint32_t n = uint32_t(s.size());
         F(n);
@@ -122,7 +130,7 @@ private:
 void ArchiveEntity(Archive& ar, ScriptEngine::Entity& e, bool& hadBody, bool& hadRagdoll,
                    Vec3& bodyVel) {
     ar.F(e.type); ar.F(e.source); ar.F(e.mesh); ar.F(e.name);
-    ar.F(e.scale); ar.F(e.pos); ar.F(e.rotWXYZ);
+    ar.F(e.scale); ar.F(e.pos); ar.F(e.rot);
     ar.F(e.visible); ar.F(e.inWorld); ar.F(e.worldObject);
     ar.F(e.activeMesh); ar.F(e.activeOrigin);
 
@@ -144,7 +152,7 @@ void ArchiveEntity(Archive& ar, ScriptEngine::Entity& e, bool& hadBody, bool& ha
     ar.F(e.collisionCooldown);
     ar.F(e.hiddenMeshes);
     ar.F(e.parent); ar.F(e.parentOffset); ar.F(e.parentJoint); ar.F(e.parentBound);
-    ar.F(e.parentRotBound); ar.F(e.parentRotWXYZ);
+    ar.F(e.parentRotBound); ar.F(e.parentRot);
     ar.F(e.collisionGroup); ar.F(e.movedByExplosions); ar.F(e.isProjectile); ar.F(e.isGrenade);
     ar.F(e.bodyFriction); ar.F(e.bodyRestitution);
     ar.F(e.bodyType); ar.F(e.bodyArgScale); ar.F(e.bodyMass); ar.F(e.bodyFreedomMode);
@@ -284,7 +292,7 @@ void ScriptEngine::RebuildEntity(int handle, Entity& src) {
                     (e.bodyType == 1 || e.bodyType == 9) && e.bodyArgScale > 0.f
                         ? e.bodyArgScale * 1.1f : 0.f;
                 slot = physics_->CreateScriptBody(e.bodyType, model, pack, e.mesh, scale, e.pos,
-                                                  e.rotWXYZ, dataRoot_, e.collisionGroup,
+                                                  e.rot, dataRoot_, e.collisionGroup,
                                                   sphereRadius);
             }
         }
@@ -306,7 +314,7 @@ void ScriptEngine::RebuildEntity(int handle, Entity& src) {
                 physics_->SetCharacterFlying(slot, e.monsterFlying);
                 physics_->SetCharacterWish(slot, e.moveWish);
             }
-            physics_->SetScriptBodyPose(slot, e.pos, e.rotWXYZ);
+            physics_->SetScriptBodyPose(slot, e.pos, e.rot);
             if (e.bodyPinned) physics_->SetScriptBodyPinned(slot, true);
             if (e.bodyNonColliding) physics_->MakeScriptBodyNonColliding(slot);
             if (!e.poEnabled) physics_->SetScriptBodyEnabled(slot, false);

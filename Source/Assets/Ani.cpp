@@ -1,5 +1,9 @@
 #include "Ani.h"
+#include "../Core/FileSystem.h"
+#include "../Core/Reader.h"
 #include <cstring>
+#include <string>
+#include <vector>
 
 namespace painful {
 

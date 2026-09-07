@@ -1,4 +1,5 @@
 #include "MenuSystem.h"
+#include "../Core/Vectors.h"
 #include "Input.h"
 
 #include "../Core/Debug.h"
@@ -9,6 +10,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <string>
+#include <vector>
 
 namespace painful {
 
@@ -1299,7 +1302,6 @@ constexpr float kArrowW = 60.f, kArrowH = 44.f;
 constexpr float kPanelX = 477.f, kPanelY = 192.f, kPanelW = 320.f, kPanelH = 240.f;
 constexpr float kPlateX = 92.f, kPlateY = 526.f, kPlateW = 306.f, kPlateH = 108.f;
 constexpr float kPentX = 824.f, kPentY = 588.f, kPentW = 139.f, kPentH = 139.f;
-constexpr float kPi = 3.14159265f;
 constexpr uint32_t kMapText = 0xff60c0e8u;       // ABGR: warm gold
 constexpr uint32_t kMapTextFocus = 0xffffffffu;
 constexpr uint32_t kMapTextRed = 0xff2020e0u;

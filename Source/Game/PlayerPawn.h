@@ -1,6 +1,6 @@
 #pragma once
 #include "../World/PhysicsWorld.h"
-#include "../Core/Vec3.h"
+#include "../Core/Vectors.h"
 #include "Input.h"
 
 #include <cmath>

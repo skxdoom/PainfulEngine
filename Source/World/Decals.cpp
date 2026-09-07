@@ -3,14 +3,18 @@
 // addresses are in Docs/Reference/Decals.md.
 
 #include "Decals.h"
+#include "../Core/Matrix.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
-#include "../Core/Vec3.h"
+#include "../Core/Vectors.h"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <string>
+#include <vector>
+#include <map>
 
 namespace painful {
 

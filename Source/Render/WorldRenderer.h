@@ -1,5 +1,6 @@
 #pragma once
-#include "../Core/Vec3.h"
+#include "../Core/Vectors.h"
+#include "../Core/Matrix.h"
 #include "../Assets/Mpk.h"
 #include "../Assets/ShaderScript.h"
 #include "../World/Level.h"

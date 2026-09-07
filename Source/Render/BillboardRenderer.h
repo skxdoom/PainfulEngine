@@ -1,6 +1,6 @@
 #pragma once
 #include "../World/CollisionMesh.h"
-#include "../Core/Vec3.h"
+#include "../Core/Vectors.h"
 #include "../World/Level.h"
 #include "../World/Templates.h"
 #include "Camera.h"

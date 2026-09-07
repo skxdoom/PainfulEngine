@@ -11,6 +11,7 @@
 #endif
 #include <windows.h>
 #include <shellapi.h>
+#include <string>
 #endif
 
 namespace painful {

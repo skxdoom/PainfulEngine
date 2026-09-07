@@ -5,6 +5,8 @@
 #include <climits>
 #include <cstring>
 #include <utility>
+#include <string>
+#include <vector>
 
 namespace painful {
 

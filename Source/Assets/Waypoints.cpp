@@ -1,4 +1,6 @@
 #include "Waypoints.h"
+#include "../Core/Vectors.h"
+#include "../Core/Reader.h"
 
 #include "../Core/FileSystem.h"
 
@@ -6,6 +8,8 @@
 #include <cmath>
 #include <functional>
 #include <queue>
+#include <string>
+#include <vector>
 
 namespace painful {
 

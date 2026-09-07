@@ -1,6 +1,6 @@
 #pragma once
 #include "../Assets/Emitter.h"
-#include "../Core/Vec3.h"
+#include "../Core/Vectors.h"
 #include "../World/Level.h"
 #include "../World/Templates.h"
 #include "Camera.h"
@@ -131,7 +131,7 @@ private:
         // The owning entity's position, which is where Immortal pins particles
         // - it is the emitter position minus the .pfx entry's offset.
         Vec3 ownerPos;
-        float rot[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+        float rot9[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
 
         float spawnAccum = 0.f;
         int   spawnedTotal = 0;

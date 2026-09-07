@@ -1,9 +1,13 @@
 #include "Properties.h"
-#include "../Core/Common.h"
+#include "../Core/Matrix.h"
+#include "../Core/Vectors.h"
+#include "../Core/FileSystem.h"
 #include <cctype>
 #include <cmath>
 #include <cstring>
 #include <cstdlib>
+#include <string>
+#include <vector>
 
 namespace painful {
 
@@ -159,40 +163,18 @@ bool Properties::Vector3(const std::string& key, Vec3& out) const {
 //     o.Ang.X / o.Ang.Y / o.Ang.Z          -- Euler radians
 //
 // Neither is universal, so whichever is present wins and identity is the
-// fallback. Component order (w, x, y, z) and the matrix form were both read out
-// of Engine.dll: PhysicsWorld::GetHavokBodyRotation stores Havok's (x,y,z,w)
-// into the engine layout as (-w, x, y, z), and the engine's quaternion-to-
-// matrix routine (FUN_1000bb90) emits the standard TEXTBOOK matrix, applied to
-// row vectors as-is - NOT transposed into row-vector form. Pre-transposing
-// here mirrored every rotation (+28 degrees rendered as -28).
-void EngineQuatToRot9(const float q[4], float out[9]) {
-    const float identity[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
-    std::memcpy(out, identity, sizeof(identity));
-    const float n = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
-    if (n < 1e-6f) return;
-    const float iw = q[0] / n, ix = q[1] / n, iy = q[2] / n, iz = q[3] / n;
-    // Verbatim from the engine's own conversion (FUN_1000bb90), applied to
-    // row vectors as-is.
-    out[0] = 1 - 2 * (iy * iy + iz * iz);
-    out[1] = 2 * (ix * iy - iz * iw);
-    out[2] = 2 * (ix * iz + iy * iw);
-    out[3] = 2 * (ix * iy + iz * iw);
-    out[4] = 1 - 2 * (ix * ix + iz * iz);
-    out[5] = 2 * (iy * iz - ix * iw);
-    out[6] = 2 * (ix * iz - iy * iw);
-    out[7] = 2 * (iy * iz + ix * iw);
-    out[8] = 1 - 2 * (ix * ix + iy * iy);
-}
-
+// fallback. Component order (w, x, y, z) was read out of Engine.dll:
+// PhysicsWorld::GetHavokBodyRotation stores Havok's (x,y,z,w) into the engine
+// layout as (-w, x, y, z). The matrix form is EngineQuatToRot9 (Core/Matrix.h).
 void ReadRotation(const Properties& props, float out[9]) {
     const float identity[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
     std::memcpy(out, identity, sizeof(identity));
 
     if (const Value* q = props.Find("Rot")) {
         if (q->kind == Value::Kind::Ctor && q->args.size() >= 4) {
-            const float quat[4] = {q->Arg(0), q->Arg(1), q->Arg(2), q->Arg(3)};
-            const float n = std::sqrt(quat[0] * quat[0] + quat[1] * quat[1] +
-                                      quat[2] * quat[2] + quat[3] * quat[3]);
+            const Quat quat(q->Arg(0), q->Arg(1), q->Arg(2), q->Arg(3));
+            const float n = std::sqrt(quat.w * quat.w + quat.x * quat.x +
+                                      quat.y * quat.y + quat.z * quat.z);
             if (n > 1e-6f) {
                 EngineQuatToRot9(quat, out);
                 return;

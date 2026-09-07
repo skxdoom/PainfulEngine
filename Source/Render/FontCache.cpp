@@ -1,6 +1,6 @@
 #include "FontCache.h"
 
-#include "../Core/Common.h"
+#include "../Core/FileSystem.h"
 #include "../Core/Log.h"
 
 #define STB_TRUETYPE_IMPLEMENTATION
@@ -8,6 +8,8 @@
 
 #include <cmath>
 #include <cstring>
+#include <string>
+#include <vector>
 
 namespace painful {
 

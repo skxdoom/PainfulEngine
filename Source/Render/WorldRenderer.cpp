@@ -1,7 +1,6 @@
 #include "WorldRenderer.h"
 #include "ShaderLoad.h"
-#include "../Core/Vec3.h"
-#include "../Core/Common.h"
+#include "../Core/Vectors.h"
 #include "../Core/Log.h"
 #include "GpuBuffers.h"
 #include "MeshVertex.h"
@@ -9,6 +8,8 @@
 #include <algorithm>
 #include <bx/math.h>
 #include <filesystem>
+#include <string>
+#include <vector>
 
 namespace painful {
 

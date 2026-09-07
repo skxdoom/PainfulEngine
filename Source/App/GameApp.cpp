@@ -1,4 +1,5 @@
 #include "GameApp.h"
+#include "../Core/Vectors.h"
 
 #include "Assets/Ani.h"
 #include "Assets/Dat.h"

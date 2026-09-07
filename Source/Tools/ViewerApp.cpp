@@ -4,9 +4,12 @@
 // ever gives a free camera, which is what makes it useful for surveying a level
 // - and what makes it a diagnostic rather than the way in.
 #include "LevelStats.h"
+#include "../Core/Vectors.h"
 #include "Commands.h"
 #include "Core/Debug.h"
 #include "Game/EngineBoot.h"
+#include <string>
+#include <vector>
 
 int RunCmd(const char* levelDir, const char* dataRoot,
                   const std::string& shotPath, const char* exePath,
@@ -140,7 +143,7 @@ int RunCmd(const char* levelDir, const char* dataRoot,
         if (entities) {
             physics.CollectPoses(movedProps, false);
             for (const BodyPose& pose : movedProps)
-                entities->SetEntityPose(pose.entity, pose.pos, pose.rot);
+                entities->SetEntityPose(pose.entity, pose.pos, pose.rot9);
         }
 
         billboards = std::make_unique<BillboardRenderer>();
@@ -236,7 +239,7 @@ int RunCmd(const char* levelDir, const char* dataRoot,
         if (entities) {
             physics.CollectPoses(movedProps);
             for (const BodyPose& pose : movedProps)
-                entities->SetEntityPose(pose.entity, pose.pos, pose.rot);
+                entities->SetEntityPose(pose.entity, pose.pos, pose.rot9);
         }
 
         renderer.BeginFrame();

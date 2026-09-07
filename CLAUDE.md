@@ -66,13 +66,19 @@ list. Docs/Reference/Diagnostics.md draws the line.
 
 ## Vectors
 
-Maths uses `Vec3` (`Core/Vec3.h`), which has the layout of `float[3]` and
-converts to `const float*` implicitly, so it still mixes with the arrays at the
-Lua, Jolt and bgfx boundaries. Converting a site is not a free rename: check the
-epsilon first (`Normalized()` rescales any non-zero length; some hand-written
-helpers had a floor), then prove it with a before/after diff of a report that
-exercises it. **Never let a mechanical sweep touch the self-test** - it is the
-one file whose `float[3]` are deliberate.
+Maths uses `Vec3` and `Quat` (`Core/Vectors.h`) and `Mat4` (`Core/Matrix.h`).
+Each has the layout of the float array it replaced and converts to
+`const float*` implicitly, so they still mix with the arrays at the Lua, Jolt
+and bgfx boundaries. `Quat` is engine order (w,x,y,z) and is the single
+authority for the rotation convention: `Rotate` is `conj(q)*v*q`, so **`a * b`
+applies `a` first**, the same order `EngineRot9Mul` uses.
+
+Converting a site is not a free rename: check the epsilon first (`Normalized()`
+rescales any non-zero length; some hand-written helpers had a floor), then prove
+it with a before/after diff of a report that exercises it. Not every `float[4]`
+is a rotation - most are bgfx uniforms or UV transforms, and converting one of
+those breaks bgfx silently. **Never let a mechanical sweep touch the self-test**
+- it is the one file whose `float[3]` are deliberate.
 
 ## Layout
 
@@ -111,6 +117,6 @@ has one:
 ```
 PainfulTools level <DataRoot>/Levels/<name> <DataRoot>
 PainfulTools lua <DataRoot> 60 <name>
-PainfulTools selftest                     # Vec3 and the rotation helpers
+PainfulTools selftest                     # Vec3, Quat, Mat4 and the conventions
 PainfulTools traces                       # every PAINFUL_* switch, and what is set
 ```

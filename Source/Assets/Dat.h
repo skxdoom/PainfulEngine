@@ -1,6 +1,8 @@
 #pragma once
-#include "../Core/Common.h"
+#include "../Core/Matrix.h"
 #include "Mpk.h"
+#include <string>
+#include <vector>
 
 namespace painful {
 

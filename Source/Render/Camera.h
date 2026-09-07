@@ -1,6 +1,6 @@
 #pragma once
 #include <cmath>
-#include "../Core/Vec3.h"
+#include "../Core/Vectors.h"
 
 namespace painful {
 

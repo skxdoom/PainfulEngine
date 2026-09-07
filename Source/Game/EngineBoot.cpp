@@ -4,6 +4,7 @@
 #include "../Core/Debug.h"
 #include "../Core/Log.h"
 #include "../Render/Camera.h"
+#include <string>
 
 namespace painful {
 

@@ -2,6 +2,7 @@
 
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
+#include <string>
 
 namespace painful {
 

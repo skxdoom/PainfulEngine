@@ -1,9 +1,13 @@
 // ScriptEngine: dying - MDL.EnableRagdoll, the ragdoll pose and what it drops.
 
 #include "ScriptEngineInternal.h"
+#include "../Core/Vectors.h"
+#include "../Core/Matrix.h"
 
 #include <set>
 #include <utility>
+#include <string>
+#include <vector>
 
 namespace painful {
 
@@ -182,11 +186,11 @@ bool ScriptEngine::EnableRagdoll(Entity& e, bool enable, const std::vector<Mat4>
     const std::vector<std::string>& parts = physics_->RagdollBones(slot);
     const std::vector<Mat4>& offsets = RagdollOffsets(e.source, parts, *def, *skel);
     std::vector<float> pose(parts.size() * 16, 0.f);
-    float rot[9];
-    EngineQuatToRot9(e.rotWXYZ, rot);
+    float rot9[9];
+    EngineQuatToRot9(e.rot, rot9);
     Mat4 world;
     for (int r = 0; r < 3; ++r) {
-        for (int c = 0; c < 3; ++c) world.m[r * 4 + c] = e.scale * rot[r * 3 + c];
+        for (int c = 0; c < 3; ++c) world.m[r * 4 + c] = e.scale * rot9[r * 3 + c];
         world.m[r * 4 + 3] = 0.f;
     }
     for (int c = 0; c < 3; ++c) world.m[12 + c] = e.pos[c];
@@ -351,11 +355,11 @@ void ScriptEngine::TickRagdolls() {
 
         // Model space is what the renderer wants, so undo the entity's own
         // transform - rebuilt here from the position just updated.
-        float rot[9];
-        EngineQuatToRot9(e.rotWXYZ, rot);
+        float rot9[9];
+        EngineQuatToRot9(e.rot, rot9);
         Mat4 world;
         for (int r = 0; r < 3; ++r) {
-            for (int c = 0; c < 3; ++c) world.m[r * 4 + c] = e.scale * rot[r * 3 + c];
+            for (int c = 0; c < 3; ++c) world.m[r * 4 + c] = e.scale * rot9[r * 3 + c];
             world.m[r * 4 + 3] = 0.f;
         }
         for (int c = 0; c < 3; ++c) world.m[12 + c] = e.pos[c];
@@ -978,7 +982,7 @@ int ScriptEngine::MakeGib(Entity& src, int group, const char* velocityJoint) {
     gib.name = src.name;
     gib.scale = src.scale;
     for (int c = 0; c < 3; ++c) gib.pos[c] = src.pos[c];
-    for (int c = 0; c < 4; ++c) gib.rotWXYZ[c] = src.rotWXYZ[c];
+    gib.rot = src.rot;
     gib.visible = true;
     gib.inWorld = true;                 // GibModel calls World::AddEntity itself
     gib.collisionGroup = group;

@@ -3,6 +3,9 @@
 // sound and spawns the blood the decals come from. Docs/Reference/Decals.md.
 
 #include "ScriptEngineInternal.h"
+#include "../Core/Vectors.h"
+#include "../Core/Matrix.h"
+#include <string>
 
 namespace painful {
 
@@ -36,7 +39,7 @@ Mat4 WorldObjectToWorld(const MapObject& o, float scale, const ScriptEngine::Ent
     Mat4 back;
     for (int c = 0; c < 3; ++c) back[12 + c] = -e.activeOrigin[c];
     float rot9[9];
-    EngineQuatToRot9(e.rotWXYZ, rot9);
+    EngineQuatToRot9(e.rot, rot9);
     Mat4 r;
     for (int i = 0; i < 3; ++i)
         for (int c = 0; c < 3; ++c) r[i * 4 + c] = rot9[i * 3 + c];

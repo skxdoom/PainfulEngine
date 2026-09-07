@@ -1,6 +1,6 @@
 #pragma once
 #include <cstdint>
-#include "../Core/Vec3.h"
+#include "../Core/Vectors.h"
 #include <memory>
 #include <mutex>
 #include <string>

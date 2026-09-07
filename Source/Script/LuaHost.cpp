@@ -3,7 +3,7 @@
 
 #include "../Core/Check.h"
 #include "../Core/Debug.h"
-#include "../Core/Common.h"
+#include "../Core/Vectors.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
 
@@ -17,6 +17,7 @@ extern "C" {
 #include <cctype>
 #include <cstdio>
 #include <vector>
+#include <string>
 
 namespace painful {
 

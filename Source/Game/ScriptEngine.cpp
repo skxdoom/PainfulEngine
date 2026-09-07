@@ -6,7 +6,10 @@
 // ScriptDeath, ScriptLimbs - and ScriptBind maps every one of them to the
 // module and name the shipped Lua calls it by.
 #include "ScriptEngineInternal.h"
+#include "../Core/Vectors.h"
+#include "../Core/Matrix.h"
 #include "../Core/AppPaths.h"
+#include <string>
 
 namespace painful {
 
@@ -96,7 +99,7 @@ void ScriptEngine::SyncPlayerFromPawn() {
 void ScriptEngine::UpdateAttachments(Entity& e) {
     if (particles_ && !e.emitterSlots.empty()) {
         float rot9[9];
-        EngineQuatToRot9(e.rotWXYZ, rot9);
+        EngineQuatToRot9(e.rot, rot9);
         for (int slot : e.emitterSlots) {
             if (slot < 0) continue;
             particles_->SetScriptEmitterOwner(slot, e.pos, rot9, e.scale,
@@ -127,7 +130,7 @@ void ScriptEngine::SyncFromPhysics(bool activeOnly) {
         // A monster's body cannot rotate (translation-only DOFs) and its yaw
         // is what SetOrientation wrote; the entity keeps the scripts' value.
         if (!e->isMonster)
-            for (int c = 0; c < 4; ++c) e->rotWXYZ[c] = pose.quatWXYZ[c];
+            e->rot = pose.rot;
         SyncPose(*e);
     }
 }
@@ -149,7 +152,7 @@ void ScriptEngine::CreateRendererInstance(Entity& e) {
         e.rendererInstance = renderer_->CreateWorldObject(
             map_.objects[size_t(e.activeMesh)], world_.scale, e.pos, *textures_,
             MapNameWithoutExtension(world_.mapPath));
-        if (e.rendererInstance >= 0) renderer_->SetScriptPose(e.rendererInstance, e.pos, e.rotWXYZ);
+        if (e.rendererInstance >= 0) renderer_->SetScriptPose(e.rendererInstance, e.pos, e.rot);
     } else if (e.type == kModel) {
         e.rendererInstance = renderer_->CreateScriptModel(
             e.source, e.scale, *textures_, dataRoot_ + "/Models");
@@ -180,7 +183,7 @@ void ScriptEngine::CreateRendererInstance(Entity& e) {
 
 void ScriptEngine::SyncPose(Entity& e) {
     if (renderer_ && e.rendererInstance >= 0) {
-        renderer_->SetScriptPose(e.rendererInstance, e.pos, e.rotWXYZ);
+        renderer_->SetScriptPose(e.rendererInstance, e.pos, e.rot);
         renderer_->SetScriptVisible(e.rendererInstance, e.visible && e.inWorld);
     }
     // A billboard is not a model instance, and EnableDraw never reached one:

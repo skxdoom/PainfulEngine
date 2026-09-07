@@ -1,13 +1,15 @@
 #include "BillboardRenderer.h"
 #include "ShaderLoad.h"
 #include "../Core/Check.h"
-#include "../Core/Common.h"
+#include "../Core/Vectors.h"
 #include "../Core/Log.h"
 #include "MaterialState.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <string>
+#include <vector>
 
 namespace painful {
 

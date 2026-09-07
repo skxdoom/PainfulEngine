@@ -1,6 +1,8 @@
 // ScriptEngine: the SOUND / SND natives and the 3D listener.
 
 #include "ScriptEngineInternal.h"
+#include "../Core/Vectors.h"
+#include <string>
 
 namespace painful {
 
@@ -535,9 +537,9 @@ bool ScriptEngine::Sees(int ha, Entity& a, int hb, Entity& b) const {
     // which no angle can exceed - so a monster declared to see all round
     // never fails this, without needing a special case.
     if (dist > a.sightRange360 && a.sightHalfYaw < float(kPi)) {
-        const Vec3 fwd{0, 0, 1};      // model forward, the axis the
-        Vec3 facing;                     // walk animations travel along
-        EngineQuatRotate(a.rotWXYZ, fwd, facing);
+        // Model forward is +Z, the axis the walk animations travel along.
+        const Vec3 fwd{0, 0, 1};
+        const Vec3 facing = a.rot.Rotate(fwd);
         const float fl = std::sqrt(facing[0]*facing[0] + facing[2]*facing[2]);
         const float tl = std::sqrt(to[0]*to[0] + to[2]*to[2]);
         if (fl > 1e-6f && tl > 1e-6f) {

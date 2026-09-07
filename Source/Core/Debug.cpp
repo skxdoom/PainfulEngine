@@ -5,6 +5,7 @@
 
 #include "Check.h"
 #include "Log.h"
+#include <string>
 
 namespace painful {
 

@@ -12,7 +12,7 @@
 // now rather than an anonymous one, which a header cannot have without giving
 // every unit its own copy. Docs/Reference/Physics.md
 #include <Jolt/Jolt.h>
-#include "../Core/Vec3.h"
+#include "../Core/Vectors.h"
 
 #include "PhysicsWorld.h"
 #include <Jolt/Core/Factory.h>
@@ -63,6 +63,8 @@
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
+#include <string>
+#include <vector>
 
 namespace painful {
 

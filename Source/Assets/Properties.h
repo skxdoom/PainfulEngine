@@ -1,5 +1,6 @@
 #pragma once
-#include "../Core/Vec3.h"
+#include "../Core/Vectors.h"
+#include "../Core/Matrix.h"
 #include <map>
 #include <string>
 #include <vector>
@@ -55,9 +56,5 @@ private:
 // o.Rot / o.Ang the instance happens to carry. Shared by everything that
 // places something in the world - models and particle emitters alike.
 void ReadRotation(const Properties& props, float out[9]);
-
-// Engine-order (w,x,y,z) quaternion to the row-vector 3x3 the renderers use -
-// the engine's own textbook form, NOT transposed (see ReadRotation).
-void EngineQuatToRot9(const float q[4], float out[9]);
 
 } // namespace painful

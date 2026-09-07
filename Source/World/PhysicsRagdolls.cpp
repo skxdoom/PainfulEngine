@@ -2,6 +2,10 @@
 // corpses built from it. Split out of PhysicsWorld.cpp at its own banner.
 
 #include "PhysicsWorldInternal.h"
+#include "../Core/Vectors.h"
+#include "../Core/Matrix.h"
+#include <string>
+#include <vector>
 
 namespace painful {
 

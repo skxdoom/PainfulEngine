@@ -1,7 +1,7 @@
 #include "SkyRenderer.h"
 #include "ShaderLoad.h"
-#include "../Core/Vec3.h"
-#include "../Core/Common.h"
+#include "../Core/Vectors.h"
+#include "../Core/Matrix.h"
 #include "../Core/Debug.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
@@ -13,6 +13,8 @@
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#include <string>
+#include <vector>
 
 namespace painful {
 
@@ -221,8 +223,9 @@ void SkyRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int h
                                  layer.anim1.tileU, layer.anim1.tileV};
         const float xform2[4] = {layer.anim2.panU * timeSeconds, layer.anim2.panV * timeSeconds,
                                  layer.anim2.tileU, layer.anim2.tileV};
-        const float rot[4] = {layer.anim1.rotSpeed * timeSeconds,
-                              layer.anim2.rotSpeed * timeSeconds, 0.f, 0.f};
+        // The two layers' UV rotation angles, not a quaternion.
+        const float rotAngles[4] = {layer.anim1.rotSpeed * timeSeconds,
+                                    layer.anim2.rotSpeed * timeSeconds, 0.f, 0.f};
 
         for (const Part& p : parts_) {
             // Shells are matched to layers BY NAME, because the order of objects
@@ -231,7 +234,7 @@ void SkyRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int h
 
             bgfx::setUniform(uXform1_, xform1);
             bgfx::setUniform(uXform2_, xform2);
-            bgfx::setUniform(uRot_, rot);
+            bgfx::setUniform(uRot_, rotAngles);
             bgfx::setTransform(world.m);
             bgfx::setVertexBuffer(0, p.vbo);
             bgfx::setIndexBuffer(p.ibo, 0, p.indexCount);

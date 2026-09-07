@@ -1,7 +1,8 @@
 #include "Lighting.h"
-#include "../Core/Vec3.h"
+#include "../Core/Vectors.h"
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 namespace painful {
 namespace {

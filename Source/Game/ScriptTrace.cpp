@@ -1,6 +1,10 @@
 // ScriptEngine: world line traces and the intersection solver membership.
 
 #include "ScriptEngineInternal.h"
+#include "../Core/Vectors.h"
+#include "../Core/Matrix.h"
+#include <string>
+#include <vector>
 
 namespace painful {
 
@@ -539,12 +543,12 @@ void ScriptEngine::PlaceViewAttached(Entity& entity) {
     // place while presenting its back, so the gaps between its parts read as
     // holes punched through a solid model. Nothing was missing - all sixteen
     // meshes draw, all 3137 triangles - it was simply turned around.
-    float localQuat[4], localRot[9], worldRot[9];
-    EngineEulerToQuat(e->viewAngles[0], -e->viewAngles[1], e->viewAngles[2], localQuat);
-    EngineQuatToRot9(localQuat, localRot);
+    float localRot[9], worldRot[9];
+    EngineQuatToRot9(
+        Quat::FromEuler(e->viewAngles[0], -e->viewAngles[1], e->viewAngles[2]), localRot);
     // Row-vector order: the weapon's own rotation first, then the camera's.
     EngineRot9Mul(localRot, camRot, worldRot);
-    EngineRot9ToQuat(worldRot, e->rotWXYZ);
+    e->rot = EngineRot9ToQuat(worldRot);
 
     SyncPose(*e);
 }

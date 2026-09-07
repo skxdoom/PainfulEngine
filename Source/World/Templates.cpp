@@ -1,10 +1,10 @@
 #include "Templates.h"
-#include "../Core/Common.h"
 #include "../Core/FileSystem.h"
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
 #include <vector>
+#include <string>
 
 namespace fs = std::filesystem;
 

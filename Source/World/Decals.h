@@ -1,7 +1,7 @@
 #pragma once
 #include "../Assets/Mpk.h"
-#include "../Core/Vec3.h"
-#include "../Core/Common.h"
+#include "../Core/Vectors.h"
+#include "../Core/Matrix.h"
 #include <cstdint>
 #include <map>
 #include <string>

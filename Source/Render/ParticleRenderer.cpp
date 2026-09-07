@@ -1,15 +1,15 @@
 #include "ParticleRenderer.h"
 #include "ShaderLoad.h"
 #include "../Core/Check.h"
-#include "../Core/Common.h"
 #include "../Core/Log.h"
-#include "../Core/Vec3.h"
+#include "../Core/Vectors.h"
 #include "MaterialState.h"
 
 #include <algorithm>
 #include <bx/math.h>
 #include <cmath>
 #include <cstring>
+#include <string>
 
 namespace painful {
 
@@ -193,7 +193,7 @@ void ParticleRenderer::Build(const Level& level, TemplateCache& templates,
             // same one EntityRenderer applies to placed models.
             float defRot[9];
             EulerDegreesToMatrix(ref.rotation, defRot);
-            MatMul3(entityRot, defRot, e.rot);
+            MatMul3(entityRot, defRot, e.rot9);
 
             for (int i = 0; i < 3; ++i) {
                 e.pos[i] = (entity.pos[i] + entityScale * ref.position[i]) * scaleMultiplier_;
@@ -245,9 +245,9 @@ void ParticleRenderer::InitParticle(const Emitter& e, Particle& p) const {
     // space by the emitter's orientation; acceleration is NOT rotated.
     Vec3 v;
     self->RandVec(e.velEndMin, e.velEndMax, v);
-    p.velEnd = Rotate(e.rot, v);
+    p.velEnd = Rotate(e.rot9, v);
     self->RandVec(e.velMin, e.velMax, v);
-    p.velStart = Rotate(e.rot, v);
+    p.velStart = Rotate(e.rot9, v);
     p.vel = p.velStart;
 
     self->RandVec(e.accelMin, e.accelMax, p.accel);
@@ -310,7 +310,7 @@ void ParticleRenderer::TickEmitter(Emitter& e, float dt) {
         Particle p{};
         Vec3 offset;
         RandVec(e.posMin, e.posMax, offset);
-        const Vec3 rotated = Rotate(e.rot, offset);
+        const Vec3 rotated = Rotate(e.rot9, offset);
         // Spawns are spread along the path the emitter travelled this frame,
         // so a moving effect leaves a trail instead of a clump.
         p.pos = Lerp(e.prevPos, e.pos, f) + rotated;
@@ -511,7 +511,7 @@ void ParticleRenderer::RecomposeScript(Emitter& e) {
     // entity's, the entry's and the level multiplier.
     float defRot[9];
     EulerDegreesToMatrix(e.refRotDeg, defRot);
-    MatMul3(e.ownerRot9, defRot, e.rot);
+    MatMul3(e.ownerRot9, defRot, e.rot9);
     for (int i = 0; i < 3; ++i) {
         e.pos[i] = e.ownerPos[i] + e.entityScale * e.refOffset[i] * scaleMultiplier_;
         e.prevPos[i] = e.pos[i];

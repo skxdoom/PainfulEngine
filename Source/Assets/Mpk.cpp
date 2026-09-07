@@ -1,8 +1,12 @@
 #include "Mpk.h"
+#include "../Core/FileSystem.h"
+#include "../Core/Reader.h"
 #include <cstring>
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <string>
+#include <vector>
 
 namespace painful {
 

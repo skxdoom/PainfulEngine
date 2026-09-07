@@ -1,6 +1,7 @@
 #pragma once
 #include <array>
-#include "../Core/Vec3.h"
+#include "../Core/Matrix.h"
+#include "../Core/Vectors.h"
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -57,7 +58,7 @@ public:
         std::string name;           // the "Name:Tag" the script passed
         float scale = 1.f;
         Vec3 pos;
-        float rotWXYZ[4] = {1, 0, 0, 0};
+        Quat rot;
         bool visible = true;
         bool inWorld = false;       // WORLD.AddEntity was called
         bool worldObject = false;   // WORLD.FindEntityByName pseudo-entity
@@ -170,7 +171,7 @@ public:
         // Without it a jointed effect takes the PARENT's rotation, not the
         // joint's. ParticleEffect::Tick, 0x101e59a0.
         bool parentRotBound = false;
-        float parentRotWXYZ[4] = {1, 0, 0, 0};
+        Quat parentRot;
         // A projectile: PO_Create was given ECollisionGroups.Noncolliding, so
         // this is moved along its velocity by TickProjectiles rather than
         // simulated. The scripts find their own hits with a line trace.
@@ -700,7 +701,7 @@ private:
     bool JointToWorld(Entity& e, int joint, const Vec3& local, Vec3& out);
     // The bone's orientation composed with the entity's own: a world rotation,
     // engine (w,x,y,z). False when the entity has no such bone.
-    bool JointWorldRotation(Entity& e, int joint, float outWXYZ[4]);
+    bool JointWorldRotation(Entity& e, int joint, Quat& out);
     int JointIndexByName(Entity& e, const std::string& name);
     // The limb boxes of a model, derived once from its .rde and skin weights.
     // An empty vector is cached too - a model with no ragdoll is an answer.

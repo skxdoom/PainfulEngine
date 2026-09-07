@@ -1,6 +1,6 @@
 #pragma once
 #include "../Assets/Tweaks.h"
-#include "../Core/Vec3.h"
+#include "../Core/Vectors.h"
 #include "../Assets/Hke.h"
 #include <cstdint>
 #include <memory>
@@ -27,7 +27,7 @@ struct DebugLine {
 struct BodyPose {
     size_t entity = 0;
     Vec3 pos;
-    float rot[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    float rot9[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
 };
 
 // A script body that has moved, in the terms the script layer holds
@@ -57,7 +57,7 @@ struct ScriptContact {
 struct ScriptBodyPose {
     int slot = -1;
     Vec3 pos;
-    float quatWXYZ[4] = {1, 0, 0, 0};
+    Quat rot;
 };
 
 // What the level hands the physics world at load. The original passes exactly
@@ -116,7 +116,7 @@ public:
     // draws. Returns a body slot, or -1 when the mesh cannot be resolved.
     int CreateScriptBody(int bodyType, const std::string& modelName,
                          const std::string& packName, const std::string& packMesh,
-                         float scale, const Vec3& pos, const float rotWXYZ[4],
+                         float scale, const Vec3& pos, const Quat& rot,
                          const std::string& dataRoot,
                          // ECollisionGroups from Definitions.lua. 7 is
                          // Noncolliding - a projectile, which must touch
@@ -197,7 +197,7 @@ public:
     void SetScriptBodyPinned(int slot, bool pinned);
     bool IsScriptBodyPinned(int slot) const;
     // Teleports the body where the scripts put the entity.
-    void SetScriptBodyPose(int slot, const Vec3& pos, const float rotWXYZ[4]);
+    void SetScriptBodyPose(int slot, const Vec3& pos, const Quat& rot);
     // PO_Enable on a prop: wakes or sleeps the body.
     void SetScriptBodyEnabled(int slot, bool enabled);
 
@@ -233,7 +233,7 @@ public:
     bool CharacterFloorPos(int slot, Vec3& out) const;
     bool CharacterHeadPos(int slot, Vec3& out) const;
     // Rotation only, for a body whose position the solver owns.
-    void SetScriptBodyRotation(int slot, const float rotWXYZ[4]);
+    void SetScriptBodyRotation(int slot, const Quat& rot);
     // What a blocked player does to the character in its way: every character
     // overlapping a sphere of `radius` + a margin at `pos` gets at least
     // `speed * pusherMass / (pusherMass + its mass)` along `dir`. Stands in

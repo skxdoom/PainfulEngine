@@ -1,6 +1,7 @@
 #pragma once
 #include "../Assets/Dat.h"
-#include "../Core/Vec3.h"
+#include "../Core/Matrix.h"
+#include "../Core/Vectors.h"
 #include "../Assets/Pkmdl.h"
 #include "../Assets/Skeleton.h"
 #include "MeshVertex.h"
@@ -57,7 +58,7 @@ public:
     // that became physics bodies are drawn wherever physics says they are,
     // which is the whole point of them being bodies; everything else keeps the
     // position the level authored.
-    void SetEntityPose(size_t entityIndex, const Vec3& pos, const float rot[9]);
+    void SetEntityPose(size_t entityIndex, const Vec3& pos, const float rot9[9]);
 
     // --- script-driven instances (the ENTITY.* native path) ---
     // Creates one instance of a .pkmdl model (the scale arrives with the
@@ -76,9 +77,9 @@ public:
     int CreateScriptPack(const std::string& packName, const std::string& meshName,
                          float scale, TextureCache& textures,
                          const std::string& itemsRoot);
-    // rotWXYZ is an engine-order quaternion, converted with the engine's own
+    // rot is an engine-order quaternion, converted with the engine's own
     // matrix form (see Properties.cpp ReadRotation).
-    void SetScriptPose(int slot, const Vec3& pos, const float rotWXYZ[4]);
+    void SetScriptPose(int slot, const Vec3& pos, const Quat& rot);
     // This instance's pose for the frame: one skinning matrix per bone, in the
     // model's own bone order. The script side owns the skeleton and computes
     // this (see SkeletonCache), because the joint natives have to answer from
@@ -188,7 +189,7 @@ private:
         // Basis kept so the transform can be rebuilt when the live scale
         // multiplier changes; scaling is about each entity's own origin.
         Vec3 pos;
-        float rot[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+        float rot9[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
         float scale = 1.f;
         // Which level entity this came from, so physics can say where it has
         // moved to.
