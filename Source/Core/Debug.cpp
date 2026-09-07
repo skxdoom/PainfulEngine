@@ -28,7 +28,7 @@ Row g_rows[] = {
 	// Run mode
 	{"PAINFUL_HIDDEN", Kind::kFlag, "offscreen window, and silence - nobody is watching"},
 	{"PAINFUL_WINDOWED", Kind::kText, "non-zero forces a window, whatever Cfg.Fullscreen says"},
-	{"PAINFUL_DEV", Kind::kFlag, "the -dev overlay and the F1-F6 toggles"},
+	{"PAINFUL_DEV", Kind::kFlag, "developer build: the overlay, the F1-F4 toggles, noclip, debugMarek"},
 	{"PAINFUL_QUIET", Kind::kFlag, "with -dev, drop the debug text"},
 	{"PAINFUL_RES", Kind::kText, "override the window size, \"1920x1080\""},
 	{"PAINFUL_RENDERER", Kind::kText, "bgfx backend: vulkan, d3d11, d3d12, opengl"},

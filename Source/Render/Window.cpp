@@ -192,8 +192,6 @@ bool Window::PumpEvents() {
 			if (e.key.key == SDLK_F2 && !e.key.repeat) debugToggles_[1] = true;
 			if (e.key.key == SDLK_F3 && !e.key.repeat) debugToggles_[2] = true;
 			if (e.key.key == SDLK_F4 && !e.key.repeat) debugToggles_[3] = true;
-			if (e.key.key == SDLK_F5 && !e.key.repeat) debugToggles_[4] = true;
-			if (e.key.key == SDLK_F6 && !e.key.repeat) debugToggles_[5] = true;
 			if (e.key.key == SDLK_ESCAPE && !e.key.repeat) {
 				escapePressed_ = true;
 				// In the script-driven game Escape belongs to the MENU, so the

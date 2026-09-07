@@ -20,8 +20,10 @@
 namespace painful {
 
 // shotPath: capture one frame to a .tga and exit. exec: a Lua chunk run once
-// the world is up, or null. devUI: the -dev launch flag - the debug overlay
-// and the F1-F4/F6 toggles, all off in a normal launch.
+// the world is up, or null. devUI: the -dev launch flag - the debug overlay,
+// the F1-F4 toggles and noclip, and it puts the SCRIPTS into their developer
+// build too (debugMarek, IsFinalBuild). PAINFUL_DEV is the same switch, and
+// there is no way to turn any of it on mid-run: it is a build, not an option.
 int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		const std::string& shotPath, const char* exec, bool devUI, bool mpMove);
 

@@ -791,6 +791,88 @@ it is 1.8 away — and **no coin in the game can be picked up, from anywhere**,
 which is exactly what the port did. Every item is reached more easily now;
 the `-1` is there to meet a floor-level pickup, not to raise the bar.
 
+## Who owns the camera
+
+Not the pawn. `Game:Tick2` gates the script camera on three things:
+
+```lua
+if Player and self.CameraFromPlayer and MOUSE.IsLocked() then
+    Game:UpdateViewFromPlayer()
+```
+
+and `UpdateViewFromPlayer` handles a disabled pawn itself:
+
+```lua
+if ENTITY.PO_IsEnabled(Player._Entity) then
+    destPos = ENTITY.PO_GetPawnHeadPos(...) - PLAYER.GetCameraFix(...)
+else
+    destPos = ENTITY.GetPosition(Player._Entity)     -- the entity, not the eye
+end
+...
+crx = crx + mdx ; cry = cry + mdy                    -- outside the branch
+CAM.SetAng(crx, cry, 0)
+```
+
+So three states, and only one of them flies:
+
+| | `PO_IsEnabled` | `CameraFromPlayer` | mouse | camera |
+|---|---|---|---|---|
+| walking | true | true | locked | follows the pawn's head |
+| **dead** | false | true | **locked** | **frozen at the entity, still rotates** |
+| **end of level** | false | **false** | locked | **frozen entirely — nothing writes it** |
+| fly (`SwitchPlayerToPhysics`) | false | true | **unlocked** | the engine's free camera |
+
+`CPlayer.Client_OnDeath` and `EndLevel:Update` both call
+`ENTITY.PO_Enable(player, false)` and **neither touches the mouse lock**;
+`EndOfLevel:OnTake` additionally sets `Game.CameraFromPlayer = false`. The only
+thing that unlocks the mouse during play is `Game:SwitchPlayerToPhysics`, which
+also parks the player entity at `(0, -400, 0)` and is itself reachable only
+behind `not IsFinalBuild()` — from `Console.lua`, or `Keys.F` with the editor on.
+
+**The port therefore gates its free camera on `mouseLocked()`, never on
+`pawnEnabled()`.** Gating on the pawn sent the view into free flight on death
+and in the end-of-level teleport, because both drop the pawn without unlocking.
+Measured with the pawn disabled mid-run: the camera snaps from head height
+(`ent.y + 2.0`) to the entity origin and then holds it exactly, frame after
+frame, with `MOUSE.IsLocked()` still true throughout.
+
+The engine-side noclip (the `N` key) is the developer twin of that script fly
+mode and needs `-dev`, for the same reason `IsFinalBuild` guards the other one.
+
+## `INP.Reset` consumes a press until the key is released
+
+The original's input is **event-driven, never polled**. `InputSystem` keeps one
+state per key — `0` up, `1` pressed this frame, `2` held, `3` released — and
+`ProcessEvents` (`0x1003e670`) moves `0 -> 1` only on a **down event**:
+
+```c
+if (*(int *)(this + i * 8 + 0x3a68) == 0) { *(...) = 1; }   // a down event
+if (*(int *)(this + i * 8 + 0x3a68) == 1) { *(...) = 2; }   // held
+```
+
+`InputSystem::Reset` (`0x1003a6c0`) walks the list of keys currently non-zero,
+zeroes each one, and empties the list. A key still physically held is therefore
+back at `0` and **cannot reach `1` again until it is released and pressed
+afresh** — there is no polling path that could re-arm it.
+
+That is what the scripts are relying on when they act on an action and then call
+`INP.Reset()` to consume it. `EndLevel:Tick` is the clearest case:
+
+```lua
+if INP.Action(Actions.Fire) then
+    INP.Reset()
+    if self.statStep > 10 then ... self:LastClick()   -- second click: leave
+    else self.statStep = 11 ; INP.Reset() end          -- first click: show it all
+```
+
+**We poll** — `GameApp` pushes the window's key array into `Input` every frame —
+so `Reset()` alone was undone by the next `SetKeyDown`. One held click is
+several frames, so the first click set `statStep = 11` and the *next frame*
+took the exit: the stats crawl was skipped and left in the same motion.
+`Input::Reset` now marks every key that is down as suppressed, and
+`Input::SetKeyDown` clears that only on an up, which reproduces the state
+machine's effect. Guarded by six checks in `PainfulTools selftest`.
+
 ## Not yet ported
 
 Ice, ladders, moving platforms, underwater (`UnderwaterSpeed` family),

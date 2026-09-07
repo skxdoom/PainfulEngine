@@ -169,6 +169,8 @@ private:
 	bool down_[kKeyCount] = {};
 	bool wasDown_[kKeyCount] = {};
 	bool pulse_[kKeyCount] = {};
+	// Keys Reset() forgot, held down since. Cleared when the key comes up.
+	bool suppressed_[kKeyCount] = {};
 	float mouseDx_ = 0.f, mouseDy_ = 0.f;
 	float mouseX_ = 0.f, mouseY_ = 0.f;
 	float sensitivity_ = 40.f; // Cfg.MouseSensitivity's shipped value

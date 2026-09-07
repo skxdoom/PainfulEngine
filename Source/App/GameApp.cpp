@@ -225,8 +225,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	bool aiDisabled = DebugFlag("PAINFUL_NOAI");
 	bool aiApplied = false;
 
-	// F6: the developers' own debug tooling, still in the shipped scripts and
-	// gated on two switches of theirs.
+	// The developers' own debug tooling, still in the shipped scripts and gated
+	// on two switches of theirs.
 	//
 	//   debugMarek     449 uses, 251 of them Game:Print. Actor state, boss
 	//                  phases, animation decisions - narrated by the people who
@@ -234,9 +234,12 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	//   IsFinalBuild() 24 gates across 7 files, from the key that hides the
 	//                  viewmodel to actor readouts.
 	//
-	// Both move together, because in the original they distinguished one BUILD
-	// from another rather than being two independent options.
-	bool devMode = DebugFlag("PAINFUL_DEV");
+	// Both move together, and both move with `dev`, because in the original
+	// they distinguished one BUILD from another rather than being options that
+	// could be flipped mid-run. -dev and PAINFUL_DEV are the same switch, and
+	// it is the whole of what makes this a developer build: the overlay, the
+	// F1-F4 toggles, noclip, and these two.
+	const bool dev = devUI || DebugFlag("PAINFUL_DEV");
 	bool devApplied = false;
 	static const char* const kAiOff =
 		"do local function off(b)"
@@ -664,7 +667,11 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		// worth of motion per menu frame and snap the view on the way out.
 		if (engine.menu().active()) dx = dy = 0.f;
 		input.AddMouseDelta(dx, dy);
-		if (window.TakeNoclipToggle()) noclip = !noclip;
+		// Taken either way, so a press without -dev is swallowed rather than
+		// queued up. Free flight is a developer affordance: the scripts' own
+		// is behind `not IsFinalBuild()`, and this is the engine-side twin.
+		const bool noclipKey = window.TakeNoclipToggle();
+		if (noclipKey && dev) noclip = !noclip;
 		// F1 cycles the full wireframe on and off; F2 does the same for the
 		// dynamic-only view. Pressing either while the other is up switches
 		// straight to it, so the two are one mode rather than two flags that
@@ -675,7 +682,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		const bool f2 = window.TakeDebugToggle(1);
 		const bool f3 = window.TakeDebugToggle(2);
 		const bool f4 = window.TakeDebugToggle(3);
-		if (devUI) {
+		if (dev) {
 			if (f1) geoWire = !geoWire;
 			if (f2) collisionWire = !collisionWire;
 			if (f3) nameplates = !nameplates;
@@ -692,26 +699,35 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			aiApplied = aiDisabled;
 			LogInfo("AI %s", aiDisabled ? "disabled" : "enabled");
 		}
-		if (window.TakeDebugToggle(5) && devUI) devMode = !devMode;
-		if (devMode != devApplied) {
+		// Applied here rather than at startup because debugMarek is a Lua
+		// global: the scripts have to exist before it can be set. Runs once.
+		if (dev != devApplied) {
 			// debugMarek is a plain global the scripts read directly, so
 			// setting it is the whole of that half. IsFinalBuild is a native
 			// and answers from the engine's own flag.
-			engine.SetDevMode(devMode);
-			host.RunString(devMode ? "debugMarek = true" : "debugMarek = nil");
-			devApplied = devMode;
-			LogInfo("developer mode %s (debugMarek, IsFinalBuild -> %s)",
-					devMode ? "ON" : "off", devMode ? "false" : "true");
+			engine.SetDevMode(dev);
+			host.RunString("debugMarek = true");
+			devApplied = dev;
+			LogInfo("developer mode ON (debugMarek, IsFinalBuild -> false)");
 		}
 		renderer.SetWireframe(geoWire);
-		// Who steers the view. While the player is walking it is the SCRIPTS:
+		// Who steers the view. While a player exists it is the SCRIPTS:
 		// Game:Tick2 calls UpdateViewFromPlayer, which reads MOUSE.GetDelta,
 		// accumulates onto CAM.GetRawRotation and writes back through
 		// CAM.SetPos/SetAng - so the mouse motion above is consumed there,
-		// not here, and the camera adopts the result after the tick. The free
-		// camera keeps its own look.
+		// not here, and the camera adopts the result after the tick.
+		//
+		// THE GATE IS THE MOUSE LOCK, NOT THE PAWN. Game:Tick2 reads
+		// `Player and self.CameraFromPlayer and MOUSE.IsLocked()`, and
+		// SwitchPlayerToPhysics - the scripts' own fly mode, itself behind
+		// `not IsFinalBuild()` - is the only thing that unlocks it during
+		// play. Gating on pawnEnabled() instead handed the camera to the free
+		// flyer every time the pawn went down without the mouse following:
+		// CPlayer.Client_OnDeath and EndOfLevel:OnTake both call
+		// PO_Enable(player, false) and neither touches the lock.
+		// Docs/Reference/PlayerMovement.md, "Who owns the camera"
 		const bool scriptView =
-			engine.playerHandle() != 0 && engine.pawnEnabled() && !noclip;
+			engine.playerHandle() != 0 && engine.mouseLocked() && !noclip;
 		if (!scriptView) camera.Look(dx * 0.003f, -dy * 0.003f);
 		const float speed = camera.moveSpeed * (window.IsDown(Key::Fast) ? 4.f : 1.f) * dt;
 		float fwd = 0.f, right = 0.f, up = 0.f;
@@ -1124,7 +1140,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 
 		// The overlay is -dev only; PAINFUL_QUIET drops it there too, for
 		// captures of the menu's top edge.
-		if (devUI && !DebugFlag("PAINFUL_QUIET")) {
+		if (dev && !DebugFlag("PAINFUL_QUIET")) {
 		renderer.DebugText(1, "PainfulEngine (script-driven)  -  %s  -  %.1f fps",
 				renderer.BackendName().c_str(), dt > 0.f ? 1.f / dt : 0.f);
 		renderer.DebugText(2, "%s   map %s   %zu script entities (%zu created, %zu released)",
@@ -1157,12 +1173,11 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 				: "WASD move, shift fast, space/ctrl up-down, N to walk");
 		renderer.DebugText(8,
 				"F1 geometry: %s   F2 collision: %s   F3 nameplates: %s   "
-				"F4 AI: %s   F6 dev: %s%s",
+				"F4 AI: %s%s",
 				geoWire ? "wireframe" : "off",
 				collisionWire ? "dynamic" : "off",
 				nameplates ? "on (20m)" : "off",
 				aiDisabled ? "DISABLED" : "on",
-				devMode ? "ON" : "off",
 				collisionWire
 				? "   |   green awake, yellow asleep, magenta script, "
 				"red non-colliding, GREEN BOX = no physics body"

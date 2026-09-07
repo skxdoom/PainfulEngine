@@ -564,6 +564,40 @@ priority lists (`AddList` / `MoveListItemUp` / `Down` / `GetListItems`),
 `SetStaticTextRect`, `AddImageButton*`, `AddSliderImage`, `AddNumEdit`,
 `AddPassword`.
 
+## Leaving the end-of-level screen
+
+`EndLevel:LastClick` (`Templates/Processes/EndLevel.CProcess`) is the exit from
+the stats screen, and it picks one of three destinations:
+
+```lua
+if Game.Difficulty == 3 then          PMENU.ActivateMap()
+elseif ... math.random(100) == 32 then PMENU.SwitchToMap()
+else                                   PMENU.SwitchToLevelSel()
+end
+PMENU.MapNextLevel()
+```
+
+All three land on the map, and `MapNextLevel` is what leaves the level just
+unlocked as the selected one. The third is the ordinary case — the other two are
+Trauma difficulty and a 1-in-100 flourish — and it was **the only one still a
+stub**, so every normal finish took the branch that did nothing.
+
+The failure had no error in it, which is why it read as a hang rather than a
+crash: `LastClick` ran to the end, set `statStep = 0` and `startTime = 0`, and
+returned. With no screen open the process kept ticking, so the stats crawl
+started over from the first line, forever. The autosave earlier in the sequence
+still happened, which is what made it look like the level had ended correctly.
+
+`SwitchToLevelSel` and `SwitchToMenu` are wired now. In the original the level
+select is a screen of its own, separate from the chapter map; we have one map
+screen, so `SwitchToLevelSel` is the right destination with the wrong
+presentation, and `SwitchToMenu` opens the main menu (the post-credits path).
+
+Note when testing this headlessly: `PainfulTools` never calls
+`SetActionRunner`, so `EnterMap` cannot run `Levels_FillMap()` and the map comes
+up empty. Only `GameApp` wires the runner. The screen still reports
+`PMENU.Active() == true`, which is what the test can check.
+
 ## Three things play-testing found
 
 ### An absent argument is not nil

@@ -529,8 +529,10 @@ public:
 	// takes the engine's own frame time inside PlayerAction rather than the
 	// delta the script was called with; set this before the tick chain.
 	void SetFrameDelta(float dt) { frameDelta_ = dt; }
-	// ENTITY.PO_Enable on the player toggles between the walking pawn and
-	// free flight - the scripts' own SwitchPlayerToPhysics semantics.
+	// ENTITY.PO_Enable on the player: whether the pawn walks. NOT a test for
+	// who owns the camera - a dead player and one standing in the end-of-level
+	// teleport both have it false, and neither flies. Game:Tick2 gates the
+	// script camera on the MOUSE LOCK instead; mouseLocked() is that flag.
 	bool pawnEnabled() const { return pawnEnabled_; }
 	// Writes the pawn's position back into the player entity, so the scripts
 	// read where the player actually is. Call after every pawn move.
@@ -608,6 +610,7 @@ public:
 	// into the camera - which is how a level seats the view at load. Locked,
 	// the camera is authoritative and the level follows it.
 	void SetMouseLocked(bool locked) { mouseLocked_ = locked; }
+	bool mouseLocked() const { return mouseLocked_; }
 
 	// Takes the pose the scripts last pushed through CAM.SetPos/SetAng, if
 	// any, so the game loop can adopt it. Returns false when they have not

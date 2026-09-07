@@ -127,7 +127,7 @@ private:
 	int levelStep_ = 0;
 	bool noclipToggle_ = false;
 	bool physicsDebugToggle_ = false;
-	bool debugToggles_[6] = {false, false, false, false, false, false}; // F1..F6
+	bool debugToggles_[4] = {false, false, false, false}; // F1..F4
 	bool vkDown_[256] = {};
 	int wheelSteps_ = 0;
 	std::vector<int> keyPresses_;

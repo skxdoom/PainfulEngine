@@ -30,6 +30,8 @@ struct MenuNatives : ScriptNativesBase {
 	static int L_PMENU_ShowMenu(lua_State* L);
 	static int L_PMENU_ReturnToGame(lua_State* L);
 	static int L_PMENU_SwitchToMap(lua_State* L);
+	static int L_PMENU_SwitchToLevelSel(lua_State* L);
+	static int L_PMENU_SwitchToMenu(lua_State* L);
 	static int L_PMENU_AddLevelToMap(lua_State* L);
 	static int L_PMENU_MapReset(lua_State* L);
 	static int L_PMENU_MapSetCurrLevel(lua_State* L);
@@ -211,6 +213,29 @@ int MenuNatives::L_PMENU_ReturnToGame(lua_State* L) {
 // carry. MenuSystem::EnterMap does the same.
 int MenuNatives::L_PMENU_SwitchToMap(lua_State* L) {
 	From(L)->menu_.EnterMap();
+	return 0;
+}
+
+// PMENU.SwitchToLevelSel - THE WAY OUT OF THE END-OF-LEVEL SCREEN, and the one
+// EndLevel:LastClick takes on every ordinary finish. Its two siblings there,
+// ActivateMap (Trauma) and SwitchToMap (a 1-in-100 flourish), already landed on
+// the map, and all three are followed by PMENU.MapNextLevel - so the level that
+// was just unlocked is the one selected. Left a stub, LastClick ran to the end
+// and reset statStep to 0 with no screen ever opening, which restarted the stats
+// crawl: the endless loop.
+//
+// The original has a level-select screen distinct from the chapter map. We have
+// one map screen, so this is a stand-in - the right destination with the wrong
+// presentation. Docs/Reference/Menu.md
+int MenuNatives::L_PMENU_SwitchToLevelSel(lua_State* L) {
+	From(L)->menu_.EnterMap();
+	return 0;
+}
+
+// PMENU.SwitchToMenu - back to the main menu. LastClick takes this one after
+// the final level, on the way to the credits.
+int MenuNatives::L_PMENU_SwitchToMenu(lua_State* L) {
+	From(L)->menu_.Open();
 	return 0;
 }
 
@@ -1100,6 +1125,8 @@ void BindMenu(ScriptEngine& engine, LuaHost& host) {
 		{"PMENU", "SetStaticTextRect", MenuNatives::L_PMENU_SetStaticTextRect},
 		{"PMENU", "SwitchToMap", MenuNatives::L_PMENU_SwitchToMap},
 		{"PMENU", "ActivateMap", MenuNatives::L_PMENU_SwitchToMap},
+		{"PMENU", "SwitchToLevelSel", MenuNatives::L_PMENU_SwitchToLevelSel},
+		{"PMENU", "SwitchToMenu", MenuNatives::L_PMENU_SwitchToMenu},
 		{"PMENU", "AddLevelToMap", MenuNatives::L_PMENU_AddLevelToMap},
 		{"PMENU", "MapReset", MenuNatives::L_PMENU_MapReset},
 		{"PMENU", "MapSetCurrLevel", MenuNatives::L_PMENU_MapSetCurrLevel},

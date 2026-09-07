@@ -1,4 +1,5 @@
-// Numeric self-checks for the small maths types, run by `PainfulTools selftest`.
+// Self-checks for the small types and the engine rules that are pure logic,
+// run by `PainfulTools selftest`.
 //
 // The engine has no unit-test rig and does not need one: every subsystem is
 // checked by a report against real game data. These types have no game data -
@@ -9,6 +10,7 @@
 
 #include "../Core/Matrix.h"
 #include "../Core/Vectors.h"
+#include "../Game/Input.h"
 
 #include <cmath>
 
@@ -224,6 +226,40 @@ void TestQuat() {
 	const Quat zero(0.f, 0.f, 0.f, 0.f);
 	Ok(Nlerp(zero, zero, 0.5f) == zero, "a degenerate blend falls back to a");
 }
+
+// INP.Reset consumes the keys that are down: they do not count again until
+// released. The original never polls - a key only enters "pressed" on a down
+// event (ProcessEvents 0x1003e670) and Reset (0x1003a6c0) zeroes its pressed
+// list - so a held key cannot re-arm. We poll the window, so it is explicit.
+// EndLevel:Tick depends on it: one held click is several frames, and without
+// it the first click both skipped the stats crawl and took the exit.
+void TestInputReset() {
+	Input in;
+	in.BeginFrame();
+	in.SetKeyDown(1, true);
+	Ok(in.IsDown(1), "a pressed key is down");
+
+	in.Reset();
+	Ok(!in.IsDown(1), "Reset clears the key");
+
+	in.BeginFrame();
+	in.SetKeyDown(1, true);          // still physically held
+	Ok(!in.IsDown(1), "a key held across Reset does not come back");
+	in.BeginFrame();
+	in.SetKeyDown(1, true);
+	Ok(!in.IsDown(1), "and stays gone however long it is held");
+
+	in.BeginFrame();
+	in.SetKeyDown(1, false);         // released
+	in.BeginFrame();
+	in.SetKeyDown(1, true);          // pressed again
+	Ok(in.IsDown(1), "a fresh press after the release counts");
+
+	in.Reset();
+	in.BeginFrame();
+	in.SetKeyDown(2, true);
+	Ok(in.IsDown(2), "a key that was up during Reset is not suppressed");
+}
 } // namespace
 
 int SelfTestCmd() {
@@ -235,6 +271,7 @@ int SelfTestCmd() {
 	TestDegenerate();
 	TestAgainstMat4();
 	TestQuat();
+	TestInputReset();
 	if (g_failed == 0) {
 		LogInfo("selftest: %zu checks passed", g_ran);
 		return 0;

@@ -149,11 +149,24 @@ void Input::BeginFrame() {
 }
 
 void Input::SetKeyDown(int vk, bool down) {
-	if (vk > 0 && vk < kKeyCount) down_[vk] = down;
+	if (vk <= 0 || vk >= kKeyCount) return;
+	// A key Reset() forgot stays forgotten until it is physically RELEASED.
+	// The original never polls: InputSystem keeps a state per key (0 up, 1
+	// pressed, 2 held, 3 released) and only a DOWN EVENT moves 0 -> 1
+	// (ProcessEvents, 0x1003e670), while Reset (0x1003a6c0) zeroes every key
+	// in its pressed list. So a key held across a Reset cannot count again.
+	// We poll the window instead, and without this the very next frame put it
+	// straight back down. Docs/Reference/PlayerMovement.md, "INP.Reset"
+	if (!down) suppressed_[vk] = false;
+	down_[vk] = down && !suppressed_[vk];
 }
 
 void Input::PulseKey(int vk) {
 	if (vk > 0 && vk < kKeyCount) {
+		// A wheel notch is a fresh down event every time, and it is released
+		// on the next BeginFrame - so it clears its own suppression rather
+		// than waiting for an up that never comes.
+		suppressed_[vk] = false;
 		down_[vk] = true;
 		pulse_[vk] = true;
 	}
@@ -165,6 +178,12 @@ int Input::KeyState(int vk) const {
 }
 
 void Input::Reset() {
+	// Whatever is down now is suppressed until it comes up: see SetKeyDown.
+	// This is the whole point of the call - EndLevel:Tick acts on
+	// INP.Action(Actions.Fire) and then calls INP.Reset() to consume the
+	// press, and one held click is several frames.
+	for (int vk = 1; vk < kKeyCount; ++vk)
+		if (down_[vk]) suppressed_[vk] = true;
 	std::memset(down_, 0, sizeof(down_));
 	std::memset(wasDown_, 0, sizeof(wasDown_));
 	std::memset(pulse_, 0, sizeof(pulse_));
