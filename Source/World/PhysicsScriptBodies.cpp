@@ -54,7 +54,7 @@ void PhysicsWorld::Settle(int steps) {
 int PhysicsWorld::CreateScriptBody(int bodyType, const std::string& modelName,
                                    const std::string& packName,
                                    const std::string& packMesh, float scale,
-                                   const float pos[3], const float rotWXYZ[4],
+                                   const Vec3& pos, const float rotWXYZ[4],
                                    const std::string& dataRoot, int collisionGroup,
                                    float sphereRadius) {
     if (impl_->worldBody.IsInvalid()) return -1;   // no world, nothing to rest on
@@ -257,7 +257,7 @@ void PhysicsWorld::SetScriptBodyFreedomOfRotation(int slot, int mode, float soft
         mp->SetMassProperties(JPH::EAllowedDOFs::All, props);
         return;
     }
-    float inv[3] = {0, 0, 0};                    // locked, locked, locked
+    Vec3 inv;                                    // locked, locked, locked
     switch (mode) {
     case 1: inv[1] = 0.1f; break;                // YAxis
     case 5: inv[0] = 0.1f; break;                // XAxis
@@ -325,18 +325,18 @@ void PhysicsWorld::SetScriptBodyPinned(int slot, bool pinned) {
 
 int PhysicsWorld::CreateActiveMeshBody(const MapObject& object, float worldScale,
                                        float massScale, bool pinned, bool concave, int group,
-                                       float outOrigin[3]) {
+                                       Vec3& outOrigin) {
     if (impl_->worldBody.IsInvalid() || object.vertexCount() == 0) return -1;
     // World-space points, and the bounds centre the body is built about.
     MeshPoints mesh;
     for (size_t v = 0; v < object.vertexCount(); ++v) {
-        float p[3], w[3];
+        Vec3 p, w;
         object.position(v, p);
-        object.transform.TransformPoint(p[0], p[1], p[2], w);
-        for (int c = 0; c < 3; ++c) w[c] *= worldScale;
+        w = object.transform.TransformPoint(p);
+        w *= worldScale;
         mesh.Add(w);
     }
-    float origin[3];
+    Vec3 origin;
     for (int c = 0; c < 3; ++c) origin[c] = (mesh.lo[c] + mesh.hi[c]) * 0.5f;
     for (JPH::Vec3& p : mesh.points) p -= JPH::Vec3(origin[0], origin[1], origin[2]);
     Thin(mesh);
@@ -408,19 +408,19 @@ int PhysicsWorld::CreateActiveMeshBody(const MapObject& object, float worldScale
 // not part of the world body, so the release can take it out. Exact triangles,
 // wound the world's way (see BuildStaticWorld); pieces sit inside it.
 int PhysicsWorld::CreateStaticTwinBody(const MapObject& object, float worldScale, int group,
-                                       float outOrigin[3]) {
+                                       Vec3& outOrigin) {
     if (impl_->worldBody.IsInvalid() || object.vertexCount() == 0 || object.indices.size() < 3)
         return -1;
     MeshPoints mesh;
     JPH::VertexList vertices;
     for (size_t v = 0; v < object.vertexCount(); ++v) {
-        float p[3], w[3];
+        Vec3 p, w;
         object.position(v, p);
-        object.transform.TransformPoint(p[0], p[1], p[2], w);
-        for (int c = 0; c < 3; ++c) w[c] *= worldScale;
+        w = object.transform.TransformPoint(p);
+        w *= worldScale;
         mesh.Add(w);
     }
-    float origin[3];
+    Vec3 origin;
     for (int c = 0; c < 3; ++c) origin[c] = (mesh.lo[c] + mesh.hi[c]) * 0.5f;
     for (JPH::Vec3& p : mesh.points) {
         p -= JPH::Vec3(origin[0], origin[1], origin[2]);
@@ -501,7 +501,7 @@ void PhysicsWorld::EnableActiveMeshGroup(int group, bool enabled) {
         if (sb.activeMesh && sb.activeGroup == group) sb.activeEnabled = enabled;
 }
 
-void PhysicsWorld::UnpinActiveMeshesNear(const float centre[3], float range,
+void PhysicsWorld::UnpinActiveMeshesNear(const Vec3& centre, float range,
                                          std::vector<int>& out) {
     out.clear();
     const JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
@@ -542,7 +542,7 @@ void PhysicsWorld::SetScriptBodyAngularDamping(int slot, float damping) {
         lock.GetBody().GetMotionProperties()->SetAngularDamping(damping);
 }
 
-void PhysicsWorld::SetScriptBodyPose(int slot, const float pos[3],
+void PhysicsWorld::SetScriptBodyPose(int slot, const Vec3& pos,
                                      const float rotWXYZ[4]) {
     if (!ScriptBodyExists(slot)) return;
     // A disabled body is out of the world; Jolt will not move one.
@@ -577,7 +577,7 @@ void PhysicsWorld::SetScriptBodyCollisionGroup(int slot, int collisionGroup) {
     bodies.ActivateBody(sb.body);
 }
 
-void PhysicsWorld::SetScriptBodyVelocity(int slot, const float v[3]) {
+void PhysicsWorld::SetScriptBodyVelocity(int slot, const Vec3& v) {
     if (!ScriptBodyExists(slot)) return;
     // A disabled body is out of the world, and ACTIVATING ONE CORRUPTS THE
     // SOLVER: Jolt puts it in the active list without a broadphase entry, and
@@ -594,8 +594,8 @@ void PhysicsWorld::SetScriptBodyVelocity(int slot, const float v[3]) {
 }
 
 
-void PhysicsWorld::AddScriptBodyImpulse(int slot, const float at[3],
-                                        const float impulse[3]) {
+void PhysicsWorld::AddScriptBodyImpulse(int slot, const Vec3& at,
+                                        const Vec3& impulse) {
     if (!ScriptBodyExists(slot)) return;
     // Out of the world takes no impulse - and must not be woken for one.
     // See SetScriptBodyVelocity for what activating a removed body does.
@@ -625,7 +625,7 @@ void PhysicsWorld::AddScriptBodyImpulse(int slot, const float at[3],
     }
 }
 
-bool PhysicsWorld::GetScriptBodyVelocity(int slot, float out[3]) const {
+bool PhysicsWorld::GetScriptBodyVelocity(int slot, Vec3& out) const {
     if (!ScriptBodyExists(slot)) return false;
     const JPH::Vec3 v =
         impl_->system.GetBodyInterface().GetLinearVelocity(impl_->scriptBodies[slot].body);
@@ -656,7 +656,7 @@ void PhysicsWorld::SetScriptBodyEnabled(int slot, bool enabled) {
     sb.inWorld = enabled;
 }
 
-void PhysicsWorld::MakeScriptBodyCharacter(int slot, float k, const float rootOffset[3]) {
+void PhysicsWorld::MakeScriptBodyCharacter(int slot, float k, const Vec3& rootOffset) {
     if (!ScriptBodyExists(slot)) return;
     JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
     Impl::ScriptBody& sb = impl_->scriptBodies[size_t(slot)];
@@ -835,7 +835,7 @@ bool PhysicsWorld::IsScriptBodyCharacter(int slot) const {
     return ScriptBodyExists(slot) && impl_->scriptBodies[size_t(slot)].character >= 0;
 }
 
-void PhysicsWorld::SetCharacterWish(int slot, const float v[3]) {
+void PhysicsWorld::SetCharacterWish(int slot, const Vec3& v) {
     if (Impl::Character* ch = impl_->CharacterOf(slot))
         for (int c = 0; c < 3; ++c) ch->wish[c] = v[c];
 }
@@ -856,7 +856,7 @@ bool PhysicsWorld::IsCharacterFlying(int slot) const {
     return ch != nullptr && ch->flying;
 }
 
-bool PhysicsWorld::CharacterOnFloor(int slot, float normal[3]) const {
+bool PhysicsWorld::CharacterOnFloor(int slot, Vec3& normal) const {
     const Impl::Character* ch = impl_->CharacterOf(slot);
     if (!ch) return false;
     if (normal) for (int c = 0; c < 3; ++c) normal[c] = ch->floorNormal[c];
@@ -866,7 +866,7 @@ bool PhysicsWorld::CharacterOnFloor(int slot, float normal[3]) const {
 // GetPawnFloorPos (0x10189390) is body.y - 1.1 * bodyScale and GetPawnHeadPos
 // (0x10189340) body.y + 0.9 * bodyScale; in the sizer's unit k = 0.2 *
 // bodyScale that is -5.5k and +4.5k off the stack's origin.
-bool PhysicsWorld::CharacterFloorPos(int slot, float out[3]) const {
+bool PhysicsWorld::CharacterFloorPos(int slot, Vec3& out) const {
     const Impl::Character* ch = impl_->CharacterOf(slot);
     if (!ch || !ScriptBodyExists(slot)) return false;
     const JPH::RVec3 p =
@@ -877,7 +877,7 @@ bool PhysicsWorld::CharacterFloorPos(int slot, float out[3]) const {
     return true;
 }
 
-bool PhysicsWorld::CharacterHeadPos(int slot, float out[3]) const {
+bool PhysicsWorld::CharacterHeadPos(int slot, Vec3& out) const {
     const Impl::Character* ch = impl_->CharacterOf(slot);
     if (!ch || !ScriptBodyExists(slot)) return false;
     const JPH::RVec3 p =
@@ -992,7 +992,7 @@ void PhysicsWorld::StepCharacters() {
     }
 }
 
-void PhysicsWorld::ShoveCharacters(const float pos[3], float radius, const float dir[3],
+void PhysicsWorld::ShoveCharacters(const Vec3& pos, float radius, const Vec3& dir,
                                    float speed, float pusherMass) {
     if (!loaded() || impl_->characters.empty() || speed <= 0.f) return;
     const JPH::Vec3 d(dir[0], 0.f, dir[2]);
@@ -1040,7 +1040,7 @@ void PhysicsWorld::ShoveCharacters(const float pos[3], float radius, const float
 // walk. The player's shape, nudged a little ahead, finds the props it is
 // pressing on. Characters keep ShoveCharacters; the world and pinned bodies
 // are not dynamic and block. PlayerMovement.md, "What the player collides with".
-void PhysicsWorld::PushProps(const float centre[3], const float dir[3], float speed,
+void PhysicsWorld::PushProps(const Vec3& centre, const Vec3& dir, float speed,
                              float pusherMass) {
     if (!loaded() || speed <= 0.f) return;
     const JPH::Vec3 d(dir[0], 0.f, dir[2]);
@@ -1082,7 +1082,7 @@ void PhysicsWorld::PushProps(const float centre[3], const float dir[3], float sp
     }
 }
 
-void PhysicsWorld::PressGround(const float feet[3], float radius, float force) {
+void PhysicsWorld::PressGround(const Vec3& feet, float radius, float force) {
     if (!loaded() || force <= 0.f) return;
     // A little below the feet, so a body the sphere rests on (skin 0.02) is
     // inside the query.
@@ -1117,7 +1117,7 @@ float PhysicsWorld::ScriptBodyRadius(int slot) const {
 // The only way to settle a placement argument: what we asked for and what the
 // solver holds are different questions, and a shape that looks wrong on screen
 // could be either. This answers the second one directly.
-bool PhysicsWorld::ScriptBodyBounds(int slot, float lo[3], float hi[3]) const {
+bool PhysicsWorld::ScriptBodyBounds(int slot, Vec3& lo, Vec3& hi) const {
     if (!ScriptBodyExists(slot)) return false;
     const JPH::AABox box =
         impl_->system.GetBodyInterface().GetTransformedShape(impl_->scriptBodies[slot].body)
@@ -1129,7 +1129,7 @@ bool PhysicsWorld::ScriptBodyBounds(int slot, float lo[3], float hi[3]) const {
     return true;
 }
 
-bool PhysicsWorld::GetScriptBodyPosition(int slot, float out[3]) const {
+bool PhysicsWorld::GetScriptBodyPosition(int slot, Vec3& out) const {
     if (!ScriptBodyExists(slot)) return false;
     const JPH::RVec3 p =
         impl_->system.GetBodyInterface().GetPosition(impl_->scriptBodies[slot].body);

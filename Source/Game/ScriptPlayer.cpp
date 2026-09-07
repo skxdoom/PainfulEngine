@@ -61,7 +61,7 @@ int PlayerNatives::L_CreatePlayer(lua_State* L) {
     // spanning the origin fired at load (C2L1_Bridge's ninjas).
     self->pawnEnabled_ = false;
     if (self->pawn_) {
-        const float at[3] = {0, 0, 0};
+        const Vec3 at;
         self->pawn_->Spawn(at);
     }
     lua_pushnumber(L, handle);
@@ -72,7 +72,7 @@ int PlayerNatives::L_PO_SetPawnHeadPos(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e) return 0;
-    const float p[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+    const Vec3 p{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
                         float(luaL_optnumber(L, 4, 0))};
     for (int i = 0; i < 3; ++i) e->pos[i] = p[i];
     if (self->pawn_ && HandleArg(L, 1) == self->playerHandle_) self->pawn_->SetHeadPos(p);
@@ -82,7 +82,7 @@ int PlayerNatives::L_PO_SetPawnHeadPos(lua_State* L) {
 int PlayerNatives::L_PO_GetPawnHeadPos(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
-    float head[3] = {0, 0, 0};
+    Vec3 head;
     if (e) self->EyePoint(*e, HandleArg(L, 1), head);
     for (int c = 0; c < 3; ++c) lua_pushnumber(L, head[c]);
     return 3;
@@ -178,7 +178,7 @@ int PlayerNatives::L_PO_Enable(lua_State* L) {
 int PlayerNatives::L_PO_GetPawnFloorPos(lua_State* L) {
     ScriptEngine* self = From(L);
     if (self->pawn_ && HandleArg(L, 1) == self->playerHandle_) {
-        float feet[3];
+        Vec3 feet;
         self->pawn_->FloorPos(feet);
         lua_pushnumber(L, feet[0]);
         lua_pushnumber(L, feet[1]);
@@ -189,7 +189,7 @@ int PlayerNatives::L_PO_GetPawnFloorPos(lua_State* L) {
     // soles. CActor keeps this as _groundx/y/z and every range test in the AI
     // - attackRange, weaponRange, CheckYLevel - measures from it.
     const Entity* e = self->Find(HandleArg(L, 1));
-    float floor[3];
+    Vec3 floor;
     if (e && self->physics_ && e->physicsBody >= 0 &&
         self->physics_->CharacterFloorPos(e->physicsBody, floor)) {
         for (int c = 0; c < 3; ++c) lua_pushnumber(L, floor[c]);
@@ -207,7 +207,7 @@ int PlayerNatives::L_PO_GetPawnFloorPos(lua_State* L) {
 int PlayerNatives::L_GetDimensions(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
-    float dims[3] = {0, 0, 0};
+    Vec3 dims;
     if (e && self->renderer_ && e->rendererInstance >= 0)
         self->renderer_->GetScriptDimensions(e->rendererInstance, dims);
     lua_pushnumber(L, dims[0]);
@@ -236,9 +236,9 @@ int PlayerNatives::L_GetDimensions(lua_State* L) {
 // far", so every distance test fails rather than passing on a zero.
 int PlayerNatives::L_PLAYER_GetDistanceFromPoint(lua_State* L) {
     ScriptEngine* self = From(L);
-    const float to[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+    const Vec3 to{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
                          float(luaL_optnumber(L, 4, 0))};
-    float a[3], b[3];
+    Vec3 a, b;
     if (self->pawn_ && HandleArg(L, 1) == self->playerHandle_) {
         self->pawn_->FloorPos(a);
         const float* head = self->pawn_->headPos();
@@ -251,7 +251,7 @@ int PlayerNatives::L_PLAYER_GetDistanceFromPoint(lua_State* L) {
     }
 
     // Nearest point on the segment a..b, then the distance to it.
-    float seg[3], rel[3];
+    Vec3 seg, rel;
     float len2 = 0.f, dot = 0.f;
     for (int c = 0; c < 3; ++c) {
         seg[c] = b[c] - a[c];
@@ -320,7 +320,7 @@ int PlayerNatives::L_REGION_BuildFromPoint(lua_State* L) {
             lua_pop(L, 1);
             break;
         }
-        float p[3];
+        Vec3 p;
         const char* axes[3] = {"X", "Y", "Z"};
         bool ok = true;
         for (int a = 0; a < 3; ++a) {
@@ -352,9 +352,9 @@ void ScriptEngine::TickTriggers() {
     // entry is the player's BODY overlapping it, not a point inside it. The
     // pawn's extent stands in for the real overlap: feet to head, widened by
     // its radius. Docs/Reference/LuaHost.md, "Triggers and events"
-    float lo[3], hi[3];
+    Vec3 lo, hi;
     if (pawn_) {
-        float feet[3];
+        Vec3 feet;
         pawn_->FloorPos(feet);
         const float r = pawn_->radius();
         lo[0] = feet[0] - r; hi[0] = feet[0] + r;
@@ -453,7 +453,7 @@ int PlayerNatives::L_CAM_SetAng(lua_State* L) {
     return 0;
 }
 
-bool ScriptEngine::TakeCameraPose(float pos[3], float& yaw, float& pitch) {
+bool ScriptEngine::TakeCameraPose(Vec3& pos, float& yaw, float& pitch) {
     if (!camPoseDirty_) return false;
     camPoseDirty_ = false;
     for (int i = 0; i < 3; ++i) pos[i] = camPos_[i] + camDisplacement_[i];

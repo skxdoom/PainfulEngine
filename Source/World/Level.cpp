@@ -26,7 +26,7 @@ bool Level::LoadSettings(const std::string& levelDir) {
     info_.scale = static_cast<float>(p.Number("Scale", 0.3));
     info_.overbright = p.Bool("Overbright", false);
     // o.Water - see WaterInfo. A Color:New ctor is three 0..255 args.
-    auto colour = [&p](const char* key, float out[3]) {
+    auto colour = [&p](const char* key, Vec3& out) {
         const Value* v = p.Find(key);
         if (!v || v->kind != Value::Kind::Ctor || v->args.size() < 3) return;
         for (int i = 0; i < 3; ++i) out[i] = v->Arg(size_t(i));

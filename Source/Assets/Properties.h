@@ -1,4 +1,5 @@
 #pragma once
+#include "../Core/Vec3.h"
 #include <map>
 #include <string>
 #include <vector>
@@ -42,7 +43,7 @@ public:
     std::string String(const std::string& key, const std::string& fallback = "") const;
     bool       Bool(const std::string& key, bool fallback = false) const;
     // Reads a Vector:New(x,y,z) style value into three floats.
-    bool       Vector3(const std::string& key, float out[3]) const;
+    bool       Vector3(const std::string& key, Vec3& out) const;
 
     const std::map<std::string, Value>& all() const { return values_; }
 

@@ -218,11 +218,10 @@ int RunCmd(const char* levelDir, const char* dataRoot,
             // controller belongs with the script host that creates it. It just
             // stops passing through walls: the same move, as a sphere, sliding
             // along whatever the physics world puts in the way.
-            float f[3], r[3], delta[3];
-            camera.Forward(f);
-            camera.Right(r);
-            for (int c = 0; c < 3; ++c) delta[c] = f[c] * fwd + r[c] * right;
-            delta[1] += up;
+            const Vec3 f = camera.Forward();
+            const Vec3 r = camera.Right();
+            Vec3 delta = f * fwd + r * right;
+            delta.y += up;
             physics.SlideSphere(camera.pos, delta, kCameraRadius);
         }
 
@@ -312,7 +311,7 @@ int RunCmd(const char* levelDir, const char* dataRoot,
                            physicsDebug ? "   |   hulls: green awake, yellow asleep, grey world"
                                         : "");
         if (physicsDebug) {
-            float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+            Vec3 lo(1e30f), hi(-1e30f);
             for (const DebugLine& line : physicsWireframe) {
                 for (int c = 0; c < 3; ++c) {
                     lo[c] = std::min(lo[c], line.a[c]);

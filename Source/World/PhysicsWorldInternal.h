@@ -12,6 +12,7 @@
 // now rather than an anonymous one, which a header cannot have without giving
 // every unit its own copy. Docs/Reference/Physics.md
 #include <Jolt/Jolt.h>
+#include "../Core/Vec3.h"
 
 #include "PhysicsWorld.h"
 #include <Jolt/Core/Factory.h>
@@ -289,10 +290,10 @@ constexpr size_t kMaxHullPoints = 2048;
 // The points a prop's shape is built from, in its own mesh space.
 struct MeshPoints {
     JPH::Array<JPH::Vec3> points;
-    float lo[3] = {1e30f, 1e30f, 1e30f};
-    float hi[3] = {-1e30f, -1e30f, -1e30f};
+    Vec3 lo{1e30f, 1e30f, 1e30f};
+    Vec3 hi{-1e30f, -1e30f, -1e30f};
 
-    void Add(const float p[3]) {
+    void Add(const Vec3& p) {
         points.push_back(JPH::Vec3(p[0], p[1], p[2]));
         for (int c = 0; c < 3; ++c) {
             lo[c] = std::min(lo[c], p[c]);
@@ -335,7 +336,7 @@ inline bool PackPoints(const std::string& itemsRoot, const std::string& packName
         // what is drawn is worse than none - it was placing barrel hulls
         // several units from their barrels, which is what the hull view showed.
         for (size_t v = 0; v < o.vertexCount(); ++v) {
-            float p[3];
+            Vec3 p;
             o.position(v, p);
             out.Add(p);
         }
@@ -351,7 +352,7 @@ inline bool ModelPoints(const std::string& modelsRoot, const std::string& modelN
     if (!Model::Load(path, model)) return false;
     for (const ModelMesh& mesh : model.meshes) {
         for (size_t v = 0; v + 7 < mesh.verts.size(); v += 8) {
-            const float p[3] = {mesh.verts[v], mesh.verts[v + 1], mesh.verts[v + 2]};
+            const Vec3 p{mesh.verts[v], mesh.verts[v + 1], mesh.verts[v + 2]};
             out.Add(p);
         }
     }
@@ -393,7 +394,7 @@ inline JPH::ShapeSettings::ShapeResult BuildScaledPropShape(MeshPoints& mesh,
         // evilmonkv2's widest axis is its outstretched arms, 14.4 model units
         // against a body 2.9 deep, and sizing by that makes a monster wider
         // than it is tall that can never reach a wall.
-        const float half[3] = {(mesh.hi[0] - mesh.lo[0]) * 0.5f,
+        const Vec3 half{(mesh.hi[0] - mesh.lo[0]) * 0.5f,
                                (mesh.hi[1] - mesh.lo[1]) * 0.5f,
                                (mesh.hi[2] - mesh.lo[2]) * 0.5f};
         const float radius = std::max(0.05f, std::min(half[0], half[2]));
@@ -497,10 +498,10 @@ public:
 
     struct Pending {
         JPH::BodyID a, b;
-        float point[3];
-        float normal[3];
-        float velA[3];
-        float velB[3];
+        Vec3 point;
+        Vec3 normal;
+        Vec3 velA;
+        Vec3 velB;
         float strength = 0.f;
     };
 
@@ -519,7 +520,7 @@ public:
     // a body pressed against a wall reports the wall every step.
     struct CharContact {
         uint32_t body;
-        float blocked[3];
+        Vec3 blocked;
     };
     const std::unordered_set<uint32_t>* characters = nullptr;
     void OnContactPersisted(const JPH::Body& a, const JPH::Body& b,
@@ -644,13 +645,13 @@ struct PhysicsWorld::Impl {
         int slot = -1;
         float k = 0.f;             // 0.2 * bodyScale: the sizer's unit
         float rootOffsetY = 0.f;   // stack origin above the body position
-        float wish[3] = {0, 0, 0};
-        float lastWish[3] = {0, 0, 0};
+        Vec3 wish;
+        Vec3 lastWish;
         float influence = 0.5f;
         bool checkFloors = true;
         bool flying = false;
         bool onFloor = false;
-        float floorNormal[3] = {0, 1, 0};
+        Vec3 floorNormal{0, 1, 0};
     };
     std::vector<Character> characters;
     Character* CharacterOf(int slot) {
@@ -693,7 +694,7 @@ struct PhysicsWorld::Impl {
 
     JPH::BodyID probe;
     JPH::BodyID pawnProbe;
-    float pawnProbePos[3] = {0, 0, 0};
+    Vec3 pawnProbePos;
     float pawnProbeRadius = 0.f;
     // BodyTypes.Player at bodyScale 1 (the sizer, 0x101B3E20): four spheres
     // stacked on the body's axis, centres -0.63/-0.10/+0.50/+0.90, radii
@@ -710,7 +711,7 @@ struct PhysicsWorld::Impl {
         JPH::ShapeSettings::ShapeResult result = compound.Create();
         return result.HasError() ? JPH::Ref<JPH::Shape>() : result.Get();
     }
-    float probePos[3] = {0, 0, 0};
+    Vec3 probePos;
     bool probePush = false;
 
     Impl() {

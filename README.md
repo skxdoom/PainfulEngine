@@ -105,7 +105,7 @@ caught. That record is kept on purpose.
 | [`Menu.md`](Docs/Reference/Menu.md) | the widget model behind `PMENU`, and the staging |
 | [`Console.md`](Docs/Reference/Console.md) | the `~` console: panel, keys, `CONSOLE` natives, cheats |
 | [`Sound.md`](Docs/Reference/Sound.md) | the mixer, the voice pool and the `SOUND` natives |
-| [`Vectors.md`](Docs/Reference/Vectors.md) | the Vec3 type, its float[3] interop, and the tested conversion order |
+| [`Vectors.md`](Docs/Reference/Vectors.md) | the Vec3 type, its float[3] interop, what is converted and what a blanket sweep costs |
 | [`Diagnostics.md`](Docs/Reference/Diagnostics.md) | checks vs ordinary answers, logging, truncated files, the PAINFUL_* switches, layering |
 
 [`Docs/Data/native_priority.tsv`](Docs/Data/native_priority.tsv) ranks the

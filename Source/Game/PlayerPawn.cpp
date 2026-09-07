@@ -9,12 +9,12 @@
 
 namespace painful {
 
-void PlayerPawn::Spawn(const float headPos[3]) {
+void PlayerPawn::Spawn(const Vec3& headPos) {
     SetHeadPos(headPos);
     speed_ = 0.f;
 }
 
-void PlayerPawn::SetHeadPos(const float p[3]) {
+void PlayerPawn::SetHeadPos(const Vec3& p) {
     for (int i = 0; i < 3; ++i) head_[i] = p[i];
     velX_ = velY_ = velZ_ = 0.f;
     onGround_ = false;
@@ -30,7 +30,7 @@ void PlayerPawn::SetHeadPos(const float p[3]) {
 // first blocked rung. Heights and reaches are the binary's doubles at
 // 0x102c8570..0x102c85f0, for the float argument PlayerAction passes (1.0).
 // PlayerMovement.md, "The step ladder".
-int PlayerPawn::StepCheck(const PhysicsWorld& physics, const float centre[3],
+int PlayerPawn::StepCheck(const PhysicsWorld& physics, const Vec3& centre,
                           const float wish[2]) const {
     struct Rung { float height, reach; int result; };
     static const Rung kRungs[] = {
@@ -42,8 +42,8 @@ int PlayerPawn::StepCheck(const PhysicsWorld& physics, const float centre[3],
     // pushed by the body's contact, not answered as a wall - the engine's
     // trace walks the line-trace collidables, which a prop is not.
     for (const Rung& r : kRungs) {
-        const float from[3] = {centre[0], centre[1] + r.height, centre[2]};
-        const float to[3] = {from[0] + wish[0] * r.reach, from[1], from[2] + wish[1] * r.reach};
+        const Vec3 from{centre[0], centre[1] + r.height, centre[2]};
+        const Vec3 to{from[0] + wish[0] * r.reach, from[1], from[2] + wish[1] * r.reach};
         PhysicsWorld::RayHit hit;
         if (physics.RayCast(from, to, hit, true)) return r.result;
     }
@@ -51,7 +51,7 @@ int PlayerPawn::StepCheck(const PhysicsWorld& physics, const float centre[3],
 }
 
 void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
-                      uint32_t action, const float right[3], float dt) {
+                      uint32_t action, const Vec3& right, float dt) {
     if (dt <= 0.f) return;
     jumpedThisMove_ = false;
     dt = std::min(dt, 0.05f);   // a hitch must not become a teleport
@@ -111,7 +111,7 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
     // swept about it and rests on its bottom, 0.96 below; the floor point
     // the scripts read (centre - 1.1) is 0.14 under the ground.
     // PlayerMovement.md, "The pawn".
-    float centre[3] = {head_[0], head_[1] - kEyeAboveCentre, head_[2]};
+    Vec3 centre{head_[0], head_[1] - kEyeAboveCentre, head_[2]};
     const float startX = centre[0], startY = centre[1], startZ = centre[2];
 
     // The step response, PlayerAction's switch on StepCheck, and it runs
@@ -290,13 +290,13 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
     // its gap) and the unstick are kept out of the velocity read back below.
     // Counting them turned a 10-degree slope into a steady slide and pushed
     // the body off ledge corners.
-    float corr[3] = {0.f, 0.f, 0.f};
+    Vec3 corr;
     {
-        const float pre[3] = {centre[0], centre[1], centre[2]};
+        const Vec3 pre{centre[0], centre[1], centre[2]};
         physics.Depenetrate(centre, -1.f, 4, true);
         for (int c = 0; c < 3; ++c) corr[c] = centre[c] - pre[c];
     }
-    const float delta[3] = {velX_ * dt, velY_ * dt, velZ_ * dt};
+    const Vec3 delta{velX_ * dt, velY_ * dt, velZ_ * dt};
     // What the scripts read back is the COMMANDED velocity, before the
     // sweep's contacts take their share: a kerb's kick still commands 0.3 of
     // the walk, so CPlayer's "moving faster than 2" holds through the climb
@@ -318,8 +318,8 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
     if (want2 > 1e-8f) {
         const float gotX = centre[0] - startX, gotZ = centre[2] - startZ;
         if (gotX * gotX + gotZ * gotZ < want2 * 0.81f) {
-            const float push[3] = {wantX, 0.f, wantZ};
-            const float from[3] = {startX, startY, startZ};
+            const Vec3 push{wantX, 0.f, wantZ};
+            const Vec3 from{startX, startY, startZ};
             physics.ShoveCharacters(from, kRadius, push, speed_, kPlayerMass);
             physics.PushProps(from, push, speed_, kPlayerMass);
         }
@@ -329,15 +329,15 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
     // body is set on it - the sweep's own 0.02 skin between them, as a body
     // at rest keeps. Never while rising: a jump's first frame lifts the
     // body less than the probe's reach.
-    float probe[3] = {centre[0], centre[1], centre[2]};
-    const float down[3] = {0.f, -(kHover + 0.06f), 0.f};
+    Vec3 probe{centre[0], centre[1], centre[2]};
+    const Vec3 down{0.f, -(kHover + 0.06f), 0.f};
     // The support's normal: a slope's face, or a ledge's corner under a
     // sphere hanging over it, which a body slides off just the same.
     // A plain cast (one iteration): letting it slide along the contact took
     // the probe down a slope's face and set the body into the slope, which
     // the next depenetration pushed back out - a creep of 0.3 m/s at 30°.
-    float support[3] = {0.f, 0.f, 0.f};
-    physics.SlidePlayer(probe, down, true, support, 1);
+    Vec3 support;
+    physics.SlidePlayer(probe, down, true, support.p(), 1);
     const float dropped = centre[1] - probe[1];
     resting_ = velY_ <= 0.f && dropped < kHover + 0.045f;
     if (resting_) {
@@ -345,7 +345,7 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
         centre[1] = probe[1] + kHover;
         // Standing on a dynamic body - a bridge plank - presses the player's
         // weight on it. Physics.md, "Ragdoll items: the Catacombs bridge".
-        const float feetSphere[3] = {centre[0], centre[1] - kFloorBelowCentre + kRadius, centre[2]};
+        const Vec3 feetSphere{centre[0], centre[1] - kFloorBelowCentre + kRadius, centre[2]};
         physics.PressGround(feetSphere, kRadius, kPlayerMass * gravity);
     }
     // A ceiling stops upward motion: the head sphere is in the sweep now.
@@ -360,7 +360,7 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
     // longer one is a teleport) and the crossing past 0.4 of it.
     // PlayerMovement.md, "The three helpers around the body".
     if (haveLast_) {
-        const float move[3] = {centre[0] - lastCentre_[0], centre[1] - lastCentre_[1],
+        const Vec3 move{centre[0] - lastCentre_[0], centre[1] - lastCentre_[1],
                                centre[2] - lastCentre_[2]};
         const float len = std::sqrt(move[0] * move[0] + move[1] * move[1] + move[2] * move[2]);
         if (len > 1e-4f && len < 3.f) {
@@ -426,8 +426,8 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
     // axis. PlayerMovement.md, "The three helpers around the body".
     {
         PhysicsWorld::RayHit hit;
-        float from[3] = {centre[0], centre[1] + kEyeAboveCentre, centre[2]};
-        float to[3] = {centre[0], centre[1] - kFloorReach, centre[2]};
+        Vec3 from{centre[0], centre[1] + kEyeAboveCentre, centre[2]};
+        Vec3 to{centre[0], centre[1] - kFloorReach, centre[2]};
         bool floorHit = physics.RayCast(from, to, hit);
         axisFloor_ = floorHit;
         if (!floorHit) {
@@ -452,8 +452,8 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
         // PLAYER.FloorCheck's own ray: FloorCheck(-8.5, 4.5), the axis from
         // the head to centre - 1.7, and no random retry (0x10138da0).
         {
-            const float sFrom[3] = {centre[0], centre[1] + kEyeAboveCentre, centre[2]};
-            const float sTo[3] = {centre[0], centre[1] - 8.5f * 0.2f, centre[2]};
+            const Vec3 sFrom{centre[0], centre[1] + kEyeAboveCentre, centre[2]};
+            const Vec3 sTo{centre[0], centre[1] - 8.5f * 0.2f, centre[2]};
             PhysicsWorld::RayHit sHit;
             scriptFloor_ = physics.RayCast(sFrom, sTo, sHit);
         }

@@ -1,5 +1,6 @@
 #include "EntityRenderer.h"
 #include "ShaderLoad.h"
+#include "../Core/Vec3.h"
 #include "../Core/Check.h"
 #include "../Core/Debug.h"
 #include "../Core/Common.h"
@@ -32,7 +33,7 @@ bool EqualsNoCase(const std::string& a, const std::string& b) {
 }
 // Row-vector transform: uniform scale, then rotation, then translation in row 3.
 // "rot" is a row-major 3x3 rotation already in row-vector form.
-Mat4 MakeTransform(const float pos[3], const float rot[9], float scale) {
+Mat4 MakeTransform(const Vec3& pos, const float rot[9], float scale) {
     Mat4 m;
     for (int r = 0; r < 3; ++r) {
         for (int c = 0; c < 3; ++c) m.m[r * 4 + c] = rot[r * 3 + c] * scale;
@@ -172,7 +173,7 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
     if (!Model::Load(path, model) || model.meshes.empty()) return false;
 
     GpuModel gpu;
-    float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+    Vec3 lo(1e30f), hi(-1e30f);
     for (const ModelMesh& mesh : model.meshes) {
         const size_t vertexCount = mesh.vertexCount();
         if (vertexCount == 0 || mesh.indices.empty()) continue;
@@ -188,7 +189,7 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
             v.nz = mesh.verts[i * 8 + 5];
             v.u0 = v.u1 = mesh.verts[i * 8 + 6];
             v.v0 = v.v1 = mesh.verts[i * 8 + 7];
-            const float p[3] = {v.x, v.y, v.z};
+            const Vec3 p{v.x, v.y, v.z};
             for (int a = 0; a < 3; ++a) {
                 lo[a] = std::min(lo[a], p[a]);
                 hi[a] = std::max(hi[a], p[a]);
@@ -311,7 +312,7 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
 
     GpuModel gpu;
     bool materialSet = false;
-    float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+    Vec3 lo(1e30f), hi(-1e30f);
     for (const MapObject& o : pack.objects) {
         // o.Mesh selects one object; when it matches nothing (or is empty),
         // every object is drawn - DEAD packs hold loose fragments.
@@ -333,7 +334,8 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
 
         std::vector<MeshVertex> verts(vertexCount);
         for (size_t i = 0; i < vertexCount; ++i) {
-            float p[3], n[3], uv[2];
+            Vec3 p, n;
+            float uv[2];
             o.position(i, p);
             o.normal(i, n);
             o.uv(i, uv);
@@ -476,7 +478,7 @@ void EntityRenderer::Build(const Level& level, TemplateCache& templates,
         ReadRotation(e.props, instance.rot);
         instance.scale = finalScale;
         // Same math as SetScaleMultiplier: the layout scales about world zero.
-        const float scaledPos[3] = {instance.pos[0] * scaleMultiplier_,
+        const Vec3 scaledPos{instance.pos[0] * scaleMultiplier_,
                                     instance.pos[1] * scaleMultiplier_,
                                     instance.pos[2] * scaleMultiplier_};
         instance.transform = MakeTransform(scaledPos, instance.rot,
@@ -503,7 +505,7 @@ int EntityRenderer::CreateScriptModel(const std::string& modelName, float scale,
 }
 
 int EntityRenderer::CreateWorldObject(const MapObject& o, float worldScale,
-                                      const float origin[3], TextureCache& textures,
+                                      const Vec3& origin, TextureCache& textures,
                                       const std::string& levelHint) {
     const size_t vertexCount = o.vertexCount();
     if (vertexCount == 0 || o.indices.empty()) return -1;
@@ -523,14 +525,15 @@ int EntityRenderer::CreateWorldObject(const MapObject& o, float worldScale,
     // Normals take the transform's rotation; the exporter's matrices carry no
     // scale worth normalising away, and the shader normalises anyway.
     std::vector<MeshVertex> verts(vertexCount);
-    float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+    Vec3 lo(1e30f), hi(-1e30f);
     const Mat4& t = o.transform;
     for (size_t i = 0; i < vertexCount; ++i) {
-        float p[3], n[3], uv[2], w[3];
+        Vec3 p, n, w;
+        float uv[2];
         o.position(i, p);
         o.normal(i, n);
         o.uv(i, uv);
-        t.TransformPoint(p[0], p[1], p[2], w);
+        w = t.TransformPoint(p);
         MeshVertex& v = verts[i];
         v.x = w[0] * worldScale - origin[0];
         v.y = w[1] * worldScale - origin[1];
@@ -610,7 +613,7 @@ int EntityRenderer::CreateScriptPack(const std::string& packName,
     return int(instances_.size() - 1);
 }
 
-void EntityRenderer::SetScriptPose(int slot, const float pos[3], const float rotWXYZ[4]) {
+void EntityRenderer::SetScriptPose(int slot, const Vec3& pos, const float rotWXYZ[4]) {
     if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
                        "EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
         return;
@@ -634,23 +637,13 @@ void EntityRenderer::SetScriptSkinning(int slot, const Mat4* skin, size_t count)
     // centre, padded by the model's half-diagonal.
     const GpuModel& model = models_[inst.model];
     UpdateBounds(inst, model);
-    const float centre[3] = {(model.bboxLo[0] + model.bboxHi[0]) * 0.5f,
-                             (model.bboxLo[1] + model.bboxHi[1]) * 0.5f,
-                             (model.bboxLo[2] + model.bboxHi[2]) * 0.5f};
-    float pad = 0.f;
-    for (int a = 0; a < 3; ++a) {
-        const float half = (model.bboxHi[a] - model.bboxLo[a]) * 0.5f;
-        pad += half * half;
-    }
-    pad = std::sqrt(pad) * inst.scale * scaleMultiplier_;
+    const Vec3 centre = (model.bboxLo + model.bboxHi) * 0.5f;
+    // Half the model's diagonal: the most a posed bone can push a vertex out.
+    const float pad = ((model.bboxHi - model.bboxLo) * 0.5f).Length() * inst.scale * scaleMultiplier_;
     for (const Mat4& bone : inst.skin) {
-        float posed[3], w[3];
-        bone.TransformPoint(centre[0], centre[1], centre[2], posed);
-        inst.transform.TransformPoint(posed[0], posed[1], posed[2], w);
-        for (int a = 0; a < 3; ++a) {
-            inst.aabbLo[a] = std::min(inst.aabbLo[a], w[a] - pad);
-            inst.aabbHi[a] = std::max(inst.aabbHi[a], w[a] + pad);
-        }
+        const Vec3 w = inst.transform.TransformPoint(bone.TransformPoint(centre));
+        inst.aabbLo = Min(inst.aabbLo, w - Vec3(pad));
+        inst.aabbHi = Max(inst.aabbHi, w + Vec3(pad));
     }
 }
 
@@ -719,7 +712,7 @@ void EntityRenderer::ReleaseScript(int slot) {
     inst.alive = false;
 }
 
-bool EntityRenderer::GetScriptDimensions(int slot, float out[3]) const {
+bool EntityRenderer::GetScriptDimensions(int slot, Vec3& out) const {
     if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
                        "EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
         return false;
@@ -730,12 +723,12 @@ bool EntityRenderer::GetScriptDimensions(int slot, float out[3]) const {
     return true;
 }
 
-void EntityRenderer::SetEntityPose(size_t entityIndex, const float pos[3], const float rot[9]) {
+void EntityRenderer::SetEntityPose(size_t entityIndex, const Vec3& pos, const float rot[9]) {
     for (Instance& instance : instances_) {
         if (instance.entity != entityIndex) continue;
         for (int c = 0; c < 3; ++c) instance.pos[c] = pos[c];
         for (int c = 0; c < 9; ++c) instance.rot[c] = rot[c];
-        const float scaledPos[3] = {instance.pos[0] * scaleMultiplier_,
+        const Vec3 scaledPos{instance.pos[0] * scaleMultiplier_,
                                     instance.pos[1] * scaleMultiplier_,
                                     instance.pos[2] * scaleMultiplier_};
         instance.transform = MakeTransform(scaledPos, instance.rot,
@@ -746,18 +739,15 @@ void EntityRenderer::SetEntityPose(size_t entityIndex, const float pos[3], const
 }
 
 void EntityRenderer::UpdateBounds(Instance& instance, const GpuModel& model) const {
-    instance.aabbLo[0] = instance.aabbLo[1] = instance.aabbLo[2] = 1e30f;
-    instance.aabbHi[0] = instance.aabbHi[1] = instance.aabbHi[2] = -1e30f;
+    instance.aabbLo = Vec3(1e30f);
+    instance.aabbHi = Vec3(-1e30f);
     for (int corner = 0; corner < 8; ++corner) {
-        const float local[3] = {corner & 1 ? model.bboxHi[0] : model.bboxLo[0],
-                                corner & 2 ? model.bboxHi[1] : model.bboxLo[1],
-                                corner & 4 ? model.bboxHi[2] : model.bboxLo[2]};
-        float w[3];
-        instance.transform.TransformPoint(local[0], local[1], local[2], w);
-        for (int a = 0; a < 3; ++a) {
-            instance.aabbLo[a] = std::min(instance.aabbLo[a], w[a]);
-            instance.aabbHi[a] = std::max(instance.aabbHi[a], w[a]);
-        }
+        const Vec3 local(corner & 1 ? model.bboxHi[0] : model.bboxLo[0],
+                         corner & 2 ? model.bboxHi[1] : model.bboxLo[1],
+                         corner & 4 ? model.bboxHi[2] : model.bboxLo[2]);
+        const Vec3 w = instance.transform.TransformPoint(local);
+        instance.aabbLo = Min(instance.aabbLo, w);
+        instance.aabbHi = Max(instance.aabbHi, w);
     }
 }
 
@@ -769,7 +759,7 @@ void EntityRenderer::SetScaleMultiplier(float k) {
     // sizes. A multiplier that makes everything land correctly would expose a
     // hidden unit factor in the entity coordinates.
     for (Instance& instance : instances_) {
-        const float pos[3] = {instance.pos[0] * k, instance.pos[1] * k,
+        const Vec3 pos{instance.pos[0] * k, instance.pos[1] * k,
                               instance.pos[2] * k};
         instance.transform = MakeTransform(pos, instance.rot,
                                            instance.scale * k);
@@ -785,8 +775,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
     if (!bgfx::isValid(program_) || instances_.empty()) return;
 
     // Same view setup as the world pass, rebuilt here for the frustum.
-    float forward[3];
-    camera.Forward(forward);
+    const Vec3 forward = camera.Forward();
     const bx::Vec3 eye = {camera.pos[0], camera.pos[1], camera.pos[2]};
     const bx::Vec3 at = {camera.pos[0] + forward[0], camera.pos[1] + forward[1],
                          camera.pos[2] + forward[2]};

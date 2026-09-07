@@ -1,4 +1,5 @@
 #pragma once
+#include "../Core/Vec3.h"
 #include "../Assets/Mpk.h"
 #include "../Assets/ShaderScript.h"
 #include "../World/Level.h"
@@ -88,7 +89,7 @@ private:
         // Water surfaces take a separate program: a reflection sampled from a
         // cube map through a scrolling normal map. See Docs/Reference/Water.md.
         bool isWater = false;
-        float aabbLo[3], aabbHi[3];      // world-space bounds, for culling
+        Vec3 aabbLo, aabbHi;      // world-space bounds, for culling
         std::vector<uint16_t> zones;     // every zone the chunk overlaps; empty = always drawn
         size_t object = 0;               // index into MapMesh::objects
         bool hidden = false;             // SetObjectVisible(false)

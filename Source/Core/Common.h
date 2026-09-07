@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include "Vec3.h"
+
 namespace painful {
 
 inline constexpr float kPi = 3.14159265358979f;
@@ -32,7 +34,14 @@ struct Mat4 {
     // Inverse of an affine matrix [R 0; t 1] -> [R^-1 0; -t*R^-1 1].
     static Mat4 InvertAffine(const Mat4& x);
 
-    void TransformPoint(float px, float py, float pz, float out[3]) const {
+    // The value form, which is what every caller actually wants.
+    Vec3 TransformPoint(const Vec3& p) const {
+        Vec3 out;
+        TransformPoint(p.x, p.y, p.z, out);
+        return out;
+    }
+
+    void TransformPoint(float px, float py, float pz, Vec3& out) const {
         out[0] = px * m[0] + py * m[4] + pz * m[8]  + m[12];
         out[1] = px * m[1] + py * m[5] + pz * m[9]  + m[13];
         out[2] = px * m[2] + py * m[6] + pz * m[10] + m[14];
@@ -115,7 +124,13 @@ void EngineEulerToQuat(float ax, float ay, float az, float out[4]);
 void EngineQuatMul(const float a[4], const float b[4], float out[4]);
 
 // Rotates a vector by a quaternion.
-void EngineQuatRotate(const float q[4], const float v[3], float out[3]);
+void EngineQuatRotate(const float q[4], const Vec3& v, Vec3& out);
+// The value form, for callers holding a Vec3.
+inline Vec3 EngineQuatRotate(const float q[4], const Vec3& v) {
+    Vec3 out;
+    EngineQuatRotate(q, v, out);
+    return out;
+}
 
 // Row-vector 3x3 back to a quaternion - the inverse of EngineQuatToRot9, so
 // that a rotation built as "row i is where local axis i lands" can be handed

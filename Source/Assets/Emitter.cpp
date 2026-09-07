@@ -98,7 +98,7 @@ public:
     }
 
     // Reads "<key>.X/.Y/.Z" into three floats, each independently optional.
-    void Vec3(const char* section, const std::string& key, float out[3]) const {
+    void Vec3(const char* section, const std::string& key, painful::Vec3& out) const {
         static const char* kAxis[3] = {".x", ".y", ".z"};
         for (int i = 0; i < 3; ++i) Float(section, key + kAxis[i], out[i]);
     }
@@ -155,14 +155,12 @@ bool ParseEmitterIni(const std::string& text, EmitterParams& p) {
     ini.Vec3("velocity", "Max", p.velMax);
     // Acceleration seeds both ends of the range; AccelMax then raises the top.
     ini.Vec3("velocity", "Acceleration", p.accelMin);
-    for (int i = 0; i < 3; ++i) p.accelMax[i] = p.accelMin[i];
+    p.accelMax = p.accelMin;
     ini.Vec3("velocity", "AccelMax", p.accelMax);
 
     // A missing [VelocityEnd] leaves the particle at its starting velocity.
-    for (int i = 0; i < 3; ++i) {
-        p.velEndMin[i] = p.velMin[i];
-        p.velEndMax[i] = p.velMax[i];
-    }
+    p.velEndMin = p.velMin;
+    p.velEndMax = p.velMax;
     ini.Vec3("velocityend", "Min", p.velEndMin);
     ini.Vec3("velocityend", "Max", p.velEndMax);
 
@@ -220,7 +218,7 @@ bool ParseParticleFx(const std::string& text, ParticleFxDef& out) {
         const std::string key = Lower(Trim(line.substr(0, eq)));
         const std::string value = Trim(line.substr(eq + 1));
 
-        auto readTriple = [&value](float dst[3]) {
+        auto readTriple = [&value](Vec3& dst) {
             const size_t open = value.find('{');
             if (open == std::string::npos) return;
             const char* p = value.c_str() + open + 1;

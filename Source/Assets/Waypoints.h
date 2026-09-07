@@ -1,5 +1,6 @@
 #pragma once
 #include "../Core/Common.h"
+#include "../Core/Vec3.h"
 
 #include <string>
 #include <vector>
@@ -32,7 +33,7 @@ namespace painful {
 // `painful wps` checks it on load rather than trusting it.
 struct WaypointSet {
     struct Node {
-        float pos[3] = {0, 0, 0};
+        Vec3 pos;
         // 24-bit floor index. The Cathedral uses 0..52 and its floors section
         // opens with 53, which is what identifies these three bytes.
         uint32_t floor = 0;
@@ -54,7 +55,7 @@ struct WaypointSet {
     // no answer at all, which is how an actor standing somewhere the level
     // designer never marked ends up walking straight instead of teleporting
     // its route across the map.
-    int Closest(const float p[3], float maxDist = 0.f) const;
+    int Closest(const Vec3& p, float maxDist = 0.f) const;
 
     // Shortest route from one waypoint to another, as node indices INCLUDING
     // both ends. Returns false when they are not connected.

@@ -54,6 +54,9 @@ public:
     void F(float& v) { Raw(&v, 4); }
     void F(bool& v) { uint8_t b = v ? 1 : 0; Raw(&b, 1); v = b != 0; }
     template <size_t N> void F(float (&v)[N]) { Raw(v, sizeof v); }
+    // Three packed floats, the same twelve bytes the float[3] form wrote -
+    // Vec3 static_asserts that layout, so the save format does not move.
+    void F(Vec3& v) { Raw(v.p(), sizeof(float) * 3); }
     void F(std::string& s) {
         uint32_t n = uint32_t(s.size());
         F(n);
@@ -117,7 +120,7 @@ private:
 // The derived slots (renderer, body, emitters, sprite, voice, ragdoll, the
 // pose caches, the anim pointers) are NOT here: RebuildEntity makes them.
 void ArchiveEntity(Archive& ar, ScriptEngine::Entity& e, bool& hadBody, bool& hadRagdoll,
-                   float (&bodyVel)[3]) {
+                   Vec3& bodyVel) {
     ar.F(e.type); ar.F(e.source); ar.F(e.mesh); ar.F(e.name);
     ar.F(e.scale); ar.F(e.pos); ar.F(e.rotWXYZ);
     ar.F(e.visible); ar.F(e.inWorld); ar.F(e.worldObject);
@@ -181,7 +184,7 @@ bool ScriptEngine::SaveWorld(const std::string& enginePath) {
     ar.F(nextHandle_);
     ar.F(playerHandle_);
     ar.F(pawnEnabled_);
-    float head[3] = {0, 0, 0};
+    Vec3 head;
     if (pawn_) for (int c = 0; c < 3; ++c) head[c] = pawn_->headPos()[c];
     ar.F(head);
     ar.F(camPos_); ar.F(camYaw_); ar.F(camPitch_);
@@ -197,7 +200,7 @@ bool ScriptEngine::SaveWorld(const std::string& enginePath) {
     for (int h : handles) {
         Entity& e = entities_[h];
         bool hadBody = e.physicsBody >= 0, hadRagdoll = e.ragdollSlot >= 0;
-        float bodyVel[3] = {0, 0, 0};
+        Vec3 bodyVel;
         if (physics_ && hadBody) physics_->GetScriptBodyVelocity(e.physicsBody, bodyVel);
         ar.F(h);
         ArchiveEntity(ar, e, hadBody, hadRagdoll, bodyVel);
@@ -229,7 +232,7 @@ void ScriptEngine::ReleaseAllEntities() {
 void ScriptEngine::RebuildEntity(int handle, Entity& src) {
     const bool hadBody = src.physicsBody >= 0;       // carried in the slot field by the loader
     const bool hadRagdoll = src.ragdollSlot >= 0;
-    float bodyVel[3];
+    Vec3 bodyVel;
     for (int c = 0; c < 3; ++c) bodyVel[c] = src.velocity[c];
     src.physicsBody = -1;
     src.ragdollSlot = -1;
@@ -266,7 +269,7 @@ void ScriptEngine::RebuildEntity(int handle, Entity& src) {
         int slot = -1;
         if (e.worldObject && e.activeMesh >= 0 && size_t(e.activeMesh) < map_.objects.size()) {
             const MapObject& o = map_.objects[size_t(e.activeMesh)];
-            float origin[3];
+            Vec3 origin;
             slot = physics_->CreateActiveMeshBody(o, world_.scale, ActiveMeshMassScale(o.name),
                                                   o.isPinned(), o.nameHas("concave"),
                                                   o.activeGroup(), origin);
@@ -295,7 +298,8 @@ void ScriptEngine::RebuildEntity(int handle, Entity& src) {
             if (e.bodyAngDamp >= 0.f) physics_->SetScriptBodyAngularDamping(slot, e.bodyAngDamp);
             if (e.bodyGravity >= 0) physics_->SetScriptBodyGravityFactor(slot, float(e.bodyGravity));
             if (e.isMonster) {
-                float k = 0.f, rootOffset[3] = {0.f, 0.f, 0.f};
+                float k = 0.f;
+                Vec3 rootOffset;
                 MonsterBodyScale(e, k, rootOffset);
                 physics_->MakeScriptBodyCharacter(slot, k, rootOffset);
                 physics_->SetCharacterMovement(slot, e.monsterMoveConst, e.monsterMoveFlag);
@@ -358,7 +362,7 @@ bool ScriptEngine::LoadWorld(const std::string& enginePath) {
 
     int nextHandle = 1, playerHandle = 0;
     bool pawnEnabled = false;
-    float head[3];
+    Vec3 head;
     ar.F(nextHandle); ar.F(playerHandle); ar.F(pawnEnabled); ar.F(head);
     ar.F(camPos_); ar.F(camYaw_); ar.F(camPitch_);
     ar.F(timeMultiplier_); ar.F(playerSpotDone_); ar.F(mouseLocked_);
@@ -372,7 +376,7 @@ bool ScriptEngine::LoadWorld(const std::string& enginePath) {
         ar.F(handle);
         Entity e;
         bool hadBody = false, hadRagdoll = false;
-        float bodyVel[3] = {0, 0, 0};
+        Vec3 bodyVel;
         ArchiveEntity(ar, e, hadBody, hadRagdoll, bodyVel);
         if (!ar.ok()) break;
         // RebuildEntity reads these three through the slot fields.

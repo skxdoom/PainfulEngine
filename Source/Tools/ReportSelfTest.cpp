@@ -123,13 +123,12 @@ void TestAgainstMat4() {
     Mat4 m;                       // identity
     m.m[12] = 10.f; m.m[13] = 20.f; m.m[14] = 30.f;   // translation in row 3
     Vec3 out;
-    m.TransformPoint(1.f, 2.f, 3.f, out.p());
-    Ok(out == Vec3(11.f, 22.f, 33.f), "Mat4::TransformPoint writes through Vec3::p()");
+    m.TransformPoint(1.f, 2.f, 3.f, out);
+    Ok(out == Vec3(11.f, 22.f, 33.f), "Mat4::TransformPoint fills a Vec3 out-parameter");
 
     const Vec3 in(1.f, 2.f, 3.f);
-    float raw[3];
-    m.TransformPoint(in.x, in.y, in.z, raw);
-    Ok(AsVec3(raw) == out, "the same result either way in");
+    const Vec3 byValue = m.TransformPoint(in);
+    Ok(byValue == out, "the value form agrees with the out-parameter form");
 }
 
 void TestQuaternionInterop() {
@@ -137,15 +136,17 @@ void TestQuaternionInterop() {
     float q[4];
     EngineEulerToQuat(0.f, kPi * 0.5f, 0.f, q);        // 90 degrees about Y
     Vec3 r;
-    EngineQuatRotate(q, Vec3(1.f, 0.f, 0.f), r.p());
+    EngineQuatRotate(q, Vec3(1.f, 0.f, 0.f), r);
     Ok(Near(r.Length(), 1.f), "rotation preserves length");
     Ok(Near(std::fabs(r.z), 1.f, 1e-4f) && Near(r.x, 0.f, 1e-4f),
        "90 degrees about Y takes +X onto the Z axis");
 
     float id[4] = {1.f, 0.f, 0.f, 0.f};
     Vec3 same;
-    EngineQuatRotate(id, Vec3(1.f, 2.f, 3.f), same.p());
+    EngineQuatRotate(id, Vec3(1.f, 2.f, 3.f), same);
     Ok(Near(same, Vec3(1.f, 2.f, 3.f)), "the identity quaternion is a no-op");
+    Ok(Near(EngineQuatRotate(q, Vec3(1.f, 0.f, 0.f)), r),
+       "the value form agrees with the out-parameter form");
 }
 
 }  // namespace

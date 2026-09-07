@@ -1,5 +1,6 @@
 #pragma once
 #include "../Assets/Dat.h"
+#include "../Core/Vec3.h"
 #include "../Assets/Pkmdl.h"
 #include "../Assets/Skeleton.h"
 #include "MeshVertex.h"
@@ -39,7 +40,7 @@ public:
     // does this too; the script-driven path has no Level to pass to Build
     // and calls this on its own.
     void BuildLighting(const Level& level, TemplateCache& templates);
-    void SetLevelAmbient(const float rgb255[3]) { lighting_.SetLevelAmbient(rgb255); }
+    void SetLevelAmbient(const Vec3& rgb255) { lighting_.SetLevelAmbient(rgb255); }
     size_t lightCount() const { return lighting_.lightCount(); }
     size_t environmentCount() const { return lighting_.environmentCount(); }
 
@@ -56,7 +57,7 @@ public:
     // that became physics bodies are drawn wherever physics says they are,
     // which is the whole point of them being bodies; everything else keeps the
     // position the level authored.
-    void SetEntityPose(size_t entityIndex, const float pos[3], const float rot[9]);
+    void SetEntityPose(size_t entityIndex, const Vec3& pos, const float rot[9]);
 
     // --- script-driven instances (the ENTITY.* native path) ---
     // Creates one instance of a .pkmdl model (the scale arrives with the
@@ -70,14 +71,14 @@ public:
     // body's centre, so SetScriptPose places it exactly as the body moves.
     // Lit as an entity: these objects carry no lightmap, and the original
     // makes each one an Entity in the world (World::LoadMeshPakFile).
-    int CreateWorldObject(const MapObject& object, float worldScale, const float origin[3],
+    int CreateWorldObject(const MapObject& object, float worldScale, const Vec3& origin,
                           TextureCache& textures, const std::string& levelHint);
     int CreateScriptPack(const std::string& packName, const std::string& meshName,
                          float scale, TextureCache& textures,
                          const std::string& itemsRoot);
     // rotWXYZ is an engine-order quaternion, converted with the engine's own
     // matrix form (see Properties.cpp ReadRotation).
-    void SetScriptPose(int slot, const float pos[3], const float rotWXYZ[4]);
+    void SetScriptPose(int slot, const Vec3& pos, const float rotWXYZ[4]);
     // This instance's pose for the frame: one skinning matrix per bone, in the
     // model's own bone order. The script side owns the skeleton and computes
     // this (see SkeletonCache), because the joint natives have to answer from
@@ -95,7 +96,7 @@ public:
     void ReleaseScript(int slot);
     // World-space size of the instance's model (bind-pose bounds times its
     // scale) - what ENTITY.GetDimensions reports.
-    bool GetScriptDimensions(int slot, float out[3]) const;
+    bool GetScriptDimensions(int slot, Vec3& out) const;
 
     size_t placed() const { return instances_.size(); }
     size_t distinctModels() const { return models_.size(); }
@@ -169,7 +170,7 @@ private:
         // (cull cw - the Maya exporter's winding is authored, not guessed),
         // pack meshes the defaultNTU family (cull ccw, like world geometry).
         MaterialState material;
-        float bboxLo[3] = {0, 0, 0}, bboxHi[3] = {0, 0, 0};   // local bounds
+        Vec3 bboxLo, bboxHi;   // local bounds
         // Whether any part carries skin weights, so a pose pushed at this
         // model can be used. The skeleton itself belongs to the script side.
         bool skinned = false;
@@ -183,10 +184,10 @@ private:
         MaterialState material;
         bgfx::TextureHandle stage1 = BGFX_INVALID_HANDLE;
         Mat4 transform;
-        float aabbLo[3] = {0, 0, 0}, aabbHi[3] = {0, 0, 0};   // world bounds
+        Vec3 aabbLo, aabbHi;   // world bounds
         // Basis kept so the transform can be rebuilt when the live scale
         // multiplier changes; scaling is about each entity's own origin.
-        float pos[3] = {0, 0, 0};
+        Vec3 pos;
         float rot[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
         float scale = 1.f;
         // Which level entity this came from, so physics can say where it has

@@ -116,13 +116,13 @@ int AnimNatives::L_MDL_SetAnim(lua_State* L) {
         // - a weapon toggled walk/idle/walk jumped at every toggle.
         const SkeletonCache::Entry* skel = self->skeletons_.Get(e->source);
         std::vector<Mat4> snapshot;
-        float snapshotOffset[3] = {0.f, 0.f, 0.f};
+        Vec3 snapshotOffset;
         if (e->blendFrom && e->blendLeft > 0.f && e->blendTotal > 1e-6f && skel &&
             !skel->bones.empty()) {
             const float u = 1.f - e->blendLeft / e->blendTotal;
             if (e->pose.tracks.size() != skel->bones.size() || e->pose.anim != previous)
                 ResolveAnimTracks(skel->bones, *previous, e->pose.tracks);
-            float at[3];
+            Vec3 at;
             self->CurveOffset(*e, skel, e->animIndex, e->pose.tracks, e->animTime, at);
             if (!e->blendFromLocal.empty()) {
                 ComputeBoneLocalFromLocals(skel->bones, e->blendFromLocal, e->pose.tracks,
@@ -137,7 +137,7 @@ int AnimNatives::L_MDL_SetAnim(lua_State* L) {
                 int fromSlot = -1;
                 for (size_t i = 0; i < e->animSlots.size(); ++i)
                     if (e->animSlots[i].anim == e->blendFrom) fromSlot = int(i);
-                float from[3];
+                Vec3 from;
                 self->CurveOffset(*e, skel, fromSlot, e->blendFromTracks, e->blendFromTime, from);
                 for (int c = 0; c < 3; ++c)
                     snapshotOffset[c] = from[c] * (1.f - u) + at[c] * u;
@@ -292,7 +292,7 @@ int AnimNatives::L_MDL_GetAnimMovement(lua_State* L) {
     const int index = int(luaL_optnumber(L, 2, -1));
     const float delta = float(luaL_optnumber(L, 3, 0));
 
-    float move[3] = {0, 0, 0};
+    Vec3 move;
     if (e && index >= 0 && size_t(index) < e->animSlots.size())
         self->AnimMovement(*e, index, delta, move);
 
@@ -316,7 +316,7 @@ int ScriptEngine::ResolveCurveBone(Entity::AnimSlot& slot,
     return slot.curveBoneIndex;
 }
 
-void ScriptEngine::AnimMovement(Entity& e, int index, float delta, float out[3]) {
+void ScriptEngine::AnimMovement(Entity& e, int index, float delta, Vec3& out) {
     Entity::AnimSlot& slot = e.animSlots[size_t(index)];
     if (slot.curveMask == 0 || !slot.anim) return;
 
@@ -336,7 +336,7 @@ void ScriptEngine::AnimMovement(Entity& e, int index, float delta, float out[3])
     // a fraction of a frame of travel instead of teleporting the actor.
     const float t1 = std::min(t0 + delta * e.animScale, slot.length);
 
-    float a[3], b[3];
+    Vec3 a, b;
     if (!ComputeBonePositionAtTime(skel->bones, curveTracks_, slot.curveBoneIndex, t0, a) ||
         !ComputeBonePositionAtTime(skel->bones, curveTracks_, slot.curveBoneIndex, t1, b))
         return;
@@ -366,14 +366,14 @@ int SlotOfAnim(const ScriptEngine::Entity& e, const Animation* anim) {
 // blend arithmetic below work without a special case.
 void ScriptEngine::CurveOffset(Entity& e, const SkeletonCache::Entry* skel, int slotIndex,
                                const std::vector<const AnimTrack*>& tracks, float time,
-                               float out[3]) {
+                               Vec3& out) {
     out[0] = out[1] = out[2] = 0.f;
     if (!skel || slotIndex < 0 || size_t(slotIndex) >= e.animSlots.size()) return;
     Entity::AnimSlot& slot = e.animSlots[size_t(slotIndex)];
     if (slot.curveMask == 0 || ResolveCurveBone(slot, *skel) < 0) return;
     if (tracks.size() != skel->bones.size()) return;
 
-    float at[3];
+    Vec3 at;
     if (!ComputeBonePositionAtTime(skel->bones, tracks, slot.curveBoneIndex, time, at)) return;
     static const uint32_t kAxisBit[3] = {1, 2, 4};
     for (int c = 0; c < 3; ++c)
@@ -454,10 +454,10 @@ const std::vector<Mat4>* ScriptEngine::PosedBones(Entity& e) {
         // all is the common case - every walk that ends in idle - which is why
         // it read as the monster jumping whenever it stopped.
         {
-            float at[3] = {0.f, 0.f, 0.f};
+            Vec3 at;
             CurveOffset(e, skel, e.animIndex, e.pose.tracks, e.animTime, at);
             if (e.blendFrom && blendU < 1.f) {
-                float from[3] = {0.f, 0.f, 0.f};
+                Vec3 from;
                 if (!e.blendFromLocal.empty())
                     for (int c = 0; c < 3; ++c) from[c] = e.blendFromOffset[c];
                 else
@@ -474,8 +474,8 @@ const std::vector<Mat4>* ScriptEngine::PosedBones(Entity& e) {
     return &e.pose.boneWorld;
 }
 
-bool ScriptEngine::JointToWorld(Entity& e, int joint, const float local[3],
-                                float out[3]) {
+bool ScriptEngine::JointToWorld(Entity& e, int joint, const Vec3& local,
+                                Vec3& out) {
     const std::vector<Mat4>* bones = PosedBones(e);
     if (!bones || joint < 0 || size_t(joint) >= bones->size()) return false;
 
@@ -484,7 +484,7 @@ bool ScriptEngine::JointToWorld(Entity& e, int joint, const float local[3],
     // (Properties.cpp ReadRotation's matrix form, scaled by the entity scale
     // the scripts' *0.1 rule already produced). If these two ever disagree, a
     // muzzle flash drifts off the barrel it is drawn on.
-    float model[3];
+    Vec3 model;
     (*bones)[size_t(joint)].TransformPoint(local[0], local[1], local[2], model);
 
     float rot[9];
@@ -550,10 +550,10 @@ int AnimNatives::L_MDL_TransformPointByJoint(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     const int joint = int(lua_tonumber(L, 2));
-    const float local[3] = {float(lua_tonumber(L, 3)), float(lua_tonumber(L, 4)),
+    const Vec3 local{float(lua_tonumber(L, 3)), float(lua_tonumber(L, 4)),
                             float(lua_tonumber(L, 5))};
 
-    float world[3];
+    Vec3 world;
     if (!e || !self->JointToWorld(*e, joint, local, world))
         for (int c = 0; c < 3; ++c) world[c] = e ? e->pos[c] : 0.f;
     for (int c = 0; c < 3; ++c) lua_pushnumber(L, world[c]);
@@ -582,9 +582,9 @@ int AnimNatives::L_MDL_GetJointPos(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     const int joint = int(lua_tonumber(L, 2));
-    const float origin[3] = {0, 0, 0};
+    const Vec3 origin;
 
-    float world[3];
+    Vec3 world;
     if (!e || !self->JointToWorld(*e, joint, origin, world))
         for (int c = 0; c < 3; ++c) world[c] = e ? e->pos[c] : 0.f;
     for (int c = 0; c < 3; ++c) lua_pushnumber(L, world[c]);
@@ -605,7 +605,7 @@ int AnimNatives::L_MDL_ApplyJointRotation(lua_State* L) {
     const int joint = int(lua_tonumber(L, 2));
     if (!e || joint < 0) return 0;
 
-    const float euler[3] = {float(lua_tonumber(L, 3)), float(lua_tonumber(L, 4)),
+    const Vec3 euler{float(lua_tonumber(L, 3)), float(lua_tonumber(L, 4)),
                             float(lua_tonumber(L, 5))};
     for (JointOverride& o : e->jointRot) {
         if (o.bone != joint) continue;
@@ -648,7 +648,7 @@ int AnimNatives::L_MDL_ApplyJointRotation(lua_State* L) {
 int AnimNatives::L_MDL_GetVelocitiesFromJoint(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
-    float lin[3] = {0, 0, 0}, ang[3] = {0, 0, 0};
+    Vec3 lin, ang;
     if (e && e->ragdollSlot >= 0 && self->physics_ &&
         self->physics_->RagdollActive(e->ragdollSlot)) {
         const int part = self->RagdollPartOfJoint(*e, int(luaL_optnumber(L, 2, -1)));

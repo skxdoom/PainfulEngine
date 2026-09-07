@@ -52,10 +52,10 @@ constexpr float kSpinClamp = 50.f;
 // the second perpendicular to it, and take the third as their cross product.
 // Positions are already in world units and are left alone.
 void MakeRigid(Mat4& m) {
-    float x[3] = {m.m[0], m.m[1], m.m[2]};
-    float y[3] = {m.m[4], m.m[5], m.m[6]};
+    Vec3 x{m.m[0], m.m[1], m.m[2]};
+    Vec3 y{m.m[4], m.m[5], m.m[6]};
 
-    const auto norm = [](float v[3]) {
+    const auto norm = [](Vec3& v) {
         const float len = std::sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
         if (len < 1e-8f) return false;
         for (int c = 0; c < 3; ++c) v[c] /= len;
@@ -66,12 +66,12 @@ void MakeRigid(Mat4& m) {
     for (int c = 0; c < 3; ++c) y[c] -= d * x[c];
     if (!norm(y)) {
         // The first two rows were parallel; any perpendicular will do.
-        const float alt[3] = {0.f, 1.f, 0.f};
+        const Vec3 alt{0.f, 1.f, 0.f};
         const float d2 = x[1];
         for (int c = 0; c < 3; ++c) y[c] = alt[c] - d2 * x[c];
         if (!norm(y)) { y[0] = 0.f; y[1] = 0.f; y[2] = 1.f; }
     }
-    const float z[3] = {x[1]*y[2] - x[2]*y[1],
+    const Vec3 z{x[1]*y[2] - x[2]*y[1],
                         x[2]*y[0] - x[0]*y[2],
                         x[0]*y[1] - x[1]*y[0]};
     for (int c = 0; c < 3; ++c) {
@@ -237,7 +237,7 @@ bool ScriptEngine::EnableRagdoll(Entity& e, bool enable, const std::vector<Mat4>
                     if (parts[i] == name) return int(i);
                 return -1;
             };
-            const auto anchorWorld = [&](int p, const float local[3], float out[3]) {
+            const auto anchorWorld = [&](int p, const Vec3& local, Vec3& out) {
                 const float* m = &pose[size_t(p) * 16];
                 for (int c = 0; c < 3; ++c)
                     out[c] = m[12 + c] + e.scale * (local[0] * m[0 + c] + local[1] * m[4 + c] +
@@ -250,9 +250,9 @@ bool ScriptEngine::EnableRagdoll(Entity& e, bool enable, const std::vector<Mat4>
                 if (c.kind == HkeConstraint::kStiffSpring) continue;   // holds a distance, not a point
                 const int pa = partIndex(c.bodyA), pb = partIndex(c.bodyB);
                 if (pa < 0 || pb < 0) continue;
-                const float* la = (c.kind == HkeConstraint::kHinge) ? c.hingePosA : c.csToRef[3];
-                const float* lb = (c.kind == HkeConstraint::kHinge) ? c.hingePosB : c.csToAtt[3];
-                float wa[3], wb[3];
+                const Vec3& la = (c.kind == HkeConstraint::kHinge) ? c.hingePosA : c.csToRef[3];
+                const Vec3& lb = (c.kind == HkeConstraint::kHinge) ? c.hingePosB : c.csToAtt[3];
+                Vec3 wa, wb;
                 anchorWorld(pa, la, wa);
                 anchorWorld(pb, lb, wb);
                 float d2 = 0.f;
@@ -326,7 +326,7 @@ void ScriptEngine::TickRagdolls() {
         // pose is not being updated at all look identical from Lua.
         static const bool kDebug = DebugFlag("PAINFUL_RAGDOLL_DEBUG");
         if (kDebug) {
-            float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+            Vec3 lo(1e30f), hi(-1e30f);
             for (size_t p = 0; p < parts.size(); ++p)
                 for (int c = 0; c < 3; ++c) {
                     const float v = got[p * 16 + 12 + c];
@@ -797,7 +797,7 @@ int DeathNatives::L_PHYSICS_GetHavokBodyPosition(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!lua_isnumber(L, 1)) return 0;
     const int handle = int(lua_tonumber(L, 1));
-    float p[3] = {0, 0, 0};
+    Vec3 p;
     bool ok = false;
     int entity = 0, joint = -1;
     if (self->LimbFromHandle(handle, entity, joint)) {
@@ -805,7 +805,7 @@ int DeathNatives::L_PHYSICS_GetHavokBodyPosition(lua_State* L) {
             const int part = self->RagdollPartForJoint(*e, joint);
             if (part >= 0) ok = self->physics_->GetRagdollPartPosition(e->ragdollSlot, part, p);
             if (!ok) {
-                const float zero[3] = {0, 0, 0};
+                const Vec3 zero;
                 ok = self->JointToWorld(*e, joint, zero, p);
             }
             if (!ok) { for (int c = 0; c < 3; ++c) p[c] = e->pos[c]; ok = true; }
@@ -828,7 +828,7 @@ int DeathNatives::L_PHYSICS_SetHavokBodyPosition(lua_State* L) {
     if (!e) return 0;
     const int part = self->RagdollPartForJoint(*e, joint);
     if (part < 0) return 0;
-    const float p[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+    const Vec3 p{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
                         float(luaL_optnumber(L, 4, 0))};
     self->physics_->SetRagdollPartPosition(e->ragdollSlot, part, p);
     return 0;
@@ -949,7 +949,7 @@ int ScriptEngine::MakeGib(Entity& src, int group, const char* velocityJoint) {
     }
 
     // What the source was doing, read BEFORE anything is created.
-    float lin[3] = {0, 0, 0}, ang[3] = {0, 0, 0};
+    Vec3 lin, ang;
     if (src.physicsBody >= 0) {
         physics_->GetScriptBodyVelocity(src.physicsBody, lin);
     } else if (velocityJoint != nullptr && *velocityJoint != '\0' && src.ragdollSlot >= 0 &&
@@ -1025,7 +1025,7 @@ int DeathNatives::L_MDL_RagdollSelfExplosion(lua_State* L) {
     if (!e || e->ragdollSlot < 0 || !self->physics_ || !e->ragdollMovedByExplosions ||
         !self->physics_->RagdollActive(e->ragdollSlot))
         return 0;
-    const float centre[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+    const Vec3 centre{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
                              float(luaL_optnumber(L, 4, 0))};
     self->physics_->RagdollSelfExplosion(e->ragdollSlot, centre, float(luaL_optnumber(L, 5, 0)),
                                          float(luaL_optnumber(L, 6, 0)));
@@ -1038,9 +1038,9 @@ int DeathNatives::L_MDL_ApplyVelocitiesToAllJoints(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
     if (!e || e->ragdollSlot < 0 || !self->physics_) return 0;
-    const float lin[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+    const Vec3 lin{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
                           float(luaL_optnumber(L, 4, 0))};
-    const float ang[3] = {float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
+    const Vec3 ang{float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
                           float(luaL_optnumber(L, 7, 0))};
     self->physics_->SetRagdollVelocity(e->ragdollSlot, lin, ang);
     return 0;

@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include "../Core/Vec3.h"
 #include <vector>
 
 #include "../Core/Common.h"
@@ -57,9 +58,9 @@ struct HkeBody {
     // axis. Read as a quaternion the first is not normalised and the second is
     // not a rotation at all.
     float rotAngle = 0.f;
-    float rotAxis[3] = {0, 0, 0};
-    float translation[3] = {0, 0, 0};
-    float displacement[3] = {0, 0, 0};
+    Vec3 rotAxis;
+    Vec3 translation;
+    Vec3 displacement;
     bool active = true;
     bool collisionsDisabled = false;
 
@@ -69,8 +70,8 @@ struct HkeBody {
     std::string geometry;           // GEOMETRY <name> -> HkeGeometry::name
     bool convex = true;
     float primRotAngle = 0.f;
-    float primRotAxis[3] = {0, 0, 0};
-    float primTranslation[3] = {0, 0, 0};
+    Vec3 primRotAxis;
+    Vec3 primTranslation;
 
     // The body's authored transform in MODEL units, as a row-vector 4x4 - the
     // form the rest of the engine holds matrices in.
@@ -102,16 +103,16 @@ struct HkeConstraint {
 
     // --- Hinge ---
     bool limited = false;           // IS_LIMITED
-    float hingePosA[3] = {0, 0, 0}, hingePosB[3] = {0, 0, 0};
-    float hingeDirA[3] = {0, 0, 0}, hingeDirB[3] = {0, 0, 0};
-    float hingePerpA[3] = {0, 0, 0}, hingePerpB[3] = {0, 0, 0};
+    Vec3 hingePosA, hingePosB;
+    Vec3 hingeDirA, hingeDirB;
+    Vec3 hingePerpA, hingePerpB;
     float limitMinAngle = 0.f, limitMaxAngle = 0.f, limitFriction = 0.f;
 
     // --- Ragdoll (cone-twist) ---
     // Constraint space -> reference / attached body, as four columns: a 3x3
     // basis in COL0..2 and the origin in COL3.
-    float csToRef[4][3] = {{0,0,0},{0,0,0},{0,0,0},{0,0,0}};
-    float csToAtt[4][3] = {{0,0,0},{0,0,0},{0,0,0},{0,0,0}};
+    Vec3 csToRef[4];
+    Vec3 csToAtt[4];
     float twistMin = 0.f, twistMax = 0.f;
     float coneMin = 0.f, coneMax = 0.f;
     float planeMin = 0.f, planeMax = 0.f;
@@ -124,14 +125,14 @@ struct HkeConstraint {
     // the file was authored in. raven uses it, Alastor the other. Whichever
     // arrived is the one to build from, so record which.
     bool worldSpace = false;
-    float worldPivot[3] = {0, 0, 0};    // Ragdoll: WORLD_PIVOT_POINT
-    float twistAxis[3] = {0, 0, 0};
-    float planeAxis[3] = {0, 0, 0};
-    float worldHingePos[3] = {0, 0, 0}; // Hinge: WORLD_HINGE_POS / _DIR
-    float worldHingeDir[3] = {0, 0, 0};
+    Vec3 worldPivot;    // Ragdoll: WORLD_PIVOT_POINT
+    Vec3 twistAxis;
+    Vec3 planeAxis;
+    Vec3 worldHingePos; // Hinge: WORLD_HINGE_POS / _DIR
+    Vec3 worldHingeDir;
 
     // --- StiffSpring ---
-    float localPointA[3] = {0, 0, 0}, localPointB[3] = {0, 0, 0};
+    Vec3 localPointA, localPointB;
     float springLength = 0.f;
     float linearStrength = 0.f, angularStrength = 0.f;
 };
@@ -140,7 +141,7 @@ struct HkeConstraint {
 // Not a constraint: it pulls towards a rest length rather than holding a joint.
 struct HkeSpring {
     std::string bodyA, bodyB;
-    float pointA[3] = {0, 0, 0}, pointB[3] = {0, 0, 0};
+    Vec3 pointA, pointB;
     bool twoBodied = true;
     float restitution = 0.f;
     float restLength = 0.f;
@@ -152,7 +153,7 @@ struct HkeSpring {
 // points. One file (C2L2_Door2, between the fixed post and the door).
 struct HkeDashpot {
     std::string bodyA, bodyB;
-    float pointA[3] = {0, 0, 0}, pointB[3] = {0, 0, 0};
+    Vec3 pointA, pointB;
     bool twoBodied = true;
     float strength = 1.f;
     float damping = 0.f;
@@ -161,7 +162,7 @@ struct HkeDashpot {
 struct Hke {
     int version = 0;
     float worldScale = 1.f;
-    float gravity[3] = {0, 0, 0};
+    Vec3 gravity;
     float linearDrag = 0.f, angularDrag = 0.f;
     float deactivationThreshold = 0.f;
     std::vector<HkeGeometry> geometries;

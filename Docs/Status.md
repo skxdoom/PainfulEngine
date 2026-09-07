@@ -21,7 +21,7 @@ Source/
             Log             one painful.log, printf-checked, tagged by category
             Check           PAINFUL_CHECK/ASSERT: a failed invariant, logged and tallied
             Debug           the PAINFUL_* switch table (PainfulTools traces)
-            Vec3            a 3-vector laid out as float[3], adopted incrementally
+            Vec3            a 3-vector laid out as float[3]; the engine speaks it now
             Frustum         view-frustum planes and AABB tests (pure maths, so World may use it)
             PakArchive      one .pak: directory parse, name de-obfuscation, inflate
             FileSystem      the mounted view: archives shadow loose files

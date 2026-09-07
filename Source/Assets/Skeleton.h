@@ -1,5 +1,6 @@
 #pragma once
 #include "Ani.h"
+#include "../Core/Vec3.h"
 #include "Pkmdl.h"
 
 namespace painful {
@@ -46,7 +47,7 @@ void ResolveAnimTracks(const std::vector<Bone>& bones, const Animation& anim,
 // so the bone turns where it is instead of swinging about its parent.
 struct JointOverride {
     int bone = -1;
-    float euler[3] = {0, 0, 0};
+    Vec3 euler;
 };
 
 // Where every bone IS at a playback time: bone-local to MODEL space, before
@@ -121,7 +122,7 @@ void ComputeBoneWorldFromLocals(const std::vector<Bone>& bones,
 // what the ANIMATION moves the actor by, not what a head-look does to it.
 bool ComputeBonePositionAtTime(const std::vector<Bone>& bones,
                                const std::vector<const AnimTrack*>& tracks,
-                               int bone, float time, float outPos[3]);
+                               int bone, float time, Vec3& outPos);
 
 // skin[b] = inverseBind[b] * boneWorld[b]. Split from the above because the
 // renderer wants this and the joint natives want the bone world matrices, and

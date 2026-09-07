@@ -37,7 +37,7 @@ int RagdollDropCmd(const char* levelDir, const char* dataRoot, const char* model
 
     // Somewhere with floor under it. A spawn point is the level's own answer
     // to that question; failing one, the first placed entity will do.
-    float at[3] = {0, 0, 0};
+    Vec3 at = {0, 0, 0};
     bool found = false;
     for (const Entity& e : level.entities())
         if (e.type == "CSpawnPoint") {
@@ -66,12 +66,12 @@ int RagdollDropCmd(const char* levelDir, const char* dataRoot, const char* model
             for (int c = 0; c < 3; ++c) m[12 + c] = at[c];
             continue;
         }
-        float k[3] = {b->rotAxis[0], b->rotAxis[1], b->rotAxis[2]};
+        Vec3 k = {b->rotAxis[0], b->rotAxis[1], b->rotAxis[2]};
         const float len = std::sqrt(k[0]*k[0] + k[1]*k[1] + k[2]*k[2]);
         if (len > 1e-6f && std::fabs(b->rotAngle) > 1e-9f) {
             for (int c = 0; c < 3; ++c) k[c] /= len;
             const float s = std::sin(b->rotAngle), co = std::cos(b->rotAngle), t = 1.f - co;
-            const float R[3][3] = {
+            const Vec3 R[3] = {
                 {co + k[0]*k[0]*t,        k[0]*k[1]*t - k[2]*s,  k[0]*k[2]*t + k[1]*s},
                 {k[1]*k[0]*t + k[2]*s,    co + k[1]*k[1]*t,      k[1]*k[2]*t - k[0]*s},
                 {k[2]*k[0]*t - k[1]*s,    k[2]*k[1]*t + k[0]*s,  co + k[2]*k[2]*t}};
@@ -114,7 +114,7 @@ int RagdollDropCmd(const char* levelDir, const char* dataRoot, const char* model
     };
 
     // How big is it, and how far apart are the parts, at t = 0?
-    auto measure = [&](std::vector<float>& p, float lo[3], float hi[3], float centre[3]) {
+    auto measure = [&](std::vector<float>& p, Vec3& lo, Vec3& hi, Vec3& centre) {
         for (int c = 0; c < 3; ++c) { lo[c] = 1e30f; hi[c] = -1e30f; centre[c] = 0.f; }
         for (size_t i = 0; i < n; ++i)
             for (int c = 0; c < 3; ++c) {
@@ -127,7 +127,7 @@ int RagdollDropCmd(const char* levelDir, const char* dataRoot, const char* model
 
     std::vector<float> readback(n * 16, 0.f);
     physics.GetRagdollPose(slot, readback.data());
-    float lo0[3], hi0[3], c0[3];
+    Vec3 lo0, hi0, c0;
     measure(readback, lo0, hi0, c0);
 
     const float span0 = widest(readback);
@@ -139,7 +139,7 @@ int RagdollDropCmd(const char* levelDir, const char* dataRoot, const char* model
     for (int second = 1; second <= 5; ++second) {
         for (int step = 0; step < 60; ++step) physics.Update(1.f / 60.f);
         physics.GetRagdollPose(slot, readback.data());
-        float lo[3], hi[3], c[3];
+        Vec3 lo, hi, c;
         measure(readback, lo, hi, c);
         bool finite = true;
         for (size_t i = 0; i < n * 16 && finite; ++i)
@@ -150,7 +150,7 @@ int RagdollDropCmd(const char* levelDir, const char* dataRoot, const char* model
     }
 
     const float span = widest(readback);
-    float lo[3], hi[3], c[3];
+    Vec3 lo, hi, c;
     measure(readback, lo, hi, c);
     LogInfo("  held together: %.2f -> %.2f  (%.2fx; 1.0-1.5x is a body, 10x is a firework)",
             span0, span, span0 > 1e-3f ? span / span0 : 0.f);
@@ -196,13 +196,13 @@ int PhysicsCmd(const char* levelDir, const char* dataRoot) {
     // builds for BodyTypes.Player at bodyScale 1.0 (Engine.dll 0x101b3e20).
     physics.SetPawnProbeRadius(0.4f);
 
-    float spawn[3] = {level.info().startPos[0], level.info().startPos[1],
+    Vec3 spawn = {level.info().startPos[0], level.info().startPos[1],
                       level.info().startPos[2]};
     physics.MoveProbe(spawn, false);
     LogInfo("spawn          : %.2f %.2f %.2f%s", spawn[0], spawn[1], spawn[2],
             physics.SphereOverlaps(spawn, kCameraRadius) ? "  (inside geometry)" : "");
     {
-        float freed[3] = {spawn[0], spawn[1], spawn[2]};
+        Vec3 freed = {spawn[0], spawn[1], spawn[2]};
         const int resolved = physics.Depenetrate(freed, kCameraRadius);
         LogInfo("depenetrate    : %d overlaps, moved %.2f %.2f %.2f", resolved,
                 freed[0] - spawn[0], freed[1] - spawn[1], freed[2] - spawn[2]);
@@ -215,8 +215,8 @@ int PhysicsCmd(const char* levelDir, const char* dataRoot) {
     const float dirs[6][3] = {{1, 0, 0},  {-1, 0, 0}, {0, 1, 0},
                               {0, -1, 0}, {0, 0, 1},  {0, 0, -1}};
     for (int d = 0; d < 6; ++d) {
-        float at[3] = {spawn[0], spawn[1], spawn[2]};
-        const float delta[3] = {dirs[d][0] * reach, dirs[d][1] * reach, dirs[d][2] * reach};
+        Vec3 at = {spawn[0], spawn[1], spawn[2]};
+        const Vec3 delta{dirs[d][0] * reach, dirs[d][1] * reach, dirs[d][2] * reach};
         physics.SlideSphere(at, delta, kCameraRadius);
         const float moved = std::sqrt((at[0] - spawn[0]) * (at[0] - spawn[0]) +
                                       (at[1] - spawn[1]) * (at[1] - spawn[1]) +
@@ -231,7 +231,7 @@ int PhysicsCmd(const char* levelDir, const char* dataRoot) {
         // the difference between the two is what the world contributed.
         std::vector<BodyPose> placed;
         physics.CollectPoses(placed, false);
-        float at[3] = {spawn[0], spawn[1], spawn[2]};
+        Vec3 at = {spawn[0], spawn[1], spawn[2]};
         if (!placed.empty()) {
             const Entity& e = level.entities()[placed.front().entity];
             for (int c = 0; c < 3; ++c) at[c] = e.pos[c];
@@ -290,8 +290,8 @@ int PhysicsCmd(const char* levelDir, const char* dataRoot) {
         // What a query says is under it, for comparison with what the
         // simulation did: the two disagreeing means the body is wrong, not the
         // geometry.
-        float probe[3] = {e.pos[0], e.pos[1], e.pos[2]};
-        const float down[3] = {0.f, -250.f, 0.f};
+        Vec3 probe = {e.pos[0], e.pos[1], e.pos[2]};
+        const Vec3 down{0.f, -250.f, 0.f};
         physics.SlideSphere(probe, down, kCameraRadius);
         LogInfo("  %-24s %8.2f %8.2f %8.2f -> delta %6.2f %6.2f %6.2f   query drop %.2f",
                 e.name.c_str(), e.pos[0], e.pos[1], e.pos[2], poses[i].pos[0] - e.pos[0],
@@ -324,25 +324,25 @@ int PhysicsCmd(const char* levelDir, const char* dataRoot) {
         physics.CollectPoses(placed, false);
         const size_t entity = placed.front().entity;
         const Entity& target = level.entities()[entity];
-        const float before[3] = {placed.front().pos[0], placed.front().pos[1],
+        const Vec3 before{placed.front().pos[0], placed.front().pos[1],
                                  placed.front().pos[2]};
 
         // Drive the body straight through it. This is the body's half of
         // camera collision on its own - the camera's own slide is a separate
         // question and depends on where in a level the prop happens to sit.
-        const float from[3] = {before[0] - 4.f, before[1] + kCameraRadius, before[2]};
+        const Vec3 from{before[0] - 4.f, before[1] + kCameraRadius, before[2]};
         physics.MoveProbe(from, false);
         const int frames = std::max(1, static_cast<int>(probeCase.seconds / frame));
         const float speed = 8.f / probeCase.seconds;
         for (int i = 0; i < frames; ++i) {
             const float t = static_cast<float>(i + 1) / static_cast<float>(frames);
-            const float at[3] = {from[0] + 8.f * t, from[1], from[2]};
+            const Vec3 at{from[0] + 8.f * t, from[1], from[2]};
             physics.MoveProbe(at, true);
             physics.Update(frame);
         }
 
         physics.CollectPoses(placed, false);
-        float after[3] = {before[0], before[1], before[2]};
+        Vec3 after = {before[0], before[1], before[2]};
         for (const BodyPose& pose : placed)
             if (pose.entity == entity)
                 for (int c = 0; c < 3; ++c) after[c] = pose.pos[c];
@@ -543,7 +543,7 @@ int RagdollCmd(const char* path, const char* modelsRoot) {
             Mat4 ra, rb;
             ba->RestMatrix(ra.m);
             bb->RestMatrix(rb.m);
-            float wa[3], wb[3];
+            Vec3 wa, wb;
             ra.TransformPoint(la[0], la[1], la[2], wa);
             rb.TransformPoint(lb[0], lb[1], lb[2], wb);
             float d2 = 0.f;

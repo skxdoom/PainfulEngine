@@ -161,7 +161,7 @@ int InputNatives::L_PLAYER_ExecAction(lua_State* L) {
         return 0;
     if (!self->physics_) return 0;
 
-    const float right[3] = {float(luaL_optnumber(L, 6, 0)),
+    const Vec3 right{float(luaL_optnumber(L, 6, 0)),
                             float(luaL_optnumber(L, 7, 0)),
                             float(luaL_optnumber(L, 8, 0))};
     self->pawn_->Move(*self->physics_, self->physics_->tweaks(), e->action, right,

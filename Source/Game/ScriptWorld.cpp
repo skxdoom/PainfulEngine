@@ -96,7 +96,7 @@ void ScriptEngine::CreateActiveMeshes() {
         const MapObject& o = map_.objects[i];
         if (!o.isActiveMesh() || o.vertexCount() == 0) continue;
         const float massScale = ActiveMeshMassScale(o.name);
-        float origin[3];
+        Vec3 origin;
         const int slot = physics_->CreateActiveMeshBody(
             o, world_.scale, massScale, o.isPinned(), o.nameHas("concave"),
             o.activeGroup(), origin);
@@ -140,7 +140,7 @@ void ScriptEngine::CreateActiveMeshes() {
         Destructible d;
         d.object = i;
         d.group = o.activeGroup();
-        float origin[3];
+        Vec3 origin;
         d.twinBody = physics_->CreateStaticTwinBody(o, world_.scale, d.group, origin);
         if (d.twinBody < 0) continue;
         destructibles_.push_back(std::move(d));
@@ -171,7 +171,7 @@ void ScriptEngine::ReleaseDestructible(size_t index, const float* blast) {
     d.released = true;
     LogInfo("destructible: %s -> %zu pieces%s", map_.objects[d.object].name.c_str(),
             d.pieces.size(), blast ? " (blast)" : "");
-    float at[3] = {0, 0, 0};
+    Vec3 at;
     if (physics_ && d.twinBody >= 0) {
         physics_->GetScriptBodyPosition(d.twinBody, at);
         physics_->RemoveScriptBody(d.twinBody);
@@ -186,7 +186,7 @@ void ScriptEngine::ReleaseDestructible(size_t index, const float* blast) {
             renderer_->SetScriptVisible(e.rendererInstance, true);
         if (physics_ && e.physicsBody >= 0) {
             physics_->SetScriptBodyEnabled(e.physicsBody, true);
-            const float still[3] = {0, 0, 0};
+            const Vec3 still;
             physics_->SetScriptBodyVelocity(e.physicsBody, still);
         }
     }

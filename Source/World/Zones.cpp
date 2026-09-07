@@ -16,21 +16,19 @@ namespace {
 constexpr float kValiditySlack = 2.0f;
 constexpr float kLinkSlack = 0.1f;
 
-void BoundsOf(const MapObject& o, float lo[3], float hi[3]) {
-    lo[0] = lo[1] = lo[2] = 1e30f;
-    hi[0] = hi[1] = hi[2] = -1e30f;
+void BoundsOf(const MapObject& o, Vec3& lo, Vec3& hi) {
+    lo = Vec3(1e30f);
+    hi = Vec3(-1e30f);
     for (size_t i = 0; i < o.vertexCount(); ++i) {
-        float p[3];
+        Vec3 p;
         o.position(i, p);
-        for (int a = 0; a < 3; ++a) {
-            lo[a] = std::min(lo[a], p[a]);
-            hi[a] = std::max(hi[a], p[a]);
-        }
+        lo = Min(lo, p);
+        hi = Max(hi, p);
     }
 }
 
-bool Overlaps(const float aLo[3], const float aHi[3], const float bLo[3],
-              const float bHi[3], float slack) {
+bool Overlaps(const Vec3& aLo, const Vec3& aHi, const Vec3& bLo,
+              const Vec3& bHi, float slack) {
     for (int a = 0; a < 3; ++a) {
         if (aHi[a] < bLo[a] - slack || aLo[a] > bHi[a] + slack) return false;
     }
@@ -94,14 +92,14 @@ void ZoneGraph::Build(const MapMesh& map, float worldScale) {
     }
 }
 
-void ZoneGraph::ZonesAt(const float pos[3], std::vector<int>& out) const {
+void ZoneGraph::ZonesAt(const Vec3& pos, std::vector<int>& out) const {
     out.clear();
     for (size_t z = 0; z < zones_.size(); ++z) {
         if (zones_[z].Contains(pos, 0.f)) out.push_back(int(z));
     }
 }
 
-void ZoneGraph::ZonesForBox(const float lo[3], const float hi[3],
+void ZoneGraph::ZonesForBox(const Vec3& lo, const Vec3& hi,
                             std::vector<int>& out) const {
     out.clear();
     for (size_t z = 0; z < zones_.size(); ++z) {
@@ -110,7 +108,7 @@ void ZoneGraph::ZonesForBox(const float lo[3], const float hi[3],
 }
 
 void ZoneGraph::VisibleZones(const Frustum& frustum, const std::vector<int>& startZones,
-                             float worldScale, const float cameraPos[3], float nearRadius,
+                             float worldScale, const Vec3& cameraPos, float nearRadius,
                              std::vector<bool>& visible) const {
     visible.assign(zones_.size(), false);
     // A camera outside every zone sees the open world; from there any zone
@@ -136,9 +134,9 @@ void ZoneGraph::VisibleZones(const Frustum& frustum, const std::vector<int>& sta
                 if (z == zone) { touchesZone = true; break; }
             }
             if (!touchesZone) continue;
-            const float lo[3] = {p.box.lo[0] * worldScale, p.box.lo[1] * worldScale,
+            const Vec3 lo{p.box.lo[0] * worldScale, p.box.lo[1] * worldScale,
                                  p.box.lo[2] * worldScale};
-            const float hi[3] = {p.box.hi[0] * worldScale, p.box.hi[1] * worldScale,
+            const Vec3 hi{p.box.hi[0] * worldScale, p.box.hi[1] * worldScale,
                                  p.box.hi[2] * worldScale};
             // Standing in the doorway: the flat quad can be behind the near
             // plane even though the room beyond is plainly in view.

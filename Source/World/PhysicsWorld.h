@@ -1,5 +1,6 @@
 #pragma once
 #include "../Assets/Tweaks.h"
+#include "../Core/Vec3.h"
 #include "../Assets/Hke.h"
 #include <cstdint>
 #include <memory>
@@ -15,8 +16,8 @@ struct MapObject;
 
 // One segment of the collision-shape wireframe, in world space.
 struct DebugLine {
-    float a[3] = {0, 0, 0};
-    float b[3] = {0, 0, 0};
+    Vec3 a;
+    Vec3 b;
     uint32_t abgr = 0xffffffff;
 };
 
@@ -25,7 +26,7 @@ struct DebugLine {
 // ReadRotation produces.
 struct BodyPose {
     size_t entity = 0;
-    float pos[3] = {0, 0, 0};
+    Vec3 pos;
     float rot[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
 };
 
@@ -44,18 +45,18 @@ struct ScriptContact {
     // barrel or a landing corpse struck. The original's player is a real
     // body (group 23) and its contacts name the player entity.
     bool pawnA = false, pawnB = false;
-    float point[3] = {0, 0, 0};
-    float normal[3] = {0, 0, 0};   // pointing from A toward B
+    Vec3 point;
+    Vec3 normal;                   // pointing from A toward B
     // The two velocities AS THE CONTACT WAS RECORDED, mid-step and before the
     // solver has spent the impact. By the time the scripts run, the bodies have
     // already stopped - and the impact speed is the whole question they ask.
-    float velA[3] = {0, 0, 0};
-    float velB[3] = {0, 0, 0};
+    Vec3 velA;
+    Vec3 velB;
 };
 
 struct ScriptBodyPose {
     int slot = -1;
-    float pos[3] = {0, 0, 0};
+    Vec3 pos;
     float quatWXYZ[4] = {1, 0, 0, 0};
 };
 
@@ -115,7 +116,7 @@ public:
     // draws. Returns a body slot, or -1 when the mesh cannot be resolved.
     int CreateScriptBody(int bodyType, const std::string& modelName,
                          const std::string& packName, const std::string& packMesh,
-                         float scale, const float pos[3], const float rotWXYZ[4],
+                         float scale, const Vec3& pos, const float rotWXYZ[4],
                          const std::string& dataRoot,
                          // ECollisionGroups from Definitions.lua. 7 is
                          // Noncolliding - a projectile, which must touch
@@ -162,7 +163,7 @@ public:
     // Returns a script-body slot; outOrigin is the body's centre, where the
     // object's vertices are re-based to. Docs/Reference/Physics.md.
     int CreateActiveMeshBody(const MapObject& object, float worldScale, float massScale,
-                             bool pinned, bool concave, int group, float outOrigin[3]);
+                             bool pinned, bool concave, int group, Vec3& outOrigin);
     // WORLD.Init's ActiveMeshesMassScale, applied to every active mesh whose
     // level factor was 1 (AddMesh reads it from the world at creation; ours
     // arrive in that order too, but Init lands after LoadMap).
@@ -172,7 +173,7 @@ public:
     // owned by the game host, which swaps it for its "physdest" pieces.
     // Docs/Reference/Physics.md, "Destructibles".
     int CreateStaticTwinBody(const MapObject& object, float worldScale, int group,
-                             float outOrigin[3]);
+                             Vec3& outOrigin);
     bool IsStaticTwin(int slot) const;
     // PHYSICS.ActiveMeshGroupActivate: releases every pinned member. Twins are
     // reported, not released - the host does that.
@@ -183,7 +184,7 @@ public:
     // Releases every enabled pinned active mesh within range + its radius of
     // a blast; the slots released go to `out`. Twins in range are listed too,
     // left as they are.
-    void UnpinActiveMeshesNear(const float centre[3], float range, std::vector<int>& out);
+    void UnpinActiveMeshesNear(const Vec3& centre, float range, std::vector<int>& out);
     // Pinned active meshes struck by a moving body during the last step,
     // released. Called by Update after each step.
     bool IsActiveMesh(int slot) const;
@@ -196,7 +197,7 @@ public:
     void SetScriptBodyPinned(int slot, bool pinned);
     bool IsScriptBodyPinned(int slot) const;
     // Teleports the body where the scripts put the entity.
-    void SetScriptBodyPose(int slot, const float pos[3], const float rotWXYZ[4]);
+    void SetScriptBodyPose(int slot, const Vec3& pos, const float rotWXYZ[4]);
     // PO_Enable on a prop: wakes or sleeps the body.
     void SetScriptBodyEnabled(int slot, bool enabled);
 
@@ -216,10 +217,10 @@ public:
     // working scalar (0.2 * bodyScale), centred at the entity's height and
     // shifted sideways by rootOffset onto the ROOOT joint - see
     // ScriptEngine::MonsterBodyScale.
-    void MakeScriptBodyCharacter(int slot, float k, const float rootOffset[3]);
+    void MakeScriptBodyCharacter(int slot, float k, const Vec3& rootOffset);
     bool IsScriptBodyCharacter(int slot) const;
     // ENTITY.PO_Move: the velocity the AI asks for (PhysicsObject+0x34).
-    void SetCharacterWish(int slot, const float v[3]);
+    void SetCharacterWish(int slot, const Vec3& v);
     // ENTITY.PO_SetMonsterMovementConst: the carry-over factor (+0x6c) and the
     // "do not check floors" flag (+0x70).
     void SetCharacterMovement(int slot, float influence, bool dontCheckFloors);
@@ -227,10 +228,10 @@ public:
     void SetCharacterFlying(int slot, bool flying);
     bool IsCharacterFlying(int slot) const;
     // PO_IsOnFloor: MonsterFloorCheck's result from the last step.
-    bool CharacterOnFloor(int slot, float normal[3]) const;
+    bool CharacterOnFloor(int slot, Vec3& normal) const;
     // GetPawnFloorPos / GetPawnHeadPos: body centre - 5.5k and + 4.5k.
-    bool CharacterFloorPos(int slot, float out[3]) const;
-    bool CharacterHeadPos(int slot, float out[3]) const;
+    bool CharacterFloorPos(int slot, Vec3& out) const;
+    bool CharacterHeadPos(int slot, Vec3& out) const;
     // Rotation only, for a body whose position the solver owns.
     void SetScriptBodyRotation(int slot, const float rotWXYZ[4]);
     // What a blocked player does to the character in its way: every character
@@ -238,26 +239,26 @@ public:
     // `speed * pusherMass / (pusherMass + its mass)` along `dir`. Stands in
     // for the contact between two Havok bodies of those masses; the character
     // tick then decays it.
-    void ShoveCharacters(const float pos[3], float radius, const float dir[3],
+    void ShoveCharacters(const Vec3& pos, float radius, const Vec3& dir,
                          float speed, float pusherMass);
     // The player's weight on what it stands on: `force` straight down on every
     // dynamic body under a sphere of `radius` at `feet`, at the contact point.
     // Havok's character proxy presses its characterMass on bodies; a swept
     // sphere has no mass, so a bridge deck never felt the player.
-    void PressGround(const float feet[3], float radius, float force);
+    void PressGround(const Vec3& feet, float radius, float force);
     // ENTITY.SetVelocity / GetVelocity. Setting one wakes the body: a
     // projectile is created, given its velocity and expected to fly.
-    void SetScriptBodyVelocity(int slot, const float v[3]);
-    bool GetScriptBodyVelocity(int slot, float out[3]) const;
+    void SetScriptBodyVelocity(int slot, const Vec3& v);
+    bool GetScriptBodyVelocity(int slot, Vec3& out) const;
     // ENTITY.PO_Hit / WORLD.HitPhysicObject: an impulse at a world point, so
     // a shot shoves what it lands on and spins it about the point it struck.
-    void AddScriptBodyImpulse(int slot, const float at[3], const float impulse[3]);
+    void AddScriptBodyImpulse(int slot, const Vec3& at, const Vec3& impulse);
     // The world-space mesh radius, which is what PO_GetMaxSphereRay reports.
     float ScriptBodyRadius(int slot) const;
     // Where Jolt actually put the body, world space. Settles placement.
-    bool ScriptBodyBounds(int slot, float lo[3], float hi[3]) const;
+    bool ScriptBodyBounds(int slot, Vec3& lo, Vec3& hi) const;
     // The body's centre right now, before the frame's read-back.
-    bool GetScriptBodyPosition(int slot, float out[3]) const;
+    bool GetScriptBodyPosition(int slot, Vec3& out) const;
     void RemoveScriptBody(int slot);
     // Where the simulation has put the script bodies (slot in .slot).
     void CollectScriptPoses(std::vector<ScriptBodyPose>& out, bool activeOnly = true) const;
@@ -307,28 +308,28 @@ public:
     void ScaleRagdollInertia(int slot, float k);
     // ENTITY.PO_Hit on a corpse, and RagdollSelfExplosion: an impulse at a
     // world point, applied to whichever limb is nearest it.
-    void AddRagdollImpulse(int slot, const float at[3], const float impulse[3]);
+    void AddRagdollImpulse(int slot, const Vec3& at, const Vec3& impulse);
     // WORLD.HitPhysicObject on a LIMB handle: the impulse lands on the part the
     // trace reported, not the nearest one - a stake in the head flips the corpse.
-    void AddRagdollPartImpulse(int slot, int part, const float at[3], const float impulse[3]);
+    void AddRagdollPartImpulse(int slot, int part, const Vec3& at, const Vec3& impulse);
     // Ragdoll::SetVelocities (0x1019C8E0): the same linear and angular
     // velocity on every limb. World::GibModel hands a fresh gib whatever the
     // body it replaces was doing, so it keeps flying rather than dropping.
-    void SetRagdollVelocity(int slot, const float linear[3], const float angular[3]);
+    void SetRagdollVelocity(int slot, const Vec3& linear, const Vec3& angular);
     // Ragdoll::Joint_GetLinearVelocity / Joint_GetAngularVelocity, for one
     // part by index in RagdollBones order.
-    bool GetRagdollPartVelocity(int slot, int part, float linear[3], float angular[3]) const;
+    bool GetRagdollPartVelocity(int slot, int part, Vec3& linear, Vec3& angular) const;
     // PHYSICS.GetHavokBodyPosition / SetHavokBodyPosition / PinHavokBody on one
     // part: the stake reads where the limb it struck is, drags it, and pins it
     // (kinematic, at rest) when the corpse is nailed to a wall.
-    bool GetRagdollPartPosition(int slot, int part, float out[3]) const;
-    void SetRagdollPartPosition(int slot, int part, const float pos[3]);
+    bool GetRagdollPartPosition(int slot, int part, Vec3& out) const;
+    void SetRagdollPartPosition(int slot, int part, const Vec3& pos);
     void PinRagdollPart(int slot, int part);
     // Ragdoll::SelfExplosion (0x1019CC40 -> FUN_101B0DC0): every limb inside
     // `range` is pushed away from the centre by (strength / limbCount) *
     // (1 - d / range). This is the law a blast applies to a whole ragdoll,
     // and what CActor calls on a gib to burst it. Docs/Reference/Physics.md.
-    void RagdollSelfExplosion(int slot, const float centre[3], float strength, float range);
+    void RagdollSelfExplosion(int slot, const Vec3& centre, float strength, float range);
     // The world-space position of every part, xyz triples in RagdollBones
     // order. What a blast measures its distance to.
     void RagdollPartPositions(int slot, std::vector<float>& outXYZ) const;
@@ -358,7 +359,7 @@ public:
     // body) - the support under a resting stack, corner or slope alike.
     // iterations 1 is a plain cast: stop at the first contact, no sliding
     // along it - what a probe measuring a drop wants.
-    void SlidePlayer(float centre[3], const float delta[3], bool solidProps = true,
+    void SlidePlayer(Vec3& centre, const Vec3& delta, bool solidProps = true,
                      float* hitNormal = nullptr, int iterations = 3) const {
         SlideSphere(centre, delta, -1.f, solidProps, -1, false, nullptr, hitNormal, iterations);
     }
@@ -366,24 +367,24 @@ public:
     // rigid-body contact law of an 80 kg body re-commanded at `speed`, every
     // frame, so a light barrel reaches the player's speed in a few frames and
     // a heavy crate creeps. Heavier than MaximalItemPushMass is a wall.
-    void PushProps(const float centre[3], const float dir[3], float speed,
+    void PushProps(const Vec3& centre, const Vec3& dir, float speed,
                    float pusherMass);
-    void SlideSphere(float pos[3], const float delta[3], float radius,
+    void SlideSphere(Vec3& pos, const Vec3& delta, float radius,
                      bool solidProps = false, int ignoreSlot = -1,
                      bool collideWithPlayer = false,
                      bool* separatedFromCharacter = nullptr,
                      float* hitNormal = nullptr, int iterations = 3) const;
 
     // True when a sphere at this position overlaps anything solid.
-    bool SphereOverlaps(const float pos[3], float radius) const;
+    bool SphereOverlaps(const Vec3& pos, float radius) const;
 
     // What a line trace found. bodySlot is the script body that was hit, or
     // -1 for the static world - which is what tells WORLD.LineTrace's callers
     // apart, since ENTITY.IsFixedMesh branches on exactly that.
     struct RayHit {
         float distance = 0.f;
-        float point[3] = {0, 0, 0};
-        float normal[3] = {0, 0, 0};
+        Vec3 point;
+        Vec3 normal;
         int bodySlot = -1;
         // A ragdoll limb is neither a script body nor the world.
         int ragdollSlot = -1;       // CreateRagdoll slot, or -1
@@ -404,7 +405,7 @@ public:
     // `ignoreRagdolls` lists ragdoll slots whose every limb the ray passes
     // through: an entity taken out of the intersection solver while it has a
     // corpse - the stake's wall check behind the body it just killed.
-    bool RayCast(const float from[3], const float to[3], RayHit& out,
+    bool RayCast(const Vec3& from, const Vec3& to, RayHit& out,
                  bool staticOnly = false, const int* exclude = nullptr,
                  size_t excludeCount = 0, const int* ignoreRagdolls = nullptr,
                  size_t ignoreRagdollCount = 0, bool includePlayer = false) const;
@@ -413,7 +414,7 @@ public:
     // overlaps it had to resolve. SlideSphere does this before every move:
     // a cast that starts inside geometry hits at zero distance whichever way
     // it goes, which is indistinguishable from being wedged for good.
-    int Depenetrate(float pos[3], float radius, int iterations = 4,
+    int Depenetrate(Vec3& pos, float radius, int iterations = 4,
                     bool solidProps = false, int ignoreSlot = -1,
                     bool collideWithPlayer = false,
                     bool* separatedFromCharacter = nullptr) const;
@@ -439,7 +440,7 @@ public:
     // push false teleports it instead of sweeping, which is what noclip and a
     // level change want - a sweep across half a level would rake everything in
     // between.
-    void MoveProbe(const float pos[3], bool push);
+    void MoveProbe(const Vec3& pos, bool push);
 
     // The PLAYER's own pusher body, distinct from the camera's.
     //
@@ -459,8 +460,8 @@ public:
     // are the body's motion. radius <= 0 removes it.
     void SetPawnProbeRadius(float radius);
     // ENTITY.SetAngularVelocity handed to a live body (PhysicsObject::SetAngularVel).
-    void SetScriptBodyAngularVelocity(int slot, const float w[3]);
-    void MovePawnProbe(const float pos[3], bool push);
+    void SetScriptBodyAngularVelocity(int slot, const Vec3& w);
+    void MovePawnProbe(const Vec3& pos, bool push);
 
     // Where the simulation has put the props. With activeOnly (the default)
     // only bodies that are awake are reported, so a settled level costs
@@ -482,7 +483,7 @@ public:
     //
     // includeStatic false leaves the level out, which is the view you want when
     // the question is about a prop and the world is just in the way.
-    void CollectDebugLines(const float around[3], float radius,
+    void CollectDebugLines(const Vec3& around, float radius,
                            std::vector<DebugLine>& out,
                            bool includeStatic = true) const;
 

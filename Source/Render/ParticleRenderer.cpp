@@ -23,19 +23,19 @@ struct ParticleVertex {
 
 float Lerp(float a, float b, float t) { return a + (b - a) * t; }
 
-
-
 // Rotates a vector by a row-vector 3x3, the convention the rest of the port
 // uses for entity orientation.
-void Rotate(const float m[9], const float v[3], float out[3]) {
-    out[0] = v[0] * m[0] + v[1] * m[3] + v[2] * m[6];
-    out[1] = v[0] * m[1] + v[1] * m[4] + v[2] * m[7];
-    out[2] = v[0] * m[2] + v[1] * m[5] + v[2] * m[8];
+// A row-vector 3x3 applied to a vector - the convention the rest of the port
+// uses for entity orientation.
+Vec3 Rotate(const float m[9], const Vec3& v) {
+    return Vec3(v.x * m[0] + v.y * m[3] + v.z * m[6],
+                v.x * m[1] + v.y * m[4] + v.z * m[7],
+                v.x * m[2] + v.y * m[5] + v.z * m[8]);
 }
 
 // Euler degrees (the .pfx Rotation triple) to the same row-vector 3x3 form
 // entity angles produce - Y then X then Z.
-void EulerDegreesToMatrix(const float degrees[3], float out[9]) {
+void EulerDegreesToMatrix(const Vec3& degrees, float out[9]) {
     const float k = 0.01745329252f;
     const float ax = degrees[0] * k, ay = degrees[1] * k, az = degrees[2] * k;
     const float sx = std::sin(ax), cx = std::cos(ax);
@@ -53,7 +53,7 @@ void MatMul3(const float a[9], const float b[9], float out[9]) {
                              a[r * 3 + 2] * b[6 + c];
 }
 
-uint32_t PackAbgr(const float rgb[3], float alpha) {
+uint32_t PackAbgr(const Vec3& rgb, float alpha) {
     auto byteOf = [](float v) {
         const int i = static_cast<int>(v * 255.f + 0.5f);
         return static_cast<uint32_t>(i < 0 ? 0 : (i > 255 ? 255 : i));
@@ -76,7 +76,7 @@ float ParticleRenderer::RandRange(float lo, float hi) {
     return lo == hi ? lo : Lerp(lo, hi, Rand01());
 }
 
-void ParticleRenderer::RandVec(const float lo[3], const float hi[3], float out[3]) {
+void ParticleRenderer::RandVec(const Vec3& lo, const Vec3& hi, Vec3& out) {
     for (int i = 0; i < 3; ++i) out[i] = RandRange(lo[i], hi[i]);
 }
 
@@ -243,21 +243,21 @@ void ParticleRenderer::InitParticle(const Emitter& e, Particle& p) const {
 
     // The velocity pair is drawn first and both ends are rotated into world
     // space by the emitter's orientation; acceleration is NOT rotated.
-    float v[3];
+    Vec3 v;
     self->RandVec(e.velEndMin, e.velEndMax, v);
-    Rotate(e.rot, v, p.velEnd);
+    p.velEnd = Rotate(e.rot, v);
     self->RandVec(e.velMin, e.velMax, v);
-    Rotate(e.rot, v, p.velStart);
-    std::memcpy(p.vel, p.velStart, sizeof(p.vel));
+    p.velStart = Rotate(e.rot, v);
+    p.vel = p.velStart;
 
     self->RandVec(e.accelMin, e.accelMax, p.accel);
-    p.accelVel[0] = p.accelVel[1] = p.accelVel[2] = 0.f;
+    p.accelVel = Vec3();
 
     // Colour is always the Min -> Max ramp: the constructor sets the
     // colour-range flag and LoadEmitter never clears it, so InitParticle's
     // random-colour branch is unreachable for .ini emitters. Seeded at Min so
     // a particle drawn before its first update is not black.
-    std::memcpy(p.color, src.colorMin, sizeof(p.color));
+    p.color = src.colorMin;
 
     p.rotSpeed = self->RandRange(src.rotMin, src.rotMax);
     p.rotAngle = 0.f;
@@ -308,13 +308,12 @@ void ParticleRenderer::TickEmitter(Emitter& e, float dt) {
     for (int i = 1; i <= count; ++i) {
         const float f = static_cast<float>(i) / static_cast<float>(count);
         Particle p{};
-        float offset[3], rotated[3];
+        Vec3 offset;
         RandVec(e.posMin, e.posMax, offset);
-        Rotate(e.rot, offset, rotated);
+        const Vec3 rotated = Rotate(e.rot, offset);
         // Spawns are spread along the path the emitter travelled this frame,
         // so a moving effect leaves a trail instead of a clump.
-        for (int a = 0; a < 3; ++a)
-            p.pos[a] = e.prevPos[a] + (e.pos[a] - e.prevPos[a]) * f + rotated[a];
+        p.pos = Lerp(e.prevPos, e.pos, f) + rotated;
         InitParticle(e, p);
         // Sub-frame timestep for the frame it was born in. The original
         // indexes this off the PREVIOUS loop counter, so the particle placed
@@ -326,11 +325,11 @@ void ParticleRenderer::TickEmitter(Emitter& e, float dt) {
     }
 
     // --------------------------------------------------------------- update
-    const float wrapLo[3] = {e.pos[0] + e.posMin[0], e.pos[1] + e.posMin[1],
+    const Vec3 wrapLo{e.pos[0] + e.posMin[0], e.pos[1] + e.posMin[1],
                              e.pos[2] + e.posMin[2]};
-    const float wrapHi[3] = {e.pos[0] + e.posMax[0], e.pos[1] + e.posMax[1],
+    const Vec3 wrapHi{e.pos[0] + e.posMax[0], e.pos[1] + e.posMax[1],
                              e.pos[2] + e.posMax[2]};
-    const float wrapSpan[3] = {e.posMax[0] - e.posMin[0], e.posMax[1] - e.posMin[1],
+    const Vec3 wrapSpan{e.posMax[0] - e.posMin[0], e.posMax[1] - e.posMin[1],
                                e.posMax[2] - e.posMin[2]};
 
     size_t out = 0;
@@ -351,9 +350,9 @@ void ParticleRenderer::TickEmitter(Emitter& e, float dt) {
         // Velocity blends from the [Velocity] draw to the [VelocityEnd] draw
         // between the two VelBlend percentages of the particle's life.
         if (pct < src.velBlendMin) {
-            std::memcpy(p.vel, p.velStart, sizeof(p.vel));
+            p.vel = p.velStart;
         } else if (pct >= src.velBlendMax) {
-            std::memcpy(p.vel, p.velEnd, sizeof(p.vel));
+            p.vel = p.velEnd;
         } else {
             const float lo = src.velBlendMin * life * 0.01f;
             const float hi = src.velBlendMax * life * 0.01f;
@@ -386,7 +385,7 @@ void ParticleRenderer::TickEmitter(Emitter& e, float dt) {
 
         // Immortal particles are pinned to the owning entity every frame -
         // they are a ring around an object, not a stream leaving it.
-        if (src.immortal) std::memcpy(p.pos, e.ownerPos, sizeof(p.pos));
+        if (src.immortal) p.pos = e.ownerPos;
 
         // Warp wraps a particle back into the PosRange box around the emitter,
         // which is how the rain and mist emitters keep a volume filled.
@@ -407,7 +406,7 @@ void ParticleRenderer::TickEmitter(Emitter& e, float dt) {
     }
     e.particles.resize(out);
 
-    std::memcpy(e.prevPos, e.pos, sizeof(e.prevPos));
+    e.prevPos = e.pos;
 }
 
 void ParticleRenderer::Tick(float dt) {
@@ -469,8 +468,8 @@ void ParticleRenderer::StopScriptEmitter(int slot) {
 }
 
 void ParticleRenderer::SetupScriptEmitter(int slot, float refScale,
-                                          const float refOffset[3],
-                                          const float refRotDegrees[3]) {
+                                          const Vec3& refOffset,
+                                          const Vec3& refRotDegrees) {
     if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < emitters_.size(),
                        "ParticleRenderer: emitter slot %d of %zu", slot, emitters_.size()))
         return;
@@ -483,7 +482,7 @@ void ParticleRenderer::SetupScriptEmitter(int slot, float refScale,
     RecomposeScript(e);
 }
 
-void ParticleRenderer::SetScriptEmitterOwner(int slot, const float ownerPos[3],
+void ParticleRenderer::SetScriptEmitterOwner(int slot, const Vec3& ownerPos,
                                              const float ownerRot9[9],
                                              float entityScale, bool visible) {
     if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < emitters_.size(),
@@ -526,10 +525,9 @@ void ParticleRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, 
     (void)width;
     (void)height;
 
-    float forward[3], right[3], up[3];
-    camera.Forward(forward);
-    camera.Right(right);
-    Cross(AsVec3(right), AsVec3(forward)).Store(up);
+    const Vec3 forward = camera.Forward();
+    const Vec3 right = camera.Right();
+    const Vec3 up = Cross(right, forward);
 
     for (Emitter& e : emitters_) {
         if (!e.alive || !e.visible) continue;
@@ -551,10 +549,10 @@ void ParticleRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, 
         const bool spark = e.params->type == 2;
         for (size_t i = 0; i < n; ++i) {
             const Particle& p = e.particles[i];
-            const float rgb[3] = {p.color[0] * colorScale_, p.color[1] * colorScale_,
+            const Vec3 rgb{p.color[0] * colorScale_, p.color[1] * colorScale_,
                                   p.color[2] * colorScale_};
             const uint32_t abgr = PackAbgr(rgb, p.alpha);
-            float a[3], b[3], c[3], d[3];
+            Vec3 a, b, c, d;
 
             if (spark) {
                 // A streak: one edge sits on the particle, the other is the
@@ -574,7 +572,7 @@ void ParticleRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, 
                 }
             } else {
                 // Camera-facing quad, optionally spun about the view axis.
-                float rx[3], uy[3];
+                Vec3 rx, uy;
                 if (p.rotAngle != 0.f) {
                     const float s = std::sin(p.rotAngle), co = std::cos(p.rotAngle);
                     for (int k = 0; k < 3; ++k) {

@@ -16,12 +16,12 @@ void HkeBody::RestMatrix(float out[16]) const {
     for (int i = 0; i < 16; ++i) out[i] = 0.f;
     out[0] = out[5] = out[10] = out[15] = 1.f;
 
-    float k[3] = {rotAxis[0], rotAxis[1], rotAxis[2]};
+    Vec3 k = {rotAxis[0], rotAxis[1], rotAxis[2]};
     const float len = std::sqrt(k[0] * k[0] + k[1] * k[1] + k[2] * k[2]);
     if (len > 1e-6f && std::fabs(rotAngle) > 1e-9f) {
         for (int c = 0; c < 3; ++c) k[c] /= len;
         const float s = std::sin(rotAngle), co = std::cos(rotAngle), t = 1.f - co;
-        const float R[3][3] = {
+        const Vec3 R[3] = {
             {co + k[0]*k[0]*t,      k[0]*k[1]*t - k[2]*s,  k[0]*k[2]*t + k[1]*s},
             {k[1]*k[0]*t + k[2]*s,  co + k[1]*k[1]*t,      k[1]*k[2]*t - k[0]*s},
             {k[2]*k[0]*t - k[1]*s,  k[2]*k[1]*t + k[0]*s,  co + k[2]*k[2]*t}};
@@ -89,9 +89,9 @@ struct Tokens {
     float f() { return float(std::atof(next().c_str())); }
     int d() { return std::atoi(next().c_str()); }
     bool b() { return next() == "TRUE"; }
-    void vec3(float out[3]) { for (int c = 0; c < 3; ++c) out[c] = f(); }
+    void vec3(Vec3& out) { out.x = f(); out.y = f(); out.z = f(); }
     // ANGLE first, then the axis - see HkeBody::rotAngle.
-    void angleAxis(float& angle, float axis[3]) { angle = f(); vec3(axis); }
+    void angleAxis(float& angle, Vec3& axis) { angle = f(); vec3(axis); }
 };
 
 void Tokenize(const std::string& text, Tokens& out) {
@@ -162,7 +162,7 @@ void ParseRigidBody(Tokens& k, Hke& out) {
         else if (key == "ACTIVE")              body.active = k.b();
         else if (key == "COLLISIONS_DISABLED") body.collisionsDisabled = k.b();
         else if (key == "LINEAR_VELOCITY" || key == "ANGULAR_VELOCITY") {
-            float ignored[3];
+            Vec3 ignored;
             k.vec3(ignored);        // authored at rest in every shipped file
         }
         else if (key == "BEGIN_PRIMITIVE") ParsePrimitive(k, out, body);
@@ -223,11 +223,11 @@ void ParseConstraint(Tokens& k, Hke& out) {
         else if (key == "ANGULAR_STRENGTH")    c.angularStrength = k.f();
         else if (key.rfind("CS_TO_REF_TM_COL", 0) == 0) {
             const int col = std::atoi(key.c_str() + 16);
-            if (col >= 0 && col < 4) k.vec3(c.csToRef[col]); else { float x[3]; k.vec3(x); }
+            if (col >= 0 && col < 4) k.vec3(c.csToRef[col]); else { Vec3 x; k.vec3(x); }
         }
         else if (key.rfind("CS_TO_ATT_TM_COL", 0) == 0) {
             const int col = std::atoi(key.c_str() + 16);
-            if (col >= 0 && col < 4) k.vec3(c.csToAtt[col]); else { float x[3]; k.vec3(x); }
+            if (col >= 0 && col < 4) k.vec3(c.csToAtt[col]); else { Vec3 x; k.vec3(x); }
         }
         else Note(out, key);
     }

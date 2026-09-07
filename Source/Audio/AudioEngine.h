@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include "../Core/Vec3.h"
 #include <memory>
 #include <mutex>
 #include <string>
@@ -44,7 +45,7 @@ public:
                  bool noPitch);
     // dist1 is where attenuation starts, dist2 where it reaches silence - the
     // soundsDef files carry both per sound.
-    Voice Play3D(const std::string& name, const float pos[3], float dist1, float dist2,
+    Voice Play3D(const std::string& name, const Vec3& pos, float dist1, float dist2,
                  bool noPitch);
     // Created but not started, for the scripts that keep a handle around and
     // start/stop it themselves (a looping flamethrower, an elevator). Held:
@@ -56,7 +57,7 @@ public:
     void Pause(Voice v, bool paused);
     bool IsPlaying(Voice v) const;
     void SetVolume(Voice v, float volume);
-    void SetPosition(Voice v, const float pos[3]);
+    void SetPosition(Voice v, const Vec3& pos);
     void SetHearingDistance(Voice v, float dist1, float dist2);
     // Counts down: 0 or 1 plays once, n plays n times, negative loops forever.
     // NOT the scripts' convention - Miles reads 0 as forever - so the native
@@ -71,7 +72,7 @@ public:
     // Where the player is, for distance and panning. Forward and right are the
     // camera basis; the engine feeds these from SOUND.SetPlayerPos /
     // SetPlayerOrientation every frame.
-    void SetListener(const float pos[3], const float forward[3], const float right[3]);
+    void SetListener(const Vec3& pos, const Vec3& forward, const Vec3& right);
     // SOUND.SetSoundProperties(name, maxInstances, intervalMs); the name
     // "default" sets what every file without an entry uses. The engine's own
     // defaults are 100 and 0 (MilesEngine ctor); Definitions.lua's
@@ -152,7 +153,7 @@ private:
         double speed = 1.0;
         float volume = 1.f;
         float gain[2] = {1.f, 1.f};
-        float pos[3] = {0, 0, 0};
+        Vec3 pos;
         float dist1 = 0.f, dist2 = 0.f;
         int loopsLeft = 0;         // <0 forever
         bool positional = false;
@@ -222,9 +223,9 @@ private:
     int nextPauseToken_ = 1;
     std::vector<float> scratch_;
 
-    float listener_[3] = {0, 0, 0};
-    float forward_[3] = {0, 0, 1};
-    float right_[3] = {1, 0, 0};
+    Vec3 listener_;
+    Vec3 forward_{0, 0, 1};
+    Vec3 right_{1, 0, 0};
     float masterVolume_ = 1.f;
     float effectsVolume_ = 1.f;
     float streamingVolume_ = 1.f;

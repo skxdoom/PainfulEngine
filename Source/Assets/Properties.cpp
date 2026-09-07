@@ -143,7 +143,7 @@ bool Properties::Bool(const std::string& key, bool fallback) const {
     return (v && v->kind == Value::Kind::Bool) ? v->boolean : fallback;
 }
 
-bool Properties::Vector3(const std::string& key, float out[3]) const {
+bool Properties::Vector3(const std::string& key, Vec3& out) const {
     const Value* v = Find(key);
     if (!v || v->kind != Value::Kind::Ctor || v->args.size() < 3) return false;
     out[0] = v->Arg(0);

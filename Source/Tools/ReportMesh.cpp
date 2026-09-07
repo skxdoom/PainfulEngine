@@ -1,4 +1,5 @@
 // Geometry as it is stored: world meshes, models, skeletons and item packs.
+#include "Core/Vec3.h"
 #include "Commands.h"
 
 int DatCmd(const char* path) {
@@ -254,9 +255,9 @@ int MapCmd(const char* path, const char* nameFilter) {
         size_t shown = 0;
         for (const MapObject& o : m.objects) {
             if (!o.nameHas(nameFilter)) continue;
-            float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+            Vec3 lo(1e30f), hi(-1e30f);
             for (size_t i = 0; i < o.vertexCount(); ++i) {
-                float p[3];
+                Vec3 p;
                 o.position(i, p);
                 for (int c = 0; c < 3; ++c) { lo[c] = std::min(lo[c], p[c]); hi[c] = std::max(hi[c], p[c]); }
             }
@@ -272,10 +273,10 @@ int MapCmd(const char* path, const char* nameFilter) {
     size_t verts = 0, tris = 0;
     for (const MapObject& o : m.objects) { verts += o.vertexCount(); tris += o.triangleCount(); }
 
-    float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+    Vec3 lo(1e30f), hi(-1e30f);
     for (const MapObject& o : m.objects) {
         for (size_t i = 0; i < o.vertexCount(); ++i) {
-            float p[3];
+            Vec3 p;
             o.position(i, p);
             for (int c = 0; c < 3; ++c) { if (p[c] < lo[c]) lo[c] = p[c]; if (p[c] > hi[c]) hi[c] = p[c]; }
         }
@@ -298,14 +299,13 @@ int MapCmd(const char* path, const char* nameFilter) {
         for (size_t t = 0; t + 2 < o.indices.size(); t += 3) {
             const uint32_t ia = o.indices[t], ib = o.indices[t + 1], ic = o.indices[t + 2];
             if (ia >= o.vertexCount() || ib >= o.vertexCount() || ic >= o.vertexCount()) continue;
-            float a[3], b[3], c[3], n[3];
+            Vec3 a, b, c, n;
             o.position(ia, a); o.position(ib, b); o.position(ic, c);
             o.normal(ia, n);
-            const float u[3] = {b[0]-a[0], b[1]-a[1], b[2]-a[2]};
-            const float v[3] = {c[0]-a[0], c[1]-a[1], c[2]-a[2]};
-            const float g[3] = {u[1]*v[2] - u[2]*v[1], u[2]*v[0] - u[0]*v[2],
-                                u[0]*v[1] - u[1]*v[0]};
-            const float d = g[0]*n[0] + g[1]*n[1] + g[2]*n[2];
+            const Vec3 u = b - a;
+            const Vec3 v = c - a;
+            const Vec3 g = Cross(u, v);
+            const float d = Dot(g, n);
             if (d > 0.f) ++agree; else if (d < 0.f) ++oppose;
         }
     }
@@ -506,7 +506,7 @@ int ModelCmd(const char* path) {
         tris += mesh.triangleCount();
     }
 
-    float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+    Vec3 lo(1e30f), hi(-1e30f);
     for (const ModelMesh& mesh : model.meshes) {
         for (size_t i = 0; i < mesh.vertexCount(); ++i) {
             for (int c = 0; c < 3; ++c) {

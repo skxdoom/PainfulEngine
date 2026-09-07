@@ -1,5 +1,6 @@
 #pragma once
 #include "../World/CollisionMesh.h"
+#include "../Core/Vec3.h"
 #include "../World/Level.h"
 #include "../World/Templates.h"
 #include "Camera.h"
@@ -54,16 +55,16 @@ public:
     int SetupScriptCorona(int slot, const float args[9], const std::string& texture,
                           uint32_t packedColor, int blendMode, bool spriteOnly,
                           TextureCache& textures, const std::string& levelHint);
-    void SetScriptSpritePos(int slot, const float pos[3]);
+    void SetScriptSpritePos(int slot, const Vec3& pos);
     void SetScriptSpriteVisible(int slot, bool visible);
 
     // R3D.DrawSprite: one billboard, this frame only. The muzzle flash is a
     // CProcess that calls it from Render every frame it lives, so there is no
     // slot to keep - and unlike a corona it carries a ROTATION, which is what
     // stops four shots in a row looking like the same picture.
-    void DrawBeamImmediate(const float a[3], const float b[3], float width,
+    void DrawBeamImmediate(const Vec3& a, const Vec3& b, float width,
                            uint32_t abgr, bgfx::TextureHandle texture);
-    void DrawImmediate(const float pos[3], float size, float rot, uint32_t abgr,
+    void DrawImmediate(const Vec3& pos, float size, float rot, uint32_t abgr,
                        bgfx::TextureHandle texture);
     void RemoveScriptSprite(int slot);
 
@@ -82,7 +83,7 @@ public:
     // BloomFX.DimScale while bloom is on (Billboard::Draw). Particles.md, "Bloom dims".
     void SetColorScale(float k) { colorScale_ = k; }
     // The level fog, applied to sprite colour as the original's vertex fog did.
-    void SetFog(int mode, float start, float end, float density, const float color255[3]) {
+    void SetFog(int mode, float start, float end, float density, const Vec3& color255) {
         fog_[0] = float(mode); fog_[1] = start; fog_[2] = end; fog_[3] = density;
         for (int i = 0; i < 3; ++i) fogColor_[i] = color255[i] / 255.f;
         fogColor_[3] = 1.f;
@@ -96,7 +97,7 @@ public:
 
 private:
     struct Sprite {
-        float pos[3] = {0, 0, 0};
+        Vec3 pos;
         uint8_t r = 255, g = 255, b = 255;
         float alpha = 0.5f;          // the TARGET alpha; the fade ramps up to it
         float size = 5.f;            // max size, reached at MaxDistance
@@ -128,7 +129,7 @@ private:
     };
 
     struct Immediate {
-        float pos[3];
+        Vec3 pos;
         float size;
         float rot;
         uint32_t abgr;
@@ -141,7 +142,7 @@ private:
     // name. The Painkiller draws its energy beam from the gun to its stuck
     // head this way, one per frame while the head is attached.
     struct Beam {
-        float a[3], b[3];
+        Vec3 a, b;
         float width;
         uint32_t abgr;
         bgfx::TextureHandle texture;

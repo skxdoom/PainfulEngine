@@ -119,7 +119,7 @@ std::vector<LimbBounds> BuildLimbBounds(const Model& model, const Ragdoll& ragdo
             }
             if (best < 0 || limbForBone[size_t(best)] < 0) continue;
 
-            float local[3];
+            Vec3 local;
             inverseBind[size_t(best)].TransformPoint(mesh.verts[i * 8 + 0],
                                                      mesh.verts[i * 8 + 1],
                                                      mesh.verts[i * 8 + 2], local);

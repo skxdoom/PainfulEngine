@@ -1,5 +1,6 @@
 #include "SkyRenderer.h"
 #include "ShaderLoad.h"
+#include "../Core/Vec3.h"
 #include "../Core/Common.h"
 #include "../Core/Debug.h"
 #include "../Core/FileSystem.h"
@@ -95,7 +96,8 @@ bool SkyRenderer::LoadDome(const std::string& path) {
 
         std::vector<MeshVertex> verts(vertexCount);
         for (size_t i = 0; i < vertexCount; ++i) {
-            float p[3], n[3], uv[2], uvb[2];
+            Vec3 p, n;
+            float uv[2], uvb[2];
             o.position(i, p);
             o.normal(i, n);
             o.uv(i, uv);
@@ -186,8 +188,7 @@ void SkyRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int h
                        float timeSeconds) {
     if (parts_.empty() || !bgfx::isValid(program_)) return;
 
-    float forward[3];
-    camera.Forward(forward);
+    const Vec3 forward = camera.Forward();
     const bx::Vec3 eye = {camera.pos[0], camera.pos[1], camera.pos[2]};
     const bx::Vec3 at = {camera.pos[0] + forward[0],
                          camera.pos[1] + forward[1],

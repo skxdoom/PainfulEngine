@@ -80,7 +80,7 @@ void ScriptEngine::BuildWaterSurfaces() {
 // crossing counts: a segment entirely above or entirely below the plane has
 // not hit the water, which is what keeps a shot fired across a lake from
 // reporting one.
-bool ScriptEngine::TraceWater(const float from[3], const float to[3], float& t,
+bool ScriptEngine::TraceWater(const Vec3& from, const Vec3& to, float& t,
                               int& entity) const {
     bool got = false;
     float best = 1.f;

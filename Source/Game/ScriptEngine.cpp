@@ -87,7 +87,7 @@ void ScriptEngine::AttachInput(Input* input) {
 void ScriptEngine::SyncPlayerFromPawn() {
     if (!pawn_ || !playerHandle_) return;
     if (Entity* e = Find(playerHandle_)) {
-        float floor[3];
+        Vec3 floor;
         pawn_->FloorPos(floor);
         for (int i = 0; i < 3; ++i) e->pos[i] = floor[i];
     }

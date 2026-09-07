@@ -1,4 +1,5 @@
 #pragma once
+#include "../Core/Vec3.h"
 #include "../Assets/Mpk.h"
 #include <vector>
 
@@ -34,11 +35,11 @@ public:
     // Every zone containing the point. Zone volumes overlap in the shipped
     // maps, so a single "the" zone does not exist - starting visibility from
     // just one overlapping candidate culls rooms the camera is really in.
-    void ZonesAt(const float pos[3], std::vector<int>& out) const;
+    void ZonesAt(const Vec3& pos, std::vector<int>& out) const;
 
     // Every zone the box overlaps. A chunk is drawn if any of them is
     // visible; a chunk overlapping no zone is always drawn.
-    void ZonesForBox(const float lo[3], const float hi[3], std::vector<int>& out) const;
+    void ZonesForBox(const Vec3& lo, const Vec3& hi, std::vector<int>& out) const;
 
     // Marks every zone reachable from the start set through portals whose
     // quad passes the frustum test (portal boxes are pre-scaled by worldScale
@@ -50,13 +51,13 @@ public:
     // the frustum test, closing the far room for a frame. Portals within
     // nearRadius of the camera are therefore always open.
     void VisibleZones(const Frustum& frustum, const std::vector<int>& startZones,
-                      float worldScale, const float cameraPos[3], float nearRadius,
+                      float worldScale, const Vec3& cameraPos, float nearRadius,
                       std::vector<bool>& visible) const;
 
 private:
     struct Box {
-        float lo[3], hi[3];
-        bool Contains(const float p[3], float slack) const {
+        Vec3 lo, hi;
+        bool Contains(const Vec3& p, float slack) const {
             return p[0] >= lo[0] - slack && p[0] <= hi[0] + slack &&
                    p[1] >= lo[1] - slack && p[1] <= hi[1] + slack &&
                    p[2] >= lo[2] - slack && p[2] <= hi[2] + slack;

@@ -113,7 +113,7 @@ bool WaypointSet::Load(const std::string& path, WaypointSet& out) {
     return true;
 }
 
-int WaypointSet::Closest(const float p[3], float maxDist) const {
+int WaypointSet::Closest(const Vec3& p, float maxDist) const {
     int best = -1;
     float bestDist = 0.f;
     for (size_t i = 0; i < nodes.size(); ++i) {

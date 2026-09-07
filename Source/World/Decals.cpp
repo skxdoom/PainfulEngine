@@ -82,7 +82,7 @@ bool Invert3(const float b[9], float inv[9]) {
 }
 
 struct LocalVert {
-    float l[3];   // box space: the box is [-0.5, 0.5] on each axis
+    Vec3 l;   // box space: the box is [-0.5, 0.5] on each axis
 };
 
 // One half-space clip of a convex polygon, Sutherland-Hodgman with the
@@ -172,12 +172,12 @@ int DecalSystem::Create(const DecalDef& def, float scale) {
     return slot;
 }
 
-void DecalSystem::SetBasis(int slot, const float pos[3], const float normal[3]) {
+void DecalSystem::SetBasis(int slot, const Vec3& pos, const Vec3& normal) {
     if (!Valid(slot)) return;
     DecalInstance& d = decals_[size_t(slot)];
     Vec3 n = AsVec3(normal).Normalized();
     if (n == Vec3()) n = Vec3(0.f, 1.f, 0.f);
-    n.Store(d.normal);
+    d.normal = n;
 
     // Z points into the surface; ZScale is its length when given.
     Vec3 z = -n;
@@ -210,13 +210,13 @@ void DecalSystem::SetBasis(int slot, const float pos[3], const float normal[3]) 
     AsVec3(pos).Store(&d.basis[9]);
 }
 
-void DecalSystem::SetBasisOriented(int slot, const float pos[3], const float normal[3],
-                                   const float up[3], const float right[3]) {
+void DecalSystem::SetBasisOriented(int slot, const Vec3& pos, const Vec3& normal,
+                                   const Vec3& up, const Vec3& right) {
     if (!Valid(slot)) return;
     DecalInstance& d = decals_[size_t(slot)];
     Vec3 n = AsVec3(normal).Normalized();
     if (n == Vec3()) n = Vec3(0.f, 1.f, 0.f);
-    n.Store(d.normal);
+    d.normal = n;
     const float width = d.def.scale * d.scale;
     const float depth = d.def.zScale > 0.f ? d.def.zScale : 1.f;
     for (int c = 0; c < 3; ++c) {
@@ -241,12 +241,12 @@ bool DecalSystem::HasGeometry(int slot) const {
     return Valid(slot) && !decals_[size_t(slot)].verts.empty();
 }
 
-void DecalSystem::Box(int slot, float lo[3], float hi[3]) const {
+void DecalSystem::Box(int slot, Vec3& lo, Vec3& hi) const {
     for (int c = 0; c < 3; ++c) { lo[c] = 1e30f; hi[c] = -1e30f; }
     if (!Valid(slot)) return;
     const DecalInstance& d = decals_[size_t(slot)];
     // An unbounded box (ZScale 0) is searched as deep as it is wide.
-    float z[3] = {d.basis[6], d.basis[7], d.basis[8]};
+    Vec3 z{d.basis[6], d.basis[7], d.basis[8]};
     if (d.def.zScale <= 0.f) {
         const float w = AsVec3(d.basis).Length();
         for (int c = 0; c < 3; ++c) z[c] *= w;
@@ -267,18 +267,16 @@ void DecalSystem::Append(int slot, const MapObject& object, const Mat4& objectTo
     if (int(d.verts.size()) + 3 > kMaxVertices) return;
 
     // Whole-object reject on bounds, so a level-wide search stays cheap.
-    float lo[3], hi[3];
+    Vec3 lo, hi;
     Box(slot, lo, hi);
-    float olo[3] = {1e30f, 1e30f, 1e30f}, ohi[3] = {-1e30f, -1e30f, -1e30f};
+    Vec3 olo(1e30f), ohi(-1e30f);
     for (int i = 0; i < 8; ++i) {
-        float p[3];
-        objectToWorld.TransformPoint((i & 1) ? object.bboxMax[0] : object.bboxMin[0],
-                                     (i & 2) ? object.bboxMax[1] : object.bboxMin[1],
-                                     (i & 4) ? object.bboxMax[2] : object.bboxMin[2], p);
-        for (int c = 0; c < 3; ++c) {
-            olo[c] = std::min(olo[c], p[c]);
-            ohi[c] = std::max(ohi[c], p[c]);
-        }
+        const Vec3 corner((i & 1) ? object.bboxMax[0] : object.bboxMin[0],
+                          (i & 2) ? object.bboxMax[1] : object.bboxMin[1],
+                          (i & 4) ? object.bboxMax[2] : object.bboxMin[2]);
+        const Vec3 p = objectToWorld.TransformPoint(corner);
+        olo = Min(olo, p);
+        ohi = Max(ohi, p);
     }
     for (int c = 0; c < 3; ++c)
         if (olo[c] > hi[c] || ohi[c] < lo[c]) return;
@@ -290,12 +288,12 @@ void DecalSystem::Append(int slot, const MapObject& object, const Mat4& objectTo
     const size_t nv = object.vertexCount();
     for (size_t t = 0; t + 2 < object.indices.size(); t += 3) {
         if (int(d.verts.size()) + 3 > kMaxVertices) break;
-        float w[3][3];
+        Vec3 w[3];
         bool ok = true;
         for (int k = 0; k < 3 && ok; ++k) {
             const uint16_t idx = object.indices[t + size_t(k)];
             if (idx >= nv) { ok = false; break; }
-            float p[3];
+            Vec3 p;
             object.position(idx, p);
             objectToWorld.TransformPoint(p[0], p[1], p[2], w[k]);
         }
@@ -308,7 +306,7 @@ void DecalSystem::Append(int slot, const MapObject& object, const Mat4& objectTo
 // triangle. Back faces go first, then either the whole triangle when any
 // vertex lies inside every half-space (CutTris 0) or the polygon clipped to
 // the box and fanned (CutTris 1). UV is the box-space position plus 0.5.
-void DecalSystem::ProjectTriangle(DecalInstance& d, const float w[3][3], const float inv[9]) {
+void DecalSystem::ProjectTriangle(DecalInstance& d, const Vec3 w[3], const float inv[9]) {
     if (d.def.cullBackFaces > -1.f) {
         // The .mpk winds so that (v2-v0) x (v1-v0) is the outward normal.
         const Vec3 tn = Cross(AsVec3(w[2]) - AsVec3(w[0]), AsVec3(w[1]) - AsVec3(w[0])).Normalized();
@@ -318,7 +316,7 @@ void DecalSystem::ProjectTriangle(DecalInstance& d, const float w[3][3], const f
 
     LocalVert l[3];
     for (int k = 0; k < 3; ++k) {
-        float r[3];
+        Vec3 r;
         for (int c = 0; c < 3; ++c) r[c] = w[k][c] - d.basis[9 + c];
         for (int c = 0; c < 3; ++c)
             l[k].l[c] = r[0] * inv[c] + r[1] * inv[3 + c] + r[2] * inv[6 + c];

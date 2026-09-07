@@ -41,7 +41,7 @@ namespace {
 // `axis` names the face the segment entered through, or stays -1 when the
 // segment STARTS INSIDE the box - a point-blank shot, which has no entry face
 // to take a normal from and which the caller has to answer for separately.
-bool SlabTest(const float o[3], const float dir[3], const float lo[3], const float hi[3],
+bool SlabTest(const Vec3& o, const Vec3& dir, const Vec3& lo, const Vec3& hi,
               float& tHit, int& axis, float& sign) {
     float tmin = 0.f, tmax = 1.f;
     axis = -1;
@@ -69,17 +69,17 @@ bool SlabTest(const float o[3], const float dir[3], const float lo[3], const flo
 // A direction through an affine matrix: the 3x3 alone, so the translation does
 // not apply. TransformPoint would move the ray's direction by the entity's
 // position, which points every shot at the world origin.
-void TransformDir(const Mat4& m, const float v[3], float out[3]) {
-    out[0] = v[0] * m.m[0] + v[1] * m.m[4] + v[2] * m.m[8];
-    out[1] = v[0] * m.m[1] + v[1] * m.m[5] + v[2] * m.m[9];
-    out[2] = v[0] * m.m[2] + v[1] * m.m[6] + v[2] * m.m[10];
+Vec3 TransformDir(const Mat4& m, const Vec3& v) {
+    return Vec3(v.x * m.m[0] + v.y * m.m[4] + v.z * m.m[8],
+                v.x * m.m[1] + v.y * m.m[5] + v.z * m.m[9],
+                v.x * m.m[2] + v.y * m.m[6] + v.z * m.m[10]);
 }
 
 // Does the segment from + t*span (t in 0..1) pass within `radius` of `p`? The
 // broad phase, so the matrix work only happens for actors near the shot.
-bool SegmentNearPoint(const float from[3], const float span[3], const float p[3],
+bool SegmentNearPoint(const Vec3& from, const Vec3& span, const Vec3& p,
                       float radius) {
-    float d[3];
+    Vec3 d;
     for (int c = 0; c < 3; ++c) d[c] = p[c] - from[c];
     const float len2 = span[0] * span[0] + span[1] * span[1] + span[2] * span[2];
     float t = (len2 > 1e-12f) ? (d[0] * span[0] + d[1] * span[1] + d[2] * span[2]) / len2 : 0.f;
@@ -94,9 +94,9 @@ bool SegmentNearPoint(const float from[3], const float span[3], const float p[3]
 
 } // namespace
 
-bool ScriptEngine::TraceLimbs(const float from[3], const float to[3], float maxDistance,
+bool ScriptEngine::TraceLimbs(const Vec3& from, const Vec3& to, float maxDistance,
                               LimbHit& out, int ignoreEntity) {
-    float span[3];
+    Vec3 span;
     for (int c = 0; c < 3; ++c) span[c] = to[c] - from[c];
     const float length =
         std::sqrt(span[0] * span[0] + span[1] * span[1] + span[2] * span[2]);
@@ -193,10 +193,8 @@ bool ScriptEngine::TraceLimbs(const float from[3], const float to[3], float maxD
 
             const Mat4 toWorld = Mat4::Mul((*bones)[size_t(limb.bone)], world);
             const Mat4 toLimb = Mat4::InvertAffine(toWorld);
-
-            float o[3], dir[3];
-            toLimb.TransformPoint(from[0], from[1], from[2], o);
-            TransformDir(toLimb, span, dir);
+            const Vec3 o = toLimb.TransformPoint(AsVec3(from));
+            const Vec3 dir = TransformDir(toLimb, AsVec3(span));
 
             float t = 0.f;
             int axis = -1;
@@ -218,20 +216,15 @@ bool ScriptEngine::TraceLimbs(const float from[3], const float to[3], float maxD
                 // gives for a degenerate contact. Anything else here is a NaN
                 // waiting to spread through every decal and effect the hit
                 // spawns.
-                for (int c = 0; c < 3; ++c) out.normal[c] = -span[c] / length;
+                out.normal = AsVec3(span) / -length;
             } else {
-                float n[3] = {0, 0, 0};
+                Vec3 n;
                 n[axis] = sign;
-                TransformDir(toWorld, n, out.normal);
-                const float n2 = out.normal[0] * out.normal[0] +
-                                 out.normal[1] * out.normal[1] +
-                                 out.normal[2] * out.normal[2];
-                if (n2 > 1e-12f) {
-                    const float inv = 1.f / std::sqrt(n2);
-                    for (int c = 0; c < 3; ++c) out.normal[c] *= inv;
-                } else {
-                    for (int c = 0; c < 3; ++c) out.normal[c] = -span[c] / length;
-                }
+                out.normal = TransformDir(toWorld, n);
+                // A degenerate normal falls back to the ray, the same answer
+                // the length-zero branch above gives.
+                if (out.normal.LengthSq() > 1e-12f) out.normal = out.normal.Normalized();
+                else                                out.normal = AsVec3(span) / -length;
             }
         }
     }
@@ -261,7 +254,7 @@ bool ScriptEngine::LimbFromHandle(int handle, int& entity, int& joint) const {
     return true;
 }
 
-void ScriptEngine::CollectHitboxLines(const float around[3], float radius,
+void ScriptEngine::CollectHitboxLines(const Vec3& around, float radius,
                                       std::vector<DebugLine>& out) {
     // The twelve edges of a box, as pairs of corner indices.
     static const int kEdges[12][2] = {{0,1},{1,3},{3,2},{2,0}, {4,5},{5,7},{7,6},{6,4},
@@ -270,7 +263,7 @@ void ScriptEngine::CollectHitboxLines(const float around[3], float radius,
         Entity& e = kv.second;
         if (e.type != kModel || !e.visible) continue;
 
-        float d[3];
+        Vec3 d;
         for (int c = 0; c < 3; ++c) d[c] = e.pos[c] - around[c];
         if (d[0]*d[0] + d[1]*d[1] + d[2]*d[2] > radius * radius) continue;
 
@@ -280,12 +273,12 @@ void ScriptEngine::CollectHitboxLines(const float around[3], float radius,
         for (const LimbBounds& limb : *limbs) {
             // Each corner goes bone-local -> world through the POSED bone, so
             // the box follows the animation without being rebuilt.
-            float corner[8][3];
+            Vec3 corner[8];
             bool posed = true;
             for (int i = 0; i < 8 && posed; ++i) {
-                const float local[3] = {(i & 1) ? limb.max[0] : limb.min[0],
-                                        (i & 2) ? limb.max[1] : limb.min[1],
-                                        (i & 4) ? limb.max[2] : limb.min[2]};
+                const Vec3 local{(i & 1) ? limb.max[0] : limb.min[0],
+                                 (i & 2) ? limb.max[1] : limb.min[1],
+                                 (i & 4) ? limb.max[2] : limb.min[2]};
                 posed = JointToWorld(e, limb.bone, local, corner[i]);
             }
             if (!posed) continue;
@@ -494,7 +487,7 @@ void ScriptEngine::TickProjectiles(float dt) {
 int LimbsNatives::L_R3D_DrawSprite(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!self->billboards_ || !self->hudTextures_) return 0;
-    const float pos[3] = {float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
+    const Vec3 pos{float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
                           float(luaL_optnumber(L, 3, 0))};
     const float size = float(luaL_optnumber(L, 4, 1.0));
     const float rot = float(luaL_optnumber(L, 5, 0.0));
@@ -524,9 +517,9 @@ int LimbsNatives::L_R3D_DrawSprite(lua_State* L) {
 int LimbsNatives::L_R3D_DrawSprite1DOF(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!self->billboards_ || !self->hudTextures_) return 0;
-    const float a[3] = {float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
+    const Vec3 a{float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
                         float(luaL_optnumber(L, 3, 0))};
-    const float b[3] = {float(luaL_optnumber(L, 4, 0)), float(luaL_optnumber(L, 5, 0)),
+    const Vec3 b{float(luaL_optnumber(L, 4, 0)), float(luaL_optnumber(L, 5, 0)),
                         float(luaL_optnumber(L, 6, 0))};
     const float width = float(luaL_optnumber(L, 7, 0.0));
     const uint32_t argb = uint32_t(int64_t(luaL_optnumber(L, 8, -1)));

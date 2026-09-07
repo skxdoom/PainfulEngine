@@ -1,5 +1,6 @@
 #pragma once
 #include "../Assets/Emitter.h"
+#include "../Core/Vec3.h"
 #include "../World/Level.h"
 #include "../World/Templates.h"
 #include "Camera.h"
@@ -64,9 +65,9 @@ public:
     // entity holding them can go - AddPFX creates one per impact and never
     // takes it back, so without this every shot leaks an entity.
     bool ScriptEmitterFinished(int slot) const;
-    void SetupScriptEmitter(int slot, float refScale, const float refOffset[3],
-                            const float refRotDegrees[3]);
-    void SetScriptEmitterOwner(int slot, const float ownerPos[3],
+    void SetupScriptEmitter(int slot, float refScale, const Vec3& refOffset,
+                            const Vec3& refRotDegrees);
+    void SetScriptEmitterOwner(int slot, const Vec3& ownerPos,
                                const float ownerRot9[9], float entityScale,
                                bool visible);
     void RemoveScriptEmitter(int slot);
@@ -82,7 +83,7 @@ public:
     void SetColorScale(float k) { colorScale_ = k; }
     // The level fog, applied to sprite colour the way D3D vertex fog did with
     // the original's `simple` vertex shader. Colour is 0-255 as authored.
-    void SetFog(int mode, float start, float end, float density, const float color255[3]) {
+    void SetFog(int mode, float start, float end, float density, const Vec3& color255) {
         fog_[0] = float(mode); fog_[1] = start; fog_[2] = end; fog_[3] = density;
         for (int i = 0; i < 3; ++i) fogColor_[i] = color255[i] / 255.f;
         fogColor_[3] = 1.f;
@@ -97,12 +98,12 @@ public:
 private:
     // Mirrors the original's Particle, minus the intrusive list pointers.
     struct Particle {
-        float pos[3];
-        float vel[3];          // this frame's velocity, rebuilt from the blend
-        float color[3];
-        float accelVel[3];     // integral of accel, added on top of the blend
-        float accel[3];        // per-particle constant, from the AccelMin/Max range
-        float velStart[3], velEnd[3];
+        Vec3 pos;
+        Vec3 vel;          // this frame's velocity, rebuilt from the blend
+        Vec3 color;
+        Vec3 accelVel;     // integral of accel, added on top of the blend
+        Vec3 accel;        // per-particle constant, from the AccelMin/Max range
+        Vec3 velStart, velEnd;
         float spawnDelta;      // sub-frame timestep for the frame it was born in
         float life, age;
         float size, alpha;
@@ -118,18 +119,18 @@ private:
         // The .pfx entry's Scale, times the entity scale, times the level
         // scale. ParticleEmitter::SetScale multiplies exactly these ranges and
         // leaves lifetimes, colours, alpha and spin alone.
-        float posMin[3], posMax[3];
-        float velMin[3], velMax[3];
-        float velEndMin[3], velEndMax[3];
-        float accelMin[3], accelMax[3];
+        Vec3 posMin, posMax;
+        Vec3 velMin, velMax;
+        Vec3 velEndMin, velEndMax;
+        Vec3 accelMin, accelMax;
         float startSizeMin, startSizeMax, endSizeMin, endSizeMax;
         float thicknessMin, thicknessMax, lengthMin, lengthMax;
 
-        float pos[3] = {0, 0, 0};        // world position, this frame
-        float prevPos[3] = {0, 0, 0};    // and last frame, for spawn interpolation
+        Vec3 pos;        // world position, this frame
+        Vec3 prevPos;    // and last frame, for spawn interpolation
         // The owning entity's position, which is where Immortal pins particles
         // - it is the emitter position minus the .pfx entry's offset.
-        float ownerPos[3] = {0, 0, 0};
+        Vec3 ownerPos;
         float rot[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
 
         float spawnAccum = 0.f;
@@ -150,8 +151,8 @@ private:
         // because level-placed effects override it through
         // PARTICLE.SetEvolve.
         bool evolve = true;
-        float refOffset[3] = {0, 0, 0};
-        float refRotDeg[3] = {0, 0, 0};
+        Vec3 refOffset;
+        Vec3 refRotDeg;
         float refScale = 1.f;
         float entityScale = 1.f;
         float ownerRot9[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
@@ -180,7 +181,7 @@ private:
 
     float Rand01();
     float RandRange(float lo, float hi);
-    void  RandVec(const float lo[3], const float hi[3], float out[3]);
+    void  RandVec(const Vec3& lo, const Vec3& hi, Vec3& out);
 
     bgfx::VertexLayout layout_;
     bgfx::ProgramHandle program_ = BGFX_INVALID_HANDLE;

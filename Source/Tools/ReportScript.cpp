@@ -83,7 +83,7 @@ int LuaCmd(const char* dataRoot, int frames, const char* level,
             // and touches nothing, so without a body the pawn walks through
             // corpses and loose props without either noticing.
             {
-                float centre[3];
+                Vec3 centre;
                 const float* h = pawn.headPos();
                 for (int c = 0; c < 3; ++c) centre[c] = h[c];
                 centre[1] -= 0.9f;      // head is centre + 0.9, per GetPawnHeadPos
@@ -167,7 +167,7 @@ int BlendCmd(const char* path, const char* animA, const char* animB,
             probe, bones[probe].name.c_str());
 
     std::vector<Mat4> world;
-    float prev[3] = {0, 0, 0};
+    Vec3 prev = {0, 0, 0};
     for (int step = 0; step <= 4; ++step) {
         const float u = float(step) * 0.25f;
         ComputeBoneWorldBlended(bones, ta, t, tb, t, u, world);
@@ -319,9 +319,9 @@ int SoundCmd(const char* root, const char* name, const char* seconds) {
         LogInfo("no audio device");
         return 2;
     }
-    const float listener[3] = {0, 0, 0};
-    const float fwd[3] = {0, 0, 1};
-    const float right[3] = {1, 0, 0};
+    const Vec3 listener{0, 0, 0};
+    const Vec3 fwd{0, 0, 1};
+    const Vec3 right{1, 0, 0};
     audio.SetListener(listener, fwd, right);
 
     // 2D at full volume: no distance, no panning, nothing to get wrong.
@@ -354,8 +354,8 @@ int SoundCmd(const char* root, const char* name, const char* seconds) {
 // would give a geometric normal along +n, so the indices are emitted reversed.
 // Wound the other way a step is invisible from the front and the player walks
 // through it.
-static void AddBoxFace(MapObject& o, const float c0[3], const float c1[3],
-                       const float c2[3], const float c3[3], const float n[3],
+static void AddBoxFace(MapObject& o, const Vec3& c0, const Vec3& c1,
+                       const Vec3& c2, const Vec3& c3, const Vec3& n,
                        float uvPerUnit) {
     const uint16_t base = uint16_t(o.vertexCount());
     const float* corner[4] = {c0, c1, c2, c3};
@@ -405,15 +405,15 @@ static MapObject MakeStepBox(const std::string& name, float cx, float cz, float 
     const float y0 = floorY, y1 = floorY + h;
 
     // Each face's corners counter-clockwise seen from outside.
-    const float top[4][3]    = {{x0,y1,z0},{x0,y1,z1},{x1,y1,z1},{x1,y1,z0}};
-    const float bottom[4][3] = {{x0,y0,z0},{x1,y0,z0},{x1,y0,z1},{x0,y0,z1}};
-    const float xneg[4][3]   = {{x0,y0,z0},{x0,y0,z1},{x0,y1,z1},{x0,y1,z0}};
-    const float xpos[4][3]   = {{x1,y0,z0},{x1,y1,z0},{x1,y1,z1},{x1,y0,z1}};
-    const float zneg[4][3]   = {{x0,y0,z0},{x0,y1,z0},{x1,y1,z0},{x1,y0,z0}};
-    const float zpos[4][3]   = {{x0,y0,z1},{x1,y0,z1},{x1,y1,z1},{x0,y1,z1}};
-    const float nUp[3]   = {0,1,0},  nDown[3] = {0,-1,0};
-    const float nXneg[3] = {-1,0,0}, nXpos[3] = {1,0,0};
-    const float nZneg[3] = {0,0,-1}, nZpos[3] = {0,0,1};
+    const Vec3 top[4]    = {{x0,y1,z0},{x0,y1,z1},{x1,y1,z1},{x1,y1,z0}};
+    const Vec3 bottom[4] = {{x0,y0,z0},{x1,y0,z0},{x1,y0,z1},{x0,y0,z1}};
+    const Vec3 xneg[4]   = {{x0,y0,z0},{x0,y0,z1},{x0,y1,z1},{x0,y1,z0}};
+    const Vec3 xpos[4]   = {{x1,y0,z0},{x1,y1,z0},{x1,y1,z1},{x1,y0,z1}};
+    const Vec3 zneg[4]   = {{x0,y0,z0},{x0,y1,z0},{x1,y1,z0},{x1,y0,z0}};
+    const Vec3 zpos[4]   = {{x0,y0,z1},{x1,y0,z1},{x1,y1,z1},{x0,y1,z1}};
+    const Vec3 nUp{0,1,0}, nDown{0,-1,0};
+    const Vec3 nXneg{-1,0,0}, nXpos{1,0,0};
+    const Vec3 nZneg{0,0,-1}, nZpos{0,0,1};
 
     AddBoxFace(box, top[0],    top[1],    top[2],    top[3],    nUp,   uvPerUnit);
     AddBoxFace(box, bottom[0], bottom[1], bottom[2], bottom[3], nDown, uvPerUnit);
@@ -448,14 +448,14 @@ static MapObject MakeRamp(const std::string& name, float cx, float cz, float flo
     const float s = std::sin(degrees * 3.14159265f / 180.f);
     const float c = std::cos(degrees * 3.14159265f / 180.f);
 
-    const float top[4][3]    = {{x0,y0,z0},{x0,y0,z1},{x1,y1,z1},{x1,y1,z0}};
-    const float bottom[4][3] = {{x0,y0,z0},{x1,y0,z0},{x1,y0,z1},{x0,y0,z1}};
-    const float back[4][3]   = {{x1,y0,z0},{x1,y1,z0},{x1,y1,z1},{x1,y0,z1}};
+    const Vec3 top[4]    = {{x0,y0,z0},{x0,y0,z1},{x1,y1,z1},{x1,y1,z0}};
+    const Vec3 bottom[4] = {{x0,y0,z0},{x1,y0,z0},{x1,y0,z1},{x0,y0,z1}};
+    const Vec3 back[4]   = {{x1,y0,z0},{x1,y1,z0},{x1,y1,z1},{x1,y0,z1}};
     // The triangular sides as quads with a doubled corner.
-    const float zneg[4][3]   = {{x0,y0,z0},{x1,y1,z0},{x1,y0,z0},{x1,y0,z0}};
-    const float zpos[4][3]   = {{x0,y0,z1},{x1,y0,z1},{x1,y1,z1},{x1,y1,z1}};
-    const float nTop[3] = {-s, c, 0}, nDown[3] = {0,-1,0}, nXpos[3] = {1,0,0};
-    const float nZneg[3] = {0,0,-1}, nZpos[3] = {0,0,1};
+    const Vec3 zneg[4]   = {{x0,y0,z0},{x1,y1,z0},{x1,y0,z0},{x1,y0,z0}};
+    const Vec3 zpos[4]   = {{x0,y0,z1},{x1,y0,z1},{x1,y1,z1},{x1,y1,z1}};
+    const Vec3 nTop{-s, c, 0}, nDown{0,-1,0}, nXpos{1,0,0};
+    const Vec3 nZneg{0,0,-1}, nZpos{0,0,1};
     AddBoxFace(ramp, top[0], top[1], top[2], top[3], nTop, uvPerUnit);
     AddBoxFace(ramp, bottom[0], bottom[1], bottom[2], bottom[3], nDown, uvPerUnit);
     AddBoxFace(ramp, back[0], back[1], back[2], back[3], nXpos, uvPerUnit);
@@ -723,7 +723,7 @@ int PoseCmd(const char* modelPath, const char* animName, const char* timeArg) {
 
     ComputeSkinningMatricesAtTime(bones, inverseBind, tracks, time, skin);
 
-    auto bounds = [](const std::vector<float>& v, size_t stride, float lo[3], float hi[3]) {
+    auto bounds = [](const std::vector<float>& v, size_t stride, Vec3& lo, Vec3& hi) {
         for (int c = 0; c < 3; ++c) { lo[c] = 1e30f; hi[c] = -1e30f; }
         for (size_t i = 0; i + stride <= v.size(); i += stride)
             for (int c = 0; c < 3; ++c) {
@@ -732,13 +732,13 @@ int PoseCmd(const char* modelPath, const char* animName, const char* timeArg) {
             }
     };
 
-    float bLo[3], bHi[3], pLo[3], pHi[3];
+    Vec3 bLo, bHi, pLo, pHi;
     for (int c = 0; c < 3; ++c) { bLo[c] = pLo[c] = 1e30f; bHi[c] = pHi[c] = -1e30f; }
     std::vector<float> posed;
     size_t skinnedMeshes = 0;
     for (const ModelMesh& mesh : model.meshes) {
         if (mesh.vertexCount() == 0) continue;
-        float lo[3], hi[3];
+        Vec3 lo, hi;
         bounds(mesh.verts, 8, lo, hi);
         for (int c = 0; c < 3; ++c) { bLo[c] = std::min(bLo[c], lo[c]); bHi[c] = std::max(bHi[c], hi[c]); }
         if (!mesh.hasSkin()) continue;

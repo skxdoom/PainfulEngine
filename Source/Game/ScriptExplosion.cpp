@@ -61,7 +61,7 @@ bool MeasuredFromBounds(int collisionGroup) {
 // int, float).
 int ExplosionNatives::L_WORLD_Explosion2(lua_State* L) {
     ScriptEngine* self = From(L);
-    const float centre[3] = {float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
+    const Vec3 centre{float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
                              float(luaL_optnumber(L, 3, 0))};
     const float strength = float(luaL_optnumber(L, 4, 0));
     const float range = float(luaL_optnumber(L, 5, 0));
@@ -72,7 +72,7 @@ int ExplosionNatives::L_WORLD_Explosion2(lua_State* L) {
     return 0;
 }
 
-void ScriptEngine::Explosion(const float centre[3], float strength, float range,
+void ScriptEngine::Explosion(const Vec3& centre, float strength, float range,
                              double killer, double attackType, float damage) {
     if (range <= 0.f) return;
 
@@ -104,11 +104,11 @@ void ScriptEngine::Explosion(const float centre[3], float strength, float range,
     // over its 80 kg mass - which is the rocket jump. Physics.md, "The player takes hits".
     if (pawn_ != nullptr && playerHandle_ != 0) {
         if (Entity* pe = Find(playerHandle_)) {
-            float floor[3], at[3];
+            Vec3 floor, at;
             pawn_->FloorPos(floor);
             for (int c = 0; c < 3; ++c) at[c] = floor[c];
             at[1] += 1.1f;                       // GetPawnFloorPos = centre - 1.1
-            float away[3];
+            Vec3 away;
             for (int c = 0; c < 3; ++c) away[c] = at[c] - centre[c];
             const float distance =
                 std::sqrt(away[0] * away[0] + away[1] * away[1] + away[2] * away[2]);
@@ -117,7 +117,7 @@ void ScriptEngine::Explosion(const float centre[3], float strength, float range,
                 reached.push_back({playerHandle_, falloff});
                 if (pe->movedByExplosions && falloff > 0.f && distance > 0.001f) {
                     const float scale = falloff * strength / distance / PlayerPawn::Mass();
-                    const float dv[3] = {away[0] * scale, away[1] * scale, away[2] * scale};
+                    const Vec3 dv{away[0] * scale, away[1] * scale, away[2] * scale};
                     pawn_->AddVelocity(dv);
                 }
             }
@@ -154,9 +154,9 @@ void ScriptEngine::Explosion(const float centre[3], float strength, float range,
 
         if (e.physicsBody < 0 || !e.poEnabled) continue;
 
-        float at[3];
+        Vec3 at;
         if (MeasuredFromBounds(e.collisionGroup) && physics_ != nullptr) {
-            float lo[3], hi[3];
+            Vec3 lo, hi;
             if (physics_->ScriptBodyBounds(e.physicsBody, lo, hi))
                 for (int c = 0; c < 3; ++c) at[c] = (lo[c] + hi[c]) * 0.5f;
             else
@@ -165,7 +165,7 @@ void ScriptEngine::Explosion(const float centre[3], float strength, float range,
             for (int c = 0; c < 3; ++c) at[c] = e.pos[c];
         }
 
-        float away[3];
+        Vec3 away;
         for (int c = 0; c < 3; ++c) away[c] = at[c] - centre[c];
         const float distance =
             std::sqrt(away[0] * away[0] + away[1] * away[1] + away[2] * away[2]);
@@ -193,7 +193,7 @@ void ScriptEngine::Explosion(const float centre[3], float strength, float range,
         // evidence is the name and the accumulate-then-spend pattern, not a
         // decompiled multiply. Docs/Reference/Physics.md.
         const float scale = falloff * strength / distance;
-        const float impulse[3] = {away[0] * scale, away[1] * scale, away[2] * scale};
+        const Vec3 impulse{away[0] * scale, away[1] * scale, away[2] * scale};
         physics_->AddScriptBodyImpulse(e.physicsBody, at, impulse);
     }
 

@@ -62,7 +62,7 @@ int CollisionNatives::L_ENTITY_EnableCollisions(lua_State* L) {
 // the magnitude and none of them should have to compute it.
 int CollisionNatives::L_PHYSICS_GetHavokBodyVelocity(lua_State* L) {
     ScriptEngine* self = From(L);
-    float v[3] = {0, 0, 0};
+    Vec3 v;
     const int slot = lua_isnumber(L, 1) ? int(lua_tonumber(L, 1)) : -1;
     // A body involved in this frame's collisions answers with the velocity it
     // had AT THE CONTACT. The scripts ask this while handling the message, by
@@ -74,7 +74,7 @@ int CollisionNatives::L_PHYSICS_GetHavokBodyVelocity(lua_State* L) {
         for (int c = 0; c < 3; ++c) v[c] = remembered->second[c];
     } else if (self->physics_ && self->LimbFromHandle(slot, owner, joint)) {
         // A limb handle: the ragdoll part's own velocity.
-        float ang[3];
+        Vec3 ang;
         if (Entity* e = self->Find(owner)) {
             const int part = self->RagdollPartForJoint(*e, joint);
             if (part >= 0) self->physics_->GetRagdollPartVelocity(e->ragdollSlot, part, v, ang);
@@ -167,7 +167,7 @@ void ScriptEngine::TickCollisions(float dt) {
             // hard" means for a contact; the scripts' MinSpeedOnCollision is a
             // second, coarser test on the relative speed they compute
             // themselves.
-            const float rel[3] = {vMe[0] - vOther[0], vMe[1] - vOther[1], vMe[2] - vOther[2]};
+            const Vec3 rel{vMe[0] - vOther[0], vMe[1] - vOther[1], vMe[2] - vOther[2]};
             const float closing = std::fabs(rel[0] * c.normal[0] + rel[1] * c.normal[1] +
                                             rel[2] * c.normal[2]);
 
@@ -270,17 +270,17 @@ void ScriptEngine::TickGrenades() {
         if (!e.isGrenade || !e.poEnabled || e.physicsBody < 0) continue;
         if (!physics_->ScriptBodyExists(e.physicsBody)) continue;
 
-        float end[3], vel[3];
+        Vec3 end, vel;
         if (!physics_->GetScriptBodyPosition(e.physicsBody, end)) continue;
         if (!physics_->GetScriptBodyVelocity(e.physicsBody, vel)) continue;
-        float start[3] = {e.pos[0], e.pos[1], e.pos[2]};
+        Vec3 start = e.pos;
 
         const int exclude[1] = {e.physicsBody};
         int hits = 0;
         for (; hits < 10; ++hits) {
             PhysicsWorld::RayHit hit;
             if (!physics_->RayCast(start, end, hit, false, exclude, 1)) break;
-            const float* n = hit.normal;
+            const Vec3& n = hit.normal;
 
             if (e.collisionsOn) {
                 auto other = bodyToEntity_.find(hit.bodySlot);
@@ -294,16 +294,16 @@ void ScriptEngine::TickGrenades() {
                 e.collisionCooldown = e.collisionMinTime;
             }
 
-            const float vn = 2.f * (vel[0] * n[0] + vel[1] * n[1] + vel[2] * n[2]);
-            for (int c = 0; c < 3; ++c) vel[c] -= n[c] * vn;
+            const float vn = 2.f * Dot(vel, n);
+            vel -= n * vn;
 
-            Vec3 rest = AsVec3(end) - AsVec3(hit.point);
-            const float rn = 2.f * Dot(rest, AsVec3(n));
-            AsVec3(end) -= AsVec3(n) * rn;
-            rest -= AsVec3(n) * rn;
+            Vec3 rest = end - hit.point;
+            const float rn = 2.f * Dot(rest, n);
+            end -= n * rn;
+            rest -= n * rn;
             const float len = rest.Length();
             if (len > 0.002f) rest *= 0.002f / len;
-            (AsVec3(hit.point) + rest).Store(start);
+            start = hit.point + rest;
         }
         if (hits == 0) continue;
         if (hits >= 10) {

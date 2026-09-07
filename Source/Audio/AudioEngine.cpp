@@ -244,7 +244,7 @@ void AudioEngine::ComputeGains(Playing& p) const {
         return;
     }
 
-    float to[3];
+    Vec3 to;
     for (int c = 0; c < 3; ++c) to[c] = p.pos[c] - listener_[c];
     const float dist = std::sqrt(to[0] * to[0] + to[1] * to[1] + to[2] * to[2]);
 
@@ -404,7 +404,7 @@ AudioEngine::Voice AudioEngine::Play2D(const std::string& name, float volume,
     return v;
 }
 
-AudioEngine::Voice AudioEngine::Play3D(const std::string& name, const float pos[3],
+AudioEngine::Voice AudioEngine::Play3D(const std::string& name, const Vec3& pos,
                                        float dist1, float dist2, bool noPitch) {
     const Voice v = Open(name, true, false);
     if (!v) return 0;
@@ -437,7 +437,7 @@ float AudioEngine::Score(const Playing& p) const {
     // ranked against the world. The original scores them separately
     // (TryToPlayRealSound2D); here they simply always win.
     if (!p.positional) return 1e6f;
-    float to[3];
+    Vec3 to;
     for (int c = 0; c < 3; ++c) to[c] = p.pos[c] - listener_[c];
     const float dist = std::sqrt(to[0] * to[0] + to[1] * to[1] + to[2] * to[2]);
     if (p.dist2 > 0.f && dist > p.dist2) return 0.f;     // out of range
@@ -644,7 +644,7 @@ void AudioEngine::SetVolume(Voice v, float volume) {
     ComputeGains(p);
 }
 
-void AudioEngine::SetPosition(Voice v, const float pos[3]) {
+void AudioEngine::SetPosition(Voice v, const Vec3& pos) {
     PAINFUL_VOICE(v)
     for (int c = 0; c < 3; ++c) p.pos[c] = pos[c];
     ComputeGains(p);
@@ -685,8 +685,8 @@ bool AudioEngine::IsPlaying(Voice v) const {
     return p && p->playing && !p->paused;
 }
 
-void AudioEngine::SetListener(const float pos[3], const float forward[3],
-                              const float right[3]) {
+void AudioEngine::SetListener(const Vec3& pos, const Vec3& forward,
+                              const Vec3& right) {
     std::lock_guard<std::mutex> guard(lock_);
     for (int c = 0; c < 3; ++c) {
         listener_[c] = pos[c];

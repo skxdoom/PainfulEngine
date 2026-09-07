@@ -1,5 +1,6 @@
 #include "WorldRenderer.h"
 #include "ShaderLoad.h"
+#include "../Core/Vec3.h"
 #include "../Core/Common.h"
 #include "../Core/Log.h"
 #include "GpuBuffers.h"
@@ -143,7 +144,8 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
 
         std::vector<MeshVertex> verts(vertexCount);
         for (size_t i = 0; i < vertexCount; ++i) {
-            float p[3], n[3], uv[2];
+            Vec3 p, n;
+            float uv[2];
             o.position(i, p);
             o.normal(i, n);
             o.uv(i, uv);
@@ -179,10 +181,10 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
         chunk.aabbLo[0] = chunk.aabbLo[1] = chunk.aabbLo[2] = 1e30f;
         chunk.aabbHi[0] = chunk.aabbHi[1] = chunk.aabbHi[2] = -1e30f;
         for (int corner = 0; corner < 8; ++corner) {
-            const float raw[3] = {corner & 1 ? o.bboxMax[0] : o.bboxMin[0],
+            const Vec3 raw{corner & 1 ? o.bboxMax[0] : o.bboxMin[0],
                                   corner & 2 ? o.bboxMax[1] : o.bboxMin[1],
                                   corner & 4 ? o.bboxMax[2] : o.bboxMin[2]};
-            float w[3];
+            Vec3 w;
             chunk.transform.TransformPoint(raw[0], raw[1], raw[2], w);
             for (int a = 0; a < 3; ++a) {
                 chunk.aabbLo[a] = std::min(chunk.aabbLo[a], w[a]);
@@ -336,8 +338,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
     drawCalls_ = 0;
     if (!bgfx::isValid(program_)) return;
 
-    float forward[3];
-    camera.Forward(forward);
+    const Vec3 forward = camera.Forward();
     const bx::Vec3 eye = {camera.pos[0], camera.pos[1], camera.pos[2]};
     const bx::Vec3 at = {camera.pos[0] + forward[0],
                          camera.pos[1] + forward[1],
@@ -365,7 +366,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
     const Frustum frustum = Frustum::FromViewProj(viewMtx, projMtx);
     zonesVisible_ = zoneGraph_.zoneCount();
     if (visCulling_ && !zoneGraph_.empty()) {
-        const float raw[3] = {camera.pos[0] / worldScale_, camera.pos[1] / worldScale_,
+        const Vec3 raw{camera.pos[0] / worldScale_, camera.pos[1] / worldScale_,
                               camera.pos[2] / worldScale_};
         // Zone volumes overlap, so the camera can stand in several at once;
         // visibility starts from all of them. Outside every zone the graph

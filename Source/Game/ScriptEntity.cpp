@@ -172,9 +172,9 @@ int EntityNatives::L_Release(lua_State* L) {
 // second for anything physical it touched.
 static void ApplyHitImpulse(lua_State* L, PhysicsWorld* physics, int slot) {
     if (!physics || slot < 0) return;
-    const float at[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+    const Vec3 at{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
                          float(luaL_optnumber(L, 4, 0))};
-    const float impulse[3] = {float(luaL_optnumber(L, 5, 0)),
+    const Vec3 impulse{float(luaL_optnumber(L, 5, 0)),
                               float(luaL_optnumber(L, 6, 0)),
                               float(luaL_optnumber(L, 7, 0))};
     physics->AddScriptBodyImpulse(slot, at, impulse);
@@ -205,9 +205,9 @@ int EntityNatives::L_PO_Hit(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e) return 0;
-    const float at[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+    const Vec3 at{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
                          float(luaL_optnumber(L, 4, 0))};
-    const float imp[3] = {float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
+    const Vec3 imp{float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
                           float(luaL_optnumber(L, 7, 0))};
     const float mag = std::sqrt(imp[0]*imp[0] + imp[1]*imp[1] + imp[2]*imp[2]);
     if (!(mag > kMinHitImpulse && mag < kMaxHitImpulse)) return 0;
@@ -255,9 +255,9 @@ int EntityNatives::L_PO_AccumulateRotation(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e) return 0;
-    const float at[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+    const Vec3 at{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
                          float(luaL_optnumber(L, 4, 0))};
-    const float imp[3] = {float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
+    const Vec3 imp{float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
                           float(luaL_optnumber(L, 7, 0))};
     const float mag = std::sqrt(imp[0]*imp[0] + imp[1]*imp[1] + imp[2]*imp[2]);
     if (!(mag > kMinHitImpulse && mag < kMaxHitImpulse)) return 0;
@@ -273,9 +273,9 @@ int EntityNatives::L_MDL_ApplyPointImpulseToRagdoll(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e || e->ragdollSlot < 0 || !self->physics_) return 0;
-    const float at[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+    const Vec3 at{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
                          float(luaL_optnumber(L, 4, 0))};
-    const float imp[3] = {float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
+    const Vec3 imp{float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
                           float(luaL_optnumber(L, 7, 0))};
     self->physics_->AddRagdollImpulse(e->ragdollSlot, at, imp);
     return 0;
@@ -305,9 +305,9 @@ int EntityNatives::L_WORLD_HitPhysicObject(lua_State* L) {
     if (self->physics_ && self->LimbFromHandle(handle, entity, joint)) {
         Entity* e = self->Find(entity);
         if (!e || e->ragdollSlot < 0) return 0;
-        const float at[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+        const Vec3 at{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
                              float(luaL_optnumber(L, 4, 0))};
-        const float imp[3] = {float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
+        const Vec3 imp{float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
                               float(luaL_optnumber(L, 7, 0))};
         const float mag = std::sqrt(imp[0]*imp[0] + imp[1]*imp[1] + imp[2]*imp[2]);
         if (!(mag > kMinHitImpulse && mag < kMaxHitImpulse)) return 0;
@@ -383,15 +383,16 @@ int EntityNatives::L_ENTITY_ExplodeItem(lua_State* L) {
     // (0,0,0) - so the factor is an opt-OUT and inheriting is the default.
     // The body is read first: it carries the impulse WORLD.Explosion2 just
     // applied, which the entity store has not seen.
-    float inherited[3] = {src->velocity[0], src->velocity[1], src->velocity[2]};
+    Vec3 inherited{src->velocity[0], src->velocity[1], src->velocity[2]};
     // Only while the body is still in the world - once DestroyItemFX has
     // disabled it, PO_Enable's snapshot in src->velocity is the truthful one.
     if (src->poEnabled && self->physics_ && src->physicsBody >= 0) {
-        float v[3];
+        Vec3 v;
         if (self->physics_->GetScriptBodyVelocity(src->physicsBody, v))
             for (int c = 0; c < 3; ++c) inherited[c] = v[c];
     }
-    float pos[3], rot[4];
+    Vec3 pos;
+    float rot[4];
     for (int c = 0; c < 3; ++c) pos[c] = src->pos[c];
     for (int c = 0; c < 4; ++c) rot[c] = src->rotWXYZ[c];
 
@@ -419,7 +420,7 @@ int EntityNatives::L_ENTITY_ExplodeItem(lua_State* L) {
         // modelled in place - a barrel's staves sit where they were before it
         // came apart - so each centre already points away from the middle, and
         // the wreck separates the way it was assembled.
-        float dir[3] = {0, 0, 0};
+        Vec3 dir;
         float len = 0.f;
         for (int c = 0; c < 3; ++c) {
             dir[c] = 0.5f * (object.bboxMin[c] + object.bboxMax[c]);
@@ -533,7 +534,7 @@ int EntityNatives::L_SetPosition(lua_State* L) {
     ScriptEngine* self = From(L);
     const int handle = HandleArg(L, 1);
     if (Entity* e = self->Find(handle)) {
-        const float p[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+        const Vec3 p{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
                             float(luaL_optnumber(L, 4, 0))};
         // A script can compute a NaN - divide a velocity by its own length
         // when that length is zero and every coordinate downstream is one -
@@ -631,7 +632,7 @@ int EntityNatives::L_SetOrientation(lua_State* L) {
 int EntityNatives::L_GetOrientation(lua_State* L) {
     ScriptEngine* self = From(L);
     const int handle = HandleArg(L, 1);
-    float fwd[3] = {0, 0, 1};
+    Vec3 fwd{0, 0, 1};
     if (self->pawn_ && handle == self->playerHandle_ && self->playerHandle_) {
         // The same basis CAM.GetForwardVector answers with.
         const float cp = std::cos(self->camPitch_);
@@ -639,7 +640,7 @@ int EntityNatives::L_GetOrientation(lua_State* L) {
         fwd[1] = std::sin(self->camPitch_);
         fwd[2] = std::sin(self->camYaw_) * cp;
     } else if (const Entity* e = self->Find(handle)) {
-        const float z[3] = {0, 0, 1};
+        const Vec3 z{0, 0, 1};
         EngineQuatRotate(e->rotWXYZ, z, fwd);
     } else {
         lua_pushnumber(L, 0);
@@ -690,9 +691,9 @@ int EntityNatives::L_PARTICLE_SetupEmitter(lua_State* L) {
     const size_t idx = size_t(luaL_optnumber(L, 2, -1));
     if (idx >= e->emitterSlots.size() || e->emitterSlots[idx] < 0) return 0;
 
-    const float offset[3] = {float(luaL_optnumber(L, 4, 0)), float(luaL_optnumber(L, 5, 0)),
+    const Vec3 offset{float(luaL_optnumber(L, 4, 0)), float(luaL_optnumber(L, 5, 0)),
                              float(luaL_optnumber(L, 6, 0))};
-    const float rotDeg[3] = {float(luaL_optnumber(L, 7, 0)), float(luaL_optnumber(L, 8, 0)),
+    const Vec3 rotDeg{float(luaL_optnumber(L, 7, 0)), float(luaL_optnumber(L, 8, 0)),
                              float(luaL_optnumber(L, 9, 0))};
     if (idx < e->emitterRecs.size()) {
         Entity::EmitterRec& rec = e->emitterRecs[idx];
@@ -768,7 +769,7 @@ int EntityNatives::L_EnableDraw(lua_State* L) {
 int EntityNatives::L_GetVelocity(lua_State* L) {
     ScriptEngine* self = From(L);
     const int handle = HandleArg(L, 1);
-    float v[3] = {0, 0, 0};
+    Vec3 v;
     // The player has no script body - it is the pawn - so its velocity comes
     // from there. Reading the entity store instead returns whatever last wrote
     // to it, which is nothing until something knocks the player back and then
@@ -799,7 +800,7 @@ int EntityNatives::L_GetVelocity(lua_State* L) {
 int EntityNatives::L_SetVelocity(lua_State* L) {
     ScriptEngine* self = From(L);
     const int handle = HandleArg(L, 1);
-    float v[3];
+    Vec3 v;
     for (int c = 0; c < 3; ++c) v[c] = float(luaL_optnumber(L, c + 2, 0));
     // The player is the pawn, not a script body, so it needs the same special
     // case GetVelocity has - JumpPad:OnEnter is nothing but this call, and
@@ -931,13 +932,14 @@ int EntityNatives::L_PO_IsFixed(lua_State* L) {
 // with a number by raising, so an unimplemented DistToLine did not merely skip
 // the beam - it threw out of PainKiller:OnUpdate every frame the head was out.
 int EntityNatives::L_R3D_DistToLine(lua_State* L) {
-    float p[3], a[3], b[3];
+    Vec3 p, a, b;
     for (int c = 0; c < 3; ++c) {
         p[c] = float(luaL_optnumber(L, 1 + c, 0));
         a[c] = float(luaL_optnumber(L, 4 + c, 0));
         b[c] = float(luaL_optnumber(L, 7 + c, 0));
     }
-    float ab[3], ap[3], len2 = 0.f, dot = 0.f;
+    Vec3 ab, ap;
+    float len2 = 0.f, dot = 0.f;
     for (int c = 0; c < 3; ++c) {
         ab[c] = b[c] - a[c];
         ap[c] = p[c] - a[c];
@@ -1045,7 +1047,8 @@ int EntityNatives::L_PO_SetMonsterType(lua_State* L) {
         //
         // A k of 0 keeps whatever shape the body already has; only the sizing
         // depends on the joint.
-        float k = 0.f, rootOffset[3] = {0.f, 0.f, 0.f};
+        float k = 0.f;
+        Vec3 rootOffset;
         self->MonsterBodyScale(*e, k, rootOffset);
         self->physics_->MakeScriptBodyCharacter(e->physicsBody, k, rootOffset);
         // Whatever the scripts set before the flag arrived.
@@ -1117,10 +1120,11 @@ int EntityNatives::L_ENTITY_ComputeChildMatrix(lua_State* L) {
     Entity* parent = self->Find(HandleArg(L, 2));
     if (!child || !parent) return 0;
     int joint = int(luaL_optnumber(L, 3, -1));
-    float basePos[3], baseRot[4];
+    Vec3 basePos;
+    float baseRot[4];
     bool ok = false;
     if (joint >= 0 && parent->type == kModel) {
-        const float zero[3] = {0, 0, 0};
+        const Vec3 zero;
         ok = self->JointToWorld(*parent, joint, zero, basePos) &&
              self->JointWorldRotation(*parent, joint, baseRot);
     }
@@ -1131,9 +1135,8 @@ int EntityNatives::L_ENTITY_ComputeChildMatrix(lua_State* L) {
     }
     // Inverse of a unit quaternion is its conjugate in any convention.
     const float inv[4] = {baseRot[0], -baseRot[1], -baseRot[2], -baseRot[3]};
-    const float delta[3] = {child->pos[0] - basePos[0], child->pos[1] - basePos[1],
-                            child->pos[2] - basePos[2]};
-    EngineQuatRotate(inv, delta, child->parentOffset);
+    const Vec3 delta = child->pos - AsVec3(basePos);
+    child->parentOffset = EngineQuatRotate(inv, delta);
     EngineQuatMul(inv, child->rotWXYZ, child->parentRotWXYZ);
     child->parentRotBound = true;
     child->parentBound = true;
@@ -1271,7 +1274,7 @@ void ScriptEngine::PlaceAttached(Entity& e) {
     // composed with the bound Euler - or the PARENT's rotation when no Euler
     // was given. Without a joint, the offset is rotated by the parent and the
     // rotation is the parent's composed with the Euler, if any.
-    float world[3];
+    Vec3 world;
     float rot[4];
     bool haveRot = false;
     if (e.parentJointIndex >= 0 && JointToWorld(*parent, e.parentJointIndex,
@@ -1287,7 +1290,7 @@ void ScriptEngine::PlaceAttached(Entity& e) {
             haveRot = true;
         }
     } else {
-        float turned[3];
+        Vec3 turned;
         EngineQuatRotate(parent->rotWXYZ, e.parentOffset, turned);
         for (int c = 0; c < 3; ++c) world[c] = parent->pos[c] + turned[c];
         if (e.parentRotBound) {

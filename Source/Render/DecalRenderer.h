@@ -31,7 +31,7 @@ public:
               TextureCache& textures);
 
     // The level fog, applied to decal colour as D3D's vertex fog did.
-    void SetFog(int mode, float start, float end, float density, const float color255[3]) {
+    void SetFog(int mode, float start, float end, float density, const Vec3& color255) {
         fog_[0] = float(mode); fog_[1] = start; fog_[2] = end; fog_[3] = density;
         for (int i = 0; i < 3; ++i) fogColor_[i] = color255[i] / 255.f;
         fogColor_[3] = 1.f;

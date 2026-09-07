@@ -28,7 +28,7 @@ public:
         // Model-space bounds of the meshes, for callers that need the shape
         // rather than the skeleton - a character radius is the horizontal
         // half-extent, and a T-posed humanoid's widest axis is its ARMS.
-        float lo[3] = {0, 0, 0}, hi[3] = {0, 0, 0};
+        Vec3 lo, hi;
         // The lowest vertex in the idle pose (first frame of idle / idle1),
         // or lo[1] when there is none. The body sizer measures from the
         // entity's local box, which is the POSED model's: the Giant's bind

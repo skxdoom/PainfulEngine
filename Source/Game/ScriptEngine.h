@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include "../Core/Vec3.h"
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -55,7 +56,7 @@ public:
         std::string mesh;           // pack object name (Mesh only)
         std::string name;           // the "Name:Tag" the script passed
         float scale = 1.f;
-        float pos[3] = {0, 0, 0};
+        Vec3 pos;
         float rotWXYZ[4] = {1, 0, 0, 0};
         bool visible = true;
         bool inWorld = false;       // WORLD.AddEntity was called
@@ -65,7 +66,7 @@ public:
         // A world-mesh object promoted to a rigid body (name has "phys"):
         // the index into map_.objects it was built from, -1 otherwise.
         int activeMesh = -1;
-        float activeOrigin[3] = {0, 0, 0};   // where it was built; PAINFUL_ACTIVE_TRACE
+        Vec3 activeOrigin;   // where it was built; PAINFUL_ACTIVE_TRACE
         int spriteSlot = -1;        // BillboardRenderer slot (Billboard type)
         // ParticleRenderer slots, indexed by the per-entity emitter index the
         // scripts hold (-1 entries when running headless).
@@ -76,8 +77,8 @@ public:
         struct EmitterRec {
             std::string file;
             float scale = 1.f;
-            float offset[3] = {0, 0, 0};
-            float rotDeg[3] = {0, 0, 0};
+            Vec3 offset;
+            Vec3 rotDeg;
             bool setup = false;
             bool evolveSet = false, evolve = false;
             bool stopped = false;
@@ -100,7 +101,7 @@ public:
         // anyway, so an AABB would be the wrong shape for it regardless.
         bool isRegion = false;
         bool playerInside = false;
-        float velocity[3] = {0, 0, 0};   // ENTITY.SetVelocity, for bodyless entities
+        Vec3 velocity;   // ENTITY.SetVelocity, for bodyless entities
         // ENTITY.RegisterChild: entities bound to this one, chiefly the looping
         // sounds BindSoundToEntity attaches. GetChildByName searches these by
         // SOUND name, which SND.Setup3D is what supplies.
@@ -160,7 +161,7 @@ public:
         // the player by measuring the distance to its gas cloud, so a cloud
         // left at the origin poisons anyone who spawns there.
         int parent = 0;                  // 0 = not bound to anything
-        float parentOffset[3] = {0, 0, 0};
+        Vec3 parentOffset;
         std::string parentJoint;         // empty = the parent's own transform
         int parentJointIndex = -2;       // -2 not resolved, -1 absent
         bool parentBound = false;        // SetParentOffset was called
@@ -220,15 +221,15 @@ public:
         // ENTITY.SetAngularVelocity: a world-space axis scaled by radians per
         // second (PhysicsObject::SetAngularVel, 0x10132260). The stake tumbles
         // nose-down with this once it starts to fall.
-        float angVel[3] = {0, 0, 0};
+        Vec3 angVel;
         // ENTITY.SetPosAndRotRelativeToCamera: a viewmodel, held in CAMERA
         // space. The world pose is re-derived from the final camera each frame
         // rather than baked once during the tick - the shake moves the eye
         // after the scripts have run, and a weapon placed from the older eye
         // jitters against the view by exactly the shake.
         bool viewAttached = false;
-        float viewOffset[3] = {0, 0, 0};
-        float viewAngles[3] = {0, 0, 0};
+        Vec3 viewOffset;
+        Vec3 viewAngles;
         // ENTITY.SetTimeToDie countdown in seconds; negative means no timer.
         float timeToDie = -1.f;
 
@@ -292,7 +293,7 @@ public:
         // screen: the blend in flight, frozen as local matrices, with the
         // root-motion offset it carried. Empty when the source is blendFrom.
         std::vector<Mat4> blendFromLocal;
-        float blendFromOffset[3] = {0.f, 0.f, 0.f};
+        Vec3 blendFromOffset;
 
         // MDL.ApplyJointRotation, one entry per bone the scripts steer. They
         // pass an absolute angle every frame (a gun recomputes its barrel
@@ -302,8 +303,8 @@ public:
         // animation and its time have not moved.
         std::vector<JointOverride> jointRot;
         int jointRotVersion = 0;
-        float regionMin[3] = {0, 0, 0};
-        float regionMax[3] = {0, 0, 0};
+        Vec3 regionMin;
+        Vec3 regionMax;
         // The Actions bitmask ENTITY.PO_SetAction stores on the physics
         // object (PlayerAction reads it from this+0x78). The mover consumes
         // only Act::MoveMask; the rest is the scripts talking to themselves
@@ -321,7 +322,7 @@ public:
         // ENTITY.PO_Move's vector (PhysicsObject+0x34), a VELOCITY: CActor
         // passes `mv * (1/delta)`. Forwarded to the character body; kept here
         // for an actor that has none yet.
-        float moveWish[3] = {0, 0, 0};
+        Vec3 moveWish;
         // ENTITY.PO_SetMonsterMovementConst's two arguments (0x10130920:
         // GetFloat(2, 0.5) to +0x6c, GetBool(3, false) to +0x70): the share of
         // solver-added velocity kept per tick, and "do not check floors".
@@ -379,8 +380,8 @@ public:
     // the ragdoll appears - which is exactly what the engine does, spending it
     // in Ragdoll::Activate via PhysicsObject::EffectRotateActor.
     float deathSpin = 0.f;              // PhysicsObject+0x40, yaw about Y
-    float deathImpulse[3] = {0, 0, 0};  // the linear part, from PO_Hit
-    float deathImpulseAt[3] = {0, 0, 0};
+    Vec3 deathImpulse;  // the linear part, from PO_Hit
+    Vec3 deathImpulseAt;
     bool hasDeathImpulse = false;
         // Model-space bone matrices read back from the solver. Full length -
         // the ragdoll only names a dozen or so bones and the rest have to
@@ -400,9 +401,9 @@ public:
 
         int fogMode = 0;
         float fogStart = 0.f, fogEnd = 90.f, fogDensity = 0.f;
-        float fogColor[3] = {0, 0, 0};          // 0-255
+        Vec3 fogColor;          // 0-255
         float farClip = 1024.f;
-        float ambient[3] = {128, 128, 128};     // 0-255
+        Vec3 ambient{128, 128, 128};     // 0-255
         // Cfg.Bloom (R3D.EnableBloom / ApplyVideoSettings, render flag 8) and
         // CLevel.BloomFX via WORLD.BloomFXParams. With bloom on and Multiplier
         // > 0 every particle and corona is drawn at DimScale. Particles.md.
@@ -563,7 +564,7 @@ public:
     // The per-limb hitboxes of every model near a point, posed and in world
     // space, as wireframe. What a shot SHOULD be tested against, drawn so it
     // can be compared against what it currently is tested against.
-    void CollectHitboxLines(const float around[3], float radius,
+    void CollectHitboxLines(const Vec3& around, float radius,
                             std::vector<DebugLine>& out);
     void PlaceViewAttached(Entity& entity);
     void TickTriggers();
@@ -580,7 +581,7 @@ public:
     // Registers a world-object entity for every water surface in the loaded map.
     void BuildWaterSurfaces();
     // Where the segment first crosses a water surface, if it does.
-    bool TraceWater(const float from[3], const float to[3], float& t, int& entity) const;
+    bool TraceWater(const Vec3& from, const Vec3& to, float& t, int& entity) const;
     // Bound 3D sounds: start the delayed ones, follow what they hang off.
     void StartBoundSound(Entity& e);
     void TickSounds(float dt);
@@ -592,7 +593,7 @@ public:
     // The sizer's working scalar k (0.2 * bodyScale, from the origin's height
     // above the model's lowest point) and the stack's sideways offset onto
     // the ROOOT joint; rootOffset[1] is always 0.
-    bool MonsterBodyScale(Entity& e, float& k, float rootOffset[3]);
+    bool MonsterBodyScale(Entity& e, float& k, Vec3& rootOffset);
 
     // Advances every entity's animation clock. Call once per frame BEFORE
     // the tick chain: CActor:Tick reads the time the same frame.
@@ -610,12 +611,12 @@ public:
     // Takes the pose the scripts last pushed through CAM.SetPos/SetAng, if
     // any, so the game loop can adopt it. Returns false when they have not
     // moved the camera since the last call.
-    bool TakeCameraPose(float pos[3], float& yaw, float& pitch);
+    bool TakeCameraPose(Vec3& pos, float& yaw, float& pitch);
 
     // The camera the CAM.* reads report (position, yaw and pitch in
     // radians). The game loop feeds it every frame; headless runs keep the
     // defaults.
-    void SetCameraPose(const float pos[3], float yaw, float pitch) {
+    void SetCameraPose(const Vec3& pos, float yaw, float pitch) {
         for (int i = 0; i < 3; ++i) camPos_[i] = pos[i];
         camYaw_ = yaw;
         camPitch_ = pitch;
@@ -686,17 +687,17 @@ private:
     // on the axes it declares. Both sides of a cross-fade need it.
     void CurveOffset(Entity& e, const SkeletonCache::Entry* skel, int slotIndex,
                      const std::vector<const AnimTrack*>& tracks, float time,
-                     float out[3]);
+                     Vec3& out);
 
     // Root motion for one animation slot over `delta` seconds, masked to the
     // axes its movement curve declares. Writes nothing when the slot has no
     // curve, which is the common case.
-    void AnimMovement(Entity& e, int index, float delta, float out[3]);
+    void AnimMovement(Entity& e, int index, float delta, Vec3& out);
     static int ResolveCurveBone(Entity::AnimSlot& slot, const SkeletonCache::Entry& skel);
 
     // Bone-local point to WORLD, through the entity's own transform. Used by
     // every joint query, so they cannot disagree about the entity's placement.
-    bool JointToWorld(Entity& e, int joint, const float local[3], float out[3]);
+    bool JointToWorld(Entity& e, int joint, const Vec3& local, Vec3& out);
     // The bone's orientation composed with the entity's own: a world rotation,
     // engine (w,x,y,z). False when the entity has no such bone.
     bool JointWorldRotation(Entity& e, int joint, float outWXYZ[4]);
@@ -726,8 +727,8 @@ private:
         int entity = 0;
         int joint = -1;
         float distance = 0.f;
-        float point[3] = {0, 0, 0};
-        float normal[3] = {0, 0, 0};
+        Vec3 point;
+        Vec3 normal;
     };
 
     // THE SHOOTING SHAPE, as opposed to the walking one.
@@ -743,7 +744,7 @@ private:
     // a NEGATIVE maxDistance for the whole segment.
     // ignoreEntity: skip that actor's limbs - the shooter, whose gun hand is
     // inside its own box (Havok reports no hit for a ray born inside a shape).
-    bool TraceLimbs(const float from[3], const float to[3], float maxDistance,
+    bool TraceLimbs(const Vec3& from, const Vec3& to, float maxDistance,
                     LimbHit& out, int ignoreEntity = 0);
 
     // An opaque body handle naming one limb of one actor - what the scripts
@@ -766,9 +767,9 @@ private:
     // Can `a` see `b`: range, then the sight cone, then an unobstructed line.
     bool Sees(int ha, Entity& a, int hb, Entity& b) const;
     // GetPawnHeadPos for anything: pawn eye, character head, or position.
-    void EyePoint(const Entity& e, int handle, float out[3]) const;
+    void EyePoint(const Entity& e, int handle, Vec3& out) const;
     static int TraceCommon(lua_State* L, bool staticOnly);
-    bool TraceRay(const float from[3], const float to[3], PhysicsWorld::RayHit& hit,
+    bool TraceRay(const Vec3& from, const Vec3& to, PhysicsWorld::RayHit& hit,
                   bool staticOnly) const;
     int EntityForBody(int bodySlot) const;
     // The body half of the intersection solver: keeps inSolver and the
@@ -806,12 +807,12 @@ private:
     // Projects a decal onto what it was spawned against: the target's map
     // object when it is a world object, else the object under the spawn
     // point, else every collidable object the box overlaps.
-    void BuildDecalGeometry(Entity& decal, int target, const float pos[3],
-                            const float normal[3]);
+    void BuildDecalGeometry(Entity& decal, int target, const Vec3& pos,
+                            const Vec3& normal);
     int SpawnDecalEntity(lua_State* L, bool oriented, const char* staticTexture);
     // The blast itself: collects what it reached, pushes it, and posts one
     // EXPLOSION per entity. Docs/Reference/Physics.md carries the falloff.
-    void Explosion(const float centre[3], float strength, float range,
+    void Explosion(const Vec3& centre, float strength, float range,
                    double killer, double attackType, float damage);
     static const Entity::AnimSlot* AnimSlotArg(const Entity* e, lua_State* L, int arg);
     // Promotes every "phys" object of the loaded map into a body and an
@@ -885,9 +886,9 @@ private:
     // CreatePlayerSP seats them at Lev.Pos.
     bool mouseLocked_ = false;
     bool camPoseDirty_ = false;
-    float camPos_[3] = {0, 0, 0};
+    Vec3 camPos_;
     float camYaw_ = 0.f, camPitch_ = 0.f;
-    float camDisplacement_[3] = {0, 0, 0};
+    Vec3 camDisplacement_;
     float playerSpeedOverride_ = -1.f;
     float jumpStrengthOverride_ = -1.f;
     std::string dataRoot_;
@@ -997,8 +998,8 @@ private:
     void HudResolveFont(const char* name, int size, std::string& outName,
                         int& outPixels) const;
 
-    float listenerPos_[3] = {0, 0, 0};
-    float listenerFwd_[3] = {0, 0, 1};
+    Vec3 listenerPos_;
+    Vec3 listenerFwd_{0, 0, 1};
 
     WaypointSet waypoints_;
     struct Route {

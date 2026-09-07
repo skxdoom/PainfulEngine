@@ -14,7 +14,7 @@ namespace painful {
 // The monster's BODY: three stacked spheres. k is the sizer's working unit
 // (0.2 * bodyScale) and rootOffset where the stack's centre sits relative to
 // the entity position.
-bool ScriptEngine::MonsterBodyScale(Entity& e, float& k, float rootOffset[3]) {
+bool ScriptEngine::MonsterBodyScale(Entity& e, float& k, Vec3& rootOffset) {
     // PhysicsWorld::CreatePhysicsObject (0x101999F0) for a scale argument <= 0:
     //
     //     pivot     = centre of the entity's local box (FUN_1000B250 = (min+max)/2),
@@ -47,7 +47,7 @@ bool ScriptEngine::MonsterBodyScale(Entity& e, float& k, float rootOffset[3]) {
     // and no "ROOOT" keeps the box centre sideways too.
     for (size_t i = 0; i < skel->bones.size(); ++i) {
         if (!EqualsCI(skel->bones[i].name, "ROOOT") || i >= skel->bindWorld.size()) continue;
-        float rootPos[3];
+        Vec3 rootPos;
         skel->bindWorld[i].TransformPoint(0.f, 0.f, 0.f, rootPos);
         rootOffset[0] = rootPos[0] * e.scale;
         rootOffset[2] = rootPos[2] * e.scale;
@@ -112,7 +112,7 @@ void ScriptEngine::TickMonsters(float dt) {
     // is simply overwritten before the first frame.
     if (!playerSpotDone_ && pawn_ && playerHandle_) {
         playerSpotDone_ = true;
-        float at[3];
+        Vec3 at;
         const char* spot = DebugText("PAINFUL_PLAYER_AT");
         if (spot && std::sscanf(spot, "%f,%f,%f", &at[0], &at[1], &at[2]) == 3) {
             pawn_->Spawn(at);
@@ -134,15 +134,15 @@ void ScriptEngine::TickMonsters(float dt) {
         if (dumpGround) {
             const SkeletonCache::Entry* s = skeletons_.Get(e.source);
             const float soles = e.pos[1] + (s ? s->lo[1] * e.scale : 0.f);
-            float floorPos[3] = {e.pos[0], e.pos[1], e.pos[2]};
-            float normal[3];
+            Vec3 floorPos{e.pos[0], e.pos[1], e.pos[2]};
+            Vec3 normal;
             physics_->CharacterFloorPos(e.physicsBody, floorPos);
             const bool onFloor = physics_->CharacterOnFloor(e.physicsBody, normal);
             PhysicsWorld::RayHit hit;
-            const float from[3] = {e.pos[0], e.pos[1] + 1.f, e.pos[2]};
-            const float to[3] = {e.pos[0], e.pos[1] - 30.f, e.pos[2]};
+            const Vec3 from{e.pos[0], e.pos[1] + 1.f, e.pos[2]};
+            const Vec3 to{e.pos[0], e.pos[1] - 30.f, e.pos[2]};
             const bool got = physics_->RayCast(from, to, hit, true);
-            float vel[3] = {0, 0, 0};
+            Vec3 vel;
             physics_->GetScriptBodyVelocity(e.physicsBody, vel);
             LogInfo("MONSTER %-12s pos=%8.3f scale=%.3f lo=%7.2f floorPos=%8.3f floor=%8.3f "
                     "soles=%8.3f soleGap=%+.3f onFloor=%d n=(%.2f %.2f %.2f) vy=%+.3f",

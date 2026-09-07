@@ -1,4 +1,5 @@
 // What is in a level: settings, entities, placement and the visibility graph.
+#include "Core/Vec3.h"
 #include "LevelStats.h"
 #include "Commands.h"
 
@@ -118,10 +119,10 @@ int EntitiesCmd(const char* levelDir, const char* dataRoot, const char* type) {
         return 0;
     }
 
-    float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+    Vec3 lo(1e30f), hi(-1e30f);
     for (const MapObject& o : level.map().objects) {
         for (size_t i = 0; i < o.vertexCount(); ++i) {
-            float p[3];
+            Vec3 p;
             o.position(i, p);
             for (int c = 0; c < 3; ++c) { if (p[c] < lo[c]) lo[c] = p[c]; if (p[c] > hi[c]) hi[c] = p[c]; }
         }
@@ -146,7 +147,7 @@ int EntitiesCmd(const char* levelDir, const char* dataRoot, const char* type) {
         float bx_ = 0, by_ = 0, bz_ = 0;
         for (const MapObject& o : level.map().objects) {
             for (size_t i = 0; i < o.vertexCount(); ++i) {
-                float p[3];
+                Vec3 p;
                 o.position(i, p);
                 double dx = p[0] - e.pos[0], dy = p[1] - e.pos[1], dz = p[2] - e.pos[2];
                 double d = dx * dx + dy * dy + dz * dz;
@@ -194,7 +195,7 @@ int FitCmd(const char* levelDir, const char* dataRoot) {
     std::vector<std::array<float, 3>> verts;
     for (const MapObject& o : level.map().objects) {
         for (size_t i = 0; i < o.vertexCount(); i += 8) {
-            float p[3];
+            Vec3 p;
             o.position(i, p);
             verts.push_back({p[0], p[1], p[2]});
         }
@@ -376,10 +377,10 @@ int LightingCmd(const char* levelDir, const char* dataRoot,
     LogInfo("%zu CLights, %zu CEnvironment boxes", lighting.lightCount(),
             lighting.environmentCount());
 
-    float pos[3] = {at[0], at[1], at[2]};
+    Vec3 pos = AsVec3(at);
     EntityLightFade fade;
     EntityLightState lit;
-    lighting.Evaluate(pos, eye, 0.f, fade, lit);
+    lighting.Evaluate(pos, AsVec3(eye), 0.f, fade, lit);
     LogInfo("at (%.1f, %.1f, %.1f), eye (%.1f, %.1f, %.1f):", pos[0], pos[1], pos[2],
             eye[0], eye[1], eye[2]);
     LogInfo("  ambient   %.3f %.3f %.3f", lit.ambient[0], lit.ambient[1], lit.ambient[2]);
@@ -396,10 +397,10 @@ int LightingCmd(const char* levelDir, const char* dataRoot,
     }
     // What the fragment shader would end up multiplying a white texel by, for a
     // normal facing straight at the camera.
-    float toEye[3] = {eye[0] - pos[0], eye[1] - pos[1], eye[2] - pos[2]};
+    Vec3 toEye = {eye[0] - pos[0], eye[1] - pos[1], eye[2] - pos[2]};
     const float n = std::sqrt(toEye[0] * toEye[0] + toEye[1] * toEye[1] + toEye[2] * toEye[2]);
     if (n > 1e-4f) for (int i = 0; i < 3; ++i) toEye[i] /= n;
-    float diffuse[3] = {lit.ambient[0], lit.ambient[1], lit.ambient[2]};
+    Vec3 diffuse = lit.ambient;
     for (int s = 0; s < kMaxEntityLights; ++s) {
         const EntityLightSlot& l = lit.slots[s];
         if (l.dir[3] < 0.5f) continue;
@@ -423,7 +424,7 @@ int ZonesCmd(const char* levelDir, const char* dataRoot,
             graph.portalCount(), ws);
     graph.Dump(ws);
     if (pos) {
-        const float raw[3] = {pos[0] / ws, pos[1] / ws, pos[2] / ws};
+        const Vec3 raw = AsVec3(pos) / ws;
         std::vector<int> zs;
         graph.ZonesAt(raw, zs);
         std::string s;
@@ -446,10 +447,10 @@ int GroundCmd(const char* levelDir, const char* dataRoot,
     for (const MapObject& o : level.map().objects) {
         if (o.nameHas("portal") || o.nameHas("antyp") || o.nameHas("zone")) continue;
         for (size_t i = 0; i < o.vertexCount(); ++i) {
-            float p[3], w[3];
+            Vec3 p, w;
             o.position(i, p);
-            o.transform.TransformPoint(p[0], p[1], p[2], w);
-            w[0] *= ws; w[1] *= ws; w[2] *= ws;
+            w = o.transform.TransformPoint(p);
+            w *= ws;
             const float dx = w[0] - x, dz = w[2] - z;
             if (dx * dx + dz * dz > r2 || w[1] > y) continue;
             if (w[1] > best) best = w[1];
@@ -471,7 +472,7 @@ int ScaleCmd(const char* levelDir, const char* dataRoot) {
     for (const MapObject& o : level.map().objects) {
         if (o.nameHas("portal") || o.nameHas("antyp") || o.nameHas("zone")) continue;
         for (size_t i = 0; i < o.vertexCount(); ++i) {
-            float p[3];
+            Vec3 p;
             o.position(i, p);
             const double dx = p[0] - start[0], dz = p[2] - start[2];
             if (dx * dx + dz * dz > 25.0) continue;      // within 5 units horizontally

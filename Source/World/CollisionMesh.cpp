@@ -29,7 +29,7 @@ void CollisionMesh::Build(const MapMesh& map, float worldScale) {
     for (const MapObject& o : map.objects) {
         if (!o.isCollidable()) continue;
         for (size_t t = 0; t + 2 < o.indices.size(); t += 3) {
-            float p[3][3];
+            Vec3 p[3];
             bool ok = true;
             for (int c = 0; c < 3; ++c) {
                 const size_t vi = o.indices[t + c];
@@ -40,17 +40,11 @@ void CollisionMesh::Build(const MapMesh& map, float worldScale) {
             // Map objects carry their own transform; every shipped map has it
             // at identity, but honouring it costs nothing and avoids a silent
             // wrong answer if one ever does not.
-            for (int c = 0; c < 3; ++c) {
-                float w[3];
-                o.transform.TransformPoint(p[c][0], p[c][1], p[c][2], w);
-                for (int a = 0; a < 3; ++a) p[c][a] = w[a] * worldScale;
-            }
+            for (int c = 0; c < 3; ++c) p[c] = o.transform.TransformPoint(p[c]) * worldScale;
             Tri tri;
-            for (int a = 0; a < 3; ++a) {
-                tri.v0[a] = p[0][a];
-                tri.e1[a] = p[1][a] - p[0][a];
-                tri.e2[a] = p[2][a] - p[0][a];
-            }
+            tri.v0 = p[0];
+            tri.e1 = p[1] - p[0];
+            tri.e2 = p[2] - p[0];
             tris_.push_back(tri);
         }
     }
@@ -75,14 +69,14 @@ uint32_t CollisionMesh::BuildNode(uint32_t begin, uint32_t end, int depth) {
     const uint32_t self = static_cast<uint32_t>(nodes_.size());
     nodes_.emplace_back();
 
-    float lo[3] = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
+    Vec3 lo = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
                    std::numeric_limits<float>::max()};
-    float hi[3] = {-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max(),
+    Vec3 hi = {-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max(),
                    -std::numeric_limits<float>::max()};
     for (uint32_t i = begin; i < end; ++i) {
         const Tri& t = tris_[i];
         for (int c = 0; c < 3; ++c) {
-            const float p[3] = {t.v0[c], t.v0[c] + t.e1[c], t.v0[c] + t.e2[c]};
+            const Vec3 p{t.v0[c], t.v0[c] + t.e1[c], t.v0[c] + t.e2[c]};
             for (int k = 0; k < 3; ++k) {
                 lo[c] = std::min(lo[c], p[k]);
                 hi[c] = std::max(hi[c], p[k]);
@@ -142,13 +136,13 @@ uint32_t CollisionMesh::BuildNode(uint32_t begin, uint32_t end, int depth) {
     return self;
 }
 
-bool CollisionMesh::Occluded(const float from[3], const float to[3]) const {
+bool CollisionMesh::Occluded(const Vec3& from, const Vec3& to) const {
     if (nodes_.empty()) return false;
 
-    float dir[3];
+    Vec3 dir;
     for (int c = 0; c < 3; ++c) dir[c] = to[c] - from[c];
 
-    float invDir[3];
+    Vec3 invDir;
     for (int c = 0; c < 3; ++c) {
         // A zero component would make the slab test 0*inf; the large finite
         // value keeps the comparisons well defined and still rejects.
@@ -186,7 +180,7 @@ bool CollisionMesh::Occluded(const float from[3], const float to[3]) const {
             const Tri& t = tris_[i];
             // Moller-Trumbore, two-sided: map geometry is single-sided but a
             // wall must block from either side.
-            float pv[3];
+            Vec3 pv;
             pv[0] = dir[1] * t.e2[2] - dir[2] * t.e2[1];
             pv[1] = dir[2] * t.e2[0] - dir[0] * t.e2[2];
             pv[2] = dir[0] * t.e2[1] - dir[1] * t.e2[0];
@@ -194,12 +188,12 @@ bool CollisionMesh::Occluded(const float from[3], const float to[3]) const {
             if (std::fabs(det) < 1e-12f) continue;
             const float inv = 1.f / det;
 
-            float tv[3];
+            Vec3 tv;
             for (int c = 0; c < 3; ++c) tv[c] = from[c] - t.v0[c];
             const float u = (tv[0] * pv[0] + tv[1] * pv[1] + tv[2] * pv[2]) * inv;
             if (u < 0.f || u > 1.f) continue;
 
-            float qv[3];
+            Vec3 qv;
             qv[0] = tv[1] * t.e1[2] - tv[2] * t.e1[1];
             qv[1] = tv[2] * t.e1[0] - tv[0] * t.e1[2];
             qv[2] = tv[0] * t.e1[1] - tv[1] * t.e1[0];

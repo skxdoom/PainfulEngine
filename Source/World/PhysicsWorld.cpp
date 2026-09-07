@@ -112,7 +112,7 @@ void PhysicsWorld::SetPawnProbeRadius(float radius) {
     CreatePawnProbe();
 }
 
-void PhysicsWorld::SetScriptBodyAngularVelocity(int slot, const float w[3]) {
+void PhysicsWorld::SetScriptBodyAngularVelocity(int slot, const Vec3& w) {
     if (!ScriptBodyExists(slot) || !impl_->scriptBodies[size_t(slot)].inWorld) return;
     impl_->system.GetBodyInterface().SetAngularVelocity(impl_->scriptBodies[size_t(slot)].body,
                                                         JPH::Vec3(w[0], w[1], w[2]));
@@ -120,7 +120,7 @@ void PhysicsWorld::SetScriptBodyAngularVelocity(int slot, const float w[3]) {
 
 // Same contract as MoveProbe: aimed here, driven inside the fixed step, and
 // teleported rather than swept across a jump that is really a respawn.
-void PhysicsWorld::MovePawnProbe(const float pos[3], bool push) {
+void PhysicsWorld::MovePawnProbe(const Vec3& pos, bool push) {
     float jump = 0.f;
     for (int c = 0; c < 3; ++c) {
         const float d = pos[c] - impl_->pawnProbePos[c];
@@ -136,7 +136,7 @@ void PhysicsWorld::MovePawnProbe(const float pos[3], bool push) {
     }
 }
 
-void PhysicsWorld::MoveProbe(const float pos[3], bool push) {
+void PhysicsWorld::MoveProbe(const Vec3& pos, bool push) {
     float jump = 0.f;
     for (int c = 0; c < 3; ++c) {
         const float d = pos[c] - impl_->probePos[c];
@@ -223,11 +223,11 @@ bool PhysicsWorld::BuildStaticWorld(const MapMesh& map, float worldScale,
         if (promoteActiveMeshes && (o.isActiveMesh() || o.isStaticTwin())) continue;
         const JPH::uint32 base = static_cast<JPH::uint32>(vertices.size());
         for (size_t v = 0; v < o.vertexCount(); ++v) {
-            float p[3], w[3];
+            Vec3 p, w;
             o.position(v, p);
             // Every shipped map has this at identity, but honouring it costs
             // nothing and avoids a silent wrong answer if one ever does not.
-            o.transform.TransformPoint(p[0], p[1], p[2], w);
+            w = o.transform.TransformPoint(p);
             vertices.push_back(JPH::Float3(w[0] * worldScale, w[1] * worldScale,
                                            w[2] * worldScale));
         }

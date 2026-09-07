@@ -278,7 +278,7 @@ int BillboardRenderer::SetupScriptCorona(int slot, const float args[9],
     return slot;
 }
 
-void BillboardRenderer::SetScriptSpritePos(int slot, const float pos[3]) {
+void BillboardRenderer::SetScriptSpritePos(int slot, const Vec3& pos) {
     if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < sprites_.size(),
                        "BillboardRenderer: sprite slot %d of %zu", slot, sprites_.size()))
         return;
@@ -313,7 +313,7 @@ void BillboardRenderer::Update(const Camera& camera, float dt, const CollisionMe
             continue;
         }
 
-        float delta[3];
+        Vec3 delta;
         for (int i = 0; i < 3; ++i) delta[i] = s.pos[i] - camera.pos[i];
         s.distance = std::sqrt(delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]);
 
@@ -326,11 +326,11 @@ void BillboardRenderer::Update(const Camera& camera, float dt, const CollisionMe
                 // The segment stops TraceMargin short of the billboard so the
                 // surface a lamp is mounted on does not occlude its own corona.
                 const float inv = s.distance > 1e-6f ? 1.f / s.distance : 0.f;
-                const float dir[3] = {delta[0] * inv, delta[1] * inv, delta[2] * inv};
-                const float from[3] = {camera.pos[0] + dir[0] * kTraceStartOffset,
+                const Vec3 dir{delta[0] * inv, delta[1] * inv, delta[2] * inv};
+                const Vec3 from{camera.pos[0] + dir[0] * kTraceStartOffset,
                                        camera.pos[1] + dir[1] * kTraceStartOffset,
                                        camera.pos[2] + dir[2] * kTraceStartOffset};
-                const float to[3] = {s.pos[0] - dir[0] * s.traceMargin,
+                const Vec3 to{s.pos[0] - dir[0] * s.traceMargin,
                                      s.pos[1] - dir[1] * s.traceMargin,
                                      s.pos[2] - dir[2] * s.traceMargin};
                 s.blocked = collision.Occluded(from, to);
@@ -362,7 +362,7 @@ void BillboardRenderer::Update(const Camera& camera, float dt, const CollisionMe
     }
 }
 
-void BillboardRenderer::DrawImmediate(const float pos[3], float size, float rot,
+void BillboardRenderer::DrawImmediate(const Vec3& pos, float size, float rot,
                                       uint32_t abgr, bgfx::TextureHandle texture) {
     Immediate s;
     for (int c = 0; c < 3; ++c) s.pos[c] = pos[c];
@@ -373,7 +373,7 @@ void BillboardRenderer::DrawImmediate(const float pos[3], float size, float rot,
     immediate_.push_back(s);
 }
 
-void BillboardRenderer::DrawBeamImmediate(const float a[3], const float b[3], float width,
+void BillboardRenderer::DrawBeamImmediate(const Vec3& a, const Vec3& b, float width,
                                           uint32_t abgr, bgfx::TextureHandle texture) {
     Beam beam;
     for (int c = 0; c < 3; ++c) { beam.a[c] = a[c]; beam.b[c] = b[c]; }
@@ -391,9 +391,9 @@ void BillboardRenderer::Draw(bgfx::ViewId view, const Camera& camera) {
         return;
     }
 
-    float forward[3], right[3], up[3];
-    camera.Forward(forward);
-    camera.Right(right);
+    const Vec3 forward = camera.Forward();
+    const Vec3 right = camera.Right();
+    Vec3 up;
     up[0] = right[1] * forward[2] - right[2] * forward[1];
     up[1] = right[2] * forward[0] - right[0] * forward[2];
     up[2] = right[0] * forward[1] - right[1] * forward[0];
@@ -418,7 +418,7 @@ void BillboardRenderer::Draw(bgfx::ViewId view, const Camera& camera) {
         const uint32_t abgr = (static_cast<uint32_t>(a < 0 ? 0 : (a > 255 ? 255 : a)) << 24) |
                               (dim(s.b) << 16) | (dim(s.g) << 8) | dim(s.r);
 
-        float rx[3], uy[3];
+        Vec3 rx, uy;
         for (int k = 0; k < 3; ++k) {
             rx[k] = right[k] * s.curSize;
             uy[k] = up[k] * s.curSize;
@@ -474,7 +474,7 @@ void BillboardRenderer::Draw(bgfx::ViewId view, const Camera& camera) {
         // script passes: consecutive flashes are the same texture at a
         // different angle, and without it a burst looks like one frozen image.
         const float c = std::cos(s.rot), sn = std::sin(s.rot);
-        float rx[3], uy[3];
+        Vec3 rx, uy;
         for (int k = 0; k < 3; ++k) {
             rx[k] = (right[k] * c + up[k] * sn) * s.size;
             uy[k] = (up[k] * c - right[k] * sn) * s.size;
@@ -519,24 +519,24 @@ void BillboardRenderer::Draw(bgfx::ViewId view, const Camera& camera) {
         if (bgfx::getAvailTransientVertexBuffer(4, layout_) < 4) break;
         if (bgfx::getAvailTransientIndexBuffer(6) < 6) break;
 
-        float axis[3] = {beam.b[0] - beam.a[0], beam.b[1] - beam.a[1], beam.b[2] - beam.a[2]};
+        Vec3 axis{beam.b[0] - beam.a[0], beam.b[1] - beam.a[1], beam.b[2] - beam.a[2]};
         const float len = std::sqrt(axis[0]*axis[0] + axis[1]*axis[1] + axis[2]*axis[2]);
         if (len < 1e-5f) continue;
         for (int c = 0; c < 3; ++c) axis[c] /= len;
 
         // Toward the eye from the middle of the segment.
-        const float mid[3] = {(beam.a[0] + beam.b[0]) * 0.5f, (beam.a[1] + beam.b[1]) * 0.5f,
+        const Vec3 mid{(beam.a[0] + beam.b[0]) * 0.5f, (beam.a[1] + beam.b[1]) * 0.5f,
                               (beam.a[2] + beam.b[2]) * 0.5f};
-        float toEye[3] = {camera.pos[0] - mid[0], camera.pos[1] - mid[1],
+        Vec3 toEye = {camera.pos[0] - mid[0], camera.pos[1] - mid[1],
                           camera.pos[2] - mid[2]};
-        float side[3] = {axis[1]*toEye[2] - axis[2]*toEye[1],
+        Vec3 side = {axis[1]*toEye[2] - axis[2]*toEye[1],
                          axis[2]*toEye[0] - axis[0]*toEye[2],
                          axis[0]*toEye[1] - axis[1]*toEye[0]};
         float sideLen = std::sqrt(side[0]*side[0] + side[1]*side[1] + side[2]*side[2]);
         if (sideLen < 1e-5f) {
             // Looking straight down the beam: any perpendicular will do, and
             // the quad is edge-on anyway.
-            const float alt[3] = {axis[1], axis[2], axis[0]};
+            const Vec3 alt{axis[1], axis[2], axis[0]};
             side[0] = axis[1]*alt[2] - axis[2]*alt[1];
             side[1] = axis[2]*alt[0] - axis[0]*alt[2];
             side[2] = axis[0]*alt[1] - axis[1]*alt[0];

@@ -1,4 +1,5 @@
 #pragma once
+#include "../Core/Vec3.h"
 #include "Level.h"
 #include "Templates.h"
 #include <string>
@@ -46,7 +47,7 @@ struct EntityLightSlot {
 
 // Everything a model needs for one frame.
 struct EntityLightState {
-    float ambient[3] = {0, 0, 0};              // 0..1
+    Vec3 ambient;                              // 0..1
     // The directional is not carried here - it goes through the slots, the
     // way Entity::ResetLights AddLight()s it. EntityLightFade keeps its
     // faded colour and direction between frames.
@@ -58,9 +59,9 @@ struct EntityLightState {
 // the environment it is entering rather than snapping.
 struct EntityLightFade {
     bool primed = false;
-    float ambient[3] = {0, 0, 0};
-    float dirColor[3] = {0, 0, 0};
-    float dirDir[3] = {0, 1, 0};
+    Vec3 ambient;
+    Vec3 dirColor;
+    Vec3 dirDir{0, 1, 0};
 };
 
 class EntityLighting {
@@ -73,14 +74,14 @@ public:
     void Clear();
     // The world ambient the scripts set through WORLD.AmbientColor (0-255),
     // which is what Entity::GetEnvironmentAmbient falls back to.
-    void SetLevelAmbient(const float rgb255[3]) {
+    void SetLevelAmbient(const Vec3& rgb255) {
         for (int i = 0; i < 3; ++i) levelAmbient_[i] = rgb255[i] / 255.f;
     }
 
     // Lights the entity at pos, seen from camPos. fade carries the environment
     // cross-fade between calls; dt is the frame time in seconds. Pass a fade
     // block per entity, or a throwaway one to snap.
-    void Evaluate(const float pos[3], const float camPos[3], float dt,
+    void Evaluate(const Vec3& pos, const Vec3& camPos, float dt,
                   EntityLightFade& fade, EntityLightState& out) const;
 
     size_t lightCount() const { return lights_.size(); }
@@ -92,9 +93,9 @@ private:
 
     struct Light {
         int type = kPoint;
-        float pos[3] = {0, 0, 0};
-        float dir[3] = {0, -1, 0};
-        float color[3] = {1, 1, 1};      // 0..1
+        Vec3 pos;
+        Vec3 dir{0, -1, 0};
+        Vec3 color{1, 1, 1};             // 0..1
         float intensity = 1.f;
         // Light::GetAttIntensity: full brightness within startFalloff, zero
         // past range, linear between. The engine stores range first.
@@ -107,29 +108,29 @@ private:
     // A CEnvironment: an axis-aligned box that overwrites the lighting of
     // entities inside it. Cathedral places 50.
     struct Environment {
-        float lo[3] = {0, 0, 0}, hi[3] = {0, 0, 0};
+        Vec3 lo, hi;
         bool ambientOverwrite = false, dirOverwrite = false;
         // Which fields the file actually declared - see the Overwrite note in
         // Build. Anything unstated keeps the level's own value.
         bool hasAmbient = false, hasDirColor = false, hasDirDir = false;
-        float ambient[3] = {0, 0, 0};
-        float dirColor[3] = {0, 0, 0};
-        float dirDir[3] = {0, -1, 0};
+        Vec3 ambient;
+        Vec3 dirColor;
+        Vec3 dirDir{0, -1, 0};
         float dirIntensity = 1.f;
         float fadeTime = 0.f;
         float volume = 0.f;              // smallest box wins
     };
 
     // Light::GetAttIntensity - the value AddLight sorts the four slots by.
-    float AttIntensity(const Light& l, const float pos[3]) const;
-    const Environment* Innermost(const float pos[3]) const;
+    float AttIntensity(const Light& l, const Vec3& pos) const;
+    const Environment* Innermost(const Vec3& pos) const;
 
     std::vector<Light> lights_;
     std::vector<Environment> environments_;
-    float levelAmbient_[3] = {0, 0, 0};
-    float levelDirColor_[3] = {0, 0, 0};
+    Vec3 levelAmbient_;
+    Vec3 levelDirColor_;
     float levelDirIntensity_ = 1.f;
-    float levelDirDir_[3] = {0, -1, 0};
+    Vec3 levelDirDir_{0, -1, 0};
 };
 
 } // namespace painful

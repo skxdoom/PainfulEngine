@@ -1,12 +1,13 @@
 #pragma once
 #include <cmath>
+#include "../Core/Vec3.h"
 
 namespace painful {
 
 // Simple fly camera: yaw/pitch look with WASD movement. Enough to inspect a
 // level; the real player controller will come from the game scripts later.
 struct Camera {
-    float pos[3] = {0.f, 0.f, 0.f};
+    Vec3 pos;
     float yaw = 0.f;      // radians, around world up
     float pitch = 0.f;    // radians, clamped to avoid gimbal flip
     float fovDegrees = 70.f;
@@ -28,18 +29,16 @@ struct Camera {
     // it by four for crossing a level.
     float moveSpeed = 30.f;
 
-    void Forward(float out[3]) const {
+    // The view axes. Returned rather than written through an out-parameter -
+    // every caller wants the value.
+    Vec3 Forward() const {
         const float cp = std::cos(pitch);
-        out[0] = std::cos(yaw) * cp;
-        out[1] = std::sin(pitch);
-        out[2] = std::sin(yaw) * cp;
+        return Vec3(std::cos(yaw) * cp, std::sin(pitch), std::sin(yaw) * cp);
     }
 
-    void Right(float out[3]) const {
+    Vec3 Right() const {
         // cross(forward, up) in a right-handed system.
-        out[0] = -std::sin(yaw);
-        out[1] = 0.f;
-        out[2] = std::cos(yaw);
+        return Vec3(-std::sin(yaw), 0.f, std::cos(yaw));
     }
 
     void Look(float deltaYaw, float deltaPitch) {
@@ -51,10 +50,7 @@ struct Camera {
     }
 
     void Move(float forwardAmount, float rightAmount, float upAmount) {
-        float f[3], r[3];
-        Forward(f);
-        Right(r);
-        for (int i = 0; i < 3; ++i) pos[i] += f[i] * forwardAmount + r[i] * rightAmount;
+        pos += Forward() * forwardAmount + Right() * rightAmount;
         pos[1] += upAmount;
     }
 };

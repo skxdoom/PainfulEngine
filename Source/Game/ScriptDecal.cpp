@@ -44,7 +44,7 @@ Mat4 WorldObjectToWorld(const MapObject& o, float scale, const ScriptEngine::Ent
     return Mat4::Mul(Mat4::Mul(m, back), r);
 }
 
-void ReadVec(lua_State* L, int first, float out[3]) {
+void ReadVec(lua_State* L, int first, Vec3& out) {
     for (int c = 0; c < 3; ++c) out[c] = float(luaL_optnumber(L, first + c, 0));
 }
 
@@ -66,7 +66,7 @@ int ScriptEngine::SpawnDecalEntity(lua_State* L, bool oriented, const char* stat
         return 1;
     }
     const std::string name = staticTexture ? "static" : luaL_optstring(L, 2, "");
-    float pos[3], n[3];
+    Vec3 pos, n;
     ReadVec(L, 3, pos);
     ReadVec(L, 6, n);
     float scale = 1.f;
@@ -81,7 +81,7 @@ int ScriptEngine::SpawnDecalEntity(lua_State* L, bool oriented, const char* stat
     for (int c = 0; c < 3; ++c) e.pos[c] = pos[c];
     e.decalSlot = decals_.Create(decalLib_.Get(name), scale);
     if (oriented || staticTexture) {
-        float up[3], right[3];
+        Vec3 up, right;
         ReadVec(L, 9, up);
         if (staticTexture) {
             ReadVec(L, 12, right);
@@ -121,8 +121,8 @@ int ScriptEngine::SpawnDecalEntity(lua_State* L, bool oriented, const char* stat
     return 1;
 }
 
-void ScriptEngine::BuildDecalGeometry(Entity& decal, int target, const float pos[3],
-                                      const float normal[3]) {
+void ScriptEngine::BuildDecalGeometry(Entity& decal, int target, const Vec3& pos,
+                                      const Vec3& normal) {
     const int slot = decal.decalSlot;
     if (slot < 0 || !mapLoaded_) return;
     auto worldObject = [&](const Entity* we) {
@@ -153,7 +153,7 @@ void ScriptEngine::BuildDecalGeometry(Entity& decal, int target, const float pos
     // along the normal - the contact and the line trace both leave the point
     // on that surface.
     if (physics_) {
-        float from[3], to[3];
+        Vec3 from, to;
         for (int c = 0; c < 3; ++c) {
             from[c] = pos[c] + normal[c] * 0.25f;
             to[c] = pos[c] - normal[c] * 0.25f;
@@ -197,7 +197,7 @@ int DecalNatives::L_ENTITY_UpdateDecal(lua_State* L) {
     Entity* d = self->Find(HandleArg(L, 2));
     if (d == nullptr || d->decalSlot < 0) return 0;
     if (target != 0 && self->Find(target) == nullptr) return 0;
-    float pos[3], n[3];
+    Vec3 pos, n;
     ReadVec(L, 3, pos);
     ReadVec(L, 6, n);
     for (int c = 0; c < 3; ++c) d->pos[c] = pos[c];

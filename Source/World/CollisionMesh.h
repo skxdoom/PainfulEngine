@@ -1,4 +1,5 @@
 #pragma once
+#include "../Core/Vec3.h"
 #include "../Assets/Mpk.h"
 #include <cstdint>
 #include <vector>
@@ -28,7 +29,7 @@ public:
     // True when the segment hits anything solid. There is no hit position:
     // the corona test only asks "is the line of sight clear?", and stopping at
     // the first hit is much cheaper than finding the nearest one.
-    bool Occluded(const float from[3], const float to[3]) const;
+    bool Occluded(const Vec3& from, const Vec3& to) const;
 
     bool empty() const { return tris_.empty(); }
     size_t triangleCount() const { return tris_.size(); }
@@ -37,12 +38,12 @@ public:
 private:
     // Edge form, ready for Moller-Trumbore without touching the vertex array.
     struct Tri {
-        float v0[3], e1[3], e2[3];
+        Vec3 v0, e1, e2;
     };
     // Leaves carry a triangle run; interior nodes keep the left child adjacent
     // and store the right child's index, which is the usual flat layout.
     struct Node {
-        float lo[3], hi[3];
+        Vec3 lo, hi;
         uint32_t start = 0, count = 0, right = 0;
     };
 

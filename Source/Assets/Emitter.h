@@ -1,5 +1,6 @@
 #pragma once
 #include <map>
+#include "../Core/Vec3.h"
 #include <memory>
 #include <string>
 #include <vector>
@@ -76,25 +77,25 @@ struct EmitterParams {
     float spawnInterval = 0.01f;
     float killDistSq = 0.f;           // General.KillDist, squared on load
 
-    float editorPos[3] = {0, 0, 0};   // [EditorPosition] - authoring aid only
+    Vec3 editorPos;   // [EditorPosition] - authoring aid only
 
-    float posMin[3] = {-1, -1, -1};   // [PosRange]
-    float posMax[3] = {1, 1, 1};
+    Vec3 posMin{-1, -1, -1};   // [PosRange]
+    Vec3 posMax{1, 1, 1};
 
-    float velMin[3] = {-80, -6, 0};   // [Velocity] Min/Max
-    float velMax[3] = {-64, 6, 0};
+    Vec3 velMin{-80, -6, 0};   // [Velocity] Min/Max
+    Vec3 velMax{-64, 6, 0};
     // Acceleration.* writes BOTH ends of the range; AccelMax.* then overrides
     // the maximum, so a file with only Acceleration gets a constant.
-    float accelMin[3] = {0, -0.1f, 0};
-    float accelMax[3] = {0, -0.1f, 0};
+    Vec3 accelMin{0, -0.1f, 0};
+    Vec3 accelMax{0, -0.1f, 0};
 
     // [VelocityEnd] - the velocity a particle blends towards. Defaults to the
     // matching [Velocity] value, which makes the blend a no-op.
-    float velEndMin[3] = {-80, -6, 0};
-    float velEndMax[3] = {-64, 6, 0};
+    Vec3 velEndMin{-80, -6, 0};
+    Vec3 velEndMax{-64, 6, 0};
 
-    float colorMin[3] = {0.5f, 0.1f, 0};   // [Color] Min/Max, 0..1 linear
-    float colorMax[3] = {1.f, 0.5f, 0};
+    Vec3 colorMin{0.5f, 0.1f, 0};   // [Color] Min/Max, 0..1 linear
+    Vec3 colorMax{1.f, 0.5f, 0};
     float alphaMin = 0.8f, alphaMax = 0.f;
     float alphaMid = 0.f;             // defaults to AlphaMax when absent
     // Fade and velocity-blend timings are PERCENTAGES of a particle's life.
@@ -132,8 +133,8 @@ struct ParticleFxDef {
     struct Ref {
         std::string file;                  // emitter .ini name
         float scale = 1.f;
-        float position[3] = {0, 0, 0};     // emitter-space offset from the entity
-        float rotation[3] = {0, 0, 0};     // degrees, euler
+        Vec3 position;     // emitter-space offset from the entity
+        Vec3 rotation;     // degrees, euler
     };
     std::string name;
     std::vector<Ref> emitters;

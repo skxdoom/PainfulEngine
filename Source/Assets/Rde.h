@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include "../Core/Vec3.h"
 #include <vector>
 
 #include "../Core/Common.h"
@@ -44,8 +45,8 @@ struct Ragdoll {
 struct LimbBounds {
     int bone = -1;
     std::string name;
-    float min[3] = {0, 0, 0};
-    float max[3] = {0, 0, 0};
+    Vec3 min;
+    Vec3 max;
     size_t vertices = 0;        // how many the bone actually drives
 
     float extent(int axis) const { return max[axis] - min[axis]; }

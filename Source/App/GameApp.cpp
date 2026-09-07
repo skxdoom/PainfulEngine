@@ -67,8 +67,7 @@ namespace painful {
 // left-handed. The debug overlays have to agree with what was drawn or the
 // nameplates sit next to the things they name.
 static void BuildViewProj(const Camera& camera, int width, int height, float out[16]) {
-    float forward[3];
-    camera.Forward(forward);
+    const Vec3 forward = camera.Forward();
     const bx::Vec3 eye = {camera.pos[0], camera.pos[1], camera.pos[2]};
     const bx::Vec3 at = {camera.pos[0] + forward[0], camera.pos[1] + forward[1],
                          camera.pos[2] + forward[2]};
@@ -89,7 +88,7 @@ static void BuildViewProj(const Camera& camera, int width, int height, float out
 // near zero and x/w is enormous - the label does not go quietly off-screen, it
 // sweeps across it as the camera turns. The clip-space test is the same one
 // the rasteriser uses: |x| <= w and |y| <= w.
-static bool ProjectToScreen(const float world[3], const float viewProj[16],
+static bool ProjectToScreen(const Vec3& world, const float viewProj[16],
                             int width, int height, float out[2]) {
     float clip[4];
     for (int c = 0; c < 4; ++c)
@@ -371,7 +370,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
     // the player at Lev.Pos, and locking any earlier inverts the
     // synchronise, so the level records our camera instead of pushing its
     // own pose and the player spawns at the world origin.
-    float seatPos[3] = {0, 0, 0};
+    Vec3 seatPos = {0, 0, 0};
     float seatYaw = 0.f, seatPitch = 0.f;
     const bool seated = engine.TakeCameraPose(seatPos, seatYaw, seatPitch);
     if (seated)
@@ -737,11 +736,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
         } else {
             // No player yet: the free camera flies but slides along the
             // world, as in the hand-driven path.
-            float f[3], r[3], delta[3];
-            camera.Forward(f);
-            camera.Right(r);
-            for (int c = 0; c < 3; ++c) delta[c] = f[c] * fwd + r[c] * right;
-            delta[1] += up;
+            const Vec3 f = camera.Forward();
+            const Vec3 r = camera.Right();
+            Vec3 delta = f * fwd + r * right;
+            delta.y += up;
             physics.SlideSphere(camera.pos, delta, kCameraRadius);
         }
         // The camera's pusher is a free-camera affordance; in play the pawn's
@@ -820,7 +818,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
             // and touches nothing, so without a body the pawn walks through
             // corpses and loose props without either noticing.
             {
-                float centre[3];
+                Vec3 centre;
                 const float* h = pawn.headPos();
                 for (int c = 0; c < 3; ++c) centre[c] = h[c];
                 centre[1] -= 0.9f;      // head is centre + 0.9, per GetPawnHeadPos
@@ -1026,14 +1024,14 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
                 const auto& e = kv.second;
                 if (e.physicsBody >= 0) continue;      // already drawn, in its own colour
                 if (e.type != ScriptEngine::kMesh && e.type != ScriptEngine::kModel) continue;
-                float d[3];
+                Vec3 d;
                 for (int c = 0; c < 3; ++c) d[c] = e.pos[c] - camera.pos[c];
                 if (d[0]*d[0] + d[1]*d[1] + d[2]*d[2] >
                     kPhysicsDebugRadius * kPhysicsDebugRadius) continue;
 
                 constexpr float kHalf = 0.35f;
-                const float lo[3] = {e.pos[0] - kHalf, e.pos[1] - kHalf, e.pos[2] - kHalf};
-                const float hi[3] = {e.pos[0] + kHalf, e.pos[1] + kHalf, e.pos[2] + kHalf};
+                const Vec3 lo{e.pos[0] - kHalf, e.pos[1] - kHalf, e.pos[2] - kHalf};
+                const Vec3 hi{e.pos[0] + kHalf, e.pos[1] + kHalf, e.pos[2] + kHalf};
                 // The twelve edges of the box, as pairs of corner indices.
                 static const int kEdges[12][2] = {{0,1},{1,3},{3,2},{2,0}, {4,5},{5,7},
                                                   {7,6},{6,4}, {0,4},{1,5},{2,6},{3,7}};
@@ -1070,7 +1068,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
             std::vector<Plate> plates;
             for (const auto& kv : engine.entities()) {
                 const auto& e = kv.second;
-                float d[3];
+                Vec3 d;
                 for (int c = 0; c < 3; ++c) d[c] = e.pos[c] - camera.pos[c];
                 const float distSq = d[0]*d[0] + d[1]*d[1] + d[2]*d[2];
                 if (distSq > kNameplateRadius * kNameplateRadius) continue;

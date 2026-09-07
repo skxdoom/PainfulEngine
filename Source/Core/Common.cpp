@@ -86,7 +86,7 @@ void EngineQuatMul(const float a[4], const float b[4], float out[4]) {
 // their VectorRotateByQuat is our inverse rotation and vice versa. Getting it
 // the textbook way round leaves a rotation roughly fixed in world space while
 // whatever it should follow turns underneath it.
-void EngineQuatRotate(const float q[4], const float v[3], float out[3]) {
+void EngineQuatRotate(const float q[4], const Vec3& v, Vec3& out) {
     const float vq[4] = {0.f, v[0], v[1], v[2]};
     const float inv[4] = {q[0], -q[1], -q[2], -q[3]};
     float t[4], r[4];

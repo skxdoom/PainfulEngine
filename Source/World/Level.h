@@ -1,5 +1,6 @@
 #pragma once
 #include "../Assets/Mpk.h"
+#include "../Core/Vec3.h"
 #include "../Assets/Properties.h"
 #include <string>
 #include <vector>
@@ -13,7 +14,7 @@ struct Entity {
     std::string type;        // "CItem", "CLight", "CSpawnPoint", ...
     std::string name;        // file stem
     std::string baseObj;     // template this instance derives from
-    float pos[3] = {0, 0, 0};
+    Vec3 pos;
     Properties props;        // everything the file declared
 };
 
@@ -42,8 +43,8 @@ struct SkyLayer {
 struct WaterInfo {
     float fresnelBias = 0.f;
     float fresnelExponent = 2.f;
-    float deepColor[3] = {150.f, 150.f, 100.f};      // 0..255, as authored
-    float shallowColor[3] = {100.f, 100.f, 100.f};
+    Vec3 deepColor{150.f, 150.f, 100.f};      // 0..255, as authored
+    Vec3 shallowColor{100.f, 100.f, 100.f};
     float bumpHeight = 0.05f;                        // normal-map strength
     float waveAmplitude = 1.f, waveFrequency = 1.f, waveSpeed = 1.f;
     float waterAmount = 1.f, reflectionAmount = 1.f;
@@ -67,14 +68,14 @@ struct LevelInfo {
     // CLevel.lua's class defaults: a level that states no Ambient gets 50,50,50
     // (Catacombs does), and Entity::GetEnvironmentAmbient (0x101D0CA0) falls
     // back to exactly that world ambient. Docs/Reference/Levels.md, "Lighting defaults".
-    float ambient[3] = {50, 50, 50};
+    Vec3 ambient{50, 50, 50};
     // o.DirLight - the level's own directional light, which every entity gets
     // unless a CEnvironment it stands in overwrites it. The world mesh does not
     // use this: its lighting is baked. Colour is 0..255 as authored.
-    float dirLightColor[3] = {150, 150, 100};
-    float dirLightDir[3] = {-0.7f, -0.7f, -0.7f};
+    Vec3 dirLightColor{150, 150, 100};
+    Vec3 dirLightDir{-0.7f, -0.7f, -0.7f};
     float dirLightIntensity = 1.f;
-    float fogColor[3] = {0, 0, 0};
+    Vec3 fogColor;
     // o.BloomFX - CLevel class defaults. With Cfg.Bloom on (the default) and
     // Multiplier > 0, sprites are drawn at DimScale. Particles.md, "Bloom dims".
     float bloomMultiplier = 1.f, bloomDimScale = 0.8f;
@@ -86,8 +87,8 @@ struct LevelInfo {
     // fog ramp hide the cut.
     float farClip = 1024.f;
     float meshFriction = 0.7f;   // o.Physics.DefaultMeshFriction
-    float startPos[3] = {0, 0, 0};
-    float angles[3] = {0, 0, 0};    // o.Ang, degrees
+    Vec3 startPos;
+    Vec3 angles;    // o.Ang, degrees
     // Sky dome. The full version is four animated layers; we use the engine own
     // LowQuality fallback: a mesh plus a single texture and a yaw offset.
     std::string skyMap;             // o.SkyDome.LowQuality.Map

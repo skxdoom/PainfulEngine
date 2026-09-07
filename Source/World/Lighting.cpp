@@ -8,20 +8,19 @@ namespace {
 
 // Vec3::Normalized() rescales any non-zero length; the light directions were
 // written with a 1e-6 floor, so that floor is kept rather than widened.
-void Normalize(float v[3]) {
-    Vec3& d = AsVec3(v);
+void Normalize(Vec3& d) {
     if (d.LengthSq() > 1e-12f) d /= d.Length();
 }
 
-float Dist(const float a[3], const float b[3]) { return Distance(AsVec3(a), AsVec3(b)); }
+float Dist(const Vec3& a, const Vec3& b) { return Distance(AsVec3(a), AsVec3(b)); }
 
 // Colours are authored 0..255 in Color:New(...). Returns false when nothing in
 // the chain declares the key, which matters for CEnvironment: "Dark001" sets
 // DirLight.Overwrite and DirLight.Intensity but no colour, and means "the
 // level's light at half strength", not "black".
 bool ReadColor(TemplateCache& templates, const Properties& props, const std::string& base,
-               const std::string& key, float out[3]) {
-    float raw[3] = {out[0] * 255.f, out[1] * 255.f, out[2] * 255.f};
+               const std::string& key, Vec3& out) {
+    Vec3 raw = out * 255.f;
     bool found = true;
     if (!props.Vector3(key, raw)) {
         found = false;
@@ -37,12 +36,12 @@ bool ReadColor(TemplateCache& templates, const Properties& props, const std::str
             name = next;
         }
     }
-    if (found) for (int i = 0; i < 3; ++i) out[i] = raw[i] / 255.f;
+    if (found) out = raw / 255.f;
     return found;
 }
 
 bool ReadVector(TemplateCache& templates, const Properties& props, const std::string& base,
-                const std::string& key, float out[3]) {
+                const std::string& key, Vec3& out) {
     if (props.Vector3(key, out)) return true;
     std::string name = base;
     for (int hop = 0; hop < 8 && !name.empty(); ++hop) {
@@ -95,7 +94,7 @@ void EntityLighting::Build(const Level& level, TemplateCache& templates) {
                              e.props.Bool("IsFakeSpecular", false);
             l.color[0] = l.color[1] = l.color[2] = 1.f;
             ReadColor(templates, e.props, e.baseObj, "Color", l.color);
-            for (int i = 0; i < 3; ++i) l.pos[i] = e.pos[i];
+            l.pos = e.pos;
             e.props.Vector3("Pos", l.pos);
             ReadVector(templates, e.props, e.baseObj, "Direction", l.dir);
             Normalize(l.dir);
@@ -113,13 +112,13 @@ void EntityLighting::Build(const Level& level, TemplateCache& templates) {
         if (e.type != "CEnvironment") continue;
 
         Environment env;
-        float centre[3] = {e.pos[0], e.pos[1], e.pos[2]};
+        Vec3 centre = e.pos;
         e.props.Vector3("Pos", centre);
         const float w = float(templates.ResolveNumber(e.props, e.baseObj, "Size.Width", 0.0));
         const float h = float(templates.ResolveNumber(e.props, e.baseObj, "Size.Height", 0.0));
         const float d = float(templates.ResolveNumber(e.props, e.baseObj, "Size.Depth", 0.0));
         if (w <= 0.f || h <= 0.f || d <= 0.f) continue;
-        const float half[3] = {w * 0.5f, h * 0.5f, d * 0.5f};
+        const Vec3 half{w * 0.5f, h * 0.5f, d * 0.5f};
         for (int i = 0; i < 3; ++i) {
             env.lo[i] = centre[i] - half[i];
             env.hi[i] = centre[i] + half[i];
@@ -143,7 +142,7 @@ void EntityLighting::Build(const Level& level, TemplateCache& templates) {
     }
 }
 
-float EntityLighting::AttIntensity(const Light& l, const float pos[3]) const {
+float EntityLighting::AttIntensity(const Light& l, const Vec3& pos) const {
     if (l.type == kDirectional) return l.intensity;
 
     const float d = Dist(l.pos, pos);
@@ -154,9 +153,9 @@ float EntityLighting::AttIntensity(const Light& l, const float pos[3]) const {
 
     if (l.type == kSpot && l.coneCos > -1.f) {
         // Axis term: how far off the cone centre the entity sits.
-        float toEntity[3] = {pos[0] - l.pos[0], pos[1] - l.pos[1], pos[2] - l.pos[2]};
+        Vec3 toEntity = AsVec3(pos) - l.pos;
         Normalize(toEntity);
-        const float c = toEntity[0] * l.dir[0] + toEntity[1] * l.dir[1] + toEntity[2] * l.dir[2];
+        const float c = Dot(toEntity, l.dir);
         if (c < l.coneOuterCos) return 0.f;
         if (c < l.coneCos && l.coneCos > l.coneOuterCos)
             att *= (c - l.coneOuterCos) / (l.coneCos - l.coneOuterCos);
@@ -164,7 +163,7 @@ float EntityLighting::AttIntensity(const Light& l, const float pos[3]) const {
     return att * l.intensity;
 }
 
-const EntityLighting::Environment* EntityLighting::Innermost(const float pos[3]) const {
+const EntityLighting::Environment* EntityLighting::Innermost(const Vec3& pos) const {
     const Environment* best = nullptr;
     for (const Environment& e : environments_) {
         bool inside = true;
@@ -177,34 +176,31 @@ const EntityLighting::Environment* EntityLighting::Innermost(const float pos[3])
     return best;
 }
 
-void EntityLighting::Evaluate(const float pos[3], const float camPos[3], float dt,
+void EntityLighting::Evaluate(const Vec3& pos, const Vec3& camPos, float dt,
                               EntityLightFade& fade, EntityLightState& out) const {
     // --- ambient and the one directional, per environment ---
-    float ambient[3], dirColor[3], dirDir[3];
-    for (int i = 0; i < 3; ++i) {
-        ambient[i] = levelAmbient_[i];
-        dirColor[i] = levelDirColor_[i];   // intensity applied below
-        dirDir[i] = levelDirDir_[i];
-    }
+    Vec3 ambient = levelAmbient_;
+    Vec3 dirColor = levelDirColor_;   // intensity applied below
+    Vec3 dirDir = levelDirDir_;
     float intensity = levelDirIntensity_;
     float fadeTime = 0.f;
     if (const Environment* env = Innermost(pos)) {
         fadeTime = env->fadeTime;
         if (env->ambientOverwrite && env->hasAmbient)
-            for (int i = 0; i < 3; ++i) ambient[i] = env->ambient[i];
+            ambient = env->ambient;
         if (env->dirOverwrite) {
             // Intensity always applies; colour and direction only where stated.
             if (env->hasDirColor)
-                for (int i = 0; i < 3; ++i) dirColor[i] = env->dirColor[i];
+                dirColor = env->dirColor;
             intensity = env->dirIntensity;
             if (env->hasDirDir) {
-                for (int i = 0; i < 3; ++i) dirDir[i] = -env->dirDir[i];
+                dirDir = -env->dirDir;
                 Normalize(dirDir);
             }
         }
     }
     // The intensity multiplies whichever colour won.
-    for (int i = 0; i < 3; ++i) dirColor[i] *= intensity;
+    dirColor *= intensity;
 
     // Entity::GetEnvironmentDirLight lerps toward the new environment instead
     // of snapping, so walking through a doorway is a fade, not a step.
@@ -212,21 +208,17 @@ void EntityLighting::Evaluate(const float pos[3], const float camPos[3], float d
     float k = 1.f;
     if (fade.primed && fadeTime > 1e-3f) k = std::min(1.f, dt / fadeTime);
     if (!fade.primed) {
-        for (int i = 0; i < 3; ++i) {
-            fade.ambient[i] = ambient[i];
-            fade.dirColor[i] = dirColor[i];
-            fade.dirDir[i] = dirDir[i];
-        }
+        fade.ambient = ambient;
+        fade.dirColor = dirColor;
+        fade.dirDir = dirDir;
         fade.primed = true;
     } else {
-        for (int i = 0; i < 3; ++i) {
-            fade.ambient[i] += (ambient[i] - fade.ambient[i]) * k;
-            fade.dirColor[i] += (dirColor[i] - fade.dirColor[i]) * k;
-            fade.dirDir[i] += (dirDir[i] - fade.dirDir[i]) * k;
-        }
+        fade.ambient += (ambient - fade.ambient) * k;
+        fade.dirColor += (dirColor - fade.dirColor) * k;
+        fade.dirDir += (dirDir - fade.dirDir) * k;
         Normalize(fade.dirDir);
     }
-    for (int i = 0; i < 3; ++i) out.ambient[i] = fade.ambient[i];
+    out.ambient = fade.ambient;
 
     // --- the four slots ---
     // Entity::AddLight keeps a list of four sorted by attenuated intensity,
@@ -263,39 +255,32 @@ void EntityLighting::Evaluate(const float pos[3], const float camPos[3], float d
         EntityLightSlot& slot = out.slots[s];
         if (best[s] < 0 && s >= count) { slot = EntityLightSlot(); continue; }
 
-        float dir[3], color[3];
+        Vec3 dir, color;
         float att = score[s];
         bool fakeSpecular = false;
         if (best[s] < 0) {
             // The environment directional, already faded.
-            for (int i = 0; i < 3; ++i) {
-                dir[i] = fade.dirDir[i];
-                color[i] = fade.dirColor[i];
-            }
+            dir = fade.dirDir;
+            color = fade.dirColor;
             att = 1.f;
         } else {
             const Light& l = lights_[best[s]];
             fakeSpecular = l.fakeSpecular;
-            if (l.type == kDirectional)
-                for (int i = 0; i < 3; ++i) dir[i] = -l.dir[i];
-            else
-                for (int i = 0; i < 3; ++i) dir[i] = l.pos[i] - pos[i];
-            for (int i = 0; i < 3; ++i) color[i] = l.color[i] * att;
+            dir = l.type == kDirectional ? -l.dir : l.pos - AsVec3(pos);
+            color = l.color * att;
         }
         Normalize(dir);
 
-        for (int i = 0; i < 3; ++i) slot.color[i] = color[i];
+        color.Store(slot.color);
         slot.color[3] = att;
-        for (int i = 0; i < 3; ++i) slot.dir[i] = dir[i];
+        dir.Store(slot.dir);
         slot.dir[3] = 1.f;
 
         // ComputeVSLights: H = normalize((camera - entity) + lightDir), once
         // for the whole model.
-        float h[3] = {(camPos[0] - pos[0]) + dir[0],
-                      (camPos[1] - pos[1]) + dir[1],
-                      (camPos[2] - pos[2]) + dir[2]};
+        Vec3 h = (AsVec3(camPos) - AsVec3(pos)) + dir;
         Normalize(h);
-        for (int i = 0; i < 3; ++i) slot.half[i] = h[i];
+        h.Store(slot.half);
         slot.half[3] = fakeSpecular ? 0.f : 1.f;
     }
 }

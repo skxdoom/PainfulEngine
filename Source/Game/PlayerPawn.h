@@ -1,5 +1,6 @@
 #pragma once
 #include "../World/PhysicsWorld.h"
+#include "../Core/Vec3.h"
 #include "Input.h"
 
 #include <cmath>
@@ -43,7 +44,7 @@ namespace painful {
 //    Docs/Reference/PlayerMovement.md, "The two movers"
 class PlayerPawn {
 public:
-    void Spawn(const float headPos[3]);
+    void Spawn(const Vec3& headPos);
 
     // One movement step, with PlayerAction's own arguments: the action
     // bitmask the scripts set through ENTITY.PO_SetAction, and the camera
@@ -57,17 +58,17 @@ public:
     // for this. Of the mask it consumes only Act::MoveMask.
     // Not const: a blocked pawn shoves the character in its way.
     void Move(PhysicsWorld& physics, const Tweaks& tweaks, uint32_t action,
-              const float right[3], float dt);
+              const Vec3& right, float dt);
 
     const float* headPos() const { return head_; }
-    void SetHeadPos(const float p[3]);
+    void SetHeadPos(const Vec3& p);
     // A teleport addressed to the ENTITY, whose origin is the feet.
-    void SetFloorPos(const float p[3]) {
-        const float head[3] = {p[0], p[1] + kEyeAboveFloor, p[2]};
+    void SetFloorPos(const Vec3& p) {
+        const Vec3 head{p[0], p[1] + kEyeAboveFloor, p[2]};
         SetHeadPos(head);
     }
     // The feet - ENTITY.PO_GetPawnFloorPos, the scripts' _groundx/y/z.
-    void FloorPos(float out[3]) const {
+    void FloorPos(Vec3& out) const {
         out[0] = head_[0];
         out[1] = head_[1] - kEyeAboveFloor;
         out[2] = head_[2];
@@ -90,7 +91,7 @@ public:
 
     // The pawn's actual world velocity this frame, which is what
     // ENTITY.GetVelocity reports for the player.
-    void Velocity(float out[3]) const {
+    void Velocity(Vec3& out) const {
         for (int c = 0; c < 3; ++c) out[c] = velocity_[c];
     }
 
@@ -103,11 +104,10 @@ public:
     static float EyeAboveFloor() { return kEyeAboveFloor; }
     static float Mass() { return kPlayerMass; }
 
-    void AddVelocity(const float dv[3]) {
-        float v[3];
+    void AddVelocity(const Vec3& dv) {
+        Vec3 v;
         Velocity(v);
-        for (int c = 0; c < 3; ++c) v[c] += dv[c];
-        SetVelocity(v);
+        SetVelocity(v + dv);
     }
 
     // ENTITY.SetVelocity on the player, which is a jump pad or a knockback.
@@ -116,7 +116,7 @@ public:
     // velY_, horizontal into the air direction and speed the air branch
     // steers with. jumpedThisMove_ stays false: a pad is not an input jump,
     // and the scripts' jump sound hangs off that.
-    void SetVelocity(const float v[3]) {
+    void SetVelocity(const Vec3& v) {
         velX_ = v[0];
         velY_ = v[1];
         velZ_ = v[2];
@@ -185,10 +185,10 @@ private:
 
     // StepCheck's rung ladder for a wish direction: 0 clear, 1..3 a step at
     // the floor / 0.14 / 0.42 above it, 4 a wall. Rung table in the .cpp.
-    int StepCheck(const PhysicsWorld& physics, const float centre[3],
+    int StepCheck(const PhysicsWorld& physics, const Vec3& centre,
                   const float wish[2]) const;
 
-    float head_[3] = {0, 0, 0};
+    Vec3 head_;
     // The body's velocity, PlayerAction's `v` - persistent, since every
     // frame's impulse is measured against it.
     float velX_ = 0.f, velY_ = 0.f, velZ_ = 0.f;
@@ -199,7 +199,7 @@ private:
     // The floor's normal from the last floor ray that hit (PhysicsObject
     // +0x60), the too-steep counter on it (helper +0x70, 0..10; over 5 the
     // frame is treated as airborne), and FloorCheckRandom's generator.
-    float floorNormal_[3] = {0.f, 1.f, 0.f};
+    Vec3 floorNormal_{0.f, 1.f, 0.f};
     bool axisFloor_ = false;         // the axis ray itself hit last frame
     int slopeCount_ = 0;
     uint32_t rng_ = 0x9e3779b9u;
@@ -207,7 +207,7 @@ private:
     // The bunny-hop state PlayerAction keeps on the physics object.
     float speed_ = 0.f;              // current target speed; 0 = uninitialised
     bool mp_ = false;                // MultiPlayerAction rather than PlayerAction
-    float velocity_[3] = {0, 0, 0};  // last frame's actual travel, per second
+    Vec3 velocity_;  // last frame's actual travel, per second
     float groundedTime_ = 0.f;       // seconds since touchdown
     bool jumpLatched_ = false;       // PlayerAction's +0x1e: cleared on release
     bool jumpedThisMove_ = false;    // an actual jump, not just airborne
@@ -216,7 +216,7 @@ private:
     float landingImpact_ = 0.f;      // fall speed at the last touchdown
     // Where the body centre was after the last move: MovePlayerOutOfWall's
     // stored position (PhysicsObject helper +0x54). A teleport clears it.
-    float lastCentre_[3] = {0, 0, 0};
+    Vec3 lastCentre_;
     bool haveLast_ = false;
 };
 

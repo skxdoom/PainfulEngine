@@ -115,7 +115,7 @@ int SoundNatives::L_SOUND_Play2D(lua_State* L) {
 int SoundNatives::L_SOUND_Play3D(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!self->audio_) return 0;
-    const float pos[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+    const Vec3 pos{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
                           float(luaL_optnumber(L, 4, 0))};
     const float dist1 = float(luaL_optnumber(L, 5, 6.0));
     const int v = self->audio_->Play3D(SoundName(L, 1), pos, dist1,
@@ -210,7 +210,7 @@ int SoundNatives::L_SOUND_SetSoundProperties(lua_State* L) {
 int SoundNatives::L_SND_SetPosition(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!self->audio_) return 0;
-    const float pos[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+    const Vec3 pos{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
                           float(luaL_optnumber(L, 4, 0))};
     self->audio_->SetPosition(int(luaL_optnumber(L, 1, 0)), pos);
     return 0;
@@ -271,7 +271,7 @@ void ScriptEngine::PushListener() {
     // Right = forward x up. The scripts only hand over a forward vector, and
     // panning needs a side.
     const float* f = listenerFwd_;
-    float right[3] = {f[1] * 0.f - f[2] * 1.f, f[2] * 0.f - f[0] * 0.f,
+    Vec3 right = {f[1] * 0.f - f[2] * 1.f, f[2] * 0.f - f[0] * 0.f,
                       f[0] * 1.f - f[1] * 0.f};
     const float l = std::sqrt(right[0] * right[0] + right[1] * right[1] + right[2] * right[2]);
     if (l > 1e-5f) {
@@ -333,7 +333,7 @@ int SoundNatives::L_WPT_Load(lua_State* L) {
 // the five scripts that use it guard against.
 int SoundNatives::L_WPT_GetClosest(lua_State* L) {
     ScriptEngine* self = From(L);
-    const float p[3] = {float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
+    const Vec3 p{float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
                         float(luaL_optnumber(L, 3, 0))};
     const int idx = self->waypoints_.nodes.empty() ? -1 : self->waypoints_.Closest(p, 0.f);
     lua_pushnumber(L, 0);
@@ -345,7 +345,7 @@ int SoundNatives::L_WPT_GetClosest(lua_State* L) {
 int SoundNatives::L_WPT_GetPosition(lua_State* L) {
     ScriptEngine* self = From(L);
     const int idx = int(luaL_optnumber(L, 2, -1));
-    float p[3] = {0, 0, 0};
+    Vec3 p;
     if (idx >= 0 && size_t(idx) < self->waypoints_.nodes.size())
         for (int c = 0; c < 3; ++c) p[c] = self->waypoints_.nodes[size_t(idx)].pos[c];
     for (int c = 0; c < 3; ++c) lua_pushnumber(L, p[c]);
@@ -394,9 +394,9 @@ int SoundNatives::L_PATH_GetShortest(lua_State* L) {
     route.next = 0;
     if (self->waypoints_.nodes.empty()) return 0;
 
-    const float from[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+    const Vec3 from{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
                            float(luaL_optnumber(L, 4, 0))};
-    const float to[3] = {float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
+    const Vec3 to{float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
                          float(luaL_optnumber(L, 7, 0))};
     const float maxDist = float(luaL_optnumber(L, 9, 0));
 
@@ -445,7 +445,7 @@ int SoundNatives::L_PATH_IsFinished(lua_State* L) {
 int SoundNatives::L_PATH_GetNextPoint(lua_State* L) {
     ScriptEngine* self = From(L);
     const int h = int(luaL_optnumber(L, 1, 0));
-    float p[3] = {0, 0, 0};
+    Vec3 p;
     if (h > 0 && size_t(h) <= self->paths_.size()) {
         Route& route = self->paths_[size_t(h) - 1];
         if (route.next * 3 + 2 < route.points.size()) {
@@ -506,7 +506,7 @@ int SoundNatives::L_SeesEntity(lua_State* L) {
 // the stack origin, the player's is the pawn's eye; anything else is its
 // position. Traced from the position, a monster whose origin sits at its hip
 // looks along the floor and a step is a wall.
-void ScriptEngine::EyePoint(const Entity& e, int handle, float out[3]) const {
+void ScriptEngine::EyePoint(const Entity& e, int handle, Vec3& out) const {
     if (pawn_ && handle == playerHandle_ && playerHandle_) {
         const float* h = pawn_->headPos();
         for (int c = 0; c < 3; ++c) out[c] = h[c];
@@ -520,11 +520,11 @@ void ScriptEngine::EyePoint(const Entity& e, int handle, float out[3]) const {
 
 bool ScriptEngine::Sees(int ha, Entity& a, int hb, Entity& b) const {
     if (!physics_) return false;
-    float eyeA[3], eyeB[3];
+    Vec3 eyeA, eyeB;
     EyePoint(a, ha, eyeA);
     EyePoint(b, hb, eyeB);
 
-    float to[3];
+    Vec3 to;
     for (int c = 0; c < 3; ++c) to[c] = eyeB[c] - eyeA[c];
     const float dist = std::sqrt(to[0]*to[0] + to[1]*to[1] + to[2]*to[2]);
     if (dist > a.sightRange) return false;
@@ -535,8 +535,8 @@ bool ScriptEngine::Sees(int ha, Entity& a, int hb, Entity& b) const {
     // which no angle can exceed - so a monster declared to see all round
     // never fails this, without needing a special case.
     if (dist > a.sightRange360 && a.sightHalfYaw < float(kPi)) {
-        const float fwd[3] = {0, 0, 1};      // model forward, the axis the
-        float facing[3];                     // walk animations travel along
+        const Vec3 fwd{0, 0, 1};      // model forward, the axis the
+        Vec3 facing;                     // walk animations travel along
         EngineQuatRotate(a.rotWXYZ, fwd, facing);
         const float fl = std::sqrt(facing[0]*facing[0] + facing[2]*facing[2]);
         const float tl = std::sqrt(to[0]*to[0] + to[2]*to[2]);
@@ -591,7 +591,7 @@ int SoundNatives::L_PO_IsOnFloor(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
     bool on = false;
-    float n[3] = {0.f, 1.f, 0.f};
+    Vec3 n{0.f, 1.f, 0.f};
     if (e && self->physics_ && e->physicsBody >= 0)
         on = self->physics_->CharacterOnFloor(e->physicsBody, n);
     lua_pushboolean(L, on);

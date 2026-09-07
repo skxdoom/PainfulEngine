@@ -1,5 +1,6 @@
 #pragma once
 #include "../Core/Common.h"
+#include "../Core/Vec3.h"
 
 namespace painful {
 
@@ -32,18 +33,18 @@ struct MapObject {
     uint32_t uvChannels = 1;          // 1 = dynamically lit, 2 = lightmapped
     std::vector<float> verts;         // 8 floats per vertex
     std::vector<float> normals;       // 3 floats per vertex when stored separately
-    float bboxMin[3] = {0,0,0};
-    float bboxMax[3] = {0,0,0};
+    Vec3 bboxMin;
+    Vec3 bboxMax;
     std::vector<uint16_t> indices;
     std::vector<Material> materials;
 
     size_t vertexCount() const { return verts.size() / 8; }
     size_t triangleCount() const { return indices.size() / 3; }
 
-    void position(size_t i, float out[3]) const {
+    void position(size_t i, Vec3& out) const {
         out[0] = verts[i * 8 + 0]; out[1] = verts[i * 8 + 1]; out[2] = verts[i * 8 + 2];
     }
-    void normal(size_t i, float out[3]) const {
+    void normal(size_t i, Vec3& out) const {
         if (normals.size() >= (i + 1) * 3) {
             out[0] = normals[i * 3]; out[1] = normals[i * 3 + 1]; out[2] = normals[i * 3 + 2];
         } else {

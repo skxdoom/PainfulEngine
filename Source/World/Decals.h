@@ -1,5 +1,6 @@
 #pragma once
 #include "../Assets/Mpk.h"
+#include "../Core/Vec3.h"
 #include "../Core/Common.h"
 #include <cstdint>
 #include <map>
@@ -39,7 +40,7 @@ private:
 };
 
 struct DecalVertex {
-    float pos[3];
+    Vec3 pos;
     float u, v;
 };
 
@@ -53,7 +54,7 @@ struct DecalInstance {
     // Row-vector basis: X and Y span the box (length = full width), Z is the
     // depth axis pointing INTO the surface, T the spawn point.
     float basis[12] = {1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0};
-    float normal[3] = {0, 1, 0};    // out of the surface; the render nudge
+    Vec3 normal{0, 1, 0};    // out of the surface; the render nudge
     std::vector<DecalVertex> verts;
     float life = 0.f;
     bool immortal = false;
@@ -71,17 +72,17 @@ public:
     int Create(const DecalDef& def, float scale);
     // Decal::Spawn(entity, pos, normal): a box facing the normal, spun by a
     // random angle about it when the decal is mortal.
-    void SetBasis(int slot, const float pos[3], const float normal[3]);
+    void SetBasis(int slot, const Vec3& pos, const Vec3& normal);
     // Decal::Spawn(entity, pos, normal, up, right): the box's own axes,
     // lengths kept - the blood leak stretches its U axis 2.5x.
-    void SetBasisOriented(int slot, const float pos[3], const float normal[3],
-                          const float up[3], const float right[3]);
+    void SetBasisOriented(int slot, const Vec3& pos, const Vec3& normal,
+                          const Vec3& up, const Vec3& right);
     void ClearGeometry(int slot);
     // Projects one map object's triangles into the box. objectToWorld takes
     // the object's raw vertices to the space the decal was spawned in.
     void Append(int slot, const MapObject& object, const Mat4& objectToWorld);
     // World AABB of the projection box, for choosing objects to append.
-    void Box(int slot, float lo[3], float hi[3]) const;
+    void Box(int slot, Vec3& lo, Vec3& hi) const;
     bool HasGeometry(int slot) const;
     void SetTextureOverride(int slot, const std::string& texture);
 
@@ -109,7 +110,7 @@ private:
     bool Valid(int slot) const {
         return slot >= 0 && size_t(slot) < decals_.size() && decals_[size_t(slot)].alive;
     }
-    void ProjectTriangle(DecalInstance& d, const float w[3][3], const float inv[9]);
+    void ProjectTriangle(DecalInstance& d, const Vec3 w[3], const float inv[9]);
 
     std::vector<DecalInstance> decals_;
     size_t live_ = 0, empty_ = 0;

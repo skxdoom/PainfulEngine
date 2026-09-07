@@ -449,7 +449,7 @@ bool LuaHost::PostMsg(const char* msg, const double* args, int nargs) {
     return true;
 }
 
-bool LuaHost::ReadVec3(const char* globalName, const char* field, float out[3]) {
+bool LuaHost::ReadVec3(const char* globalName, const char* field, Vec3& out) {
     lua_getglobal(L_, globalName);
     if (!lua_istable(L_, -1)) { lua_pop(L_, 1); return false; }
     lua_pushstring(L_, field);

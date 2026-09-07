@@ -26,7 +26,7 @@ namespace {
 // Angle-axis to a quaternion. The file's ROTATION is `angle x y z`, and a
 // primitive's identity is `0 0 0 0` - no rotation about no axis - which is why
 // a zero axis has to come back as identity rather than as a NaN.
-JPH::Quat AngleAxis(float angle, const float axis[3]) {
+JPH::Quat AngleAxis(float angle, const Vec3& axis) {
     const JPH::Vec3 v(axis[0], axis[1], axis[2]);
     const float len = v.Length();
     if (len < 1e-6f || std::fabs(angle) < 1e-9f) return JPH::Quat::sIdentity();
@@ -40,7 +40,7 @@ JPH::Mat44 BodyRest(const HkeBody& b, float scale) {
         JPH::Vec3(b.translation[0], b.translation[1], b.translation[2]) * scale);
 }
 
-JPH::Vec3 V3(const float v[3]) { return JPH::Vec3(v[0], v[1], v[2]); }
+JPH::Vec3 V3(const Vec3& v) { return JPH::Vec3(v[0], v[1], v[2]); }
 
 // One hull, with the primitive's own offset baked in so the shape is
 // body-local and Jolt never has to nest a RotatedTranslatedShape for it.
@@ -493,7 +493,7 @@ void PhysicsWorld::ScaleRagdollInertia(int slot, float k) {
     }
 }
 
-void PhysicsWorld::AddRagdollImpulse(int slot, const float at[3], const float impulse[3]) {
+void PhysicsWorld::AddRagdollImpulse(int slot, const Vec3& at, const Vec3& impulse) {
     if (!RagdollExists(slot)) return;
     JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
     const JPH::RVec3 point(at[0], at[1], at[2]);
@@ -509,8 +509,8 @@ void PhysicsWorld::AddRagdollImpulse(int slot, const float at[3], const float im
     bodies.AddImpulse(best, JPH::Vec3(impulse[0], impulse[1], impulse[2]), point);
 }
 
-void PhysicsWorld::AddRagdollPartImpulse(int slot, int part, const float at[3],
-                                         const float impulse[3]) {
+void PhysicsWorld::AddRagdollPartImpulse(int slot, int part, const Vec3& at,
+                                         const Vec3& impulse) {
     if (!RagdollExists(slot) || part < 0) return;
     const auto& ids = impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs();
     if (size_t(part) >= ids.size()) return;
@@ -522,7 +522,7 @@ void PhysicsWorld::AddRagdollPartImpulse(int slot, int part, const float at[3],
                       JPH::RVec3(at[0], at[1], at[2]));
 }
 
-void PhysicsWorld::SetRagdollVelocity(int slot, const float linear[3], const float angular[3]) {
+void PhysicsWorld::SetRagdollVelocity(int slot, const Vec3& linear, const Vec3& angular) {
     if (!RagdollExists(slot)) return;
     JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
     const JPH::Vec3 v(linear[0], linear[1], linear[2]);
@@ -534,8 +534,8 @@ void PhysicsWorld::SetRagdollVelocity(int slot, const float linear[3], const flo
     }
 }
 
-bool PhysicsWorld::GetRagdollPartVelocity(int slot, int part, float linear[3],
-                                          float angular[3]) const {
+bool PhysicsWorld::GetRagdollPartVelocity(int slot, int part, Vec3& linear,
+                                          Vec3& angular) const {
     if (!RagdollExists(slot) || part < 0) return false;
     // Jolt keeps one body per skeleton joint, in joint order - the same order
     // as RagdollBones.
@@ -555,7 +555,7 @@ bool PhysicsWorld::GetRagdollPartVelocity(int slot, int part, float linear[3],
 // (1 - d / range) along (limb - centre). The original measures d to the
 // limb's nearest surface point when it is within 3 * range; the centre of
 // mass stands in for that here.
-void PhysicsWorld::RagdollSelfExplosion(int slot, const float centre[3], float strength,
+void PhysicsWorld::RagdollSelfExplosion(int slot, const Vec3& centre, float strength,
                                         float range) {
     if (!RagdollExists(slot) || range <= 0.f) return;
     JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
@@ -574,7 +574,7 @@ void PhysicsWorld::RagdollSelfExplosion(int slot, const float centre[3], float s
     }
 }
 
-bool PhysicsWorld::GetRagdollPartPosition(int slot, int part, float out[3]) const {
+bool PhysicsWorld::GetRagdollPartPosition(int slot, int part, Vec3& out) const {
     if (!RagdollExists(slot) || part < 0) return false;
     const auto& ids = impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs();
     if (size_t(part) >= ids.size()) return false;
@@ -583,7 +583,7 @@ bool PhysicsWorld::GetRagdollPartPosition(int slot, int part, float out[3]) cons
     return true;
 }
 
-void PhysicsWorld::SetRagdollPartPosition(int slot, int part, const float pos[3]) {
+void PhysicsWorld::SetRagdollPartPosition(int slot, int part, const Vec3& pos) {
     if (!RagdollExists(slot) || part < 0) return;
     const auto& ids = impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs();
     if (size_t(part) >= ids.size()) return;
@@ -694,7 +694,7 @@ bool PhysicsWorld::GetRagdollPose(int slot, float* boneMatrices) const {
 }
 
 
-void PhysicsWorld::CollectDebugLines(const float around[3], float radius,
+void PhysicsWorld::CollectDebugLines(const Vec3& around, float radius,
                                      std::vector<DebugLine>& out,
                                      bool includeStatic) const {
     out.clear();
@@ -802,7 +802,7 @@ public:
 // with was ever asking about layers.
 const SolidLayerFilter kSolidLayer;
 
-bool PhysicsWorld::RayCast(const float from[3], const float to[3], RayHit& out,
+bool PhysicsWorld::RayCast(const Vec3& from, const Vec3& to, RayHit& out,
                            bool staticOnly, const int* exclude,
                            size_t excludeCount, const int* ignoreRagdolls,
                            size_t ignoreRagdollCount, bool includePlayer) const {
@@ -948,7 +948,7 @@ bool PhysicsWorld::RayCast(const float from[3], const float to[3], RayHit& out,
     return true;
 }
 
-bool PhysicsWorld::SphereOverlaps(const float pos[3], float radius) const {
+bool PhysicsWorld::SphereOverlaps(const Vec3& pos, float radius) const {
     if (!loaded()) return false;
 
     const JPH::SphereShape sphere(radius);
@@ -983,7 +983,7 @@ bool PhysicsWorld::SphereOverlaps(const float pos[3], float radius) const {
 // inside Engine.dll. Docs/Reference/MonsterMovement.md
 constexpr float kCharacterPushPerStep = 0.05f;
 
-int PhysicsWorld::Depenetrate(float pos[3], float radius, int iterations,
+int PhysicsWorld::Depenetrate(Vec3& pos, float radius, int iterations,
                               bool solidProps, int ignoreSlot,
                               bool collideWithPlayer,
                               bool* separatedFromCharacter) const {
@@ -1084,7 +1084,7 @@ int PhysicsWorld::Depenetrate(float pos[3], float radius, int iterations,
     return resolved;
 }
 
-void PhysicsWorld::SlideSphere(float pos[3], const float delta[3], float radius,
+void PhysicsWorld::SlideSphere(Vec3& pos, const Vec3& delta, float radius,
                                bool solidProps, int ignoreSlot,
                                bool collideWithPlayer,
                                bool* separatedFromCharacter, float* hitNormal,

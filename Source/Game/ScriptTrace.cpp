@@ -34,9 +34,9 @@ struct TraceNatives : ScriptNativesBase {
 // ENTITY.IsFixedMesh answer true for it.
 int ScriptEngine::TraceCommon(lua_State* L, bool staticOnly) {
     ScriptEngine* self = From(L);
-    const float from[3] = {float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
+    const Vec3 from{float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
                            float(luaL_optnumber(L, 3, 0))};
-    const float to[3] = {float(luaL_optnumber(L, 4, 0)), float(luaL_optnumber(L, 5, 0)),
+    const Vec3 to{float(luaL_optnumber(L, 4, 0)), float(luaL_optnumber(L, 5, 0)),
                          float(luaL_optnumber(L, 6, 0))};
 
     PhysicsWorld::RayHit hit;
@@ -65,7 +65,7 @@ int ScriptEngine::TraceCommon(lua_State* L, bool staticOnly) {
     bool gotWater = self->TraceWater(from, to, waterT, waterEntity);
     float waterDistance = 0.f;
     if (gotWater) {
-        const float span[3] = {to[0] - from[0], to[1] - from[1], to[2] - from[2]};
+        const Vec3 span{to[0] - from[0], to[1] - from[1], to[2] - from[2]};
         waterDistance =
             waterT * std::sqrt(span[0]*span[0] + span[1]*span[1] + span[2]*span[2]);
         const float nearest = gotWorld ? hit.distance : 1e30f;
@@ -167,11 +167,11 @@ int TraceNatives::L_WORLD_LineTrace(lua_State* L) {
 // player out so its own shots and probes never land on it.
 int TraceNatives::L_WORLD_LineTraceHitPlayerBalls(lua_State* L) {
     ScriptEngine* self = From(L);
-    const float from[3] = {float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
+    const Vec3 from{float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
                            float(luaL_optnumber(L, 3, 0))};
-    const float to[3] = {float(luaL_optnumber(L, 4, 0)), float(luaL_optnumber(L, 5, 0)),
+    const Vec3 to{float(luaL_optnumber(L, 4, 0)), float(luaL_optnumber(L, 5, 0)),
                          float(luaL_optnumber(L, 6, 0))};
-    const float span[3] = {to[0] - from[0], to[1] - from[1], to[2] - from[2]};
+    const Vec3 span{to[0] - from[0], to[1] - from[1], to[2] - from[2]};
     const float length = std::sqrt(span[0] * span[0] + span[1] * span[1] + span[2] * span[2]);
     if (length < 1e-6f) { lua_pushboolean(L, 0); return 1; }
 
@@ -241,9 +241,9 @@ int TraceNatives::L_WORLD_LineTraceHitPlayerBalls(lua_State* L) {
 int TraceNatives::L_ENTITY_PO_LineTrace(lua_State* L) {
     ScriptEngine* self = From(L);
     const int handle = HandleArg(L, 1);
-    const float from[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+    const Vec3 from{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
                            float(luaL_optnumber(L, 4, 0))};
-    const float to[3] = {float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
+    const Vec3 to{float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
                          float(luaL_optnumber(L, 7, 0))};
     PhysicsWorld::RayHit hit;
     bool got = false;
@@ -272,7 +272,7 @@ int TraceNatives::L_WORLD_LineTraceFixedGeom(lua_State* L) {
     return TraceCommon(L, true);
 }
 
-bool ScriptEngine::TraceRay(const float from[3], const float to[3],
+bool ScriptEngine::TraceRay(const Vec3& from, const Vec3& to,
                             PhysicsWorld::RayHit& hit, bool staticOnly) const {
     if (!physics_) return false;
     // The scripts' own exclusions, plus every movement body the limb boxes
@@ -510,10 +510,10 @@ void ScriptEngine::PlaceViewAttached(Entity& entity) {
     // the view matrix and the player's movement.
     const float cp = std::cos(camPitch_), sp = std::sin(camPitch_);
     const float cy = std::cos(camYaw_), sy = std::sin(camYaw_);
-    const float fwd[3] = {cy * cp, sp, sy * cp};
-    const float right[3] = {-sy, 0.f, cy};
+    const Vec3 fwd{cy * cp, sp, sy * cp};
+    const Vec3 right{-sy, 0.f, cy};
     // up = right x forward, which tilts with the pitch as the view does.
-    const float up[3] = {right[1] * fwd[2] - right[2] * fwd[1],
+    const Vec3 up{right[1] * fwd[2] - right[2] * fwd[1],
                          right[2] * fwd[0] - right[0] * fwd[2],
                          right[0] * fwd[1] - right[1] * fwd[0]};
     // Anchored to the DISPLACED eye, which is the one actually rendered:

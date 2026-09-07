@@ -29,7 +29,7 @@ struct Frustum {
 
     // Conservative AABB test: a box is culled only when it is fully outside
     // one plane (the classic positive-vertex test).
-    bool VisibleAabb(const float lo[3], const float hi[3]) const {
+    bool VisibleAabb(const Vec3& lo, const Vec3& hi) const {
         for (int i = 0; i < 6; ++i) {
             const float* p = plane[i];
             const float x = p[0] >= 0.f ? hi[0] : lo[0];

@@ -40,7 +40,8 @@ const Command kCommands[] = {
      int cullMode = 0, entityCull = 1;
      bool skyOnly = false, novis = false, noclip = false, physicsDebug = false;
      float entityScale = 1.f;
-     float pos[3], angles[2];
+     Vec3 pos;
+     float angles[2];
      bool hasPos = false, hasAngles = false;
      for (int i = 4; i < argc; ++i) {
          std::string arg = argv[i];
@@ -116,7 +117,7 @@ const Command kCommands[] = {
 {"zones", 4, Root::kArgv3, "level", "<levelDir> <DataRoot> [x y z]",
  "portal/zone graph, optionally from a point",
  [](int argc, char** argv) {
-     float zp[3];
+     Vec3 zp;
      const bool hasP = argc >= 7;
      if (hasP) for (int k = 0; k < 3; ++k) zp[k] = float(std::atof(argv[4 + k]));
      return ZonesCmd(argv[2], argv[3], hasP ? zp : nullptr);
@@ -132,10 +133,10 @@ const Command kCommands[] = {
 {"lighting", 4, Root::kArgv3, "level", "<levelDir> <DataRoot> [x y z [ex ey ez]]",
  "the lights reaching a point",
  [](int argc, char** argv) {
-     const float at[3] = {argc >= 7 ? float(atof(argv[4])) : 0.f,
+     const Vec3 at{argc >= 7 ? float(atof(argv[4])) : 0.f,
                           argc >= 7 ? float(atof(argv[5])) : 0.f,
                           argc >= 7 ? float(atof(argv[6])) : 0.f};
-     const float eye[3] = {argc >= 10 ? float(atof(argv[7])) : at[0] - 5.f,
+     const Vec3 eye{argc >= 10 ? float(atof(argv[7])) : at[0] - 5.f,
                            argc >= 10 ? float(atof(argv[8])) : at[1] + 1.5f,
                            argc >= 10 ? float(atof(argv[9])) : at[2]};
      return LightingCmd(argv[2], argv[3], at, eye);

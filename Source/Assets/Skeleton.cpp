@@ -80,7 +80,7 @@ void SkinMesh(const ModelMesh& mesh,
         float z = mesh.verts[i * 8 + 2];
         for (const SkinInfluence& inf : mesh.skin[i]) {
             if (inf.bone >= skin.size()) continue;
-            float t[3];
+            Vec3 t;
             skin[inf.bone].TransformPoint(x, y, z, t);
             px += static_cast<double>(t[0]) * inf.weight;
             py += static_cast<double>(t[1]) * inf.weight;
@@ -329,7 +329,7 @@ void ComputeBoneWorldFromLocals(const std::vector<Bone>& bones,
 
 bool ComputeBonePositionAtTime(const std::vector<Bone>& bones,
                                const std::vector<const AnimTrack*>& tracks,
-                               int bone, float time, float outPos[3]) {
+                               int bone, float time, Vec3& outPos) {
     if (bone < 0 || size_t(bone) >= bones.size()) return false;
 
     // Only this bone's ancestors matter, and there are a handful of them.
@@ -389,7 +389,7 @@ void SkinMeshVertices(const ModelMesh& mesh, const std::vector<Mat4>& skin,
         for (const SkinInfluence& inf : mesh.skin[i]) {
             if (inf.bone >= skin.size()) continue;
             const Mat4& mtx = skin[inf.bone];
-            float t[3];
+            Vec3 t;
             mtx.TransformPoint(x, y, z, t);
             px += double(t[0]) * inf.weight;
             py += double(t[1]) * inf.weight;
