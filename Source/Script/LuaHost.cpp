@@ -431,7 +431,7 @@ void LuaHost::FrameTick(double delta) {
 	CallGlobal("Game_GC", nullptr, 0);
 }
 
-bool LuaHost::PostMsg(const char* msg, const double* args, int nargs) {
+bool LuaHost::PostMsg(const char* msg, const double* args, int nargs, const char* tail) {
 	lua_pushcfunction(L_, Traceback);
 	lua_getglobal(L_, "Game_GetMsg");
 	if (!lua_isfunction(L_, -1)) {
@@ -440,6 +440,10 @@ bool LuaHost::PostMsg(const char* msg, const double* args, int nargs) {
 	}
 	lua_pushstring(L_, msg);
 	for (int i = 0; i < nargs; ++i) lua_pushnumber(L_, args[i]);
+	if (tail) {
+		lua_pushstring(L_, tail);
+		++nargs;
+	}
 	if (lua_pcall(L_, 1 + nargs, 0, -nargs - 3) != 0) {
 		LogScript("Game_GetMsg(%s): %s", msg, lua_tostring(L_, -1));
 		lua_pop(L_, 2);

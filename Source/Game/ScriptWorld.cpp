@@ -26,7 +26,73 @@ struct WorldNatives : ScriptNativesBase {
 	static int L_WORLD_LoadLowQualitySky(lua_State* L);
 	static int L_WORLD_SetupSkyLayer(lua_State* L);
 	static int L_MESH_SetDefaultDetailMaps(lua_State* L);
+	static int L_ENTITY_EnableDeathZoneTest(lua_State* L);
+	static int L_WORLD_EnableDeathZone(lua_State* L);
 };
+
+// ------------------------------------------------------------ death zones
+
+// The zones are map objects named `deathzone*`, the same name-only rule that
+// identifies water, and their bounds scale with the level like the rest of the
+// mesh. Docs/Reference/Physics.md, "Death zones".
+void ScriptEngine::BuildDeathZones() {
+	deathZones_.clear();
+	if (!mapLoaded_) return;
+	const float scale = world_.scale > 0.f ? world_.scale : 1.f;
+	for (const MapObject& o : map_.objects) {
+		if (o.name.find("deathzone") == std::string::npos) continue;
+		DeathZone z;
+		z.name = o.name;
+		for (int a = 0; a < 3; ++a) {
+			z.lo[a] = o.bboxMin[a] * scale;
+			z.hi[a] = o.bboxMax[a] * scale;
+		}
+		deathZones_.push_back(z);
+	}
+	if (!deathZones_.empty())
+		LogInfo("death zones: %zu", deathZones_.size());
+}
+
+// One IN_DEATH_ZONE per entity that asks to be tested, carrying the zone's
+// NAME as a fifth argument - Game_GetMsg turns the test off again and hands
+// the object x, y, z and that name, which it matches "wat" against.
+void ScriptEngine::TickDeathZones() {
+	if (!host_ || deathZones_.empty()) return;
+	for (auto& kv : entities_) {
+		Entity& e = kv.second;
+		if (!e.deathZoneTest) continue;
+		Vec3 p = e.pos;
+		if (kv.first == playerHandle_ && pawn_) pawn_->FloorPos(p);
+		for (const DeathZone& z : deathZones_) {
+			if (!z.enabled) continue;
+			bool inside = true;
+			for (int a = 0; a < 3 && inside; ++a) inside = p[a] >= z.lo[a] && p[a] <= z.hi[a];
+			if (!inside) continue;
+			const double args[4] = {double(kv.first), p[0], p[1], p[2]};
+			host_->PostMsg("IN_DEATH_ZONE", args, 4, z.name.c_str());
+			break;
+		}
+	}
+}
+
+// ENTITY.EnableDeathZoneTest(e, on = true) - the byte at Entity+0x11b.
+int WorldNatives::L_ENTITY_EnableDeathZoneTest(lua_State* L) {
+	ScriptEngine* self = From(L);
+	if (Entity* e = self->Find(HandleArg(L, 1)))
+		e->deathZoneTest = lua_isnone(L, 2) ? true : (lua_toboolean(L, 2) != 0);
+	return 0;
+}
+
+// WORLD.EnableDeathZone(name, on = FALSE) - note the default, which is why
+// `EnableDeathZone:'x'` with no argument turns one OFF (0x1013E180).
+int WorldNatives::L_WORLD_EnableDeathZone(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const char* name = luaL_optstring(L, 1, "");
+	const bool on = lua_toboolean(L, 2) != 0;
+	for (ScriptEngine::DeathZone& z : self->deathZones_)
+		if (z.name == name) { z.enabled = on; break; }
+	return 0;
+}
 
 // ---------------------------------------------------------------- WORLD
 
@@ -278,6 +344,7 @@ int WorldNatives::L_WORLD_LoadMap(lua_State* L) {
 			// Water is not in that mesh - every shipped water object is also
 			// named `noclip` - so it is registered separately here.
 			self->BuildWaterSurfaces();
+			self->BuildDeathZones();
 		} else {
 			LogWarn("WORLD.LoadMap: %s failed: %s", path.c_str(),
 					self->map_.error.c_str());
@@ -295,6 +362,7 @@ void ScriptEngine::ResetLevelState() {
 	for (int handle : engineOwned) ReleaseEntity(handle);
 	decals_.Clear();
 	water_.clear();
+	deathZones_.clear();
 	lastExploded_.clear();
 	contactVelocity_.clear();
 	excludedSlots_.clear();
@@ -468,6 +536,8 @@ void BindWorld(ScriptEngine& engine, LuaHost& host) {
 		{"WORLD", "LoadLowQualitySky", WorldNatives::L_WORLD_LoadLowQualitySky},
 		{"WORLD", "SetupSkyLayer", WorldNatives::L_WORLD_SetupSkyLayer},
 		{"MESH", "SetDefaultDetailMaps", WorldNatives::L_MESH_SetDefaultDetailMaps},
+		{"ENTITY", "EnableDeathZoneTest", WorldNatives::L_ENTITY_EnableDeathZoneTest},
+		{"WORLD", "EnableDeathZone", WorldNatives::L_WORLD_EnableDeathZone},
 	};
 	RegisterFamily(engine, host, natives);
 }

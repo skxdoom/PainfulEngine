@@ -111,13 +111,18 @@ prop.** The native's own rule is recovered (a group in [10,19] is replaced by a
 rotating per-corpse value); what is not is the group-pair filter that says what
 those groups may touch. Same page, "A corpse's collision group".
 
-### 2. Death zones
+### 2. Death zones — DONE
 
 `ENTITY.EnableDeathZoneTest` (10 sites: `Game:CreatePlayer`, `CActor`, `CItem`,
-`CPlayer`) and `WORLD.EnableDeathZone` (1, `CAction`). 31 calls in the combat
-run. Nothing that falls out of the world dies — not the player into a pit, not a
-monster, not a dropped item. Every actor asks for this at spawn, so it is a
-shared path, not a per-level feature.
+`CPlayer`) and `WORLD.EnableDeathZone` (1, `CAction`). Nothing that fell out of
+the world died — not the player into a pit, not a monster, not a dropped item.
+Every actor asks for the test at spawn, so it was a shared path rather than a
+per-level feature.
+
+A death zone turned out to be a **map object named `deathzone*`**, found the
+same way water is; Cathedral has six. The zones, the `IN_DEATH_ZONE` message
+they post and the one deviation (an AABB where the original picks between two
+volume tests) are in [`Physics.md`](Reference/Physics.md), "Death zones".
 
 ### 3. Breakable glass
 
@@ -252,7 +257,7 @@ Ranked by calls per 900 combat frames:
 
 1. ~~Tier 0 no-ops~~ — done; the report is 43.6% quieter.
 2. Pinning + ragdoll collision groups — the stakegun.
-3. Death zones, then glass — two small natives on shared paths.
+3. ~~Death zones~~ done; glass next — one native on a shared path.
 4. Mesh groups — unblocks level scripting across the campaign.
 5. Maintain\* movers + transporters — unblocks C2L1, C3L2, C3L3, C5L2.
 6. Scripted ragdoll joints, flying, boss explosions.

@@ -712,6 +712,55 @@ moves them by impulse - being released and destroyed is the whole mechanism.
 Measured: blasted while pinned and immortal, moved 0.0000 and kept Health 1;
 released and mortal, the same blast takes it to -172 and kills it.
 
+## Death zones
+
+A death zone is a **map object named `deathzone*`** — the same name-only rule
+that identifies water, and the name also contains "zone", so the object is
+already non-collidable. Nearly every shipped level has them: Cathedral has six
+(`deathzoneshape` plus `deathzone1..5shape`), each a 24-vertex box, and the big
+one spans `y[-71.4..-21.6]` in mesh units — the pit under the level. Babel's are
+`deathzonepietro1..3shape` (*piętro* = storey).
+
+| native | in the binary | |
+|---|---|---|
+| `ENTITY.EnableDeathZoneTest(e, on = true)` | `0x101361D0` | writes the byte at `Entity+0x11b` |
+| `WORLD.EnableDeathZone(name, on = false)` | `0x1013E180` | finds the zone by name and sets bit 3 of `zone+0x38`. **The default is false**, so `EnableDeathZone:'x'` with no argument turns one OFF |
+| — | `World::InDeathZone` `0x100594E0` | walks the zones, skips any without bit 3, and returns the matching zone's NAME or null |
+
+**Zones come up enabled.** `Levels/C4L2_Babel/CBox/start.CBox` switches its three
+off as the level starts, which is only meaningful if they were on; and no script
+anywhere enables Cathedral's six, which are what make its pit fatal.
+
+The engine posts **`IN_DEATH_ZONE`** with `(entity, x, y, z, zoneName)` — the
+only message with a string argument, which is why `LuaHost::PostMsg` grew a
+trailing-string parameter. `Game_GetMsg` (Game.lua:1158) turns that entity's test
+off again — once — and calls `obj:InDeathZone(x, y, z, zone)`.
+`CPlayer:InDeathZone` sets `Health = 0` and takes `999` of
+`AttackTypes.OutOfLevel`; both it and `CActor:InDeathZone` also spawn a splash
+when the zone's name contains `"wat"`, so these volumes double as drowning
+water.
+
+Every actor, item and player asks to be tested by name
+(`ENTITY.EnableDeathZoneTest(self._Entity, true)` in `CActor`, `CItem` when its
+template sets `TestDeathZone`, `CPlayer`, and `Game:CreatePlayer`), so this is a
+shared path rather than a per-level feature.
+
+**Deviation:** the original chooses between two volume tests on bit 0 of the same
+flags byte; ours is an axis-aligned box for all of them, scaled by the level like
+the rest of the mesh. Every shipped zone examined is a box, so the AABB is exact
+for those; a rotated or non-box zone would over-cover. What would settle it:
+`FUN_10054A40` and `FUN_10001E80`, the two testers `InDeathZone` picks between.
+
+Measured on Cathedral (6 zones found), moving the pawn to `y = -40`, inside
+`deathzoneshape`:
+
+| | |
+|---|---|
+| before | `Health 100`, `_died nil` |
+| 3 frames after the move | `Health 0`, `_died true`, `_diedInDeathZone true` |
+| zone disabled first, then the same move | `Health 100`, `_died nil` — it sits in the box unharmed |
+| re-enabled while standing in it | dead within 4 frames |
+
 ### Pinning a CORPSE, and throwing one afterwards
 
 A stake nailing a body to a wall has always worked: `Stake:Tick` uses

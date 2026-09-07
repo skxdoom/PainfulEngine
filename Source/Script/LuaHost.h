@@ -90,7 +90,10 @@ public:
 	// Game_GetMsg(msg, ...) - the engine's event pump into the scripts
 	// (REGION_ENTERED, PLAYER_HIT_GROUND, EXPLOSION, ...). Numeric arguments
 	// follow the message name, the shape every handler reads via arg[N].
-	bool PostMsg(const char* msg, const double* args = nullptr, int nargs = 0);
+	// `tail` appends one STRING argument after the numbers: IN_DEATH_ZONE ends
+	// with the zone's name, which CPlayer:InDeathZone matches "wat" against.
+	bool PostMsg(const char* msg, const double* args = nullptr, int nargs = 0,
+			const char* tail = nullptr);
 
 	// Calls a global function with `nargs` numeric arguments. Errors are
 	// logged and counted, never propagated.

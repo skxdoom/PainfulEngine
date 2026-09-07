@@ -347,6 +347,9 @@ int PlayerNatives::L_REGION_BuildFromPoint(lua_State* L) {
 }
 
 void ScriptEngine::TickTriggers() {
+	// Tested here so the headless loop and the game loop cannot drift apart:
+	// both already call this once a frame.
+	TickDeathZones();
 	if (!host_ || !playerHandle_) return;
 	const Entity* player = Find(playerHandle_);
 	if (!player) return;

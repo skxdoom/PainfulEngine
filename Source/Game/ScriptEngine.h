@@ -233,6 +233,9 @@ public:
 		Vec3 viewAngles;
 		// ENTITY.SetTimeToDie countdown in seconds; negative means no timer.
 		float timeToDie = -1.f;
+		// ENTITY.EnableDeathZoneTest: the byte at Entity+0x11b (0x101361D0).
+		// Off by default - every actor, item and player asks for it by name.
+		bool deathZoneTest = false;
 		// PLAYER.SetMPByte / GetMPByte: the state byte CPlayer:Tick writes and
 		// PPlayerAnimation reads back. The original keeps it on the
 		// PhysicsObject (0x101391d0); here on the entity. LuaHost.md.
@@ -591,6 +594,10 @@ public:
 	void TickGrenades();
 	// Registers a world-object entity for every water surface in the loaded map.
 	void BuildWaterSurfaces();
+	// The death zones, built with the water and tested with the triggers. A
+	// flagged entity inside an enabled one gets one IN_DEATH_ZONE message.
+	void BuildDeathZones();
+	void TickDeathZones();
 	// Where the segment first crosses a water surface, if it does.
 	bool TraceWater(const Vec3& from, const Vec3& to, float& t, int& entity) const;
 	// Bound 3D sounds: start the delayed ones, follow what they hang off.
@@ -1038,6 +1045,15 @@ private:
 		float hi[2] = {0, 0};
 	};
 	std::vector<WaterSurface> water_;
+	// The level's death zones, named `deathzone*` in the map and identified the
+	// same way water is. Enabled at load: Babel's start box switches three of
+	// them OFF, which is only meaningful if they came up on. Physics.md.
+	struct DeathZone {
+		std::string name;
+		Vec3 lo, hi; // world-space AABB
+		bool enabled = true;
+	};
+	std::vector<DeathZone> deathZones_;
 	// INP.Get/SetTimeMultiplier - the game-speed scale, 1 at normal speed.
 	// StdOnCollision multiplies the impact speed by it before comparing, so an
 	// absent one would throw rather than merely read wrong.

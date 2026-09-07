@@ -237,6 +237,10 @@ moves is drawn where it moved to. The constants come from
 `LScripts/Main/Tweak.lua` and the level's own `o.Physics` block, which is what
 the engine reads too. `P` draws the collision shapes.
 
+Falling out of the level kills: the map's `deathzone*` volumes are read with
+the water surfaces, and anything asking to be tested posts `IN_DEATH_ZONE` when
+it enters an enabled one. Levels switch individual zones on and off.
+
 Details, the numbers, and the sizeable list of what is still missing are in
 [`Physics.md`](Reference/Physics.md).
 
