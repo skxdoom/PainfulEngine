@@ -18,6 +18,15 @@
 
 namespace painful {
 
+// The Explosion natives. The struct is declared here rather than in
+// ScriptEngine.h so that adding one touches only this file.
+struct ExplosionNatives : ScriptNativesBase {
+    static int L_WORLD_Explosion2(lua_State* L);
+    static int L_PO_SetMovedByExplosions(lua_State* L);
+    static int L_PO_SetPinned(lua_State* L);
+    static int L_PO_IsPinned(lua_State* L);
+};
+
 namespace {
 
 // sin((1 - d/range) * pi/2): 1.0 at the centre, 0.0 at the rim, and it holds
@@ -50,7 +59,7 @@ bool MeasuredFromBounds(int collisionGroup) {
 // damage. The mangled export agrees:
 // ?Explosion@PhysicsWorld@@QAEXVVector@@MMHHM@Z = (Vector, float, float, int,
 // int, float).
-int ScriptEngine::L_WORLD_Explosion2(lua_State* L) {
+int ExplosionNatives::L_WORLD_Explosion2(lua_State* L) {
     ScriptEngine* self = From(L);
     const float centre[3] = {float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
                              float(luaL_optnumber(L, 3, 0))};
@@ -203,7 +212,7 @@ void ScriptEngine::Explosion(const float centre[3], float strength, float range,
 //
 // PhysicsObject::IsMovedByExplosions (0x1001E330) is a plain setter over one
 // bool. 71 call sites, and the blast above is its only reader.
-int ScriptEngine::L_PO_SetMovedByExplosions(lua_State* L) {
+int ExplosionNatives::L_PO_SetMovedByExplosions(lua_State* L) {
     ScriptEngine* self = From(L);
     if (Entity* e = self->Find(HandleArg(L, 1)))
         e->movedByExplosions = lua_isnoneornil(L, 2) ? true : (lua_toboolean(L, 2) != 0);
@@ -216,7 +225,7 @@ int ScriptEngine::L_PO_SetMovedByExplosions(lua_State* L) {
 // action releases it: C1L3_Catacombs' blockade is `Pin:C1L3_Blokada_001,false`
 // plus `SetImmortal:...,false` on an ambush box, which is what turns the stones
 // from scenery into something the dynamite crates can break.
-int ScriptEngine::L_PO_SetPinned(lua_State* L) {
+int ExplosionNatives::L_PO_SetPinned(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e || !self->physics_ || e->physicsBody < 0) return 0;
@@ -226,12 +235,25 @@ int ScriptEngine::L_PO_SetPinned(lua_State* L) {
     return 0;
 }
 
-int ScriptEngine::L_PO_IsPinned(lua_State* L) {
+int ExplosionNatives::L_PO_IsPinned(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
     lua_pushboolean(L, e != nullptr && self->physics_ != nullptr && e->physicsBody >= 0 &&
                            self->physics_->IsScriptBodyPinned(e->physicsBody));
     return 1;
+}
+
+void BindExplosion(ScriptEngine& engine, LuaHost& host) {
+    const ScriptNative natives[] = {
+        {"WORLD", "Explosion2", ExplosionNatives::L_WORLD_Explosion2},
+        // Multiplayer takes two more arguments we have no use for yet; the
+        // blast itself is the same one.
+        {"WORLD", "MultiplayerExplosion", ExplosionNatives::L_WORLD_Explosion2},
+        {"ENTITY", "PO_SetMovedByExplosions", ExplosionNatives::L_PO_SetMovedByExplosions},
+        {"ENTITY", "PO_SetPinned", ExplosionNatives::L_PO_SetPinned},
+        {"ENTITY", "PO_IsPinned", ExplosionNatives::L_PO_IsPinned},
+    };
+    RegisterFamily(engine, host, natives);
 }
 
 }  // namespace painful

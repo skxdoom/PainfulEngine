@@ -26,6 +26,12 @@
 
 namespace painful {
 
+// The Water natives. The struct is declared here rather than in
+// ScriptEngine.h so that adding one touches only this file.
+struct WaterNatives : ScriptNativesBase {
+    static int L_ENTITY_IsWater(lua_State* L);
+};
+
 namespace {
 
 // The engine's test is case-sensitive and the shipped names are lowercase.
@@ -99,11 +105,18 @@ bool ScriptEngine::TraceWater(const float from[3], const float to[3], float& t,
 // Type ETypes.Mesh and a name that says water, which is the pair 0x10136050
 // tests. Answers false for anything else, including the world handle 0 - a
 // solid wall is not water, and the scripts branch on exactly that.
-int ScriptEngine::L_ENTITY_IsWater(lua_State* L) {
+int WaterNatives::L_ENTITY_IsWater(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
     lua_pushboolean(L, e && e->type == kMesh && NameSaysWater(e->name) ? 1 : 0);
     return 1;
+}
+
+void BindWater(ScriptEngine& engine, LuaHost& host) {
+    const ScriptNative natives[] = {
+        {"ENTITY", "IsWater", WaterNatives::L_ENTITY_IsWater},
+    };
+    RegisterFamily(engine, host, natives);
 }
 
 }  // namespace painful

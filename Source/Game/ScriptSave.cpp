@@ -16,6 +16,13 @@
 
 namespace painful {
 
+// The Save natives. The struct is declared here rather than in
+// ScriptEngine.h so that adding one touches only this file.
+struct SaveNatives : ScriptNativesBase {
+    static int L_WORLD_SaveGame(lua_State* L);
+    static int L_WORLD_LoadGame(lua_State* L);
+};
+
 namespace {
 
 constexpr char kMagic[4] = {'P', 'K', 'S', 'V'};
@@ -416,14 +423,22 @@ bool ScriptEngine::TakeLevelChange(std::string& levelName, bool& hasMap, bool& f
     return true;
 }
 
-int ScriptEngine::L_WORLD_SaveGame(lua_State* L) {
+int SaveNatives::L_WORLD_SaveGame(lua_State* L) {
     From(L)->SaveWorld(luaL_optstring(L, 1, ""));
     return 0;
 }
 
-int ScriptEngine::L_WORLD_LoadGame(lua_State* L) {
+int SaveNatives::L_WORLD_LoadGame(lua_State* L) {
     From(L)->LoadWorld(luaL_optstring(L, 1, ""));
     return 0;
+}
+
+void BindSave(ScriptEngine& engine, LuaHost& host) {
+    const ScriptNative natives[] = {
+        {"WORLD", "SaveGame", SaveNatives::L_WORLD_SaveGame},
+        {"WORLD", "LoadGame", SaveNatives::L_WORLD_LoadGame},
+    };
+    RegisterFamily(engine, host, natives);
 }
 
 }  // namespace painful

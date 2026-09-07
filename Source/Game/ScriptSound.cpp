@@ -4,6 +4,67 @@
 
 namespace painful {
 
+// The Sound natives. The struct is declared here rather than in
+// ScriptEngine.h so that adding one touches only this file.
+struct SoundNatives : ScriptNativesBase {
+    static int L_SOUND_Play2D(lua_State* L);
+    static int L_SOUND_Play3D(lua_State* L);
+    static int L_SND_Create2D(lua_State* L);
+    static int L_SND_Create3D(lua_State* L);
+    static int L_SND_Play(lua_State* L);
+    static int L_SND_Stop(lua_State* L);
+    static int L_SND_Pause(lua_State* L);
+    static int L_SND_IsPlaying(lua_State* L);
+    static int L_SND_SetVolume(lua_State* L);
+    static int L_SND_SetLoopCount(lua_State* L);
+    static int L_SOUND_SetSoundProperties(lua_State* L);
+    static int L_SND_SetPosition(lua_State* L);
+    static int L_SND_SetHearingDistance(lua_State* L);
+    static int L_SND_SetSoundSpeed(lua_State* L);
+    static int L_SND_Delete(lua_State* L);
+    static int L_SND_Forget(lua_State* L);
+    static int L_SOUND_SetPlayerPos(lua_State* L);
+    static int L_SOUND_SetPlayerOrientation(lua_State* L);
+    static int L_WPT_Load(lua_State* L);
+    static int L_WPT_GetClosest(lua_State* L);
+    static int L_WPT_GetPosition(lua_State* L);
+    static int L_PATH_Create(lua_State* L);
+    static int L_PATH_Release(lua_State* L);
+    static int L_PATH_GetShortest(lua_State* L);
+    static int L_PATH_IsFinished(lua_State* L);
+    static int L_PATH_GetNextPoint(lua_State* L);
+    static int L_PO_SetSightParams(lua_State* L);
+    static int L_SeesEntity(lua_State* L);
+    static int L_PO_SetMonsterMovementConst(lua_State* L);
+    static int L_PO_IsOnFloor(lua_State* L);
+    static int L_PO_SetFlying(lua_State* L);
+    static int L_PO_IsFlying(lua_State* L);
+    static int L_PO_Exist(lua_State* L);
+    static int L_PO_GetMaxSphereRay(lua_State* L);
+    static int L_PO_SetMass(lua_State* L);
+    static int L_PO_SetFriction(lua_State* L);
+    static int L_PO_SetRestitution(lua_State* L);
+    static int L_PO_SetFreedomOfRotation(lua_State* L);
+    static int L_PO_SetLinearDamping(lua_State* L);
+    static int L_PO_SetAngularDamping(lua_State* L);
+    static int L_SND_Setup3D(lua_State* L);
+    static int L_SND_EntityPlay(lua_State* L);
+    static int L_SND_EntityStop(lua_State* L);
+    static int L_SND_EntityIsPlaying(lua_State* L);
+    static int L_SND_GetSound3DPtr(lua_State* L);
+    static int L_SOUND_StreamLoad(lua_State* L);
+    static int L_SOUND_StreamPlay(lua_State* L);
+    static int L_SOUND_StreamPause(lua_State* L);
+    static int L_SOUND_StreamResume(lua_State* L);
+    static int L_SOUND_StreamDelete(lua_State* L);
+    static int L_SOUND_StreamSetVolume(lua_State* L);
+    static int L_SOUND_StreamGetVolume(lua_State* L);
+    static int L_SOUND_StreamSetLowPass(lua_State* L);
+    static int L_SOUND_StreamGetLowPass(lua_State* L);
+    static int L_SOUND_Set3DSoundFalloff(lua_State* L);
+    static int L_SOUND_Get3DSoundFalloff(lua_State* L);
+};
+
 // ------------------------------------------------------------------ sound
 //
 // Three families, and the split is by how the scripts hold them rather than by
@@ -41,7 +102,7 @@ static float SoundVolume(lua_State* L, int index, double fallback = 100.0) {
 // SOUND.Play2D(name, volume = 80, sameSpeedInBulletTime, noPitch) - the 80 is
 // 0x10124510's own default. Play3D(name, x,y,z, dist1 = 6, dist2 = dist1 + 24,
 // noPitch) likewise (0x10124610, _DAT_102c5600 = 24).
-int ScriptEngine::L_SOUND_Play2D(lua_State* L) {
+int SoundNatives::L_SOUND_Play2D(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!self->audio_) return 0;
     const int v = self->audio_->Play2D(SoundName(L, 1), SoundVolume(L, 2, 80.0),
@@ -51,7 +112,7 @@ int ScriptEngine::L_SOUND_Play2D(lua_State* L) {
     return 1;
 }
 
-int ScriptEngine::L_SOUND_Play3D(lua_State* L) {
+int SoundNatives::L_SOUND_Play3D(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!self->audio_) return 0;
     const float pos[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
@@ -66,7 +127,7 @@ int ScriptEngine::L_SOUND_Play3D(lua_State* L) {
 
 // SOUND2D.Create(name, loop) / SOUND3D.Create(name) -> a handle the script
 // keeps. Created stopped: the scripts call Play when they want it.
-int ScriptEngine::L_SND_Create2D(lua_State* L) {
+int SoundNatives::L_SND_Create2D(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!self->audio_) return 0;
     const int v = self->audio_->Create(SoundName(L, 1), false);
@@ -75,7 +136,7 @@ int ScriptEngine::L_SND_Create2D(lua_State* L) {
     return 1;
 }
 
-int ScriptEngine::L_SND_Create3D(lua_State* L) {
+int SoundNatives::L_SND_Create3D(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!self->audio_) return 0;
     const int v = self->audio_->Create(SoundName(L, 1), true);
@@ -84,32 +145,32 @@ int ScriptEngine::L_SND_Create3D(lua_State* L) {
     return 1;
 }
 
-int ScriptEngine::L_SND_Play(lua_State* L) {
+int SoundNatives::L_SND_Play(lua_State* L) {
     ScriptEngine* self = From(L);
     if (self->audio_) self->audio_->Start(int(luaL_optnumber(L, 1, 0)));
     return 0;
 }
 
-int ScriptEngine::L_SND_Stop(lua_State* L) {
+int SoundNatives::L_SND_Stop(lua_State* L) {
     ScriptEngine* self = From(L);
     if (self->audio_) self->audio_->Stop(int(luaL_optnumber(L, 1, 0)));
     return 0;
 }
 
-int ScriptEngine::L_SND_Pause(lua_State* L) {
+int SoundNatives::L_SND_Pause(lua_State* L) {
     ScriptEngine* self = From(L);
     if (self->audio_) self->audio_->Pause(int(luaL_optnumber(L, 1, 0)), true);
     return 0;
 }
 
-int ScriptEngine::L_SND_IsPlaying(lua_State* L) {
+int SoundNatives::L_SND_IsPlaying(lua_State* L) {
     ScriptEngine* self = From(L);
     lua_pushboolean(L, self->audio_ &&
                            self->audio_->IsPlaying(int(luaL_optnumber(L, 1, 0))));
     return 1;
 }
 
-int ScriptEngine::L_SND_SetVolume(lua_State* L) {
+int SoundNatives::L_SND_SetVolume(lua_State* L) {
     ScriptEngine* self = From(L);
     if (self->audio_)
         self->audio_->SetVolume(int(luaL_optnumber(L, 1, 0)), SoundVolume(L, 2));
@@ -127,7 +188,7 @@ int ScriptEngine::L_SND_SetVolume(lua_State* L) {
 //
 // AudioEngine counts down instead, so forever is -1 there and 0 would silence
 // exactly the sounds the scripts loop most. Translate at the boundary.
-int ScriptEngine::L_SND_SetLoopCount(lua_State* L) {
+int SoundNatives::L_SND_SetLoopCount(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!self->audio_) return 0;
     const int miles = int(luaL_optnumber(L, 2, 0));
@@ -138,7 +199,7 @@ int ScriptEngine::L_SND_SetLoopCount(lua_State* L) {
 // SOUND.SetSoundProperties(name, maxInstances, intervalMs) - 0x10140560
 // keys the file as "../Data/Sounds/<name>.wav" unless the name is "default";
 // Game:Init pushes Definitions.lua's SoundsProperties table through it.
-int ScriptEngine::L_SOUND_SetSoundProperties(lua_State* L) {
+int SoundNatives::L_SOUND_SetSoundProperties(lua_State* L) {
     ScriptEngine* self = From(L);
     if (self->audio_)
         self->audio_->SetSoundProperties(SoundName(L, 1), int(luaL_optnumber(L, 2, 100)),
@@ -146,7 +207,7 @@ int ScriptEngine::L_SOUND_SetSoundProperties(lua_State* L) {
     return 0;
 }
 
-int ScriptEngine::L_SND_SetPosition(lua_State* L) {
+int SoundNatives::L_SND_SetPosition(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!self->audio_) return 0;
     const float pos[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
@@ -155,7 +216,7 @@ int ScriptEngine::L_SND_SetPosition(lua_State* L) {
     return 0;
 }
 
-int ScriptEngine::L_SND_SetHearingDistance(lua_State* L) {
+int SoundNatives::L_SND_SetHearingDistance(lua_State* L) {
     ScriptEngine* self = From(L);
     if (self->audio_)
         self->audio_->SetHearingDistance(int(luaL_optnumber(L, 1, 0)),
@@ -164,7 +225,7 @@ int ScriptEngine::L_SND_SetHearingDistance(lua_State* L) {
     return 0;
 }
 
-int ScriptEngine::L_SND_SetSoundSpeed(lua_State* L) {
+int SoundNatives::L_SND_SetSoundSpeed(lua_State* L) {
     ScriptEngine* self = From(L);
     if (self->audio_)
         self->audio_->SetSpeed(int(luaL_optnumber(L, 1, 0)),
@@ -174,13 +235,13 @@ int ScriptEngine::L_SND_SetSoundSpeed(lua_State* L) {
 
 // Delete stops it; Forget lets it finish and stops caring. Both hand the slot
 // back, which is what keeps a level's worth of one-shots from filling the pool.
-int ScriptEngine::L_SND_Delete(lua_State* L) {
+int SoundNatives::L_SND_Delete(lua_State* L) {
     ScriptEngine* self = From(L);
     if (self->audio_) self->audio_->Release(int(luaL_optnumber(L, 1, 0)), false);
     return 0;
 }
 
-int ScriptEngine::L_SND_Forget(lua_State* L) {
+int SoundNatives::L_SND_Forget(lua_State* L) {
     ScriptEngine* self = From(L);
     if (self->audio_) self->audio_->Release(int(luaL_optnumber(L, 1, 0)), true);
     return 0;
@@ -189,7 +250,7 @@ int ScriptEngine::L_SND_Forget(lua_State* L) {
 // SOUND.SetPlayerPos / SetPlayerOrientation - the listener, pushed every frame
 // by CPlayer. Without the orientation everything would still attenuate with
 // distance but nothing would come from a side.
-int ScriptEngine::L_SOUND_SetPlayerPos(lua_State* L) {
+int SoundNatives::L_SOUND_SetPlayerPos(lua_State* L) {
     ScriptEngine* self = From(L);
     for (int c = 0; c < 3; ++c)
         self->listenerPos_[c] = float(luaL_optnumber(L, c + 1, 0));
@@ -197,7 +258,7 @@ int ScriptEngine::L_SOUND_SetPlayerPos(lua_State* L) {
     return 0;
 }
 
-int ScriptEngine::L_SOUND_SetPlayerOrientation(lua_State* L) {
+int SoundNatives::L_SOUND_SetPlayerOrientation(lua_State* L) {
     ScriptEngine* self = From(L);
     for (int c = 0; c < 3; ++c)
         self->listenerFwd_[c] = float(luaL_optnumber(L, c + 1, 0));
@@ -228,7 +289,7 @@ void ScriptEngine::PushListener() {
 // (0x10128A90) clears both pathfinders, then LoadContents the .wps and
 // LoadFloors a companion file that does not ship - so the floors section
 // inside the .wps is all there is, and routing does not need it.
-int ScriptEngine::L_WPT_Load(lua_State* L) {
+int SoundNatives::L_WPT_Load(lua_State* L) {
     ScriptEngine* self = From(L);
     self->waypoints_ = WaypointSet{};
     self->paths_.clear();
@@ -270,7 +331,7 @@ int ScriptEngine::L_WPT_Load(lua_State* L) {
 // no distance cap - the nearest waypoint by 3D distance, floor ignored - and
 // pushes 0 for the zone. -1 when the level has no graph, which is the value
 // the five scripts that use it guard against.
-int ScriptEngine::L_WPT_GetClosest(lua_State* L) {
+int SoundNatives::L_WPT_GetClosest(lua_State* L) {
     ScriptEngine* self = From(L);
     const float p[3] = {float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
                         float(luaL_optnumber(L, 3, 0))};
@@ -281,7 +342,7 @@ int ScriptEngine::L_WPT_GetClosest(lua_State* L) {
 }
 
 // WPT.GetPosition(zone, index) -> x, y, z of that waypoint.
-int ScriptEngine::L_WPT_GetPosition(lua_State* L) {
+int SoundNatives::L_WPT_GetPosition(lua_State* L) {
     ScriptEngine* self = From(L);
     const int idx = int(luaL_optnumber(L, 2, -1));
     float p[3] = {0, 0, 0};
@@ -291,7 +352,7 @@ int ScriptEngine::L_WPT_GetPosition(lua_State* L) {
     return 3;
 }
 
-int ScriptEngine::L_PATH_Create(lua_State* L) {
+int SoundNatives::L_PATH_Create(lua_State* L) {
     ScriptEngine* self = From(L);
     for (size_t i = 0; i < self->paths_.size(); ++i) {
         if (self->paths_[i].live) continue;
@@ -306,7 +367,7 @@ int ScriptEngine::L_PATH_Create(lua_State* L) {
     return 1;
 }
 
-int ScriptEngine::L_PATH_Release(lua_State* L) {
+int SoundNatives::L_PATH_Release(lua_State* L) {
     ScriptEngine* self = From(L);
     const int h = int(luaL_optnumber(L, 1, 0));
     if (h > 0 && size_t(h) <= self->paths_.size()) self->paths_[size_t(h) - 1] = Route{};
@@ -324,7 +385,7 @@ int ScriptEngine::L_PATH_Release(lua_State* L) {
 //
 // The first waypoint is dropped when the actor is already close to it, so it
 // does not walk backwards to a point it has effectively reached.
-int ScriptEngine::L_PATH_GetShortest(lua_State* L) {
+int SoundNatives::L_PATH_GetShortest(lua_State* L) {
     ScriptEngine* self = From(L);
     const int h = int(luaL_optnumber(L, 1, 0));
     if (h <= 0 || size_t(h) > self->paths_.size()) return 0;
@@ -367,7 +428,7 @@ int ScriptEngine::L_PATH_GetShortest(lua_State* L) {
 // finds a point, so a path that does not exist is finished - and in CActor
 // that is the branch which walks straight at the destination. Everything here
 // therefore degrades to the old straight-line behaviour rather than stopping.
-int ScriptEngine::L_PATH_IsFinished(lua_State* L) {
+int SoundNatives::L_PATH_IsFinished(lua_State* L) {
     ScriptEngine* self = From(L);
     const int h = int(luaL_optnumber(L, 1, 0));
     bool finished = true;
@@ -381,7 +442,7 @@ int ScriptEngine::L_PATH_IsFinished(lua_State* L) {
 
 // PATH.GetNextPoint(path) -> x,y,z, and CONSUMES it: CActor calls this and
 // then asks IsFinished again to learn whether that was the last one.
-int ScriptEngine::L_PATH_GetNextPoint(lua_State* L) {
+int SoundNatives::L_PATH_GetNextPoint(lua_State* L) {
     ScriptEngine* self = From(L);
     const int h = int(luaL_optnumber(L, 1, 0));
     float p[3] = {0, 0, 0};
@@ -409,7 +470,7 @@ int ScriptEngine::L_PATH_GetNextPoint(lua_State* L) {
 // The angles arrive in DEGREES as a full spread (360 means all round) and are
 // stored as a half-angle in radians, which is what makes the engine's own
 // default of 180 come out as pi/2 - the value PO_Create seeds.
-int ScriptEngine::L_PO_SetSightParams(lua_State* L) {
+int SoundNatives::L_PO_SetSightParams(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e) return 0;
@@ -432,7 +493,7 @@ int ScriptEngine::L_PO_SetSightParams(lua_State* L) {
 // ragdoll off for the duration and back on afterwards, because a monster's own
 // body sits on the line and would blind it. The same applies to us - both
 // bodies are excluded below.
-int ScriptEngine::L_SeesEntity(lua_State* L) {
+int SoundNatives::L_SeesEntity(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* a = self->Find(HandleArg(L, 1));
     Entity* b = self->Find(HandleArg(L, 2));
@@ -511,7 +572,7 @@ bool ScriptEngine::Sees(int ha, Entity& a, int hb, Entity& b) const {
 // ENTITY.PO_SetMonsterMovementConst(e, havokInfluence, dontCheckFloors):
 // PhysicsObject+0x6c and +0x70, which PhysicsObject::Tick reads every step -
 // see PhysicsWorld::StepCharacters.
-int ScriptEngine::L_PO_SetMonsterMovementConst(lua_State* L) {
+int SoundNatives::L_PO_SetMonsterMovementConst(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e) return 0;
@@ -526,7 +587,7 @@ int ScriptEngine::L_PO_SetMonsterMovementConst(lua_State* L) {
 // ENTITY.PO_IsOnFloor(e) -> onFloor, nx, ny, nz. Four values (0x101341C0
 // returns 4), and CAiBrain unpacks all four into the floor normal. Both come
 // out of MonsterFloorCheck's ray, run in the last physics step.
-int ScriptEngine::L_PO_IsOnFloor(lua_State* L) {
+int SoundNatives::L_PO_IsOnFloor(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
     bool on = false;
@@ -540,7 +601,7 @@ int ScriptEngine::L_PO_IsOnFloor(lua_State* L) {
 
 // ENTITY.PO_SetFlying(e, on): PhysicsObject::SetFlying (0x1001E310) sets bit 3
 // of +0x75, and the tick then leaves the velocity to the Maintain* movers.
-int ScriptEngine::L_PO_SetFlying(lua_State* L) {
+int SoundNatives::L_PO_SetFlying(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e) return 0;
@@ -550,14 +611,14 @@ int ScriptEngine::L_PO_SetFlying(lua_State* L) {
     return 0;
 }
 
-int ScriptEngine::L_PO_IsFlying(lua_State* L) {
+int SoundNatives::L_PO_IsFlying(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
     lua_pushboolean(L, e && e->monsterFlying);
     return 1;
 }
 
-int ScriptEngine::L_PO_Exist(lua_State* L) {
+int SoundNatives::L_PO_Exist(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
     lua_pushboolean(L, e && self->physics_ && e->physicsBody >= 0 &&
@@ -567,7 +628,7 @@ int ScriptEngine::L_PO_Exist(lua_State* L) {
 
 // CActor divides and multiplies by this; 0.8 is the scripts' own fallback
 // for actors without a physics body.
-int ScriptEngine::L_PO_GetMaxSphereRay(lua_State* L) {
+int SoundNatives::L_PO_GetMaxSphereRay(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
     const float r = (e && self->physics_ && e->physicsBody >= 0)
@@ -584,7 +645,7 @@ int ScriptEngine::L_PO_GetMaxSphereRay(lua_State* L) {
 // whole-body: zombie 150, nun 120, up to 400, against the .hke's per-limb
 // masses which total far less. That total is what the weapons' impulses are
 // calibrated against.
-int ScriptEngine::L_PO_SetMass(lua_State* L) {
+int SoundNatives::L_PO_SetMass(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
     if (!e || !self->physics_) return 0;
@@ -603,13 +664,13 @@ int ScriptEngine::L_PO_SetMass(lua_State* L) {
 // into Havok afterwards - only FixHavokPositionBug, the NaN-recovery path,
 // rebuilds a body from them. What does read friction is the grenade flight
 // fix (TickGrenades). Docs/Reference/Physics.md.
-int ScriptEngine::L_PO_SetFriction(lua_State* L) {
+int SoundNatives::L_PO_SetFriction(lua_State* L) {
     if (Entity* e = From(L)->Find(HandleArg(L, 1)))
         e->bodyFriction = float(luaL_optnumber(L, 2, 0));
     return 0;
 }
 
-int ScriptEngine::L_PO_SetRestitution(lua_State* L) {
+int SoundNatives::L_PO_SetRestitution(lua_State* L) {
     if (Entity* e = From(L)->Find(HandleArg(L, 1)))
         e->bodyRestitution = float(luaL_optnumber(L, 2, 0));
     return 0;
@@ -619,7 +680,7 @@ int ScriptEngine::L_PO_SetRestitution(lua_State* L) {
 // the mode as an int and the softness as a float defaulting to 1, and
 // CObject:PO_Create calls it with 4 (HardTurn) when the object declares
 // Softness and 3 (FullFree) otherwise.
-int ScriptEngine::L_PO_SetFreedomOfRotation(lua_State* L) {
+int SoundNatives::L_PO_SetFreedomOfRotation(lua_State* L) {
     ScriptEngine* self = From(L);
     if (Entity* e = self->Find(HandleArg(L, 1)))
         if (self->physics_ && e->physicsBody >= 0) {
@@ -631,7 +692,7 @@ int ScriptEngine::L_PO_SetFreedomOfRotation(lua_State* L) {
     return 0;
 }
 
-int ScriptEngine::L_PO_SetLinearDamping(lua_State* L) {
+int SoundNatives::L_PO_SetLinearDamping(lua_State* L) {
     ScriptEngine* self = From(L);
     if (Entity* e = self->Find(HandleArg(L, 1)))
         if (self->physics_ && e->physicsBody >= 0) {
@@ -641,7 +702,7 @@ int ScriptEngine::L_PO_SetLinearDamping(lua_State* L) {
     return 0;
 }
 
-int ScriptEngine::L_PO_SetAngularDamping(lua_State* L) {
+int SoundNatives::L_PO_SetAngularDamping(lua_State* L) {
     ScriptEngine* self = From(L);
     if (Entity* e = self->Find(HandleArg(L, 1)))
         if (self->physics_ && e->physicsBody >= 0) {
@@ -675,7 +736,7 @@ int ScriptEngine::L_PO_SetAngularDamping(lua_State* L) {
 //
 // interval is the gap between repeats: BindSoundToEntity passes 0 for a looping
 // sound and -1 for a one-shot, the same polarity Miles uses for loop counts.
-int ScriptEngine::L_SND_Setup3D(lua_State* L) {
+int SoundNatives::L_SND_Setup3D(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e) return 0;
@@ -694,7 +755,7 @@ int ScriptEngine::L_SND_Setup3D(lua_State* L) {
 }
 
 // SND.Play(entity, delay) - delay in seconds, counted down by TickSounds.
-int ScriptEngine::L_SND_EntityPlay(lua_State* L) {
+int SoundNatives::L_SND_EntityPlay(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e || !self->audio_ || e->soundName.empty()) return 0;
@@ -705,7 +766,7 @@ int ScriptEngine::L_SND_EntityPlay(lua_State* L) {
     return 0;
 }
 
-int ScriptEngine::L_SND_EntityStop(lua_State* L) {
+int SoundNatives::L_SND_EntityStop(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e) return 0;
@@ -715,7 +776,7 @@ int ScriptEngine::L_SND_EntityStop(lua_State* L) {
     return 0;
 }
 
-int ScriptEngine::L_SND_EntityIsPlaying(lua_State* L) {
+int SoundNatives::L_SND_EntityIsPlaying(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
     const bool on = e && self->audio_ && e->soundVoice &&
@@ -727,7 +788,7 @@ int ScriptEngine::L_SND_EntityIsPlaying(lua_State* L) {
 // The voice behind a Sound entity, so a script can hand it to the SOUND3D
 // natives - Beast, Ghost and Witch all keep the pointer and set the volume or
 // the speed on it directly.
-int ScriptEngine::L_SND_GetSound3DPtr(lua_State* L) {
+int SoundNatives::L_SND_GetSound3DPtr(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
     lua_pushnumber(L, e ? e->soundVoice : 0);
@@ -771,13 +832,13 @@ void ScriptEngine::TickSounds(float dt) {
 // opens "../Data/Music/<name>.mp3" into the slot, StreamPlay starts from the
 // top at volume 0 (loop count 0 = forever when the second argument, default
 // true, holds), volumes are 0..100. Docs/Reference/Sound.md, "Music streams".
-int ScriptEngine::L_SOUND_StreamLoad(lua_State* L) {
+int SoundNatives::L_SOUND_StreamLoad(lua_State* L) {
     ScriptEngine* self = From(L);
     if (self->audio_) self->audio_->StreamLoad(int(luaL_optnumber(L, 1, 0)), luaL_optstring(L, 2, ""));
     return 0;
 }
 
-int ScriptEngine::L_SOUND_StreamPlay(lua_State* L) {
+int SoundNatives::L_SOUND_StreamPlay(lua_State* L) {
     ScriptEngine* self = From(L);
     if (self->audio_)
         self->audio_->StreamPlay(int(luaL_optnumber(L, 1, 0)),
@@ -785,25 +846,25 @@ int ScriptEngine::L_SOUND_StreamPlay(lua_State* L) {
     return 0;
 }
 
-int ScriptEngine::L_SOUND_StreamPause(lua_State* L) {
+int SoundNatives::L_SOUND_StreamPause(lua_State* L) {
     ScriptEngine* self = From(L);
     if (self->audio_) self->audio_->StreamPause(int(luaL_optnumber(L, 1, 0)));
     return 0;
 }
 
-int ScriptEngine::L_SOUND_StreamResume(lua_State* L) {
+int SoundNatives::L_SOUND_StreamResume(lua_State* L) {
     ScriptEngine* self = From(L);
     if (self->audio_) self->audio_->StreamResume(int(luaL_optnumber(L, 1, 0)));
     return 0;
 }
 
-int ScriptEngine::L_SOUND_StreamDelete(lua_State* L) {
+int SoundNatives::L_SOUND_StreamDelete(lua_State* L) {
     ScriptEngine* self = From(L);
     if (self->audio_) self->audio_->StreamDelete(int(luaL_optnumber(L, 1, 0)));
     return 0;
 }
 
-int ScriptEngine::L_SOUND_StreamSetVolume(lua_State* L) {
+int SoundNatives::L_SOUND_StreamSetVolume(lua_State* L) {
     ScriptEngine* self = From(L);
     if (self->audio_)
         self->audio_->StreamSetVolume(int(luaL_optnumber(L, 1, 0)),
@@ -811,21 +872,21 @@ int ScriptEngine::L_SOUND_StreamSetVolume(lua_State* L) {
     return 0;
 }
 
-int ScriptEngine::L_SOUND_StreamGetVolume(lua_State* L) {
+int SoundNatives::L_SOUND_StreamGetVolume(lua_State* L) {
     ScriptEngine* self = From(L);
     const float v = self->audio_ ? self->audio_->StreamGetVolume(int(luaL_optnumber(L, 1, 0))) : 0.f;
     lua_pushnumber(L, v * 100.f);
     return 1;
 }
 
-int ScriptEngine::L_SOUND_StreamSetLowPass(lua_State* L) {
+int SoundNatives::L_SOUND_StreamSetLowPass(lua_State* L) {
     ScriptEngine* self = From(L);
     if (self->audio_)
         self->audio_->StreamSetLowPass(int(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)));
     return 0;
 }
 
-int ScriptEngine::L_SOUND_StreamGetLowPass(lua_State* L) {
+int SoundNatives::L_SOUND_StreamGetLowPass(lua_State* L) {
     ScriptEngine* self = From(L);
     lua_pushnumber(L, self->audio_ ? self->audio_->StreamGetLowPass(int(luaL_optnumber(L, 1, 0))) : 0.f);
     return 1;
@@ -834,16 +895,85 @@ int ScriptEngine::L_SOUND_StreamGetLowPass(lua_State* L) {
 // SOUND.Set3DSoundFalloff(k = 1) -> MilesEngine::SetFalloffSpeed ->
 // AIL_set_3D_rolloff_factor (0x101250E0). CLevel:Init passes its
 // SoundFalloffSpeed, 2 by default.
-int ScriptEngine::L_SOUND_Set3DSoundFalloff(lua_State* L) {
+int SoundNatives::L_SOUND_Set3DSoundFalloff(lua_State* L) {
     ScriptEngine* self = From(L);
     if (self->audio_) self->audio_->SetRolloff(float(luaL_optnumber(L, 1, 1.0)));
     return 0;
 }
 
-int ScriptEngine::L_SOUND_Get3DSoundFalloff(lua_State* L) {
+int SoundNatives::L_SOUND_Get3DSoundFalloff(lua_State* L) {
     ScriptEngine* self = From(L);
     lua_pushnumber(L, self->audio_ ? self->audio_->rolloff() : 1.f);
     return 1;
+}
+
+void BindSound(ScriptEngine& engine, LuaHost& host) {
+    const ScriptNative natives[] = {
+        {"ENTITY", "PO_SetFreedomOfRotation", SoundNatives::L_PO_SetFreedomOfRotation},
+        {"ENTITY", "PO_SetMonsterMovementConst", SoundNatives::L_PO_SetMonsterMovementConst},
+        {"ENTITY", "PO_IsOnFloor", SoundNatives::L_PO_IsOnFloor},
+        {"ENTITY", "PO_SetFlying", SoundNatives::L_PO_SetFlying},
+        {"ENTITY", "PO_IsFlying", SoundNatives::L_PO_IsFlying},
+        {"ENTITY", "PO_SetSightParams", SoundNatives::L_PO_SetSightParams},
+        {"ENTITY", "SeesEntity", SoundNatives::L_SeesEntity},
+        {"SOUND", "StreamLoad", SoundNatives::L_SOUND_StreamLoad},
+        {"SOUND", "StreamPlay", SoundNatives::L_SOUND_StreamPlay},
+        {"SOUND", "StreamPause", SoundNatives::L_SOUND_StreamPause},
+        {"SOUND", "StreamResume", SoundNatives::L_SOUND_StreamResume},
+        {"SOUND", "StreamDelete", SoundNatives::L_SOUND_StreamDelete},
+        {"SOUND", "StreamSetVolume", SoundNatives::L_SOUND_StreamSetVolume},
+        {"SOUND", "StreamGetVolume", SoundNatives::L_SOUND_StreamGetVolume},
+        {"SOUND", "StreamSetLowPass", SoundNatives::L_SOUND_StreamSetLowPass},
+        {"SOUND", "StreamGetLowPass", SoundNatives::L_SOUND_StreamGetLowPass},
+        {"SOUND", "Set3DSoundFalloff", SoundNatives::L_SOUND_Set3DSoundFalloff},
+        {"SOUND", "Get3DSoundFalloff", SoundNatives::L_SOUND_Get3DSoundFalloff},
+        {"SOUND", "Play2D", SoundNatives::L_SOUND_Play2D},
+        {"SOUND", "Play3D", SoundNatives::L_SOUND_Play3D},
+        {"SOUND", "SetSoundProperties", SoundNatives::L_SOUND_SetSoundProperties},
+        {"SOUND", "SetPlayerPos", SoundNatives::L_SOUND_SetPlayerPos},
+        {"SOUND", "SetPlayerOrientation", SoundNatives::L_SOUND_SetPlayerOrientation},
+        {"SOUND2D", "Create", SoundNatives::L_SND_Create2D},
+        {"SOUND2D", "Play", SoundNatives::L_SND_Play},
+        {"SOUND2D", "Stop", SoundNatives::L_SND_Stop},
+        {"SOUND2D", "Pause", SoundNatives::L_SND_Pause},
+        {"SOUND2D", "IsPlaying", SoundNatives::L_SND_IsPlaying},
+        {"SOUND2D", "SetVolume", SoundNatives::L_SND_SetVolume},
+        {"SOUND2D", "SetLoopCount", SoundNatives::L_SND_SetLoopCount},
+        {"SOUND2D", "SetSoundSpeed", SoundNatives::L_SND_SetSoundSpeed},
+        {"SOUND2D", "Delete", SoundNatives::L_SND_Delete},
+        {"SOUND2D", "Forget", SoundNatives::L_SND_Forget},
+        {"SOUND3D", "Create", SoundNatives::L_SND_Create3D},
+        {"SOUND3D", "Play", SoundNatives::L_SND_Play},
+        {"SOUND3D", "Stop", SoundNatives::L_SND_Stop},
+        {"SOUND3D", "IsPlaying", SoundNatives::L_SND_IsPlaying},
+        {"SOUND3D", "SetVolume", SoundNatives::L_SND_SetVolume},
+        {"SOUND3D", "SetLoopCount", SoundNatives::L_SND_SetLoopCount},
+        {"SOUND3D", "SetPosition", SoundNatives::L_SND_SetPosition},
+        {"SOUND3D", "SetHearingDistance", SoundNatives::L_SND_SetHearingDistance},
+        {"SOUND3D", "Delete", SoundNatives::L_SND_Delete},
+        {"SOUND3D", "Forget", SoundNatives::L_SND_Forget},
+        {"WPT", "Load", SoundNatives::L_WPT_Load},
+        {"WPT", "GetClosest", SoundNatives::L_WPT_GetClosest},
+        {"WPT", "GetPosition", SoundNatives::L_WPT_GetPosition},
+        {"PATH", "Create", SoundNatives::L_PATH_Create},
+        {"PATH", "Release", SoundNatives::L_PATH_Release},
+        {"PATH", "GetShortest", SoundNatives::L_PATH_GetShortest},
+        {"PATH", "IsFinished", SoundNatives::L_PATH_IsFinished},
+        {"PATH", "GetNextPoint", SoundNatives::L_PATH_GetNextPoint},
+        {"ENTITY", "PO_Exist", SoundNatives::L_PO_Exist},
+        {"ENTITY", "PO_GetMaxSphereRay", SoundNatives::L_PO_GetMaxSphereRay},
+        {"ENTITY", "PO_SetMass", SoundNatives::L_PO_SetMass},
+        {"ENTITY", "PO_SetFriction", SoundNatives::L_PO_SetFriction},
+        {"ENTITY", "PO_SetRestitution", SoundNatives::L_PO_SetRestitution},
+        {"ENTITY", "PO_SetLinearDamping", SoundNatives::L_PO_SetLinearDamping},
+        {"ENTITY", "PO_SetAngularDamping", SoundNatives::L_PO_SetAngularDamping},
+        {"SND", "Setup3D", SoundNatives::L_SND_Setup3D},
+        {"SND", "Play", SoundNatives::L_SND_EntityPlay},
+        {"SND", "Stop", SoundNatives::L_SND_EntityStop},
+        {"SND", "IsPlaying", SoundNatives::L_SND_EntityIsPlaying},
+        {"SND", "GetSound3DPtr", SoundNatives::L_SND_GetSound3DPtr},
+    };
+    RegisterFamily(engine, host, natives);
 }
 
 }  // namespace painful

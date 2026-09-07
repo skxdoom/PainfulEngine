@@ -6,6 +6,36 @@
 
 namespace painful {
 
+// The Player natives. The struct is declared here rather than in
+// ScriptEngine.h so that adding one touches only this file.
+struct PlayerNatives : ScriptNativesBase {
+    static int L_CreatePlayer(lua_State* L);
+    static int L_PO_SetPawnHeadPos(lua_State* L);
+    static int L_PO_GetPawnHeadPos(lua_State* L);
+    static int L_PO_IsEnabled(lua_State* L);
+    static int L_EDITOR_OutputText(lua_State* L);
+    static int L_IsFinalBuild(lua_State* L);
+    static int L_PO_Enable(lua_State* L);
+    static int L_PO_GetPawnFloorPos(lua_State* L);
+    static int L_GetDimensions(lua_State* L);
+    static int L_PLAYER_GetDistanceFromPoint(lua_State* L);
+    static int L_IsDrawEnabled(lua_State* L);
+    static int L_GetPlayerSpeed(lua_State* L);
+    static int L_SetPlayerSpeed(lua_State* L);
+    static int L_REGION_BuildFromPoint(lua_State* L);
+    static int L_CAM_GetPos(lua_State* L);
+    static int L_CAM_GetForwardVector(lua_State* L);
+    static int L_CAM_SetPos(lua_State* L);
+    static int L_CAM_SetAng(lua_State* L);
+    static int L_CAM_GetAng(lua_State* L);
+    static int L_CAM_GetAngRad(lua_State* L);
+    static int L_PLAYER_GetCameraFix(lua_State* L);
+    static int L_CAM_GetRawRotation(lua_State* L);
+    static int L_MOUSE_GetDelta(lua_State* L);
+    static int L_MOUSE_SetSensitivity(lua_State* L);
+    static int L_CAM_SetPositionDisplacement(lua_State* L);
+};
+
 // ---------------------------------------------------------------- player
 
 // CreatePlayer(model, bool) -> the player's entity handle. The pawn itself
@@ -13,7 +43,7 @@ namespace painful {
 // the PlayerMove tweaks, and the scripts wrap the handle in CPlayer for
 // health, weapons and pickups. The model ("player_box") is never drawn in
 // first person - Game:AddPlayer sets Visible = false immediately.
-int ScriptEngine::L_CreatePlayer(lua_State* L) {
+int PlayerNatives::L_CreatePlayer(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity e;
     e.type = kModel;
@@ -38,7 +68,7 @@ int ScriptEngine::L_CreatePlayer(lua_State* L) {
     return 1;
 }
 
-int ScriptEngine::L_PO_SetPawnHeadPos(lua_State* L) {
+int PlayerNatives::L_PO_SetPawnHeadPos(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e) return 0;
@@ -49,7 +79,7 @@ int ScriptEngine::L_PO_SetPawnHeadPos(lua_State* L) {
     return 0;
 }
 
-int ScriptEngine::L_PO_GetPawnHeadPos(lua_State* L) {
+int PlayerNatives::L_PO_GetPawnHeadPos(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
     float head[3] = {0, 0, 0};
@@ -60,7 +90,7 @@ int ScriptEngine::L_PO_GetPawnHeadPos(lua_State* L) {
 
 // PO_Enable / PO_IsEnabled: on the player this is the walk/fly switch
 // (SwitchPlayerToPhysics); on a prop it wakes or sleeps the body.
-int ScriptEngine::L_PO_IsEnabled(lua_State* L) {
+int PlayerNatives::L_PO_IsEnabled(lua_State* L) {
     ScriptEngine* self = From(L);
     const int handle = HandleArg(L, 1);
     if (handle == self->playerHandle_ && self->playerHandle_) {
@@ -83,7 +113,7 @@ int ScriptEngine::L_PO_IsEnabled(lua_State* L) {
 // It is not in the recovered native list at all, because the EDITOR module was
 // registered by the editor build rather than the game. Without it, turning
 // developer mode on sets both flags correctly and then produces nothing.
-int ScriptEngine::L_EDITOR_OutputText(lua_State* L) {
+int PlayerNatives::L_EDITOR_OutputText(lua_State* L) {
     const char* text = lua_isstring(L, 1) ? lua_tostring(L, 1) : nullptr;
     if (text && *text) LogInfo("script: %s", text);
     return 0;
@@ -100,12 +130,12 @@ int ScriptEngine::L_EDITOR_OutputText(lua_State* L) {
 //
 // So it answers true unless developer mode is on, which F6 sets alongside the
 // scripts' other switch, debugMarek.
-int ScriptEngine::L_IsFinalBuild(lua_State* L) {
+int PlayerNatives::L_IsFinalBuild(lua_State* L) {
     lua_pushboolean(L, From(L)->devMode_ ? 0 : 1);
     return 1;
 }
 
-int ScriptEngine::L_PO_Enable(lua_State* L) {
+int PlayerNatives::L_PO_Enable(lua_State* L) {
     ScriptEngine* self = From(L);
     const int handle = HandleArg(L, 1);
     const bool enable = lua_toboolean(L, 2) != 0;
@@ -145,7 +175,7 @@ int ScriptEngine::L_PO_Enable(lua_State* L) {
 
 // ENTITY.PO_GetPawnFloorPos(e) -> the feet; the scripts' _groundx/y/z track
 // this every player tick and the proximity helpers measure from it.
-int ScriptEngine::L_PO_GetPawnFloorPos(lua_State* L) {
+int PlayerNatives::L_PO_GetPawnFloorPos(lua_State* L) {
     ScriptEngine* self = From(L);
     if (self->pawn_ && HandleArg(L, 1) == self->playerHandle_) {
         float feet[3];
@@ -165,13 +195,16 @@ int ScriptEngine::L_PO_GetPawnFloorPos(lua_State* L) {
         for (int c = 0; c < 3; ++c) lua_pushnumber(L, floor[c]);
         return 3;
     }
-    return L_GetPosition(L);
+    // Otherwise the entity's own position, exactly as ENTITY.GetPosition
+    // answers it - including the zeroes for a handle that is not one.
+    for (int c = 0; c < 3; ++c) lua_pushnumber(L, e ? e->pos[c] : 0);
+    return 3;
 }
 
 // ENTITY.GetDimensions(e) -> w,h,d, world-space - Slab plates sink by their
 // own height when they open, so this must be real for the ambush barriers
 // to hide.
-int ScriptEngine::L_GetDimensions(lua_State* L) {
+int PlayerNatives::L_GetDimensions(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
     float dims[3] = {0, 0, 0};
@@ -201,7 +234,7 @@ int ScriptEngine::L_GetDimensions(lua_State* L) {
 //
 // The engine answers 1e7 for a handle that is not a live player - "infinitely
 // far", so every distance test fails rather than passing on a zero.
-int ScriptEngine::L_PLAYER_GetDistanceFromPoint(lua_State* L) {
+int PlayerNatives::L_PLAYER_GetDistanceFromPoint(lua_State* L) {
     ScriptEngine* self = From(L);
     const float to[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
                          float(luaL_optnumber(L, 4, 0))};
@@ -236,7 +269,7 @@ int ScriptEngine::L_PLAYER_GetDistanceFromPoint(lua_State* L) {
     return 1;
 }
 
-int ScriptEngine::L_IsDrawEnabled(lua_State* L) {
+int PlayerNatives::L_IsDrawEnabled(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
     lua_pushboolean(L, e && e->visible && e->inWorld);
@@ -247,7 +280,7 @@ int ScriptEngine::L_IsDrawEnabled(lua_State* L) {
 // the natives at 0x1011df50/0x1011dea0 read and write the LIVE tweak fields
 // (+0xc and +0x14 of the physics engine's tweak block), which is how demon
 // mode and powerups retune movement.
-int ScriptEngine::L_GetPlayerSpeed(lua_State* L) {
+int PlayerNatives::L_GetPlayerSpeed(lua_State* L) {
     ScriptEngine* self = From(L);
     const Tweaks* tweaks = self->physics_ ? &self->physics_->tweaks() : nullptr;
     double speed = self->playerSpeedOverride_;
@@ -261,7 +294,7 @@ int ScriptEngine::L_GetPlayerSpeed(lua_State* L) {
     return 2;
 }
 
-int ScriptEngine::L_SetPlayerSpeed(lua_State* L) {
+int PlayerNatives::L_SetPlayerSpeed(lua_State* L) {
     ScriptEngine* self = From(L);
     self->playerSpeedOverride_ = float(luaL_optnumber(L, 1, -1.0));
     if (lua_isnumber(L, 2))
@@ -275,7 +308,7 @@ int ScriptEngine::L_SetPlayerSpeed(lua_State* L) {
 // vectors ({X=..., Y=..., Z=...} tables). Stored as the points' AABB - the
 // shipped regions are boxes and box-shaped prisms; a genuine polygon prism
 // test can replace this if a level ever needs one.
-int ScriptEngine::L_REGION_BuildFromPoint(lua_State* L) {
+int PlayerNatives::L_REGION_BuildFromPoint(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e || !lua_istable(L, 2)) return 0;
@@ -348,7 +381,7 @@ void ScriptEngine::TickTriggers() {
 // The CAM reads, from the pose the game loop feeds each frame. GetAng is in
 // degrees (CActor converts with -x * 3.14/180), GetAngRad in radians
 // (CPlayer wraps it straight into 0..2pi).
-int ScriptEngine::L_CAM_GetPos(lua_State* L) {
+int PlayerNatives::L_CAM_GetPos(lua_State* L) {
     ScriptEngine* self = From(L);
     lua_pushnumber(L, self->camPos_[0]);
     lua_pushnumber(L, self->camPos_[1]);
@@ -356,7 +389,7 @@ int ScriptEngine::L_CAM_GetPos(lua_State* L) {
     return 3;
 }
 
-int ScriptEngine::L_CAM_GetForwardVector(lua_State* L) {
+int PlayerNatives::L_CAM_GetForwardVector(lua_State* L) {
     ScriptEngine* self = From(L);
     const float cp = std::cos(self->camPitch_);
     lua_pushnumber(L, std::cos(self->camYaw_) * cp);
@@ -403,7 +436,7 @@ static float EngineElevation(float camPitch) {
 // pushes Lev.Pos and Lev.Ang out), and Game:Tick2 steers it this way during
 // play. Angles arrive in degrees, in the engine's turn convention, so they
 // come back through the same conversion - which is its own inverse.
-int ScriptEngine::L_CAM_SetPos(lua_State* L) {
+int PlayerNatives::L_CAM_SetPos(lua_State* L) {
     ScriptEngine* self = From(L);
     for (int i = 0; i < 3; ++i)
         self->camPos_[i] = float(luaL_optnumber(L, i + 1, self->camPos_[i]));
@@ -411,7 +444,7 @@ int ScriptEngine::L_CAM_SetPos(lua_State* L) {
     return 0;
 }
 
-int ScriptEngine::L_CAM_SetAng(lua_State* L) {
+int PlayerNatives::L_CAM_SetAng(lua_State* L) {
     ScriptEngine* self = From(L);
     const float k = kPi / 180.f;
     self->camYaw_ = CamYawFromTurn(float(luaL_optnumber(L, 1, 0)) * k);
@@ -429,7 +462,7 @@ bool ScriptEngine::TakeCameraPose(float pos[3], float& yaw, float& pitch) {
     return true;
 }
 
-int ScriptEngine::L_CAM_GetAng(lua_State* L) {
+int PlayerNatives::L_CAM_GetAng(lua_State* L) {
     ScriptEngine* self = From(L);
     const float k = 180.f / kPi;
     lua_pushnumber(L, EngineTurn(self->camYaw_) * k);
@@ -438,7 +471,7 @@ int ScriptEngine::L_CAM_GetAng(lua_State* L) {
     return 3;
 }
 
-int ScriptEngine::L_CAM_GetAngRad(lua_State* L) {
+int PlayerNatives::L_CAM_GetAngRad(lua_State* L) {
     ScriptEngine* self = From(L);
     lua_pushnumber(L, EngineTurn(self->camYaw_));
     lua_pushnumber(L, EngineElevation(self->camPitch_));
@@ -448,7 +481,7 @@ int ScriptEngine::L_CAM_GetAngRad(lua_State* L) {
 
 // The head-to-camera offset the original applies when the pawn drives the
 // view; zero until the crouch/land bob that feeds it exists.
-int ScriptEngine::L_PLAYER_GetCameraFix(lua_State* L) {
+int PlayerNatives::L_PLAYER_GetCameraFix(lua_State* L) {
     lua_pushnumber(L, 0);
     return 1;
 }
@@ -458,7 +491,7 @@ int ScriptEngine::L_PLAYER_GetCameraFix(lua_State* L) {
 // the camera, these mirror its state and MOUSE.GetDelta reports no motion,
 // so the script-side accumulation is a faithful no-op; handing the camera
 // to the scripts entirely means feeding real deltas here instead.
-int ScriptEngine::L_CAM_GetRawRotation(lua_State* L) {
+int PlayerNatives::L_CAM_GetRawRotation(lua_State* L) {
     ScriptEngine* self = From(L);
     const float k = 180.f / kPi;
     lua_pushnumber(L, EngineTurn(self->camYaw_) * k);
@@ -470,7 +503,7 @@ int ScriptEngine::L_CAM_GetRawRotation(lua_State* L) {
 // the whole of the look input: Game:UpdateViewFromPlayer adds it onto
 // CAM.GetRawRotation and writes the result back through CAM.SetAng, so the
 // scripts own the view and the C++ camera follows them.
-int ScriptEngine::L_MOUSE_GetDelta(lua_State* L) {
+int PlayerNatives::L_MOUSE_GetDelta(lua_State* L) {
     ScriptEngine* self = From(L);
     float dx = 0.f, dy = 0.f;
     if (self->input_) self->input_->TakeLookDegrees(dx, dy);
@@ -479,7 +512,7 @@ int ScriptEngine::L_MOUSE_GetDelta(lua_State* L) {
     return 2;
 }
 
-int ScriptEngine::L_MOUSE_SetSensitivity(lua_State* L) {
+int PlayerNatives::L_MOUSE_SetSensitivity(lua_State* L) {
     if (Input* in = From(L)->input_) in->SetSensitivity(float(luaL_optnumber(L, 1, 40)));
     return 0;
 }
@@ -488,7 +521,7 @@ int ScriptEngine::L_MOUSE_SetSensitivity(lua_State* L) {
 // position after it is set, which is how the engine shakes the view without
 // disturbing where the player actually is. Held apart from camPos_ so the
 // CAM.GetPos the scripts read stays the true eye position.
-int ScriptEngine::L_CAM_SetPositionDisplacement(lua_State* L) {
+int PlayerNatives::L_CAM_SetPositionDisplacement(lua_State* L) {
     ScriptEngine* self = From(L);
     for (int i = 0; i < 3; ++i)
         self->camDisplacement_[i] = float(luaL_optnumber(L, i + 1, 0));
@@ -496,5 +529,38 @@ int ScriptEngine::L_CAM_SetPositionDisplacement(lua_State* L) {
     return 0;
 }
 
+
+void BindPlayer(ScriptEngine& engine, LuaHost& host) {
+    const ScriptNative natives[] = {
+        // A bare global, not a module native: the scripts call IsFinalBuild()
+        // directly. RegisterNative routes a null module to lua_setglobal.
+        {nullptr, "IsFinalBuild", PlayerNatives::L_IsFinalBuild},
+        {"EDITOR", "OutputText", PlayerNatives::L_EDITOR_OutputText},
+        {"ENTITY", "PO_SetPawnHeadPos", PlayerNatives::L_PO_SetPawnHeadPos},
+        {"ENTITY", "PO_GetPawnHeadPos", PlayerNatives::L_PO_GetPawnHeadPos},
+        {"ENTITY", "PO_GetPawnFloorPos", PlayerNatives::L_PO_GetPawnFloorPos},
+        {"ENTITY", "PO_IsEnabled", PlayerNatives::L_PO_IsEnabled},
+        {"ENTITY", "PO_Enable", PlayerNatives::L_PO_Enable},
+        {"ENTITY", "GetDimensions", PlayerNatives::L_GetDimensions},
+        {"ENTITY", "IsDrawEnabled", PlayerNatives::L_IsDrawEnabled},
+        {"PLAYER", "GetDistanceFromPoint", PlayerNatives::L_PLAYER_GetDistanceFromPoint},
+        {"REGION", "BuildFromPoint", PlayerNatives::L_REGION_BuildFromPoint},
+        {"CAM", "GetPos", PlayerNatives::L_CAM_GetPos},
+        {"CAM", "SetPos", PlayerNatives::L_CAM_SetPos},
+        {"CAM", "SetAng", PlayerNatives::L_CAM_SetAng},
+        {"CAM", "GetForwardVector", PlayerNatives::L_CAM_GetForwardVector},
+        {"CAM", "GetAng", PlayerNatives::L_CAM_GetAng},
+        {"CAM", "GetAngRad", PlayerNatives::L_CAM_GetAngRad},
+        {"CAM", "GetRawRotation", PlayerNatives::L_CAM_GetRawRotation},
+        {"MOUSE", "GetDelta", PlayerNatives::L_MOUSE_GetDelta},
+        {"MOUSE", "SetSensitivity", PlayerNatives::L_MOUSE_SetSensitivity},
+        {"CAM", "SetPositionDisplacement", PlayerNatives::L_CAM_SetPositionDisplacement},
+        {"PLAYER", "GetCameraFix", PlayerNatives::L_PLAYER_GetCameraFix},
+        {nullptr, "CreatePlayer", PlayerNatives::L_CreatePlayer},
+        {nullptr, "GetPlayerSpeed", PlayerNatives::L_GetPlayerSpeed},
+        {nullptr, "SetPlayerSpeed", PlayerNatives::L_SetPlayerSpeed},
+    };
+    RegisterFamily(engine, host, natives);
+}
 
 }  // namespace painful

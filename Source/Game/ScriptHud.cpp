@@ -5,6 +5,30 @@
 
 namespace painful {
 
+// The Hud natives. The struct is declared here rather than in
+// ScriptEngine.h so that adding one touches only this file.
+struct HudNatives : ScriptNativesBase {
+    static int L_MATERIAL_Create(lua_State* L);
+    static int L_MATERIAL_Release(lua_State* L);
+    static int L_MATERIAL_Size(lua_State* L);
+    static int L_HUD_PrintXY(lua_State* L);
+    static int L_HUD_DrawQuad(lua_State* L);
+    static int L_HUD_DrawQuadRGBA(lua_State* L);
+    static int L_HUD_DrawQuadRotated(lua_State* L);
+    static int L_HUD_DrawRect(lua_State* L);
+    static int L_HUD_DrawBorder(lua_State* L);
+    static int L_HUD_SetFont(lua_State* L);
+    static int L_HUD_GetTextWidth(lua_State* L);
+    static int L_HUD_GetTextHeight(lua_State* L);
+    static int L_HUD_PrepareString(lua_State* L);
+    static int L_HUD_SetTransparency(lua_State* L);
+    static int L_HUD_GetTransparency(lua_State* L);
+    static int L_HUD_StripColorInfo(lua_State* L);
+    static int L_HUD_ColorSubstr(lua_State* L);
+    static int L_R3D_ScreenSize(lua_State* L);
+    static int L_R3D_GetFPS(lua_State* L);
+};
+
 // ------------------------------------------------------------- the 2D layer
 //
 // Everything the shipped game draws over the world - health, ammo, the tarot
@@ -106,7 +130,7 @@ void ScriptEngine::HudResolveFont(const char* name, int size, std::string& outNa
 // MATERIAL.Create(name, flags) -> a texture handle. The flags are the
 // TextureFlags bitfield (NoLOD, NoMipMaps and friends); our cache decides
 // sampling from the image itself, so they are read and ignored.
-int ScriptEngine::L_MATERIAL_Create(lua_State* L) {
+int HudNatives::L_MATERIAL_Create(lua_State* L) {
     ScriptEngine* self = From(L);
     const char* name = luaL_optstring(L, 1, nullptr);
     if (!self->hudTextures_ || !name || !*name) {
@@ -130,7 +154,7 @@ int ScriptEngine::L_MATERIAL_Create(lua_State* L) {
     return 1;
 }
 
-int ScriptEngine::L_MATERIAL_Release(lua_State* L) {
+int HudNatives::L_MATERIAL_Release(lua_State* L) {
     ScriptEngine* self = From(L);
     if (self->hud_) self->hud_->ReleaseMaterial(ToMaterial(L, 1));
     return 0;
@@ -141,7 +165,7 @@ int ScriptEngine::L_MATERIAL_Release(lua_State* L) {
 // original answers -1, -1 for a null material rather than a plausible
 // guess - a script that divides by it then produces something visibly wrong
 // instead of something subtly wrong.
-int ScriptEngine::L_MATERIAL_Size(lua_State* L) {
+int HudNatives::L_MATERIAL_Size(lua_State* L) {
     ScriptEngine* self = From(L);
     int w = -1, h = -1;
     const int m = ToMaterial(L, 1);
@@ -162,7 +186,7 @@ int ScriptEngine::L_MATERIAL_Size(lua_State* L) {
 // which is the shipped console's colour. A negative x centres the string
 // horizontally and a negative y centres it vertically, both against the real
 // screen size - that is how every banner in the game is positioned.
-int ScriptEngine::L_HUD_PrintXY(lua_State* L) {
+int HudNatives::L_HUD_PrintXY(lua_State* L) {
     ScriptEngine* self = From(L);
     const int rawX = int(luaL_optnumber(L, 1, 0));
     const int rawY = int(luaL_optnumber(L, 2, 0));
@@ -220,7 +244,7 @@ int ScriptEngine::L_HUD_PrintXY(lua_State* L) {
 // HUD.DrawQuad(mat, x, y, w, h, color, u1, v1, u2, v2)
 // The colour defaults to -1, which is 0xFFFFFFFF: opaque white, drawing the
 // texture as it is. The UVs default to the whole image.
-int ScriptEngine::L_HUD_DrawQuad(lua_State* L) {
+int HudNatives::L_HUD_DrawQuad(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!self->hud_) return 0;
     const int mat = ToMaterial(L, 1);
@@ -240,7 +264,7 @@ int ScriptEngine::L_HUD_DrawQuad(lua_State* L) {
 // HUD.DrawQuadRGBA(mat, x, y, w, h, r, g, b, a, u1, v1, u2, v2)
 // The UV defaults are 0.01 and 0.99, not 0 and 1: an inset that keeps the
 // filter off the edge texels of an icon packed against its neighbours.
-int ScriptEngine::L_HUD_DrawQuadRGBA(lua_State* L) {
+int HudNatives::L_HUD_DrawQuadRGBA(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!self->hud_) return 0;
     const int mat = ToMaterial(L, 1);
@@ -267,7 +291,7 @@ int ScriptEngine::L_HUD_DrawQuadRGBA(lua_State* L) {
 // and not the quad's centre: Hud:QuadRot draws the arrow at one place and
 // turns it about the dial's hub a few pixels away. The original rounds the
 // pivot to whole pixels before using it.
-int ScriptEngine::L_HUD_DrawQuadRotated(lua_State* L) {
+int HudNatives::L_HUD_DrawQuadRotated(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!self->hud_) return 0;
     const int mat = ToMaterial(L, 1);
@@ -288,7 +312,7 @@ int ScriptEngine::L_HUD_DrawQuadRotated(lua_State* L) {
 }
 
 // HUD.DrawRect(x, y, w, h, color): an untextured filled rectangle.
-int ScriptEngine::L_HUD_DrawRect(lua_State* L) {
+int HudNatives::L_HUD_DrawRect(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!self->hud_) return 0;
     const float x = float(luaL_optnumber(L, 1, 0));
@@ -307,7 +331,7 @@ int ScriptEngine::L_HUD_DrawRect(lua_State* L) {
 // MenuItemBorder - the carved stone frame - and renders it, which is why it
 // takes no colour. Now that the menu owns that widget, the HUD borrows it, so
 // a script drawing a frame gets the shipped art either way.
-int ScriptEngine::L_HUD_DrawBorder(lua_State* L) {
+int HudNatives::L_HUD_DrawBorder(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!self->hud_) return 0;
     // The four edges are one element: anchored together by the frame's
@@ -320,7 +344,7 @@ int ScriptEngine::L_HUD_DrawBorder(lua_State* L) {
     return 0;
 }
 
-int ScriptEngine::L_HUD_SetFont(lua_State* L) {
+int HudNatives::L_HUD_SetFont(lua_State* L) {
     ScriptEngine* self = From(L);
     const char* name = luaL_optstring(L, 1, "");
     const int size = int(luaL_optnumber(L, 2, 0));
@@ -332,7 +356,7 @@ int ScriptEngine::L_HUD_SetFont(lua_State* L) {
 // HUD.GetTextWidth(text) -> pixels, measured in the font HUD.SetFont chose.
 // Colour markers are stepped over rather than measured, and a multi-line
 // string measures as its widest line.
-int ScriptEngine::L_HUD_GetTextWidth(lua_State* L) {
+int HudNatives::L_HUD_GetTextWidth(lua_State* L) {
     ScriptEngine* self = From(L);
     const char* text = luaL_optstring(L, 1, "");
     if (!self->hud_) {
@@ -356,7 +380,7 @@ int ScriptEngine::L_HUD_GetTextWidth(lua_State* L) {
 }
 
 // HUD.GetTextHeight(text) -> (newlines + 1) * the font's line height.
-int ScriptEngine::L_HUD_GetTextHeight(lua_State* L) {
+int HudNatives::L_HUD_GetTextHeight(lua_State* L) {
     ScriptEngine* self = From(L);
     const char* text = luaL_optstring(L, 1, "");
     if (!self->hud_) {
@@ -375,7 +399,7 @@ int ScriptEngine::L_HUD_GetTextHeight(lua_State* L) {
 // the engine's version re-encodes for its font. Left unbound it answered
 // nothing, and a yes/no prompt then carried a nil question - an empty box
 // with Yes and No.
-int ScriptEngine::L_HUD_PrepareString(lua_State* L) {
+int HudNatives::L_HUD_PrepareString(lua_State* L) {
     lua_pushstring(L, luaL_optstring(L, 1, ""));
     return 1;
 }
@@ -387,19 +411,19 @@ int ScriptEngine::L_HUD_PrepareString(lua_State* L) {
 // defaulting to 100. Nothing in the draw path reads that byte; the scripts
 // read it back themselves and pass it as an RGBA alpha, so the conversion is
 // the whole of what this native does.
-int ScriptEngine::L_HUD_SetTransparency(lua_State* L) {
+int HudNatives::L_HUD_SetTransparency(lua_State* L) {
     ScriptEngine* self = From(L);
     const long v = std::lround(luaL_optnumber(L, 1, 100) * 2.55);
     self->hudAlpha_ = int(v < 0 ? 0 : (v > 255 ? 255 : v));
     return 0;
 }
 
-int ScriptEngine::L_HUD_GetTransparency(lua_State* L) {
+int HudNatives::L_HUD_GetTransparency(lua_State* L) {
     lua_pushnumber(L, From(L)->hudAlpha_);
     return 1;
 }
 
-int ScriptEngine::L_HUD_StripColorInfo(lua_State* L) {
+int HudNatives::L_HUD_StripColorInfo(lua_State* L) {
     const std::string out = StripColorCodes(luaL_optstring(L, 1, ""));
     lua_pushlstring(L, out.data(), out.size());
     return 1;
@@ -408,7 +432,7 @@ int ScriptEngine::L_HUD_StripColorInfo(lua_State* L) {
 // HUD.ColorSubstr(text, n) -> the first n VISIBLE characters, carrying the
 // colour markers along so the trimmed string still draws in its own colours.
 // The typing effect on the loading screens is this called with a rising n.
-int ScriptEngine::L_HUD_ColorSubstr(lua_State* L) {
+int HudNatives::L_HUD_ColorSubstr(lua_State* L) {
     const std::string s = luaL_optstring(L, 1, "");
     const int want = int(luaL_optnumber(L, 2, 0));
     std::string out;
@@ -430,7 +454,7 @@ int ScriptEngine::L_HUD_ColorSubstr(lua_State* L) {
 
 // R3D.ScreenSize() -> the real window, which every HUD script scales its
 // layout from.
-int ScriptEngine::L_R3D_ScreenSize(lua_State* L) {
+int HudNatives::L_R3D_ScreenSize(lua_State* L) {
     ScriptEngine* self = From(L);
     // The 4:3 canvas on a wide window, so the layout stays undistorted.
     lua_pushnumber(L, self->hudCanvasW_);
@@ -440,12 +464,37 @@ int ScriptEngine::L_R3D_ScreenSize(lua_State* L) {
 
 // R3D.GetFPS() -> frames per second. The HUD formats it with string.format
 // '%d', so returning nothing is a script error rather than a missing number.
-int ScriptEngine::L_R3D_GetFPS(lua_State* L) {
+int HudNatives::L_R3D_GetFPS(lua_State* L) {
     ScriptEngine* self = From(L);
     const float dt = self->frameDelta_;
     lua_pushnumber(L, dt > 0.f ? double(int(1.f / dt + 0.5f)) : 0.0);
     return 1;
 }
 
+
+void BindHud(ScriptEngine& engine, LuaHost& host) {
+    const ScriptNative natives[] = {
+        {"MATERIAL", "Create", HudNatives::L_MATERIAL_Create},
+        {"MATERIAL", "Release", HudNatives::L_MATERIAL_Release},
+        {"MATERIAL", "Size", HudNatives::L_MATERIAL_Size},
+        {"HUD", "PrintXY", HudNatives::L_HUD_PrintXY},
+        {"HUD", "DrawQuad", HudNatives::L_HUD_DrawQuad},
+        {"HUD", "DrawQuadRGBA", HudNatives::L_HUD_DrawQuadRGBA},
+        {"HUD", "DrawQuadRotated", HudNatives::L_HUD_DrawQuadRotated},
+        {"HUD", "DrawRect", HudNatives::L_HUD_DrawRect},
+        {"HUD", "DrawBorder", HudNatives::L_HUD_DrawBorder},
+        {"HUD", "SetFont", HudNatives::L_HUD_SetFont},
+        {"HUD", "GetTextWidth", HudNatives::L_HUD_GetTextWidth},
+        {"HUD", "GetTextHeight", HudNatives::L_HUD_GetTextHeight},
+        {"HUD", "SetTransparency", HudNatives::L_HUD_SetTransparency},
+        {"HUD", "GetTransparency", HudNatives::L_HUD_GetTransparency},
+        {"HUD", "StripColorInfo", HudNatives::L_HUD_StripColorInfo},
+        {"HUD", "ColorSubstr", HudNatives::L_HUD_ColorSubstr},
+        {"R3D", "ScreenSize", HudNatives::L_R3D_ScreenSize},
+        {"R3D", "GetFPS", HudNatives::L_R3D_GetFPS},
+        {"HUD", "PrepareString", HudNatives::L_HUD_PrepareString},
+    };
+    RegisterFamily(engine, host, natives);
+}
 
 }  // namespace painful

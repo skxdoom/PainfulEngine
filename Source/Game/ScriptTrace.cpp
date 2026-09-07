@@ -4,6 +4,26 @@
 
 namespace painful {
 
+// The Trace natives. The struct is declared here rather than in
+// ScriptEngine.h so that adding one touches only this file.
+struct TraceNatives : ScriptNativesBase {
+    static int L_WORLD_LineTrace(lua_State* L);
+    static int L_WORLD_LineTraceHitPlayerBalls(lua_State* L);
+    static int L_ENTITY_PO_LineTrace(lua_State* L);
+    static int L_WORLD_LineTraceFixedGeom(lua_State* L);
+    static int L_RemoveFromIntersectionSolver(lua_State* L);
+    static int L_AddToIntersectionSolver(lua_State* L);
+    static int L_RemoveRagdollFromIntersectionSolver(lua_State* L);
+    static int L_AddRagdollToIntersectionSolver(lua_State* L);
+    static int L_PHYSICS_GetHavokBodyInfo(lua_State* L);
+    static int L_MDL_GetJointFromHavokBody(lua_State* L);
+    static int L_IsFixedMesh(lua_State* L);
+    static int L_SetPosAndRotRelativeToCamera(lua_State* L);
+    static int L_PARTICLE_SetEvolve(lua_State* L);
+    static int L_GetName(lua_State* L);
+    static int L_GetType(lua_State* L);
+};
+
 // ---------------------------------------------------------------- traces
 //
 // WORLD.LineTrace(x1,y1,z1, x2,y2,z2) -> hit, distance, hitX,hitY,hitZ,
@@ -137,7 +157,7 @@ int ScriptEngine::TraceCommon(lua_State* L, bool staticOnly) {
     return 10;
 }
 
-int ScriptEngine::L_WORLD_LineTrace(lua_State* L) {
+int TraceNatives::L_WORLD_LineTrace(lua_State* L) {
     return TraceCommon(L, false);
 }
 
@@ -145,7 +165,7 @@ int ScriptEngine::L_WORLD_LineTrace(lua_State* L) {
 // (PhysicsWorld::LineTraceHitPlayer, 0x10197560, differs from LineTrace only
 // in the cast's filter). The AI's guns use it; the ordinary trace leaves the
 // player out so its own shots and probes never land on it.
-int ScriptEngine::L_WORLD_LineTraceHitPlayerBalls(lua_State* L) {
+int TraceNatives::L_WORLD_LineTraceHitPlayerBalls(lua_State* L) {
     ScriptEngine* self = From(L);
     const float from[3] = {float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
                            float(luaL_optnumber(L, 3, 0))};
@@ -218,7 +238,7 @@ int ScriptEngine::L_WORLD_LineTraceHitPlayerBalls(lua_State* L) {
 // ONE entity: a world mesh through PhysicsWorld::LineTraceStaticMesh, anything
 // with a body through PhysicsObject::LineTrace (0x101318B0). The stake and the
 // bolt re-trace the wall they stuck in for the decal and the sparks.
-int ScriptEngine::L_ENTITY_PO_LineTrace(lua_State* L) {
+int TraceNatives::L_ENTITY_PO_LineTrace(lua_State* L) {
     ScriptEngine* self = From(L);
     const int handle = HandleArg(L, 1);
     const float from[3] = {float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
@@ -248,7 +268,7 @@ int ScriptEngine::L_ENTITY_PO_LineTrace(lua_State* L) {
 
 // LineTraceFixedGeom asks about the world mesh alone. The actors use it for
 // their ground and step probes, where hitting each other would be noise.
-int ScriptEngine::L_WORLD_LineTraceFixedGeom(lua_State* L) {
+int TraceNatives::L_WORLD_LineTraceFixedGeom(lua_State* L) {
     return TraceCommon(L, true);
 }
 
@@ -321,7 +341,7 @@ void ScriptEngine::SetSolverBody(Entity& e, bool on) {
     }
 }
 
-int ScriptEngine::L_RemoveFromIntersectionSolver(lua_State* L) {
+int TraceNatives::L_RemoveFromIntersectionSolver(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e) return 0;
@@ -337,7 +357,7 @@ int ScriptEngine::L_RemoveFromIntersectionSolver(lua_State* L) {
     return 0;
 }
 
-int ScriptEngine::L_AddToIntersectionSolver(lua_State* L) {
+int TraceNatives::L_AddToIntersectionSolver(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e) return 0;
@@ -350,13 +370,13 @@ int ScriptEngine::L_AddToIntersectionSolver(lua_State* L) {
 // entity being a MODEL (ETypes.Model = 4 - the gate is on the render type, not
 // on being a CActor) and having a ragdoll; here an entity with no limb boxes
 // simply has nothing for the flag to govern, which comes to the same thing.
-int ScriptEngine::L_RemoveRagdollFromIntersectionSolver(lua_State* L) {
+int TraceNatives::L_RemoveRagdollFromIntersectionSolver(lua_State* L) {
     Entity* e = From(L)->Find(HandleArg(L, 1));
     if (e) e->ragdollInSolver = false;
     return 0;
 }
 
-int ScriptEngine::L_AddRagdollToIntersectionSolver(lua_State* L) {
+int TraceNatives::L_AddRagdollToIntersectionSolver(lua_State* L) {
     Entity* e = From(L)->Find(HandleArg(L, 1));
     if (e) e->ragdollInSolver = true;
     return 0;
@@ -373,7 +393,7 @@ int ScriptEngine::L_AddRagdollToIntersectionSolver(lua_State* L) {
 // `if j then` - a hit on something that is not a limb has to leave the joint
 // NIL, not -1. Returning three values with j = -1 would make Apoc_zombie's
 // `if j then` true for a shot at a barrel and send it looking up bone -1.
-int ScriptEngine::L_PHYSICS_GetHavokBodyInfo(lua_State* L) {
+int TraceNatives::L_PHYSICS_GetHavokBodyInfo(lua_State* L) {
     ScriptEngine* self = From(L);
     // A missing or non-numeric handle is NOT body slot 0. lua_tonumber would
     // quietly make it one, and slot 0 is a real body someone owns.
@@ -411,7 +431,7 @@ int ScriptEngine::L_PHYSICS_GetHavokBodyInfo(lua_State* L) {
 // rather than leaking a joint index across actors, which matters because the
 // projectile scripts call this with `e_other` and a handle from the same
 // collision, and would otherwise trust a bone index from the wrong skeleton.
-int ScriptEngine::L_MDL_GetJointFromHavokBody(lua_State* L) {
+int TraceNatives::L_MDL_GetJointFromHavokBody(lua_State* L) {
     ScriptEngine* self = From(L);
     const int owner = HandleArg(L, 1);
     int entity = 0, joint = -1;
@@ -432,7 +452,7 @@ int ScriptEngine::L_MDL_GetJointFromHavokBody(lua_State* L) {
 // `CreatePO` is set - false for 147 of the 231 monster templates - so keying
 // on the body alone made those actors walls to PainHead:Tick, which tests this
 // before the damage and before the spinning branch. Docs/Reference/Physics.md
-int ScriptEngine::L_IsFixedMesh(lua_State* L) {
+int TraceNatives::L_IsFixedMesh(lua_State* L) {
     ScriptEngine* self = From(L);
     const int handle = HandleArg(L, 1);
     if (handle == 0) {
@@ -457,7 +477,7 @@ int ScriptEngine::L_IsFixedMesh(lua_State* L) {
 // is the engine Euler (elevation, turn, 0) - the same pair CAM.GetAngRad
 // reports - so the offset rotates by that and the model's rotation composes
 // after it.
-int ScriptEngine::L_SetPosAndRotRelativeToCamera(lua_State* L) {
+int TraceNatives::L_SetPosAndRotRelativeToCamera(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e) return 0;
@@ -538,7 +558,7 @@ void ScriptEngine::UpdateViewAttached() {
 // an effect, overriding a one-shot .ini. CParticleFX:LoadData calls it right
 // after loading and Apply calls it again, which is how a level-placed torch
 // keeps burning while the same emitter data used for an impact fires once.
-int ScriptEngine::L_PARTICLE_SetEvolve(lua_State* L) {
+int TraceNatives::L_PARTICLE_SetEvolve(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e) return 0;
@@ -554,17 +574,43 @@ int ScriptEngine::L_PARTICLE_SetEvolve(lua_State* L) {
 // ENTITY.GetName(e): an active mesh's object name, else the script's own name.
 // Always a string - CLevel:OnCollision concatenates it, and the nil from the
 // missing-native stub aborted the message queue every tick. Physics.md, "Contacts".
-int ScriptEngine::L_GetName(lua_State* L) {
+int TraceNatives::L_GetName(lua_State* L) {
     const Entity* e = From(L)->Find(HandleArg(L, 1));
     lua_pushstring(L, e ? e->name.c_str() : "");
     return 1;
 }
 
-int ScriptEngine::L_GetType(lua_State* L) {
+int TraceNatives::L_GetType(lua_State* L) {
     const Entity* e = From(L)->Find(HandleArg(L, 1));
     lua_pushnumber(L, e ? e->type : 0);
     return 1;
 }
 
+
+void BindTrace(ScriptEngine& engine, LuaHost& host) {
+    const ScriptNative natives[] = {
+        {"PARTICLE", "SetEvolve", TraceNatives::L_PARTICLE_SetEvolve},
+        {"WORLD", "LineTrace", TraceNatives::L_WORLD_LineTrace},
+        {"WORLD", "LineTraceFixedGeom", TraceNatives::L_WORLD_LineTraceFixedGeom},
+        // The AI's shot test against the player. Ours is the same trace: the
+        // player has no simulated body to hit yet, so it can only report the
+        // world, which reads as "the shot was blocked".
+        {"WORLD", "LineTraceHitPlayerBalls", TraceNatives::L_WORLD_LineTraceHitPlayerBalls},
+        {"ENTITY", "AddToIntersectionSolver", TraceNatives::L_AddToIntersectionSolver},
+        {"ENTITY", "RemoveFromIntersectionSolver", TraceNatives::L_RemoveFromIntersectionSolver},
+        // The ragdoll variants are NOT the same call: they switch only the
+        // ragdoll's line-trace collision, leaving the movement body alone.
+        {"ENTITY", "AddRagdollToIntersectionSolver", TraceNatives::L_AddRagdollToIntersectionSolver},
+        {"ENTITY", "RemoveRagdollFromIntersectionSolver", TraceNatives::L_RemoveRagdollFromIntersectionSolver},
+        {"ENTITY", "IsFixedMesh", TraceNatives::L_IsFixedMesh},
+        {"PHYSICS", "GetHavokBodyInfo", TraceNatives::L_PHYSICS_GetHavokBodyInfo},
+        {"MDL", "GetJointFromHavokBody", TraceNatives::L_MDL_GetJointFromHavokBody},
+        {"ENTITY", "PO_LineTrace", TraceNatives::L_ENTITY_PO_LineTrace},
+        {"ENTITY", "GetType", TraceNatives::L_GetType},
+        {"ENTITY", "GetName", TraceNatives::L_GetName},
+        {"ENTITY", "SetPosAndRotRelativeToCamera", TraceNatives::L_SetPosAndRotRelativeToCamera},
+    };
+    RegisterFamily(engine, host, natives);
+}
 
 }  // namespace painful

@@ -6,6 +6,19 @@
 
 namespace painful {
 
+// The DECAL family. Declared here rather than in ScriptEngine.h so that adding
+// a native touches only this file: the header carries one friend line for the
+// struct, not a declaration per function.
+struct DecalNatives : ScriptNativesBase {
+    static int L_ENTITY_SpawnDecal(lua_State* L);
+    static int L_ENTITY_SpawnOrientedDecal(lua_State* L);
+    static int L_ENTITY_SpawnStaticDecal(lua_State* L);
+    static int L_ENTITY_UpdateDecal(lua_State* L);
+    static int L_ENTITY_ReloadDecalSystem(lua_State* L);
+    static int L_R3D_KeepDecals(lua_State* L);
+    static int L_ENTITY_EnableCollisionsToRagdoll(lua_State* L);
+};
+
 namespace {
 
 // Raw .mpk vertices to world: the object's own transform, then the level
@@ -164,21 +177,21 @@ void ScriptEngine::BuildDecalGeometry(Entity& decal, int target, const float pos
     }
 }
 
-int ScriptEngine::L_ENTITY_SpawnDecal(lua_State* L) {
+int DecalNatives::L_ENTITY_SpawnDecal(lua_State* L) {
     return From(L)->SpawnDecalEntity(L, false, nullptr);
 }
 
-int ScriptEngine::L_ENTITY_SpawnOrientedDecal(lua_State* L) {
+int DecalNatives::L_ENTITY_SpawnOrientedDecal(lua_State* L) {
     return From(L)->SpawnDecalEntity(L, true, nullptr);
 }
 
-int ScriptEngine::L_ENTITY_SpawnStaticDecal(lua_State* L) {
+int DecalNatives::L_ENTITY_SpawnStaticDecal(lua_State* L) {
     return From(L)->SpawnDecalEntity(L, false, luaL_optstring(L, 2, ""));
 }
 
 // ENTITY.UpdateDecal(e, decal, x,y,z, nx,ny,nz) - Decal::Spawn again on an
 // existing decal (0x10135E60): the same box, re-cut where it now is.
-int ScriptEngine::L_ENTITY_UpdateDecal(lua_State* L) {
+int DecalNatives::L_ENTITY_UpdateDecal(lua_State* L) {
     ScriptEngine* self = From(L);
     const int target = HandleArg(L, 1);
     Entity* d = self->Find(HandleArg(L, 2));
@@ -196,14 +209,14 @@ int ScriptEngine::L_ENTITY_UpdateDecal(lua_State* L) {
 
 // ENTITY.ReloadDecalSystem (0x1011DFE0): every definition re-read from its
 // .ini on next use. Game:Init calls it once at boot.
-int ScriptEngine::L_ENTITY_ReloadDecalSystem(lua_State* L) {
+int DecalNatives::L_ENTITY_ReloadDecalSystem(lua_State* L) {
     From(L)->decalLib_.Reload();
     return 0;
 }
 
 // R3D.KeepDecals(on) (0x10123B20): the pkkeepdecals cheat - mortal decals
 // stop ageing while it is set.
-int ScriptEngine::L_R3D_KeepDecals(lua_State* L) {
+int DecalNatives::L_R3D_KeepDecals(lua_State* L) {
     From(L)->decals_.SetKeep(lua_toboolean(L, 1) != 0);
     return 0;
 }
@@ -212,7 +225,7 @@ int ScriptEngine::L_R3D_KeepDecals(lua_State* L) {
 // (0x10130500): Ragdoll::Joint_SetCollisionCallbacks on one joint, and
 // nothing without a ragdoll. CActor lists the joints per monster in
 // RagdollCollisions.Bones; TickCollisions reports them.
-int ScriptEngine::L_ENTITY_EnableCollisionsToRagdoll(lua_State* L) {
+int DecalNatives::L_ENTITY_EnableCollisionsToRagdoll(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     static const bool kTrace = DebugFlag("PAINFUL_CONTACT_TRACE");
@@ -228,6 +241,19 @@ int ScriptEngine::L_ENTITY_EnableCollisionsToRagdoll(lua_State* L) {
     cb.minStrength = float(luaL_optnumber(L, 4, 1.0));
     e->ragdollCallbacks[joint] = cb;
     return 0;
+}
+
+void BindDecal(ScriptEngine& engine, LuaHost& host) {
+    const ScriptNative natives[] = {
+        {"ENTITY", "SpawnDecal", DecalNatives::L_ENTITY_SpawnDecal},
+        {"ENTITY", "SpawnOrientedDecal", DecalNatives::L_ENTITY_SpawnOrientedDecal},
+        {"ENTITY", "SpawnStaticDecal", DecalNatives::L_ENTITY_SpawnStaticDecal},
+        {"ENTITY", "UpdateDecal", DecalNatives::L_ENTITY_UpdateDecal},
+        {"ENTITY", "ReloadDecalSystem", DecalNatives::L_ENTITY_ReloadDecalSystem},
+        {"R3D", "KeepDecals", DecalNatives::L_R3D_KeepDecals},
+        {"ENTITY", "EnableCollisionsToRagdoll", DecalNatives::L_ENTITY_EnableCollisionsToRagdoll},
+    };
+    RegisterFamily(engine, host, natives);
 }
 
 }  // namespace painful

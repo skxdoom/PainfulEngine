@@ -4,6 +4,20 @@
 
 namespace painful {
 
+// The Limbs natives. The struct is declared here rather than in
+// ScriptEngine.h so that adding one touches only this file.
+struct LimbsNatives : ScriptNativesBase {
+    static int L_ENTITY_GetChildByName(lua_State* L);
+    static int L_ENTITY_KillAllChildrenByName(lua_State* L);
+    static int L_ENTITY_KillAllChildren(lua_State* L);
+    static int L_ENTITY_UnregisterAllChildren(lua_State* L);
+    static int L_PO_EnableGravity(lua_State* L);
+    static int L_R3D_DrawSprite(lua_State* L);
+    static int L_R3D_DrawSprite1DOF(lua_State* L);
+    static int L_R3D_RGB(lua_State* L);
+    static int L_R3D_RGBA(lua_State* L);
+};
+
 // ---------------------------------------------------------------- limb traces
 //
 // A monster has two shapes and they answer two different questions.
@@ -291,7 +305,7 @@ void ScriptEngine::CollectHitboxLines(const float around[3], float radius,
 
 // Returns the child handle, or 0 for "no such child" - the value the scripts
 // actually compare against.
-int ScriptEngine::L_ENTITY_GetChildByName(lua_State* L) {
+int LimbsNatives::L_ENTITY_GetChildByName(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* parent = self->Find(HandleArg(L, 1));
     const char* name = luaL_optstring(L, 2, "");
@@ -309,7 +323,7 @@ int ScriptEngine::L_ENTITY_GetChildByName(lua_State* L) {
     return 1;
 }
 
-int ScriptEngine::L_ENTITY_KillAllChildrenByName(lua_State* L) {
+int LimbsNatives::L_ENTITY_KillAllChildrenByName(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* parent = self->Find(HandleArg(L, 1));
     const char* name = luaL_optstring(L, 2, "");
@@ -330,7 +344,7 @@ int ScriptEngine::L_ENTITY_KillAllChildrenByName(lua_State* L) {
     return 1;
 }
 
-int ScriptEngine::L_ENTITY_KillAllChildren(lua_State* L) {
+int LimbsNatives::L_ENTITY_KillAllChildren(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* parent = self->Find(HandleArg(L, 1));
     if (!parent) return 0;
@@ -362,7 +376,7 @@ int ScriptEngine::L_ENTITY_KillAllChildren(lua_State* L) {
 // With the filter ignored the first call emptied the list, so the second found
 // nothing to kill and the stake screamed from the wall for the rest of the
 // level. Harmless while SND.Play was a stub; audible the moment it was not.
-int ScriptEngine::L_ENTITY_UnregisterAllChildren(lua_State* L) {
+int LimbsNatives::L_ENTITY_UnregisterAllChildren(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* parent = self->Find(HandleArg(L, 1));
     if (!parent) return 0;
@@ -389,7 +403,7 @@ int ScriptEngine::L_ENTITY_UnregisterAllChildren(lua_State* L) {
 // scripts set a velocity and then call this with false, and the thing flies
 // straight. Without it they arc to the floor and behave like dropped props,
 // which is exactly how they looked.
-int ScriptEngine::L_PO_EnableGravity(lua_State* L) {
+int LimbsNatives::L_PO_EnableGravity(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e) return 0;
@@ -477,7 +491,7 @@ void ScriptEngine::TickProjectiles(float dt) {
 //
 // The colour arrives packed the way R3D.RGBA builds it, and the rotation is in
 // radians about the view axis.
-int ScriptEngine::L_R3D_DrawSprite(lua_State* L) {
+int LimbsNatives::L_R3D_DrawSprite(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!self->billboards_ || !self->hudTextures_) return 0;
     const float pos[3] = {float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
@@ -507,7 +521,7 @@ int ScriptEngine::L_R3D_DrawSprite(lua_State* L) {
 //
 // PainKiller:Render draws one of these every frame from the gun to its stuck
 // head, which is the energy beam the alt fire is named for.
-int ScriptEngine::L_R3D_DrawSprite1DOF(lua_State* L) {
+int LimbsNatives::L_R3D_DrawSprite1DOF(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!self->billboards_ || !self->hudTextures_) return 0;
     const float a[3] = {float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
@@ -544,19 +558,34 @@ static uint32_t ColorByte(lua_State* L, int index) {
     return uint32_t(i < 0 ? 0 : (i > 255 ? 255 : i));
 }
 
-int ScriptEngine::L_R3D_RGB(lua_State* L) {
+int LimbsNatives::L_R3D_RGB(lua_State* L) {
     const uint32_t packed = 0xFF000000u | (ColorByte(L, 1) << 16) |
                             (ColorByte(L, 2) << 8) | ColorByte(L, 3);
     lua_pushnumber(L, double(int32_t(packed)));
     return 1;
 }
 
-int ScriptEngine::L_R3D_RGBA(lua_State* L) {
+int LimbsNatives::L_R3D_RGBA(lua_State* L) {
     const uint32_t packed = (ColorByte(L, 4) << 24) | (ColorByte(L, 1) << 16) |
                             (ColorByte(L, 2) << 8) | ColorByte(L, 3);
     lua_pushnumber(L, double(int32_t(packed)));
     return 1;
 }
 
+
+void BindLimbs(ScriptEngine& engine, LuaHost& host) {
+    const ScriptNative natives[] = {
+        {"R3D", "DrawSprite", LimbsNatives::L_R3D_DrawSprite},
+        {"R3D", "DrawSprite1DOF", LimbsNatives::L_R3D_DrawSprite1DOF},
+        {"R3D", "RGB", LimbsNatives::L_R3D_RGB},
+        {"R3D", "RGBA", LimbsNatives::L_R3D_RGBA},
+        {"ENTITY", "GetChildByName", LimbsNatives::L_ENTITY_GetChildByName},
+        {"ENTITY", "KillAllChildrenByName", LimbsNatives::L_ENTITY_KillAllChildrenByName},
+        {"ENTITY", "KillAllChildren", LimbsNatives::L_ENTITY_KillAllChildren},
+        {"ENTITY", "UnregisterAllChildren", LimbsNatives::L_ENTITY_UnregisterAllChildren},
+        {"ENTITY", "PO_EnableGravity", LimbsNatives::L_PO_EnableGravity},
+    };
+    RegisterFamily(engine, host, natives);
+}
 
 }  // namespace painful

@@ -509,20 +509,6 @@ public:
     // menu and restores it). The app derives the vertical angle for the
     // window's aspect each frame.
     float cameraFov() const { return cameraFov_; }
-    static int L_CONSOLE_Activate(lua_State* L);
-    static int L_CONSOLE_IsActive(lua_State* L);
-    static int L_CONSOLE_AddMessage(lua_State* L);
-    static int L_CONSOLE_Print(lua_State* L);
-    static int L_CONSOLE_SetCurrentText(lua_State* L);
-    static int L_CONSOLE_GetCurrentText(lua_State* L);
-    static int L_CONSOLE_GetCursorPos(lua_State* L);
-    static int L_CONSOLE_SetFont(lua_State* L);
-    static int L_CONSOLE_SetMPMsgColor(lua_State* L);
-    static int L_CONSOLE_SetMPMsgPosition(lua_State* L);
-    static int L_CONSOLE_SetMPMsgFont(lua_State* L);
-    static int L_R3D_SetCameraFOV(lua_State* L);
-    static int L_R3D_GetCameraFOV(lua_State* L);
-    static int L_R3D_ApplyVideoSettings(lua_State* L);
     int screenWidth() const { return screenW_; }
     int screenHeight() const { return screenH_; }
 
@@ -661,6 +647,28 @@ public:
     // Pushes every registry entity that has none into the attached renderer.
     void FlushToRenderer();
 
+    // Each native family is a struct defined in its own Script*.cpp; it needs
+    // the private state the natives work on. One line here per family, instead
+    // of one declaration per native.
+    friend struct ScriptNativesBase;
+    friend struct MenuNatives;
+    friend struct SoundNatives;
+    friend struct EntityNatives;
+    friend struct PlayerNatives;
+    friend struct HudNatives;
+    friend struct DeathNatives;
+    friend struct AnimNatives;
+    friend struct WorldNatives;
+    friend struct InputNatives;
+    friend struct TraceNatives;
+    friend struct ConsoleNatives;
+    friend struct LimbsNatives;
+    friend struct CollisionNatives;
+    friend struct ExplosionNatives;
+    friend struct SaveNatives;
+    friend struct WaterNatives;
+    friend struct DecalNatives;
+
 private:
     static ScriptEngine* From(lua_State* L);
 
@@ -749,122 +757,32 @@ private:
     bool SplitPackSource(const std::string& source, std::string& packName) const;
 
     // --- natives ---
-    static int L_Create(lua_State* L);
-    static int L_Release(lua_State* L);
-    static int L_SetPosition(lua_State* L);
-    static int L_GetPosition(lua_State* L);
-    static int L_SetRotationQ(lua_State* L);
-    static int L_GetRotationQ(lua_State* L);
-    static int L_SetOrientation(lua_State* L);
-    static int L_GetOrientation(lua_State* L);
-    static int L_SetScale(lua_State* L);
-    static int L_PO_Remove(lua_State* L);
-    static int L_PO_GetCollisionGroup(lua_State* L);
-    static int L_PO_IsFixed(lua_State* L);
-    static int L_R3D_DistToLine(lua_State* L);
-    static int L_EnableDraw(lua_State* L);
     // ENTITY.EnableDraw's alsoChildren: a bound effect is a child ENTITY, so
     // hiding the parent alone leaves it burning.
     void SetDrawEnabled(Entity& e, bool on, bool alsoChildren, int depth);
-    static int L_PARTICLE_AddEmitter(lua_State* L);
-    static int L_PARTICLE_SetupEmitter(lua_State* L);
-    static int L_PARTICLE_SetParentOffset(lua_State* L);
-    static int L_NoOpNative(lua_State* L);
-    static int L_BILLBOARD_SetupCorona(lua_State* L);
-    static int L_GetVelocity(lua_State* L);
-    static int L_SetVelocity(lua_State* L);
-    static int L_SetAngularVelocity(lua_State* L);
-    static int L_SetTimeToDie(lua_State* L);
-    static int L_PO_Hit(lua_State* L);
-    static int L_WORLD_HitPhysicObject(lua_State* L);
-    static int L_WORLD_GetLastExplodedEntities(lua_State* L);
-    static int L_ENTITY_ExplodeItem(lua_State* L);
     void ReleaseEntity(int handle);
-    static int L_PO_Create(lua_State* L);
-    static int L_PO_Exist(lua_State* L);
-    static int L_PO_Move(lua_State* L);
-    static int L_PO_SetMonsterType(lua_State* L);
-    static int L_PO_SetFlying(lua_State* L);
-    static int L_PO_IsFlying(lua_State* L);
-    static int L_PO_SetMonsterMovementConst(lua_State* L);
-    static int L_PO_IsOnFloor(lua_State* L);
-    static int L_PO_SetSightParams(lua_State* L);
-    static int L_SeesEntity(lua_State* L);
-    static int L_SOUND_Play2D(lua_State* L);
-    static int L_SOUND_Play3D(lua_State* L);
-    static int L_SOUND_SetSoundProperties(lua_State* L);
-    static int L_SND_Create2D(lua_State* L);
-    static int L_SND_Create3D(lua_State* L);
-    static int L_SND_Play(lua_State* L);
-    static int L_SND_Stop(lua_State* L);
-    static int L_SND_Pause(lua_State* L);
-    static int L_SND_IsPlaying(lua_State* L);
-    static int L_SND_SetVolume(lua_State* L);
-    static int L_SND_SetLoopCount(lua_State* L);
-    static int L_SND_SetPosition(lua_State* L);
-    static int L_SND_SetHearingDistance(lua_State* L);
-    static int L_SND_SetSoundSpeed(lua_State* L);
-    static int L_SND_Delete(lua_State* L);
-    static int L_SND_Forget(lua_State* L);
-    static int L_SOUND_SetPlayerPos(lua_State* L);
-    static int L_SOUND_SetPlayerOrientation(lua_State* L);
     void PushListener();
-    static int L_WPT_Load(lua_State* L);
-    static int L_WPT_GetClosest(lua_State* L);
-    static int L_WPT_GetPosition(lua_State* L);
-    static int L_PATH_Create(lua_State* L);
-    static int L_PATH_Release(lua_State* L);
-    static int L_PATH_GetShortest(lua_State* L);
-    static int L_PATH_IsFinished(lua_State* L);
-    static int L_PATH_GetNextPoint(lua_State* L);
 
     // Can `a` see `b`: range, then the sight cone, then an unobstructed line.
     bool Sees(int ha, Entity& a, int hb, Entity& b) const;
     // GetPawnHeadPos for anything: pawn eye, character head, or position.
     void EyePoint(const Entity& e, int handle, float out[3]) const;
-    static int L_PO_GetMaxSphereRay(lua_State* L);
-    static int L_PO_SetMass(lua_State* L);
-    static int L_PO_SetFriction(lua_State* L);
-    static int L_PO_SetRestitution(lua_State* L);
-    static int L_PO_SetLinearDamping(lua_State* L);
-    static int L_PO_SetAngularDamping(lua_State* L);
-    static int L_CreatePlayer(lua_State* L);
-    static int L_PO_SetPawnHeadPos(lua_State* L);
-    static int L_PO_GetPawnHeadPos(lua_State* L);
-    static int L_PO_GetPawnFloorPos(lua_State* L);
-    static int L_GetDimensions(lua_State* L);
-    static int L_IsDrawEnabled(lua_State* L);
-    static int L_PLAYER_GetDistanceFromPoint(lua_State* L);
-    static int L_REGION_BuildFromPoint(lua_State* L);
     static int TraceCommon(lua_State* L, bool staticOnly);
     bool TraceRay(const float from[3], const float to[3], PhysicsWorld::RayHit& hit,
                   bool staticOnly) const;
     int EntityForBody(int bodySlot) const;
-    static int L_WORLD_LineTrace(lua_State* L);
-    static int L_WORLD_LineTraceFixedGeom(lua_State* L);
-    static int L_AddToIntersectionSolver(lua_State* L);
-    static int L_RemoveFromIntersectionSolver(lua_State* L);
-    static int L_AddRagdollToIntersectionSolver(lua_State* L);
-    static int L_RemoveRagdollFromIntersectionSolver(lua_State* L);
     // The body half of the intersection solver: keeps inSolver and the
     // excludedSlots_ list in step, so a Remove cannot be leaked or doubled.
     void SetSolverBody(Entity& e, bool on);
-    static int L_IsFixedMesh(lua_State* L);
     // PHYSICS.GetHavokBodyInfo(he) -> type, entity, joint. The engine's own
     // shape (0x101291a0) returns a DIFFERENT NUMBER OF VALUES per kind: 1 for
     // an unknown body, 2 for a plain physics object, 3 for a ragdoll limb.
     // That is why every caller writes `if j then` - a body that is not a limb
     // leaves the joint nil rather than reporting -1.
-    static int L_PHYSICS_GetHavokBodyInfo(lua_State* L);
     // MDL.GetJointFromHavokBody(e, he) -> joint, or -1. The engine checks the
     // body belongs to THAT entity's ragdoll (0x1012d320); so does this.
-    static int L_MDL_GetJointFromHavokBody(lua_State* L);
     // MDL.JointsLinked(e, a, b) -> are these two joints connected through the
     // ragdoll? MDL.EnableJoint(e, joint, on) takes one out of it.
-    static int L_MDL_JointsLinked(lua_State* L);
-    static int L_MDL_ApplyPointImpulseToRagdoll(lua_State* L);
-    static int L_PO_ScaleInertiaTensor(lua_State* L);
-    static int L_PO_AccumulateRotation(lua_State* L);
     // MDL.EnableRagdoll(e, on, group) - hand the actor to the solver, or take
     // it back. This is what death is. `seedPose` is MODEL-space bone matrices
     // to start from instead of the entity's own pose: MakeGib seeds the gib
@@ -875,131 +793,27 @@ private:
     int MakeGib(Entity& source, int group, const char* velocityJoint);
     // The ragdoll part a joint drives, or -1 (the .hke names a dozen bones).
     int RagdollPartOfJoint(Entity& e, int joint);
-    static int L_MDL_MakeGib(lua_State* L);
-    static int L_MDL_SetRagdollMovedByExplosions(lua_State* L);
-    static int L_MDL_RagdollSelfExplosion(lua_State* L);
-    static int L_MDL_ApplyVelocitiesToAllJoints(lua_State* L);
-    static int L_MDL_EnableRagdoll(lua_State* L);
-    static int L_MDL_IsRagdoll(lua_State* L);
-    static int L_MDL_IsRagdollActive(lua_State* L);
-    static int L_ENTITY_RemoveRagdoll(lua_State* L);
-    static int L_MDL_SetRagdollLinearDamping(lua_State* L);
-    static int L_MDL_SetRagdollAngularDamping(lua_State* L);
-    static int L_MDL_SetRagdollFriction(lua_State* L);
-    static int L_MDL_EnableJoint(lua_State* L);
     // PHYSICS.RemoveHavokBodyFromIS(he, on) - one BODY out of the traces.
-    static int L_PHYSICS_RemoveHavokBodyFromIS(lua_State* L);
-    static int L_PHYSICS_GetHavokBodyPosition(lua_State* L);
-    static int L_PHYSICS_SetHavokBodyPosition(lua_State* L);
-    static int L_PHYSICS_PinHavokBody(lua_State* L);
     // The ragdoll part a hit joint belongs to: the joint's own body, or the
     // nearest ancestor bone that has one (a hitbox on a hand is the forearm's
     // body in Havok terms). -1 when the entity has no ragdoll.
     int RagdollPartForJoint(Entity& e, int joint);
     std::string RagdollBoneForJoint(Entity& e, const Hke& def, int joint);
-    static int L_PHYSICS_IsHavokBodyInWorld(lua_State* L);
-    static int L_PHYSICS_GetHavokBodyVelocity(lua_State* L);
-    static int L_ENTITY_EnableCollisions(lua_State* L);
-    static int L_ENTITY_EnableCollisionsToRagdoll(lua_State* L);
-    static int L_ENTITY_PO_LineTrace(lua_State* L);
     // ENTITY.PO_SetCollisionGroup: a live body changes layer and motion.
-    static int L_PO_SetCollisionGroup(lua_State* L);
     // WORLD.LineTraceHitPlayerBalls: LineTrace that also tests the player's
     // body (PhysicsWorld::LineTraceHitPlayer, 0x10197560) - the AI's guns.
-    static int L_WORLD_LineTraceHitPlayerBalls(lua_State* L);
     // Decals (ScriptDecal.cpp). Docs/Reference/Decals.md.
-    static int L_ENTITY_SpawnDecal(lua_State* L);
-    static int L_ENTITY_SpawnOrientedDecal(lua_State* L);
-    static int L_ENTITY_SpawnStaticDecal(lua_State* L);
-    static int L_ENTITY_UpdateDecal(lua_State* L);
-    static int L_ENTITY_ReloadDecalSystem(lua_State* L);
-    static int L_R3D_KeepDecals(lua_State* L);
     // Projects a decal onto what it was spawned against: the target's map
     // object when it is a world object, else the object under the spawn
     // point, else every collidable object the box overlaps.
     void BuildDecalGeometry(Entity& decal, int target, const float pos[3],
                             const float normal[3]);
     int SpawnDecalEntity(lua_State* L, bool oriented, const char* staticTexture);
-    static int L_WORLD_Explosion2(lua_State* L);
-    static int L_PO_SetMovedByExplosions(lua_State* L);
-    static int L_PO_SetGrenade(lua_State* L);
-    static int L_PO_SetFreedomOfRotation(lua_State* L);
-    static int L_PO_SetPinned(lua_State* L);
-    static int L_PO_IsPinned(lua_State* L);
     // The blast itself: collects what it reached, pushes it, and posts one
     // EXPLOSION per entity. Docs/Reference/Physics.md carries the falloff.
     void Explosion(const float centre[3], float strength, float range,
                    double killer, double attackType, float damage);
-    static int L_ENTITY_IsWater(lua_State* L);
-    static int L_INP_GetTimeMultiplier(lua_State* L);
-    static int L_INP_SetTimeMultiplier(lua_State* L);
-    static int L_SetPosAndRotRelativeToCamera(lua_State* L);
-    static int L_GetType(lua_State* L);
-    static int L_GetName(lua_State* L);
-    static int L_PARTICLE_SetEvolve(lua_State* L);
-    static int L_PARTICLE_Die(lua_State* L);
-    static int L_MDL_SetAnim(lua_State* L);
-    static int L_MDL_SetMeshVisibility(lua_State* L);
-    static int L_MDL_SetMaterial(lua_State* L);
-    static int L_MDL_GetAnimLength(lua_State* L);
-    static int L_MDL_GetAnimTime(lua_State* L);
-    static int L_MDL_SetAnimTime(lua_State* L);
-    static int L_MDL_GetAnimTimeScale(lua_State* L);
-    static int L_MDL_SetAnimTimeScale(lua_State* L);
-    static int L_MDL_ResetFrame(lua_State* L);
-    static int L_MDL_LoadAnim(lua_State* L);
-    static int L_MDL_GetAnimMovement(lua_State* L);
-    static int L_MDL_TransformPointByJoint(lua_State* L);
-    static int L_MDL_GetJointPos(lua_State* L);
-    static int L_MDL_GetJointIndex(lua_State* L);
-    static int L_MDL_GetJointName(lua_State* L);
-    static int L_MDL_GetJointRotation(lua_State* L);
-    static int L_MDL_ApplyJointRotation(lua_State* L);
-    static int L_MDL_GetVelocitiesFromJoint(lua_State* L);
     static const Entity::AnimSlot* AnimSlotArg(const Entity* e, lua_State* L, int arg);
-    static int L_INP_Key(lua_State* L);
-    static int L_INP_Action(lua_State* L);
-    static int L_INP_UIAction(lua_State* L);
-    static int L_INP_RemoveUIAction(lua_State* L);
-    static int L_INP_IsFireSwitched(lua_State* L);
-    static int L_INP_LoadBindings(lua_State* L);
-    static int L_INP_Reset(lua_State* L);
-    static int L_PO_SetAction(lua_State* L);
-    static int L_PO_AddAction(lua_State* L);
-    static int L_PO_IsActionState(lua_State* L);
-    static int L_PO_JumpedInLastAction(lua_State* L);
-    static int L_PLAYER_ExecAction(lua_State* L);
-    static int L_PLAYER_FloorCheck(lua_State* L);
-    static int L_MOUSE_Lock(lua_State* L);
-    static int L_MOUSE_IsLocked(lua_State* L);
-    static int L_CAM_GetPos(lua_State* L);
-    static int L_CAM_SetPos(lua_State* L);
-    static int L_CAM_SetAng(lua_State* L);
-    static int L_CAM_GetForwardVector(lua_State* L);
-    static int L_CAM_GetAng(lua_State* L);
-    static int L_CAM_GetAngRad(lua_State* L);
-    static int L_CAM_GetRawRotation(lua_State* L);
-    static int L_MOUSE_GetDelta(lua_State* L);
-    static int L_MOUSE_SetSensitivity(lua_State* L);
-    static int L_CAM_SetPositionDisplacement(lua_State* L);
-    static int L_INP_GetActionStatus(lua_State* L);
-    static int L_PLAYER_GetCameraFix(lua_State* L);
-    static int L_PO_IsEnabled(lua_State* L);
-    static int L_IsFinalBuild(lua_State* L);
-    static int L_EDITOR_OutputText(lua_State* L);
-    static int L_PO_Enable(lua_State* L);
-    static int L_GetPlayerSpeed(lua_State* L);
-    static int L_SetPlayerSpeed(lua_State* L);
-    static int L_WORLD_Init(lua_State* L);
-    static int L_WORLD_AddEntity(lua_State* L);
-    static int L_WORLD_FindEntityByName(lua_State* L);
-    static int L_WORLD_LoadMap(lua_State* L);
-    static int L_WORLD_SaveGame(lua_State* L);
-    static int L_WORLD_LoadGame(lua_State* L);
-    static int L_PHYSICS_ActiveMeshGroupActivate(lua_State* L);
-    static int L_PHYSICS_ActiveMeshGroupEnable(lua_State* L);
-    static int L_PHYSICS_ActiveMeshGroupStaticMeshEnable(lua_State* L);
-    static int L_PHYSICS_ActiveMeshGroupSetActivationParams(lua_State* L);
     // Promotes every "phys" object of the loaded map into a body and an
     // entity; called from WORLD.LoadMap once the mesh is in. "physdest"
     // pieces are held out of the world and "statdest" twins get static bodies
@@ -1015,171 +829,21 @@ private:
     // Level_GetActiveMeshesData(name), the Lua global the ENGINE calls per
     // active mesh; 1 means "use WORLD.Init's ActiveMeshesMassScale".
     float ActiveMeshMassScale(const std::string& objectName);
-    static int L_WORLD_SetupFog(lua_State* L);
-    static int L_WORLD_BloomFXParams(lua_State* L);
-    static int L_R3D_EnableBloom(lua_State* L);
-    static int L_WORLD_SetFarClipDist(lua_State* L);
-    static int L_WORLD_AmbientColor(lua_State* L);
-    static int L_WORLD_LoadSky(lua_State* L);
-    static int L_WORLD_LoadLowQualitySky(lua_State* L);
-    static int L_WORLD_SetupSkyLayer(lua_State* L);
-    static int L_MESH_SetDefaultDetailMaps(lua_State* L);
 
     // The 2D layer. Argument order, defaults and colour packing all follow
     // the shipped Engine.dll; see Docs/Reference/Hud.md for where each came from.
-    static int L_MATERIAL_Create(lua_State* L);
-    static int L_MATERIAL_Release(lua_State* L);
-    static int L_MATERIAL_Size(lua_State* L);
-    static int L_HUD_PrintXY(lua_State* L);
-    static int L_HUD_DrawQuad(lua_State* L);
-    static int L_HUD_DrawQuadRGBA(lua_State* L);
-    static int L_HUD_DrawQuadRotated(lua_State* L);
-    static int L_HUD_DrawRect(lua_State* L);
-    static int L_HUD_DrawBorder(lua_State* L);
-    static int L_HUD_SetFont(lua_State* L);
-    static int L_HUD_GetTextWidth(lua_State* L);
-    static int L_HUD_GetTextHeight(lua_State* L);
-    static int L_HUD_SetTransparency(lua_State* L);
-    static int L_HUD_PrepareString(lua_State* L);
-    static int L_HUD_GetTransparency(lua_State* L);
-    static int L_HUD_StripColorInfo(lua_State* L);
-    static int L_HUD_ColorSubstr(lua_State* L);
-    static int L_R3D_ScreenSize(lua_State* L);
-    static int L_R3D_GetFPS(lua_State* L);
 
     // The menu. Stage 1: the screen lifecycle, static text and text buttons.
-    static int L_PMENU_Activate(lua_State* L);
-    static int L_PMENU_Active(lua_State* L);
-    static int L_PMENU_Clear(lua_State* L);
-    static int L_PMENU_ClearScreen(lua_State* L);
-    static int L_PMENU_SetBackground(lua_State* L);
-    static int L_PMENU_SetMenuWidth(lua_State* L);
-    static int L_PMENU_SetTopPosition(lua_State* L);
-    static int L_PMENU_ShowMouse(lua_State* L);
-    static int L_PMENU_ShowMenu(lua_State* L);
-    static int L_PMENU_ReturnToGame(lua_State* L);
-    static int L_WORLD_SetGamePaused(lua_State* L);
-    static int L_WORLD_IsGamePaused(lua_State* L);
-    static int L_PMENU_AddCheckbox(lua_State* L);
-    static int L_PMENU_AddSlider(lua_State* L);
-    static int L_PMENU_AddNumRange(lua_State* L);
-    static int L_PMENU_AddTextButtonEx(lua_State* L);
-    static int L_PMENU_ChangeTextButtonExValue(lua_State* L);
-    static int L_PMENU_AddTextEdit(lua_State* L);
-    static int L_PMENU_GetSliderValue(lua_State* L);
-    static int L_PMENU_IsSliderFloat(lua_State* L);
-    static int L_PMENU_GetNumRangeValue(lua_State* L);
-    static int L_PMENU_IsItemChecked(lua_State* L);
-    static int L_PMENU_SetCheckboxValue(lua_State* L);
-    static int L_PMENU_GetTextEditValue(lua_State* L);
-    static int L_PMENU_AddBorder(lua_State* L);
-    static int L_PMENU_AddTabGroup(lua_State* L);
-    static int L_PMENU_SetBorderSize(lua_State* L);
-    static int L_PMENU_SetBorderHeader(lua_State* L);
-    static int L_PMENU_SetBorderColCount(lua_State* L);
-    static int L_PMENU_SetBorderColumn(lua_State* L);
-    static int L_R3D_GetAvailableResolutions(lua_State* L);
-    static int L_R3D_DrawSprite(lua_State* L);
-    static int L_R3D_DrawSprite1DOF(lua_State* L);
-    static int L_R3D_RGB(lua_State* L);
-    static int L_R3D_RGBA(lua_State* L);
-    static int L_ENTITY_GetPtrByIndex(lua_State* L);
-    static int L_ENTITY_RegisterChild(lua_State* L);
-    static int L_ENTITY_GetIndex(lua_State* L);
-    static int L_ENTITY_ComputeChildMatrix(lua_State* L);
-    static int L_ENTITY_GetChildByName(lua_State* L);
-    static int L_ENTITY_KillAllChildrenByName(lua_State* L);
-    static int L_ENTITY_KillAllChildren(lua_State* L);
-    static int L_ENTITY_UnregisterAllChildren(lua_State* L);
-    static int L_SND_Setup3D(lua_State* L);
-    static int L_SND_EntityPlay(lua_State* L);
-    static int L_SND_EntityStop(lua_State* L);
-    static int L_SND_EntityIsPlaying(lua_State* L);
-    static int L_SND_GetSound3DPtr(lua_State* L);
-    static int L_PO_EnableGravity(lua_State* L);
-    static int L_PMENU_AddStaticText(lua_State* L);
-    static int L_PMENU_AddTextButton(lua_State* L);
-    static int L_PMENU_SetItemText(lua_State* L);
-    static int L_PMENU_SetItemDesc(lua_State* L);
-    static int L_PMENU_SetItemAction(lua_State* L);
-    static int L_PMENU_SetItemPosition(lua_State* L);
-    static int L_PMENU_SetItemColors(lua_State* L);
-    static int L_PMENU_SetItemFonts(lua_State* L);
-    static int L_PMENU_SetItemFontsTex(lua_State* L);
-    static int L_PMENU_SetItemVisibility(lua_State* L);
-    static int L_PMENU_SetStaticTextRect(lua_State* L);
     // The campaign map: EngineGame::SwitchMapSelect and the Map* family.
-    static int L_PMENU_SwitchToMap(lua_State* L);
-    static int L_PMENU_AddLevelToMap(lua_State* L);
-    static int L_PMENU_MapReset(lua_State* L);
-    static int L_PMENU_MapSetCurrLevel(lua_State* L);
-    static int L_PMENU_MapNextLevel(lua_State* L);
-    static int L_PMENU_MapGetCurrLevel(lua_State* L);
-    static int L_PMENU_MapGetCurrChapter(lua_State* L);
-    static int L_PMENU_MapGetCurrLevelName(lua_State* L);
-    static int L_PMENU_MapGetCurrLevelCardCondition(lua_State* L);
-    static int L_PMENU_MapGetCurrLevelCardIndex(lua_State* L);
     // The tarot board.
-    static int L_PMENU_SwitchToBoard(lua_State* L);
-    static int L_MBOARD_SetupSlots(lua_State* L);
-    static int L_MBOARD_SetSlotPosition(lua_State* L);
-    static int L_MBOARD_AddCard(lua_State* L);
-    static int L_MBOARD_IsCardInSlot(lua_State* L);
     // Bink movies: none here. Returns false, which every caller tolerates.
-    static int L_PMENU_PlayMovie(lua_State* L);
     // The key table and its accessors (ControlsConfig).
-    static int L_PMENU_AddKeyControl(lua_State* L);
-    static int L_PMENU_AddSimpleKeyConf(lua_State* L);
-    static int L_PMENU_SetKeyItemIndex(lua_State* L);
-    static int L_PMENU_GetPrimaryKey(lua_State* L);
-    static int L_PMENU_GetAlternateKey(lua_State* L);
-    static int L_PMENU_GetSimpleKey(lua_State* L);
-    static int L_PMENU_AddScroller(lua_State* L);
-    static int L_PMENU_AddLoadSave(lua_State* L);
-    static int L_PMENU_AddSaveGameToList(lua_State* L);
-    static int L_PMENU_ClearList(lua_State* L);
-    static int L_PMENU_GetSelectedSGSlot(lua_State* L);
-    static int L_PMENU_SetAllowSave(lua_State* L);
-    static int L_PMENU_SetListMaxHeight(lua_State* L);
-    static int L_PMENU_SetScrollerForBorder(lua_State* L);
-    static int L_PMENU_SetBorderScroller(lua_State* L);
-    static int L_INP_GetKeyNameByEngName(lua_State* L);
-    static int L_INP_GetShortNameByEngName(lua_State* L);
-    static int L_MOUSE_SetInverse(lua_State* L);
-    static int L_MOUSE_SetSmooth(lua_State* L);
-    static int L_MOUSE_SetWheelSensitivity(lua_State* L);
     // Presentation knobs that are recorded and not yet honoured.
-    static int L_PMENU_NoOp(lua_State* L);
-    static int L_PMENU_LaunchURL(lua_State* L);
     // What a level switch has to drop that the scripts do not release
     // themselves: the engine-made active-mesh entities, the water, the
     // per-level caches. Run by WORLD.LoadMap when a map was already up.
     void ResetLevelState();
-    static int L_PMENU_SetItemAlign(lua_State* L);
-    static int L_PMENU_SetItemWidth(lua_State* L);
-    static int L_PMENU_EnableItemBG(lua_State* L);
-    static int L_PMENU_SetItemSounds(lua_State* L);
-    static int L_PMENU_DisableItem(lua_State* L);
-    static int L_PMENU_EnableItem(lua_State* L);
-    static int L_MOUSE_GetPos(lua_State* L);
-    static int L_SOUND_ApplySoundSettings(lua_State* L);
-    static int L_SOUND_GetNumOfProviders(lua_State* L);
-    static int L_SOUND_Get3DSoundProviderName(lua_State* L);
-    static int L_SOUND_GetCurrent3DSoundProviderName(lua_State* L);
-    static int L_SOUND_Set3DSoundProvider(lua_State* L);
-    static int L_SOUND_SetMasterVolume(lua_State* L);
     // Music streams and the 3D rolloff (ScriptSound.cpp).
-    static int L_SOUND_StreamLoad(lua_State* L);
-    static int L_SOUND_StreamPlay(lua_State* L);
-    static int L_SOUND_StreamPause(lua_State* L);
-    static int L_SOUND_StreamResume(lua_State* L);
-    static int L_SOUND_StreamDelete(lua_State* L);
-    static int L_SOUND_StreamSetVolume(lua_State* L);
-    static int L_SOUND_StreamGetVolume(lua_State* L);
-    static int L_SOUND_StreamSetLowPass(lua_State* L);
-    static int L_SOUND_StreamGetLowPass(lua_State* L);
-    static int L_SOUND_Set3DSoundFalloff(lua_State* L);
-    static int L_SOUND_Get3DSoundFalloff(lua_State* L);
 
     LuaHost* host_ = nullptr;
     // One id per blast, so Game_GetMsg's _Exploded dedupe sees two entities in

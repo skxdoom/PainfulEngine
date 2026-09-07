@@ -3,6 +3,29 @@
 
 namespace painful {
 
+// The Anim natives. The struct is declared here rather than in
+// ScriptEngine.h so that adding one touches only this file.
+struct AnimNatives : ScriptNativesBase {
+    static int L_MDL_SetAnim(lua_State* L);
+    static int L_MDL_GetAnimLength(lua_State* L);
+    static int L_MDL_GetAnimTime(lua_State* L);
+    static int L_MDL_SetAnimTime(lua_State* L);
+    static int L_MDL_GetAnimTimeScale(lua_State* L);
+    static int L_MDL_SetAnimTimeScale(lua_State* L);
+    static int L_MDL_ResetFrame(lua_State* L);
+    static int L_MDL_LoadAnim(lua_State* L);
+    static int L_MDL_GetAnimMovement(lua_State* L);
+    static int L_MDL_GetJointIndex(lua_State* L);
+    static int L_MDL_GetJointName(lua_State* L);
+    static int L_MDL_TransformPointByJoint(lua_State* L);
+    static int L_MDL_GetJointPos(lua_State* L);
+    static int L_MDL_ApplyJointRotation(lua_State* L);
+    static int L_MDL_GetVelocitiesFromJoint(lua_State* L);
+    static int L_MDL_GetJointRotation(lua_State* L);
+    static int L_MDL_SetMeshVisibility(lua_State* L);
+    static int L_MDL_SetMaterial(lua_State* L);
+};
+
 namespace {
 
 // A posed bone can carry scale; EngineRot9ToQuat needs a pure rotation, and
@@ -39,7 +62,7 @@ void Normalize3x3Rows(float m[9]) {
 // blend, mcurve and hasMovingCurveRot are accepted and ignored: blending and
 // root motion are their own problems, and guessing at them is how conventions
 // get broken here. See Docs/Reference/Animation.md.
-int ScriptEngine::L_MDL_SetAnim(lua_State* L) {
+int AnimNatives::L_MDL_SetAnim(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     const char* name = lua_isstring(L, 2) ? lua_tostring(L, 2) : nullptr;
@@ -171,7 +194,7 @@ const ScriptEngine::Entity::AnimSlot* ScriptEngine::AnimSlotArg(const Entity* e,
 
 // MDL.GetAnimLength(e, index) -> the track's duration in seconds. CActor
 // stores it as _CurAnimLength and sequences against it.
-int ScriptEngine::L_MDL_GetAnimLength(lua_State* L) {
+int AnimNatives::L_MDL_GetAnimLength(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
     const Entity::AnimSlot* slot = AnimSlotArg(e, L, 2);
@@ -181,7 +204,7 @@ int ScriptEngine::L_MDL_GetAnimLength(lua_State* L) {
 
 // MDL.GetAnimTime(e, index) -> how far into it we are. Only the playing
 // animation has a clock; anything else reads as not started.
-int ScriptEngine::L_MDL_GetAnimTime(lua_State* L) {
+int AnimNatives::L_MDL_GetAnimTime(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
     const int index = lua_isnumber(L, 2) ? int(lua_tonumber(L, 2)) : (e ? e->animIndex : -1);
@@ -189,7 +212,7 @@ int ScriptEngine::L_MDL_GetAnimTime(lua_State* L) {
     return 1;
 }
 
-int ScriptEngine::L_MDL_SetAnimTime(lua_State* L) {
+int AnimNatives::L_MDL_SetAnimTime(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (e) e->animTime = float(luaL_optnumber(L, 3, 0));
@@ -200,7 +223,7 @@ int ScriptEngine::L_MDL_SetAnimTime(lua_State* L) {
 // the event loop tests. CActor pauses an animation by storing the scale,
 // setting it to 0 and restoring it later, which is what says this is a speed
 // rather than a flag.
-int ScriptEngine::L_MDL_GetAnimTimeScale(lua_State* L) {
+int AnimNatives::L_MDL_GetAnimTimeScale(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
     const bool playing = e && e->animIndex >= 0;
@@ -208,7 +231,7 @@ int ScriptEngine::L_MDL_GetAnimTimeScale(lua_State* L) {
     return 1;
 }
 
-int ScriptEngine::L_MDL_SetAnimTimeScale(lua_State* L) {
+int AnimNatives::L_MDL_SetAnimTimeScale(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (e) e->animScale = float(luaL_optnumber(L, 3, 1.0));
@@ -217,14 +240,14 @@ int ScriptEngine::L_MDL_SetAnimTimeScale(lua_State* L) {
 
 // MDL.ResetFrame(e) - back to the first frame without changing which
 // animation is playing.
-int ScriptEngine::L_MDL_ResetFrame(lua_State* L) {
+int AnimNatives::L_MDL_ResetFrame(lua_State* L) {
     if (Entity* e = From(L)->Find(HandleArg(L, 1))) e->animTime = 0.f;
     return 0;
 }
 
 // MDL.LoadAnim(e, anim) - preload, so the first play does not read a file
 // mid-frame. Answers the same index SetAnim would.
-int ScriptEngine::L_MDL_LoadAnim(lua_State* L) {
+int AnimNatives::L_MDL_LoadAnim(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     const char* name = lua_isstring(L, 2) ? lua_tostring(L, 2) : nullptr;
@@ -263,7 +286,7 @@ int ScriptEngine::L_MDL_LoadAnim(lua_State* L) {
 // moment it has a moving curve, and returning nothing throws an arithmetic
 // error that aborts the whole tick - which is how this need first announced
 // itself.
-int ScriptEngine::L_MDL_GetAnimMovement(lua_State* L) {
+int AnimNatives::L_MDL_GetAnimMovement(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     const int index = int(luaL_optnumber(L, 2, -1));
@@ -478,7 +501,7 @@ bool ScriptEngine::JointToWorld(Entity& e, int joint, const float local[3],
 // The scripts hold onto what this returns (aiParams.weaponBindPos names the
 // bone a weapon rides) and pass it back to every other joint call, so the
 // index has to be the bone's own position in the model's bone list.
-int ScriptEngine::L_MDL_GetJointIndex(lua_State* L) {
+int AnimNatives::L_MDL_GetJointIndex(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     const char* name = lua_tostring(L, 2);
@@ -497,7 +520,7 @@ int ScriptEngine::L_MDL_GetJointIndex(lua_State* L) {
 }
 
 // MDL.GetJointName(e, joint) -> the bone's name, or nothing.
-int ScriptEngine::L_MDL_GetJointName(lua_State* L) {
+int AnimNatives::L_MDL_GetJointName(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     const int joint = int(lua_tonumber(L, 2));
@@ -523,7 +546,7 @@ int ScriptEngine::L_MDL_GetJointName(lua_State* L) {
 // what the stub did, and once the animation clock let weapons reach this at
 // all, the nils flowed into Vector:New and threw an error that aborted
 // Game_Tick entirely - every frame a weapon fired.
-int ScriptEngine::L_MDL_TransformPointByJoint(lua_State* L) {
+int AnimNatives::L_MDL_TransformPointByJoint(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     const int joint = int(lua_tonumber(L, 2));
@@ -555,7 +578,7 @@ int ScriptEngine::L_MDL_TransformPointByJoint(lua_State* L) {
 
 // MDL.GetJointPos(e, joint) -> where a bone is, in world space. The bone's
 // own origin, which is TransformPointByJoint with a zero point.
-int ScriptEngine::L_MDL_GetJointPos(lua_State* L) {
+int AnimNatives::L_MDL_GetJointPos(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     const int joint = int(lua_tonumber(L, 2));
@@ -576,7 +599,7 @@ int ScriptEngine::L_MDL_GetJointPos(lua_State* L) {
 // shipped caller recomputes an absolute angle each tick and passes it again -
 // a turret's _barrelPitch, an actor's head angle toward the player. Made
 // additive, a turret would wind up and spin.
-int ScriptEngine::L_MDL_ApplyJointRotation(lua_State* L) {
+int AnimNatives::L_MDL_ApplyJointRotation(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     const int joint = int(lua_tonumber(L, 2));
@@ -622,7 +645,7 @@ int ScriptEngine::L_MDL_ApplyJointRotation(lua_State* L) {
 // (0x1012D560). Zeros unless the ragdoll is ACTIVE: a live monster's limbs
 // are driven along the animation, not simulated, and the engine reads no
 // velocity off them.
-int ScriptEngine::L_MDL_GetVelocitiesFromJoint(lua_State* L) {
+int AnimNatives::L_MDL_GetVelocitiesFromJoint(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     float lin[3] = {0, 0, 0}, ang[3] = {0, 0, 0};
@@ -652,7 +675,7 @@ bool ScriptEngine::JointWorldRotation(Entity& e, int joint, float outWXYZ[4]) {
     return true;
 }
 
-int ScriptEngine::L_MDL_GetJointRotation(lua_State* L) {
+int AnimNatives::L_MDL_GetJointRotation(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     const int joint = int(lua_tonumber(L, 2));
@@ -727,7 +750,7 @@ void ScriptEngine::TickAnimations(float dt) {
 // 50, 47, 44, pCylinderShape14, 29 and kolekShape - so the gun reads as empty
 // while its head is away, and BackHeadSFX shows them again when it returns.
 // Monsters use the same call to drop gib parts, and the menu to swap heads.
-int ScriptEngine::L_MDL_SetMeshVisibility(lua_State* L) {
+int AnimNatives::L_MDL_SetMeshVisibility(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e || e->type != kModel) return 0;
@@ -746,7 +769,7 @@ int ScriptEngine::L_MDL_SetMeshVisibility(lua_State* L) {
 // MDL.SetMaterial(entity, name) - swap the model to another material family.
 // CActor hands every gib its template's gibShader ("palskinned_bloody" in 64
 // of them) and the freeze effect swaps the whole actor.
-int ScriptEngine::L_MDL_SetMaterial(lua_State* L) {
+int AnimNatives::L_MDL_SetMaterial(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e) return 0;
@@ -758,6 +781,30 @@ int ScriptEngine::L_MDL_SetMaterial(lua_State* L) {
     if (self->renderer_ && self->textures_ && e->rendererInstance >= 0)
         self->renderer_->SetScriptMaterial(e->rendererInstance, name, *self->textures_);
     return 0;
+}
+
+void BindAnim(ScriptEngine& engine, LuaHost& host) {
+    const ScriptNative natives[] = {
+        {"MDL", "SetAnim", AnimNatives::L_MDL_SetAnim},
+        {"MDL", "SetMeshVisibility", AnimNatives::L_MDL_SetMeshVisibility},
+        {"MDL", "SetMaterial", AnimNatives::L_MDL_SetMaterial},
+        {"MDL", "GetAnimLength", AnimNatives::L_MDL_GetAnimLength},
+        {"MDL", "GetAnimTime", AnimNatives::L_MDL_GetAnimTime},
+        {"MDL", "SetAnimTime", AnimNatives::L_MDL_SetAnimTime},
+        {"MDL", "GetAnimTimeScale", AnimNatives::L_MDL_GetAnimTimeScale},
+        {"MDL", "SetAnimTimeScale", AnimNatives::L_MDL_SetAnimTimeScale},
+        {"MDL", "ResetFrame", AnimNatives::L_MDL_ResetFrame},
+        {"MDL", "LoadAnim", AnimNatives::L_MDL_LoadAnim},
+        {"MDL", "GetAnimMovement", AnimNatives::L_MDL_GetAnimMovement},
+        {"MDL", "TransformPointByJoint", AnimNatives::L_MDL_TransformPointByJoint},
+        {"MDL", "GetJointPos", AnimNatives::L_MDL_GetJointPos},
+        {"MDL", "GetJointIndex", AnimNatives::L_MDL_GetJointIndex},
+        {"MDL", "GetJointName", AnimNatives::L_MDL_GetJointName},
+        {"MDL", "GetJointRotation", AnimNatives::L_MDL_GetJointRotation},
+        {"MDL", "ApplyJointRotation", AnimNatives::L_MDL_ApplyJointRotation},
+        {"MDL", "GetVelocitiesFromJoint", AnimNatives::L_MDL_GetVelocitiesFromJoint},
+    };
+    RegisterFamily(engine, host, natives);
 }
 
 }  // namespace painful

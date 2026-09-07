@@ -1,9 +1,11 @@
 # Game - the seam where the script natives meet the engine subsystems.
 #
 # ScriptEngine is one class across many translation units: ScriptEngine.cpp
-# holds the lifecycle and the entity registry, each Script*.cpp implements one
-# family of natives, and ScriptBind maps them to the module and name the
-# shipped Lua calls them by. ScriptEngineInternal.h carries what they share.
+# holds the lifecycle and the entity registry, and each Script*.cpp owns one
+# family of natives - the struct that declares them, their bodies, and the
+# table that binds them. ScriptBind only calls the seventeen binders, so adding
+# a native touches one file instead of the header and all thirty TUs below it.
+# ScriptEngineInternal.h carries what they share.
 add_library(Game STATIC
   MenuSystem.cpp    MenuSystem.h
   Console.cpp       Console.h

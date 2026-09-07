@@ -99,6 +99,60 @@ nil". Bare globals (49, registered individually) include `DoFile`, `Log`, the
 quaternion/vector helpers (flat multi-value: `EulerToQuat(ax,ay,az) →
 w,x,y,z`, engine order `(w,x,y,z)`), and the build/edition/CD-check flags.
 
+
+## The native families
+
+`Source/Game/Script*.cpp`, one family each. Adding a native touches only its
+own file.
+
+Every native used to be a `static int L_*` member declared in
+`ScriptEngine.h` — 358 of them — with one 388-row table in `ScriptBind.cpp`.
+Twenty translation units include that header through
+`ScriptEngineInternal.h`, so adding a single native recompiled **30 TUs**
+(measured). It is 1 now.
+
+Each family is:
+
+```cpp
+struct SoundNatives : ScriptNativesBase {     // in ScriptSound.cpp
+    static int L_SND_Play(lua_State* L);
+    ...
+};
+
+void BindSound(ScriptEngine& engine, LuaHost& host) {
+    const ScriptNative natives[] = {
+        {"SND", "Play", SoundNatives::L_SND_Play},
+        ...
+    };
+    RegisterFamily(engine, host, natives);
+}
+```
+
+`ScriptEngine::Bind` calls the seventeen binders and nothing else.
+
+**Why the structs and not free functions.** The bodies reach engine state
+through `self->` 632 times, so they need private access. A struct can be a
+friend; a file-local free function cannot. `ScriptEngine.h` therefore carries
+one `friend struct XNatives;` line per family — seventeen lines in place of
+358 declarations.
+
+**Why `ScriptNativesBase`.** As members the bodies used class-scope names
+unqualified: `From`, `Entity`, the `EType` enumerators, `Route`, `LimbHit`,
+`AnimSlotArg`, `TraceCommon`, `kLimbHandleBase`. The base forwards them, so
+all 358 bodies moved **unchanged** — no edit to recovered logic. Friendship is
+not inherited, which is why each family still needs its own friend line rather
+than the base covering them all.
+
+**One call had to go first.** `ScriptPlayer` called `L_GetPosition` from
+`ScriptEntity`; it now pushes the entity position directly, with the same
+zeroes for a handle that is not one. That left the partition clean — no family
+references another's natives.
+
+Verifying a change here: a native dropped from a binder silently becomes an
+auto-stub (`ModuleAutoIndex`), so it appears in the `lua` report's
+unimplemented list. Diffing that list against a baseline is the check that
+none went missing — 388 rows in, 388 rows out.
+
 ## A missing native that INVERTS a test is worse than one that does nothing
 
 An unimplemented native returns nothing. In Lua that is `nil`, and `nil` is

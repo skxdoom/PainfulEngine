@@ -4,11 +4,32 @@
 
 namespace painful {
 
+// The World natives. The struct is declared here rather than in
+// ScriptEngine.h so that adding one touches only this file.
+struct WorldNatives : ScriptNativesBase {
+    static int L_WORLD_AddEntity(lua_State* L);
+    static int L_WORLD_FindEntityByName(lua_State* L);
+    static int L_PHYSICS_ActiveMeshGroupActivate(lua_State* L);
+    static int L_PHYSICS_ActiveMeshGroupEnable(lua_State* L);
+    static int L_PHYSICS_ActiveMeshGroupStaticMeshEnable(lua_State* L);
+    static int L_PHYSICS_ActiveMeshGroupSetActivationParams(lua_State* L);
+    static int L_WORLD_LoadMap(lua_State* L);
+    static int L_WORLD_Init(lua_State* L);
+    static int L_WORLD_SetupFog(lua_State* L);
+    static int L_WORLD_BloomFXParams(lua_State* L);
+    static int L_WORLD_SetFarClipDist(lua_State* L);
+    static int L_WORLD_AmbientColor(lua_State* L);
+    static int L_WORLD_LoadSky(lua_State* L);
+    static int L_WORLD_LoadLowQualitySky(lua_State* L);
+    static int L_WORLD_SetupSkyLayer(lua_State* L);
+    static int L_MESH_SetDefaultDetailMaps(lua_State* L);
+};
+
 // ---------------------------------------------------------------- WORLD
 
 // WORLD.AddEntity(handle, hidden) - enters the entity into the drawn world;
 // CActor passes `not self.Visible` as the second argument.
-int ScriptEngine::L_WORLD_AddEntity(lua_State* L) {
+int WorldNatives::L_WORLD_AddEntity(lua_State* L) {
     ScriptEngine* self = From(L);
     if (Entity* e = self->Find(HandleArg(L, 1))) {
         e->inWorld = true;
@@ -21,7 +42,7 @@ int ScriptEngine::L_WORLD_AddEntity(lua_State* L) {
 // WORLD.FindEntityByName(name) - resolves a world-mesh object (MapEntities
 // bind EMesh scripts to named .mpk objects). Handed out as a pseudo-entity;
 // the mesh-level natives that act on it are still stubs.
-int ScriptEngine::L_WORLD_FindEntityByName(lua_State* L) {
+int WorldNatives::L_WORLD_FindEntityByName(lua_State* L) {
     ScriptEngine* self = From(L);
     const char* name = luaL_optstring(L, 1, "");
     for (const auto& kv : self->entities_) {
@@ -183,7 +204,7 @@ void ScriptEngine::ReleaseTwins(const std::vector<int>& twinSlots, const float* 
                 ReleaseDestructible(i, blast);
 }
 
-int ScriptEngine::L_PHYSICS_ActiveMeshGroupActivate(lua_State* L) {
+int WorldNatives::L_PHYSICS_ActiveMeshGroupActivate(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!self->physics_) return 0;
     std::vector<int> twins;
@@ -192,7 +213,7 @@ int ScriptEngine::L_PHYSICS_ActiveMeshGroupActivate(lua_State* L) {
     return 0;
 }
 
-int ScriptEngine::L_PHYSICS_ActiveMeshGroupEnable(lua_State* L) {
+int WorldNatives::L_PHYSICS_ActiveMeshGroupEnable(lua_State* L) {
     ScriptEngine* self = From(L);
     if (self->physics_)
         self->physics_->EnableActiveMeshGroup(int(luaL_optnumber(L, 1, -1)),
@@ -203,7 +224,7 @@ int ScriptEngine::L_PHYSICS_ActiveMeshGroupEnable(lua_State* L) {
 // The static twins of a group, on or off (FUN_101B25D0): the intact
 // "statdest" bodies leave or rejoin the simulation. Drawing is the scripts'
 // own WORLD.EnableDrawMeshGroup call beside it, so only the body moves here.
-int ScriptEngine::L_PHYSICS_ActiveMeshGroupStaticMeshEnable(lua_State* L) {
+int WorldNatives::L_PHYSICS_ActiveMeshGroupStaticMeshEnable(lua_State* L) {
     ScriptEngine* self = From(L);
     const int group = int(luaL_optnumber(L, 1, -1));
     const bool on = lua_toboolean(L, 2) != 0;
@@ -217,9 +238,9 @@ int ScriptEngine::L_PHYSICS_ActiveMeshGroupStaticMeshEnable(lua_State* L) {
 // Collision reporting and time-to-live per group (FUN_101B9E60). The
 // collision callbacks arrive through ENTITY.EnableCollisionsToAll instead;
 // the autodelete timers are not ported.
-int ScriptEngine::L_PHYSICS_ActiveMeshGroupSetActivationParams(lua_State*) { return 0; }
+int WorldNatives::L_PHYSICS_ActiveMeshGroupSetActivationParams(lua_State*) { return 0; }
 
-int ScriptEngine::L_WORLD_LoadMap(lua_State* L) {
+int WorldNatives::L_WORLD_LoadMap(lua_State* L) {
     ScriptEngine* self = From(L);
     self->world_.mapPath = luaL_optstring(L, 1, "");
     self->world_.levelName = luaL_optstring(L, 2, "");
@@ -283,7 +304,7 @@ void ScriptEngine::ResetLevelState() {
 // defaultMeshRestitution, deactivatorDelay, deactivatorMaxPosDiff) - CLevel
 // calls it right after LoadMap. The deactivator pair maps onto Jolt's own
 // sleep thresholds, which are close enough to leave alone for now.
-int ScriptEngine::L_WORLD_Init(lua_State* L) {
+int WorldNatives::L_WORLD_Init(lua_State* L) {
     ScriptEngine* self = From(L);
     if (self->physics_)
         self->physics_->SetWorldSurface(float(luaL_optnumber(L, 1, 1.0)),
@@ -295,7 +316,7 @@ int ScriptEngine::L_WORLD_Init(lua_State* L) {
 // WORLD.SetupFog(mode [, start, end, density, packedColor]). CLevel scales
 // start/end by the user's clip-plane setting before the call, so the values
 // arrive ready to use.
-int ScriptEngine::L_WORLD_SetupFog(lua_State* L) {
+int WorldNatives::L_WORLD_SetupFog(lua_State* L) {
     ScriptEngine* self = From(L);
     WorldState& w = self->world_;
     w.fogMode = int(luaL_optnumber(L, 1, 0));
@@ -312,7 +333,7 @@ int ScriptEngine::L_WORLD_SetupFog(lua_State* L) {
 // WORLD.BloomFXParams(threshold, multiplier, overlayColor, dimScale) - the
 // CLevel.BloomFX block (World+0x6cc..0x6d8). DimScale is what the sprite
 // packers (FUN_101e4080, Billboard::Draw) multiply RGB by when bloom is on.
-int ScriptEngine::L_WORLD_BloomFXParams(lua_State* L) {
+int WorldNatives::L_WORLD_BloomFXParams(lua_State* L) {
     WorldState& w = From(L)->world_;
     w.bloomThreshold = float(luaL_optnumber(L, 1, 0.25));
     w.bloomMultiplier = float(luaL_optnumber(L, 2, 1.0));
@@ -321,13 +342,13 @@ int ScriptEngine::L_WORLD_BloomFXParams(lua_State* L) {
     return 0;
 }
 
-int ScriptEngine::L_WORLD_SetFarClipDist(lua_State* L) {
+int WorldNatives::L_WORLD_SetFarClipDist(lua_State* L) {
     From(L)->world_.farClip = float(luaL_optnumber(L, 1, 1024));
     return 0;
 }
 
 // WORLD.AmbientColor(r, g, b, gunAmbientMultiplier), components 0-255.
-int ScriptEngine::L_WORLD_AmbientColor(lua_State* L) {
+int WorldNatives::L_WORLD_AmbientColor(lua_State* L) {
     ScriptEngine* self = From(L);
     for (int i = 0; i < 3; ++i)
         self->world_.ambient[i] = float(luaL_optnumber(L, 1 + i, 128));
@@ -340,7 +361,7 @@ int ScriptEngine::L_WORLD_AmbientColor(lua_State* L) {
 // (Cfg.RenderSky < 2) or an unreadable mesh returns 0, which sends
 // CLevel:ReloadSky down the low-quality path - the same fallback the
 // original uses for DX7-class hardware.
-int ScriptEngine::L_WORLD_LoadSky(lua_State* L) {
+int WorldNatives::L_WORLD_LoadSky(lua_State* L) {
     ScriptEngine* self = From(L);
     const std::string mapPath = luaL_optstring(L, 1, "");
     self->world_.skyDomeMap.clear();
@@ -371,7 +392,7 @@ int ScriptEngine::L_WORLD_LoadSky(lua_State* L) {
 
 // WORLD.LoadLowQualitySky("../Data/Maps/<dome>", height, angle) -> layer
 // count (one: the single-texture dome).
-int ScriptEngine::L_WORLD_LoadLowQualitySky(lua_State* L) {
+int WorldNatives::L_WORLD_LoadLowQualitySky(lua_State* L) {
     ScriptEngine* self = From(L);
     const std::string mapPath = luaL_optstring(L, 1, "");
     self->world_.skyMap.clear();
@@ -392,7 +413,7 @@ int ScriptEngine::L_WORLD_LoadLowQualitySky(lua_State* L) {
 //     tex2, rot, panU, panV, tileU, tileV) - argument order straight from
 // CLevel:ReloadSky. On the low-quality path (no layered dome) the only
 // meaningful argument is tex1: the dome's single texture.
-int ScriptEngine::L_WORLD_SetupSkyLayer(lua_State* L) {
+int WorldNatives::L_WORLD_SetupSkyLayer(lua_State* L) {
     ScriptEngine* self = From(L);
     const int i = int(luaL_optnumber(L, 1, 0));
     if (self->world_.skyLayerCount == 0) {
@@ -416,7 +437,7 @@ int ScriptEngine::L_WORLD_SetupSkyLayer(lua_State* L) {
     return 0;
 }
 
-int ScriptEngine::L_MESH_SetDefaultDetailMaps(lua_State* L) {
+int WorldNatives::L_MESH_SetDefaultDetailMaps(lua_State* L) {
     ScriptEngine* self = From(L);
     self->world_.detailTex = luaL_optstring(L, 1, "");
     self->world_.detailTileU = float(luaL_optnumber(L, 2, 8.2));
@@ -425,5 +446,27 @@ int ScriptEngine::L_MESH_SetDefaultDetailMaps(lua_State* L) {
 }
 
 
+
+void BindWorld(ScriptEngine& engine, LuaHost& host) {
+    const ScriptNative natives[] = {
+        {"WORLD", "Init", WorldNatives::L_WORLD_Init},
+        {"WORLD", "AddEntity", WorldNatives::L_WORLD_AddEntity},
+        {"WORLD", "FindEntityByName", WorldNatives::L_WORLD_FindEntityByName},
+        {"WORLD", "LoadMap", WorldNatives::L_WORLD_LoadMap},
+        {"PHYSICS", "ActiveMeshGroupActivate", WorldNatives::L_PHYSICS_ActiveMeshGroupActivate},
+        {"PHYSICS", "ActiveMeshGroupEnable", WorldNatives::L_PHYSICS_ActiveMeshGroupEnable},
+        {"PHYSICS", "ActiveMeshGroupStaticMeshEnable", WorldNatives::L_PHYSICS_ActiveMeshGroupStaticMeshEnable},
+        {"PHYSICS", "ActiveMeshGroupSetActivationParams", WorldNatives::L_PHYSICS_ActiveMeshGroupSetActivationParams},
+        {"WORLD", "SetupFog", WorldNatives::L_WORLD_SetupFog},
+        {"WORLD", "BloomFXParams", WorldNatives::L_WORLD_BloomFXParams},
+        {"WORLD", "SetFarClipDist", WorldNatives::L_WORLD_SetFarClipDist},
+        {"WORLD", "AmbientColor", WorldNatives::L_WORLD_AmbientColor},
+        {"WORLD", "LoadSky", WorldNatives::L_WORLD_LoadSky},
+        {"WORLD", "LoadLowQualitySky", WorldNatives::L_WORLD_LoadLowQualitySky},
+        {"WORLD", "SetupSkyLayer", WorldNatives::L_WORLD_SetupSkyLayer},
+        {"MESH", "SetDefaultDetailMaps", WorldNatives::L_MESH_SetDefaultDetailMaps},
+    };
+    RegisterFamily(engine, host, natives);
+}
 
 }  // namespace painful

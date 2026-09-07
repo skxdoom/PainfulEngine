@@ -4,9 +4,10 @@
 //
 // ScriptEngine is one class split across ScriptEngine.cpp - lifecycle, the
 // entity registry and the subsystem attachments - plus one Script*.cpp per
-// family of natives. They all need the same headers and the same two small
-// helpers, so both live here rather than being repeated fourteen times.
-// Anything used by only one unit stays file-local to that unit.
+// family of natives, each declaring its own struct and its own binding table.
+// The shared headers, the two small argument helpers, ScriptNativesBase and
+// the family binders live here. Anything used by only one unit stays local to
+// it. Docs/Reference/LuaHost.md, "The native families".
 
 #include "ScriptEngine.h"
 
@@ -60,5 +61,61 @@ inline bool EqualsCI(const std::string& a, const char* b) {
             return false;
     return i == a.size() && !b[i];
 }
+
+// The names a native body uses unqualified, which used to come from being a
+// member of ScriptEngine. Each family struct derives from this; friendship is
+// not inherited, so each still needs its own friend line in ScriptEngine.h.
+struct ScriptNativesBase {
+    using Entity = ScriptEngine::Entity;
+    using EType = ScriptEngine::EType;
+    using Route = ScriptEngine::Route;
+    using Destructible = ScriptEngine::Destructible;
+    using LimbHit = ScriptEngine::LimbHit;
+    using WaterSurface = ScriptEngine::WaterSurface;
+    using WorldState = ScriptEngine::WorldState;
+    using enum ScriptEngine::EType;
+    static ScriptEngine* From(lua_State* L);
+    // Static helpers the native bodies call unqualified, forwarded for the
+    // same reason as From.
+    static const Entity::AnimSlot* AnimSlotArg(const Entity* e, lua_State* L, int arg);
+    static int TraceCommon(lua_State* L, bool staticOnly);
+    static int ResolveCurveBone(Entity::AnimSlot& slot, const SkeletonCache::Entry& skel);
+    static const int kLimbHandleBase = 0x40000000;
+};
+
+// One row of a family's native table. A null module means a bare global.
+struct ScriptNative {
+    const char* module;
+    const char* name;
+    int (*fn)(lua_State*);
+};
+
+void RegisterFamily(ScriptEngine& engine, LuaHost& host, const ScriptNative* rows, size_t count);
+
+template <size_t N>
+inline void RegisterFamily(ScriptEngine& engine, LuaHost& host, const ScriptNative (&rows)[N]) {
+    RegisterFamily(engine, host, rows, N);
+}
+
+// One binder per family, each defined in its own Script*.cpp beside the
+// natives it registers. ScriptEngine::Bind calls them in turn; adding a native
+// touches only that file, and only adding a FAMILY touches this header.
+void BindDecal(ScriptEngine& engine, LuaHost& host);
+void BindMenu(ScriptEngine& engine, LuaHost& host);
+void BindSound(ScriptEngine& engine, LuaHost& host);
+void BindEntity(ScriptEngine& engine, LuaHost& host);
+void BindPlayer(ScriptEngine& engine, LuaHost& host);
+void BindHud(ScriptEngine& engine, LuaHost& host);
+void BindDeath(ScriptEngine& engine, LuaHost& host);
+void BindAnim(ScriptEngine& engine, LuaHost& host);
+void BindWorld(ScriptEngine& engine, LuaHost& host);
+void BindInput(ScriptEngine& engine, LuaHost& host);
+void BindTrace(ScriptEngine& engine, LuaHost& host);
+void BindConsole(ScriptEngine& engine, LuaHost& host);
+void BindLimbs(ScriptEngine& engine, LuaHost& host);
+void BindCollision(ScriptEngine& engine, LuaHost& host);
+void BindExplosion(ScriptEngine& engine, LuaHost& host);
+void BindSave(ScriptEngine& engine, LuaHost& host);
+void BindWater(ScriptEngine& engine, LuaHost& host);
 
 }  // namespace painful

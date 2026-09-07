@@ -7,6 +7,29 @@
 
 namespace painful {
 
+// The Death natives. The struct is declared here rather than in
+// ScriptEngine.h so that adding one touches only this file.
+struct DeathNatives : ScriptNativesBase {
+    static int L_MDL_EnableRagdoll(lua_State* L);
+    static int L_MDL_IsRagdoll(lua_State* L);
+    static int L_MDL_IsRagdollActive(lua_State* L);
+    static int L_ENTITY_RemoveRagdoll(lua_State* L);
+    static int L_MDL_SetRagdollLinearDamping(lua_State* L);
+    static int L_MDL_SetRagdollAngularDamping(lua_State* L);
+    static int L_MDL_SetRagdollFriction(lua_State* L);
+    static int L_MDL_JointsLinked(lua_State* L);
+    static int L_MDL_EnableJoint(lua_State* L);
+    static int L_PHYSICS_RemoveHavokBodyFromIS(lua_State* L);
+    static int L_PHYSICS_GetHavokBodyPosition(lua_State* L);
+    static int L_PHYSICS_SetHavokBodyPosition(lua_State* L);
+    static int L_PHYSICS_PinHavokBody(lua_State* L);
+    static int L_PHYSICS_IsHavokBodyInWorld(lua_State* L);
+    static int L_MDL_MakeGib(lua_State* L);
+    static int L_MDL_SetRagdollMovedByExplosions(lua_State* L);
+    static int L_MDL_RagdollSelfExplosion(lua_State* L);
+    static int L_MDL_ApplyVelocitiesToAllJoints(lua_State* L);
+};
+
 namespace {
 
 // What EffectRotateActor does with the spin ScriptEntity accumulated: below
@@ -507,7 +530,7 @@ void ScriptEngine::TickRagdolls() {
     }
 }
 
-int ScriptEngine::L_MDL_EnableRagdoll(lua_State* L) {
+int DeathNatives::L_MDL_EnableRagdoll(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e) return 0;
@@ -518,13 +541,13 @@ int ScriptEngine::L_MDL_EnableRagdoll(lua_State* L) {
 // MDL.IsRagdoll(e) - does this actor HAVE a ragdoll. CActor:EnableRagdoll
 // guards both directions on it, so answering wrongly either does the work
 // twice or refuses to do it at all.
-int ScriptEngine::L_MDL_IsRagdoll(lua_State* L) {
+int DeathNatives::L_MDL_IsRagdoll(lua_State* L) {
     const Entity* e = From(L)->Find(HandleArg(L, 1));
     lua_pushboolean(L, e != nullptr && e->ragdollSlot >= 0);
     return 1;
 }
 
-int ScriptEngine::L_MDL_IsRagdollActive(lua_State* L) {
+int DeathNatives::L_MDL_IsRagdollActive(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
     lua_pushboolean(L, e != nullptr && e->ragdollSlot >= 0 && self->physics_ &&
@@ -532,7 +555,7 @@ int ScriptEngine::L_MDL_IsRagdollActive(lua_State* L) {
     return 1;
 }
 
-int ScriptEngine::L_ENTITY_RemoveRagdoll(lua_State* L) {
+int DeathNatives::L_ENTITY_RemoveRagdoll(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (e) self->EnableRagdoll(*e, false);
@@ -541,7 +564,7 @@ int ScriptEngine::L_ENTITY_RemoveRagdoll(lua_State* L) {
 
 // Both dampings are remembered on the entity and applied to a ragdoll made
 // later: Cat_bridge1:OnCreateEntity sets them before EnableRagdoll.
-int ScriptEngine::L_MDL_SetRagdollLinearDamping(lua_State* L) {
+int DeathNatives::L_MDL_SetRagdollLinearDamping(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (e == nullptr) return 0;
@@ -551,7 +574,7 @@ int ScriptEngine::L_MDL_SetRagdollLinearDamping(lua_State* L) {
     return 0;
 }
 
-int ScriptEngine::L_MDL_SetRagdollAngularDamping(lua_State* L) {
+int DeathNatives::L_MDL_SetRagdollAngularDamping(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (e == nullptr) return 0;
@@ -561,7 +584,7 @@ int ScriptEngine::L_MDL_SetRagdollAngularDamping(lua_State* L) {
     return 0;
 }
 
-int ScriptEngine::L_MDL_SetRagdollFriction(lua_State* L) {
+int DeathNatives::L_MDL_SetRagdollFriction(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
     if (e && e->ragdollSlot >= 0 && self->physics_)
@@ -692,7 +715,7 @@ bool ScriptEngine::JointsLinked(Entity& e, int a, int b) {
     return a >= 0 && b >= 0 && it != ragdolls_.end() && it->second.binary;
 }
 
-int ScriptEngine::L_MDL_JointsLinked(lua_State* L) {
+int DeathNatives::L_MDL_JointsLinked(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     const int a = int(luaL_optnumber(L, 2, -1));
@@ -706,7 +729,7 @@ int ScriptEngine::L_MDL_JointsLinked(lua_State* L) {
 // br1), always from CustomOnGib and only once the monster has already thrown
 // that weapon: the mesh is hidden and the body it drove stops being part of
 // the ragdoll.
-int ScriptEngine::L_MDL_EnableJoint(lua_State* L) {
+int DeathNatives::L_MDL_EnableJoint(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e) return 0;
@@ -729,7 +752,7 @@ int ScriptEngine::L_MDL_EnableJoint(lua_State* L) {
 // of the monster invisible to do so.
 //
 // The argument reads backwards and does in the engine too: `true` REMOVES.
-int ScriptEngine::L_PHYSICS_RemoveHavokBodyFromIS(lua_State* L) {
+int DeathNatives::L_PHYSICS_RemoveHavokBodyFromIS(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!lua_isnumber(L, 1)) return 0;
     const int handle = int(lua_tonumber(L, 1));
@@ -770,7 +793,7 @@ int ScriptEngine::RagdollPartForJoint(Entity& e, int joint) {
 // PHYSICS.GetHavokBodyPosition(he) -> x, y, z of the body a trace reported: a
 // ragdoll part for a limb handle, the script body otherwise. Stake:Tick reads
 // it on a kill to keep the corpse's limb at a fixed offset from the stake.
-int ScriptEngine::L_PHYSICS_GetHavokBodyPosition(lua_State* L) {
+int DeathNatives::L_PHYSICS_GetHavokBodyPosition(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!lua_isnumber(L, 1)) return 0;
     const int handle = int(lua_tonumber(L, 1));
@@ -796,7 +819,7 @@ int ScriptEngine::L_PHYSICS_GetHavokBodyPosition(lua_State* L) {
 }
 
 // PHYSICS.SetHavokBodyPosition(he, x, y, z) - a limb dragged behind the stake.
-int ScriptEngine::L_PHYSICS_SetHavokBodyPosition(lua_State* L) {
+int DeathNatives::L_PHYSICS_SetHavokBodyPosition(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!lua_isnumber(L, 1) || !self->physics_) return 0;
     int entity = 0, joint = -1;
@@ -813,7 +836,7 @@ int ScriptEngine::L_PHYSICS_SetHavokBodyPosition(lua_State* L) {
 
 // PHYSICS.PinHavokBody(he) - the limb stops where it is and the rest of the
 // corpse hangs from it: a stake has nailed it to a wall.
-int ScriptEngine::L_PHYSICS_PinHavokBody(lua_State* L) {
+int DeathNatives::L_PHYSICS_PinHavokBody(lua_State* L) {
     ScriptEngine* self = From(L);
     if (!lua_isnumber(L, 1) || !self->physics_) return 0;
     int entity = 0, joint = -1;
@@ -841,7 +864,7 @@ int ScriptEngine::L_PHYSICS_PinHavokBody(lua_State* L) {
 //
 // Both kinds of handle a trace can report have to answer here: a script body
 // slot, and the encoded limb handle a hit on a monster's bone reports.
-int ScriptEngine::L_PHYSICS_IsHavokBodyInWorld(lua_State* L) {
+int DeathNatives::L_PHYSICS_IsHavokBodyInWorld(lua_State* L) {
     ScriptEngine* self = From(L);
     bool live = false;
     if (lua_isnumber(L, 1)) {
@@ -974,7 +997,7 @@ int ScriptEngine::MakeGib(Entity& src, int group, const char* velocityJoint) {
     return handle;
 }
 
-int ScriptEngine::L_MDL_MakeGib(lua_State* L) {
+int DeathNatives::L_MDL_MakeGib(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e) return 0;
@@ -987,7 +1010,7 @@ int ScriptEngine::L_MDL_MakeGib(lua_State* L) {
 }
 
 // MDL.SetRagdollMovedByExplosions(e, on) - 0x1012B2D0, GetBool(2, false).
-int ScriptEngine::L_MDL_SetRagdollMovedByExplosions(lua_State* L) {
+int DeathNatives::L_MDL_SetRagdollMovedByExplosions(lua_State* L) {
     if (Entity* e = From(L)->Find(HandleArg(L, 1)))
         e->ragdollMovedByExplosions = lua_toboolean(L, 2) != 0;
     return 0;
@@ -996,7 +1019,7 @@ int ScriptEngine::L_MDL_SetRagdollMovedByExplosions(lua_State* L) {
 // MDL.RagdollSelfExplosion(e, x,y,z, strength, range) - 0x1012EBF0. The
 // flag byte gates it in FUN_101B0DC0: an inactive ragdoll, or one not moved
 // by explosions, takes nothing.
-int ScriptEngine::L_MDL_RagdollSelfExplosion(lua_State* L) {
+int DeathNatives::L_MDL_RagdollSelfExplosion(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
     if (!e || e->ragdollSlot < 0 || !self->physics_ || !e->ragdollMovedByExplosions ||
@@ -1011,7 +1034,7 @@ int ScriptEngine::L_MDL_RagdollSelfExplosion(lua_State* L) {
 
 // MDL.ApplyVelocitiesToAllJoints(e, vx,vy,vz, wx,wy,wz) - 0x1012D0D0 into
 // Ragdoll::SetVelocities. The demon-mode gib uses it in place of the burst.
-int ScriptEngine::L_MDL_ApplyVelocitiesToAllJoints(lua_State* L) {
+int DeathNatives::L_MDL_ApplyVelocitiesToAllJoints(lua_State* L) {
     ScriptEngine* self = From(L);
     const Entity* e = self->Find(HandleArg(L, 1));
     if (!e || e->ragdollSlot < 0 || !self->physics_) return 0;
@@ -1023,5 +1046,29 @@ int ScriptEngine::L_MDL_ApplyVelocitiesToAllJoints(lua_State* L) {
     return 0;
 }
 
+
+void BindDeath(ScriptEngine& engine, LuaHost& host) {
+    const ScriptNative natives[] = {
+        {"MDL", "JointsLinked", DeathNatives::L_MDL_JointsLinked},
+        {"MDL", "EnableRagdoll", DeathNatives::L_MDL_EnableRagdoll},
+        {"MDL", "IsRagdoll", DeathNatives::L_MDL_IsRagdoll},
+        {"MDL", "IsRagdollActive", DeathNatives::L_MDL_IsRagdollActive},
+        {"ENTITY", "RemoveRagdoll", DeathNatives::L_ENTITY_RemoveRagdoll},
+        {"MDL", "SetRagdollLinearDamping", DeathNatives::L_MDL_SetRagdollLinearDamping},
+        {"MDL", "SetRagdollAngularDamping", DeathNatives::L_MDL_SetRagdollAngularDamping},
+        {"MDL", "SetRagdollFriction", DeathNatives::L_MDL_SetRagdollFriction},
+        {"MDL", "MakeGib", DeathNatives::L_MDL_MakeGib},
+        {"MDL", "SetRagdollMovedByExplosions", DeathNatives::L_MDL_SetRagdollMovedByExplosions},
+        {"MDL", "RagdollSelfExplosion", DeathNatives::L_MDL_RagdollSelfExplosion},
+        {"MDL", "ApplyVelocitiesToAllJoints", DeathNatives::L_MDL_ApplyVelocitiesToAllJoints},
+        {"MDL", "EnableJoint", DeathNatives::L_MDL_EnableJoint},
+        {"PHYSICS", "RemoveHavokBodyFromIS", DeathNatives::L_PHYSICS_RemoveHavokBodyFromIS},
+        {"PHYSICS", "GetHavokBodyPosition", DeathNatives::L_PHYSICS_GetHavokBodyPosition},
+        {"PHYSICS", "SetHavokBodyPosition", DeathNatives::L_PHYSICS_SetHavokBodyPosition},
+        {"PHYSICS", "PinHavokBody", DeathNatives::L_PHYSICS_PinHavokBody},
+        {"PHYSICS", "IsHavokBodyInWorld", DeathNatives::L_PHYSICS_IsHavokBodyInWorld},
+    };
+    RegisterFamily(engine, host, natives);
+}
 
 }  // namespace painful

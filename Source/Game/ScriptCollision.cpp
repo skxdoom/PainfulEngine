@@ -27,6 +27,16 @@
 
 namespace painful {
 
+// The Collision natives. The struct is declared here rather than in
+// ScriptEngine.h so that adding one touches only this file.
+struct CollisionNatives : ScriptNativesBase {
+    static int L_ENTITY_EnableCollisions(lua_State* L);
+    static int L_PHYSICS_GetHavokBodyVelocity(lua_State* L);
+    static int L_INP_GetTimeMultiplier(lua_State* L);
+    static int L_INP_SetTimeMultiplier(lua_State* L);
+    static int L_PO_SetGrenade(lua_State* L);
+};
+
 // ENTITY.EnableCollisions(entity, on = true, minTime = 0.4, minStrength = 0.6)
 //
 // 0x10130420 reads the arguments in that order and forwards them to
@@ -34,7 +44,7 @@ namespace painful {
 // entity has a physics object. Ball.CItem declares the pair as
 // `CollisionDetect = { MinTime = 0.3, MinStren = 5.0 }`, which is the same two
 // numbers by another name.
-int ScriptEngine::L_ENTITY_EnableCollisions(lua_State* L) {
+int CollisionNatives::L_ENTITY_EnableCollisions(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
     if (!e || e->physicsBody < 0) return 0;
@@ -50,7 +60,7 @@ int ScriptEngine::L_ENTITY_EnableCollisions(lua_State* L) {
 // Game_GetMsg calls this on BOTH handles of a collision to work out how hard it
 // was. Four returns: the vector and its magnitude, because every caller wants
 // the magnitude and none of them should have to compute it.
-int ScriptEngine::L_PHYSICS_GetHavokBodyVelocity(lua_State* L) {
+int CollisionNatives::L_PHYSICS_GetHavokBodyVelocity(lua_State* L) {
     ScriptEngine* self = From(L);
     float v[3] = {0, 0, 0};
     const int slot = lua_isnumber(L, 1) ? int(lua_tonumber(L, 1)) : -1;
@@ -84,12 +94,12 @@ int ScriptEngine::L_PHYSICS_GetHavokBodyVelocity(lua_State* L) {
 // value is 1. It matters here because StdOnCollision multiplies the impact
 // speed by it: unbound, `vl * nil` throws inside the handler rather than
 // merely reading wrong, which would take the whole collision path down.
-int ScriptEngine::L_INP_GetTimeMultiplier(lua_State* L) {
+int CollisionNatives::L_INP_GetTimeMultiplier(lua_State* L) {
     lua_pushnumber(L, From(L)->timeMultiplier_);
     return 1;
 }
 
-int ScriptEngine::L_INP_SetTimeMultiplier(lua_State* L) {
+int CollisionNatives::L_INP_SetTimeMultiplier(lua_State* L) {
     ScriptEngine* self = From(L);
     const float v = float(luaL_optnumber(L, 1, 1.0));
     if (v > 0.f) self->timeMultiplier_ = v;
@@ -236,7 +246,7 @@ void ScriptEngine::TickCollisions(float dt) {
 // same script calls next, is multiplayer only - the native (0x10136a60) does
 // nothing without the NetworkDevice2 at GEngine+0xdc, which single player
 // never creates - so it stays a stub.
-int ScriptEngine::L_PO_SetGrenade(lua_State* L) {
+int CollisionNatives::L_PO_SetGrenade(lua_State* L) {
     if (Entity* e = From(L)->Find(HandleArg(L, 1)))
         e->isGrenade = lua_isnoneornil(L, 2) ? true : (lua_toboolean(L, 2) != 0);
     return 0;
@@ -305,6 +315,17 @@ void ScriptEngine::TickGrenades() {
         physics_->SetScriptBodyPose(e.physicsBody, end, e.rotWXYZ);
         physics_->SetScriptBodyVelocity(e.physicsBody, vel);
     }
+}
+
+void BindCollision(ScriptEngine& engine, LuaHost& host) {
+    const ScriptNative natives[] = {
+        {"ENTITY", "PO_SetGrenade", CollisionNatives::L_PO_SetGrenade},
+        {"PHYSICS", "GetHavokBodyVelocity", CollisionNatives::L_PHYSICS_GetHavokBodyVelocity},
+        {"ENTITY", "EnableCollisions", CollisionNatives::L_ENTITY_EnableCollisions},
+        {"INP", "GetTimeMultiplier", CollisionNatives::L_INP_GetTimeMultiplier},
+        {"INP", "SetTimeMultiplier", CollisionNatives::L_INP_SetTimeMultiplier},
+    };
+    RegisterFamily(engine, host, natives);
 }
 
 }  // namespace painful
