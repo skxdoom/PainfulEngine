@@ -5,6 +5,7 @@
 #include "Decals.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
+#include "../Core/Vec3.h"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -60,18 +61,6 @@ int BlendModeByName(const std::string& name) {
     for (int i = 0; i < int(sizeof(kNames) / sizeof(kNames[0])); ++i)
         if (n == kNames[i]) return i;
     return -1;
-}
-
-float Dot(const float a[3], const float b[3]) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
-void Cross(const float a[3], const float b[3], float out[3]) {
-    out[0] = a[1] * b[2] - a[2] * b[1];
-    out[1] = a[2] * b[0] - a[0] * b[2];
-    out[2] = a[0] * b[1] - a[1] * b[0];
-}
-float Normalize(float v[3]) {
-    const float len = std::sqrt(Dot(v, v));
-    if (len > 1e-12f) for (int c = 0; c < 3; ++c) v[c] /= len;
-    return len;
 }
 
 // Inverse of the 3x3 row basis, so local = (p - T) * inv.
@@ -186,26 +175,23 @@ int DecalSystem::Create(const DecalDef& def, float scale) {
 void DecalSystem::SetBasis(int slot, const float pos[3], const float normal[3]) {
     if (!Valid(slot)) return;
     DecalInstance& d = decals_[size_t(slot)];
-    float n[3] = {normal[0], normal[1], normal[2]};
-    if (Normalize(n) <= 0.f) { n[0] = 0.f; n[1] = 1.f; n[2] = 0.f; }
-    for (int c = 0; c < 3; ++c) d.normal[c] = n[c];
+    Vec3 n = AsVec3(normal).Normalized();
+    if (n == Vec3()) n = Vec3(0.f, 1.f, 0.f);
+    n.Store(d.normal);
 
     // Z points into the surface; ZScale is its length when given.
-    float z[3] = {-n[0], -n[1], -n[2]};
-    if (d.def.zScale > 0.f) for (int c = 0; c < 3; ++c) z[c] *= d.def.zScale;
+    Vec3 z = -n;
+    if (d.def.zScale > 0.f) z *= d.def.zScale;
 
     // Any perpendicular: the world axis least aligned with the normal.
-    const float ax = std::fabs(n[0]), ay = std::fabs(n[1]), az = std::fabs(n[2]);
-    float p[3] = {0, 0, 0};
-    if (ax <= ay && ax <= az) p[0] = 1.f;
-    else if (ay <= az) p[1] = 1.f;
-    else p[2] = 1.f;
+    const float ax = std::fabs(n.x), ay = std::fabs(n.y), az = std::fabs(n.z);
+    Vec3 p;
+    if (ax <= ay && ax <= az) p.x = 1.f;
+    else if (ay <= az) p.y = 1.f;
+    else p.z = 1.f;
     const float width = d.def.scale * d.scale;
-    float x[3], y[3];
-    Cross(z, p, x);
-    Normalize(x);
-    Cross(x, z, y);
-    Normalize(y);
+    Vec3 x = Cross(z, p).Normalized();
+    Vec3 y = Cross(x, z).Normalized();
 
     // Decal::Spawn spins a mortal decal by rand() * 2pi / RAND_MAX about its
     // own Z; immortal ones (shadows, statics) keep the frame as built.
@@ -213,29 +199,24 @@ void DecalSystem::SetBasis(int slot, const float pos[3], const float normal[3]) 
         rng_ = rng_ * 1664525u + 1013904223u;
         const float angle = float(rng_ >> 8) * (6.2831853f / 16777216.f);
         const float cs = std::cos(angle), sn = std::sin(angle);
-        float rx[3], ry[3];
-        for (int c = 0; c < 3; ++c) {
-            rx[c] = cs * x[c] + sn * y[c];
-            ry[c] = -sn * x[c] + cs * y[c];
-        }
-        std::memcpy(x, rx, sizeof x);
-        std::memcpy(y, ry, sizeof y);
+        const Vec3 rx = x * cs + y * sn;
+        const Vec3 ry = x * -sn + y * cs;
+        x = rx;
+        y = ry;
     }
-    for (int c = 0; c < 3; ++c) {
-        d.basis[c] = x[c] * width;
-        d.basis[3 + c] = y[c] * width;
-        d.basis[6 + c] = z[c];
-        d.basis[9 + c] = pos[c];
-    }
+    (x * width).Store(&d.basis[0]);
+    (y * width).Store(&d.basis[3]);
+    z.Store(&d.basis[6]);
+    AsVec3(pos).Store(&d.basis[9]);
 }
 
 void DecalSystem::SetBasisOriented(int slot, const float pos[3], const float normal[3],
                                    const float up[3], const float right[3]) {
     if (!Valid(slot)) return;
     DecalInstance& d = decals_[size_t(slot)];
-    float n[3] = {normal[0], normal[1], normal[2]};
-    if (Normalize(n) <= 0.f) { n[0] = 0.f; n[1] = 1.f; n[2] = 0.f; }
-    for (int c = 0; c < 3; ++c) d.normal[c] = n[c];
+    Vec3 n = AsVec3(normal).Normalized();
+    if (n == Vec3()) n = Vec3(0.f, 1.f, 0.f);
+    n.Store(d.normal);
     const float width = d.def.scale * d.scale;
     const float depth = d.def.zScale > 0.f ? d.def.zScale : 1.f;
     for (int c = 0; c < 3; ++c) {
@@ -267,7 +248,7 @@ void DecalSystem::Box(int slot, float lo[3], float hi[3]) const {
     // An unbounded box (ZScale 0) is searched as deep as it is wide.
     float z[3] = {d.basis[6], d.basis[7], d.basis[8]};
     if (d.def.zScale <= 0.f) {
-        const float w = std::sqrt(Dot(d.basis, d.basis));
+        const float w = AsVec3(d.basis).Length();
         for (int c = 0; c < 3; ++c) z[c] *= w;
     }
     for (int sx = -1; sx <= 1; sx += 2)
@@ -330,11 +311,9 @@ void DecalSystem::Append(int slot, const MapObject& object, const Mat4& objectTo
 void DecalSystem::ProjectTriangle(DecalInstance& d, const float w[3][3], const float inv[9]) {
     if (d.def.cullBackFaces > -1.f) {
         // The .mpk winds so that (v2-v0) x (v1-v0) is the outward normal.
-        float e1[3], e2[3], tn[3];
-        for (int c = 0; c < 3; ++c) { e1[c] = w[2][c] - w[0][c]; e2[c] = w[1][c] - w[0][c]; }
-        Cross(e1, e2, tn);
-        if (Normalize(tn) <= 0.f) return;
-        if (Dot(tn, d.normal) < d.def.cullBackFaces) return;
+        const Vec3 tn = Cross(AsVec3(w[2]) - AsVec3(w[0]), AsVec3(w[1]) - AsVec3(w[0])).Normalized();
+        if (tn == Vec3()) return;
+        if (Dot(tn, AsVec3(d.normal)) < d.def.cullBackFaces) return;
     }
 
     LocalVert l[3];

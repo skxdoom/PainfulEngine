@@ -5,6 +5,7 @@
 // - and what makes it a diagnostic rather than the way in.
 #include "LevelStats.h"
 #include "Commands.h"
+#include "Core/Debug.h"
 
 int RunCmd(const char* levelDir, const char* dataRoot,
                   const std::string& shotPath, const char* exePath,
@@ -76,7 +77,7 @@ int RunCmd(const char* levelDir, const char* dataRoot,
     std::vector<DebugLine> physicsWireframe;
     std::vector<BodyPose> movedProps;
     Camera camera;
-    if (const char* n = getenv("PAINFUL_NEAR")) camera.nearPlane = float(atof(n));
+    camera.nearPlane = DebugFloat("PAINFUL_NEAR", camera.nearPlane);
     LevelStats stats;
 
     auto loadLevel = [&](int index) {
@@ -338,8 +339,7 @@ int RunCmd(const char* levelDir, const char* dataRoot,
             ++frame;
             // PAINFUL_SHOT_FRAME delays the capture - useful for verifying
             // time-driven effects like UV animation.
-            int shotFrame = 30;
-            if (const char* e = getenv("PAINFUL_SHOT_FRAME")) shotFrame = std::atoi(e);
+            const int shotFrame = DebugInt("PAINFUL_SHOT_FRAME", 30);
             if (frame == shotFrame) renderer.RequestScreenshot(shotPath);
             if (frame >= shotFrame + 4) break;
         }

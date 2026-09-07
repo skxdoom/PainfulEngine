@@ -34,6 +34,7 @@
 #include "../Assets/Dat.h"
 #include "../Assets/Pkmdl.h"
 #include "../Core/Check.h"
+#include "../Core/Debug.h"
 #include "../Core/CrashReport.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
@@ -1158,7 +1159,7 @@ void PhysicsWorld::Update(float dt) {
         RecordStep();
         // PAINFUL_CHAR_TRACE: a character whose velocity the step changed by
         // more than 4 units/s, and what it was touching.
-        static const bool traceChars = std::getenv("PAINFUL_CHAR_TRACE") != nullptr;
+        static const bool traceChars = DebugFlag("PAINFUL_CHAR_TRACE");
         if (traceChars) {
             for (const Impl::Character& ch : impl_->characters) {
                 if (ch.slot < 0) continue;
@@ -1167,9 +1168,7 @@ void PhysicsWorld::Update(float dt) {
                 const JPH::Vec3 v = bodies.GetLinearVelocity(sb.body);
                 const JPH::Vec3 cmd(ch.lastWish[0], ch.lastWish[1], ch.lastWish[2]);
                 const JPH::Vec3 dv = v - cmd;
-                static const float minDv = std::getenv("PAINFUL_CHAR_TRACE_MIN")
-                                               ? float(std::atof(std::getenv("PAINFUL_CHAR_TRACE_MIN")))
-                                               : 4.f;
+                static const float minDv = DebugFloat("PAINFUL_CHAR_TRACE_MIN", 4.f);
                 if (JPH::Vec3(dv.GetX(), 0.f, dv.GetZ()).Length() < minDv) continue;
                 std::vector<ScriptContactListener::Pending> touching;
                 impl_->contacts.Peek(touching);
@@ -1980,9 +1979,7 @@ void PhysicsWorld::MakeScriptBodyCharacter(int slot, float k, const float rootOf
             // SetFriction writes), and CActor:PO_Create leaves it there
             // because a higher one stops them climbing stairs.
             // PAINFUL_CHAR_FRICTION overrides it for experiments.
-            static const float charFriction = std::getenv("PAINFUL_CHAR_FRICTION")
-                                                  ? float(std::atof(std::getenv("PAINFUL_CHAR_FRICTION")))
-                                                  : 0.1f;
+            static const float charFriction = DebugFloat("PAINFUL_CHAR_FRICTION", 0.1f);
             body.SetFriction(charFriction);
             body.SetRestitution(0.f);
             body.GetMotionProperties()->SetLinearDamping(0.f);

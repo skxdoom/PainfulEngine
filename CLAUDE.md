@@ -64,6 +64,15 @@ ordinary (a bone-less prop, an unattached slot, a nil argument). It logs once
 per site and tallies, so the reports end with `checks: none failed` or the
 list. Docs/Reference/Diagnostics.md draws the line.
 
+## Vectors
+
+New maths uses `Vec3` (`Core/Vec3.h`), which has the layout of `float[3]` and
+converts to `const float*` implicitly, so it mixes with the existing arrays.
+Converting an old site is welcome but is not a free rename: check the epsilon
+(`Normalized()` rescales any non-zero length; some hand-written helpers had a
+floor), then prove it with a before/after diff of a report that exercises it.
+Docs/Reference/Vectors.md has the method and the results so far.
+
 ## Layout
 
 One directory, one `CMakeLists.txt`, one target, one project in the IDE. The
@@ -101,4 +110,6 @@ has one:
 ```
 PainfulTools level <DataRoot>/Levels/<name> <DataRoot>
 PainfulTools lua <DataRoot> 60 <name>
+PainfulTools selftest                     # Vec3 and the rotation helpers
+PainfulTools traces                       # every PAINFUL_* switch, and what is set
 ```

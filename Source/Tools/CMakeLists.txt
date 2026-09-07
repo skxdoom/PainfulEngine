@@ -17,6 +17,7 @@ add_executable(PainfulTools
   ReportTexture.cpp
   ReportRender.cpp
   ReportPhysics.cpp
+  ReportSelfTest.cpp
   ReportScript.cpp
   PainfulTools.rc
 )

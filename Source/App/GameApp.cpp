@@ -13,6 +13,7 @@
 #include "Core/AppPaths.h"
 #include "Core/Check.h"
 #include "Core/Config.h"
+#include "Core/Debug.h"
 #include "Core/FileSystem.h"
 #include "Core/Log.h"
 #include "Game/Input.h"
@@ -115,6 +116,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
     Renderer renderer;
     if (!renderer.Init(window)) return 3;
     LogInfo("renderer: %s", renderer.BackendName().c_str());
+    // Which diagnostic switches this run had on, so a log explains its own
+    // odd behaviour. PainfulTools traces lists them all.
+    if (const std::string on = DebugActive(); !on.empty()) LogInfo("switches: %s", on.c_str());
 
     TextureCache textures;
     textures.Init(root + "/Textures");
@@ -127,7 +131,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
     // .pkmdl winding; pack meshes carry their own state. PAINFUL_ECULL is a
     // diagnostic override - 2 disables culling entirely, which is how to tell
     // a hole made by wrong winding from a hole made by missing geometry.
-    entities.SetCullMode(getenv("PAINFUL_ECULL") ? atoi(getenv("PAINFUL_ECULL")) : 1);
+    entities.SetCullMode(DebugInt("PAINFUL_ECULL", 1));
     if (!entities.Init(shaderDir)) return 3;
     // Models take their material from the same scripts the world does. Set
     // before the level loads, since the scripts create entities as they go.
@@ -172,7 +176,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
     // and an automated capture that nonetheless fills the room with gunfire is
     // just noise - several a minute, from a window that is not even on screen.
     AudioEngine audio;
-    const bool wantAudio = std::getenv("PAINFUL_HIDDEN") == nullptr;
+    const bool wantAudio = !DebugFlag("PAINFUL_HIDDEN");
     if (wantAudio && audio.Init(root + "/Sounds")) engine.AttachAudio(&audio);
 
     // The 2D layer. The scripts draw the whole interface through it during
@@ -211,12 +215,11 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
     // how an automated capture can see it - a keypress is not available there.
     bool geoWire = false;
     bool collisionWire = false;
-    if (const char* w = std::getenv("PAINFUL_WIRE")) {
-        const int mode = std::atoi(w);
+    if (const int mode = DebugInt("PAINFUL_WIRE", 0); mode > 0) {
         geoWire = mode == 1;
         collisionWire = mode == 2;
     }
-    bool nameplates = std::getenv("PAINFUL_NAMEPLATES") != nullptr;
+    bool nameplates = DebugFlag("PAINFUL_NAMEPLATES");
     constexpr float kNameplateRadius = 20.f;
 
     // F4 stops the monsters THINKING, which is not the same as stopping them
@@ -230,7 +233,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
     // and Clone is a shallow copy, so the functions are copied by value. The
     // class has to be stubbed for actors spawned later AND every live brain
     // for the ones already standing. Re-enabling walks the same two places.
-    bool aiDisabled = std::getenv("PAINFUL_NOAI") != nullptr;
+    bool aiDisabled = DebugFlag("PAINFUL_NOAI");
     bool aiApplied = false;
 
     // F6: the developers' own debug tooling, still in the shipped scripts and
@@ -244,7 +247,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
     //
     // Both move together, because in the original they distinguished one BUILD
     // from another rather than being two independent options.
-    bool devMode = std::getenv("PAINFUL_DEV") != nullptr;
+    bool devMode = DebugFlag("PAINFUL_DEV");
     bool devApplied = false;
     static const char* const kAiOff =
         "do local function off(b)"
@@ -302,7 +305,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
     // a window, 2 always borderless. A resolution change from the Video
     // Options screen keeps the mode.
     auto windowMode = [](bool fullscreen) {
-        const char* windowed = getenv("PAINFUL_WINDOWED");
+        const char* windowed = DebugText("PAINFUL_WINDOWED");
         if (windowed && *windowed && *windowed != '0') return Window::Mode::kWindowed;
         switch (Settings().GetInt("WindowMode", 0)) {
         case 1: return Window::Mode::kWindowed;
@@ -317,7 +320,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
         int w = 0, h = 0;
         const std::string res = host.GetTextField("Cfg", "Resolution");
         bool have = std::sscanf(res.c_str(), "%d%*[xX]%d", &w, &h) == 2 && w > 0 && h > 0;
-        if (const char* over = getenv("PAINFUL_RES"))
+        if (const char* over = DebugText("PAINFUL_RES"))
             have = std::sscanf(over, "%d%*[xX]%d", &w, &h) == 2 && w > 0 && h > 0;
         if (have)
             window.SetMode(w, h, windowMode(host.GetBoolField("Cfg", "Fullscreen", false)));
@@ -341,7 +344,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
     CollisionMesh collision;
     MapMesh fallbackMap;
     Camera camera;
-    if (const char* n = getenv("PAINFUL_NEAR")) camera.nearPlane = float(atof(n));
+    camera.nearPlane = DebugFloat("PAINFUL_NEAR", camera.nearPlane);
     std::string currentLevel;
     bool levelUp = false;
 
@@ -1133,7 +1136,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 
         // The overlay is -dev only; PAINFUL_QUIET drops it there too, for
         // captures of the menu's top edge.
-        if (devUI && !getenv("PAINFUL_QUIET")) {
+        if (devUI && !DebugFlag("PAINFUL_QUIET")) {
         renderer.DebugText(1, "PainfulEngine (script-driven)  -  %s  -  %.1f fps",
                            renderer.BackendName().c_str(), dt > 0.f ? 1.f / dt : 0.f);
         renderer.DebugText(2, "%s   map %s   %zu script entities (%zu created, %zu released)",
@@ -1181,8 +1184,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 
         if (!shotPath.empty()) {
             ++frame;
-            int shotFrame = 30;
-            if (const char* e = getenv("PAINFUL_SHOT_FRAME")) shotFrame = std::atoi(e);
+            const int shotFrame = DebugInt("PAINFUL_SHOT_FRAME", 30);
             if (frame == shotFrame) {
                 renderer.RequestScreenshot(shotPath);
                 // The numbers behind the picture, so a shot can be judged

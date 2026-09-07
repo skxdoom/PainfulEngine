@@ -1,6 +1,7 @@
 #include "EntityRenderer.h"
 #include "ShaderLoad.h"
 #include "../Core/Check.h"
+#include "../Core/Debug.h"
 #include "../Core/Common.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Frustum.h"
@@ -88,7 +89,7 @@ const float* SpecularParams() {
     // triangle.
     static float v[4] = {12.f, 0.35f, 0.25f, 0.f};
     static const bool once = [] {
-        if (const char* s = getenv("PAINFUL_SPECULAR"))
+        if (const char* s = DebugText("PAINFUL_SPECULAR"))
             sscanf(s, "%f,%f,%f", &v[0], &v[1], &v[2]);
         return true;
     }();
@@ -917,7 +918,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
                                            lit.ambient[2], mat.lightScale};
             // PAINFUL_NOATEST disables the alpha test, to tell "the texture alpha
             // is discarding this" apart from "this is not being drawn".
-            static const bool kNoATest = getenv("PAINFUL_NOATEST") != nullptr;
+            static const bool kNoATest = DebugFlag("PAINFUL_NOATEST");
             const float params[4] = {0.f, kNoATest ? -1.f : mat.alphaRef, 0.f, 0.f};
             // Animated materials pan their diffuse UVs; no detail maps here.
             const float uvAnim[4] = {mat.pan0[0] * timeSeconds, mat.pan0[1] * timeSeconds,

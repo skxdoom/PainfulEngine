@@ -51,7 +51,7 @@ int ScriptEngine::L_MDL_SetAnim(lua_State* L) {
     const Animation* anim = self->animations_.Get(e->source, name);
     // PAINFUL_ANIM_TRACE=1: every SetAnim, with the entity, its model and
     // the state it interrupts.
-    static const bool kTrace = std::getenv("PAINFUL_ANIM_TRACE") != nullptr;
+    static const bool kTrace = DebugFlag("PAINFUL_ANIM_TRACE");
     if (kTrace) {
         std::printf("anim: SetAnim e=%d (%s) \"%s\" loop=%d speed=%.2f blend=%.3f found=%d "
                     "was index %d time %.3f\n",

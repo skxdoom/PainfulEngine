@@ -1,5 +1,6 @@
 #include "Renderer.h"
 #include "Window.h"
+#include "../Core/Debug.h"
 #include "../Core/Log.h"
 
 #include <bgfx/bgfx.h>
@@ -70,7 +71,7 @@ ScreenShotCallback g_screenShotCallback;
 // PAINFUL_RENDERER=vulkan|opengl|d3d11|d3d12 forces a backend; anything else,
 // including unset, leaves the choice to bgfx.
 bgfx::RendererType::Enum RendererTypeFromEnv() {
-    const char* want = std::getenv("PAINFUL_RENDERER");
+    const char* want = DebugText("PAINFUL_RENDERER");
     if (want == nullptr) return bgfx::RendererType::Count;
     const std::string name = want;
     if (name == "vulkan") return bgfx::RendererType::Vulkan;

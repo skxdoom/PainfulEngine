@@ -1,6 +1,7 @@
 #include "MenuSystem.h"
 #include "Input.h"
 
+#include "../Core/Debug.h"
 #include "../Core/Log.h"
 #include "../Render/HudRenderer.h"
 #include "../Render/TextureCache.h"
@@ -1356,14 +1357,14 @@ void MenuSystem::EnterMap() {
             MapChapterCount(), mapChapter_);
     // PAINFUL_MAP_CURSOR=<k>: a diagnostic that puts the focus on the k-th
     // level of the chapter on show, for captures of the ring.
-    if (const char* cur = getenv("PAINFUL_MAP_CURSOR")) MapMoveCursor(std::atoi(cur));
+    if (const int cur = DebugInt("PAINFUL_MAP_CURSOR", -1); cur >= 0) MapMoveCursor(cur);
     // The plate starts ON the chosen level; it slides only for later moves.
     plateAngle_ = float(mapCursor_) * (kPi / 3.f);
     plateClock_ = std::chrono::steady_clock::now();
     // PAINFUL_MAP_PICK=<dir>: a diagnostic that chooses a level the moment the
     // map opens, so the menu-to-level path can be driven without a hand on
     // the mouse. Any level, locked or not.
-    if (const char* pick = getenv("PAINFUL_MAP_PICK")) {
+    if (const char* pick = DebugText("PAINFUL_MAP_PICK")) {
         for (size_t i = 0; i < mapLevels_.size(); ++i) {
             if (mapLevels_[i].dir != pick) continue;
             mapChapter_ = mapLevels_[i].chapter;

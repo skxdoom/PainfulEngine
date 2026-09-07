@@ -1,19 +1,19 @@
 #include "Lighting.h"
+#include "../Core/Vec3.h"
 #include <algorithm>
 #include <cmath>
 
 namespace painful {
 namespace {
 
+// Vec3::Normalized() rescales any non-zero length; the light directions were
+// written with a 1e-6 floor, so that floor is kept rather than widened.
 void Normalize(float v[3]) {
-    const float n = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
-    if (n > 1e-6f) { v[0] /= n; v[1] /= n; v[2] /= n; }
+    Vec3& d = AsVec3(v);
+    if (d.LengthSq() > 1e-12f) d /= d.Length();
 }
 
-float Dist(const float a[3], const float b[3]) {
-    const float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
-    return std::sqrt(dx * dx + dy * dy + dz * dz);
-}
+float Dist(const float a[3], const float b[3]) { return Distance(AsVec3(a), AsVec3(b)); }
 
 // Colours are authored 0..255 in Color:New(...). Returns false when nothing in
 // the chain declares the key, which matters for CEnvironment: "Dark001" sets

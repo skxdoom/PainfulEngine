@@ -2,6 +2,7 @@
 #include <filesystem>
 
 #include "../Core/Check.h"
+#include "../Core/Debug.h"
 #include "../Core/Common.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
@@ -508,6 +509,7 @@ void LuaHost::PrintCallReport(size_t top) const {
     for (const auto& r : rows) total += r.second;
 
     LogInfo("");
+    if (const std::string on = DebugActive(); !on.empty()) LogInfo("switches: %s", on.c_str());
     LogInfo("boot: %zu files loaded, %zu missing, %zu script errors", filesLoaded_,
             filesMissing_, scriptErrors_);
     LogInfo("unimplemented natives hit: %zu distinct, %llu calls", rows.size(),

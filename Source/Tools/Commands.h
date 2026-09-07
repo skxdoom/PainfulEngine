@@ -73,6 +73,7 @@ int RunCmd(const char* levelDir, const char* dataRoot,
            bool novis, bool startNoclip, bool startPhysicsDebug);
 
 // --------------------------------------------------------------- the level
+int SelfTestCmd();
 int LevelCmd(const char* levelDir, const char* dataRoot);
 int EntitiesCmd(const char* levelDir, const char* dataRoot, const char* type);
 int FitCmd(const char* levelDir, const char* dataRoot);

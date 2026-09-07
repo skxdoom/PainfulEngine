@@ -3,6 +3,7 @@
 #include "../Core/Check.h"
 #include "../Core/Common.h"
 #include "../Core/Log.h"
+#include "../Core/Vec3.h"
 #include "MaterialState.h"
 
 #include <algorithm>
@@ -22,11 +23,7 @@ struct ParticleVertex {
 
 float Lerp(float a, float b, float t) { return a + (b - a) * t; }
 
-void Cross(const float a[3], const float b[3], float out[3]) {
-    out[0] = a[1] * b[2] - a[2] * b[1];
-    out[1] = a[2] * b[0] - a[0] * b[2];
-    out[2] = a[0] * b[1] - a[1] * b[0];
-}
+
 
 // Rotates a vector by a row-vector 3x3, the convention the rest of the port
 // uses for entity orientation.
@@ -532,7 +529,7 @@ void ParticleRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, 
     float forward[3], right[3], up[3];
     camera.Forward(forward);
     camera.Right(right);
-    Cross(right, forward, up);
+    Cross(AsVec3(right), AsVec3(forward)).Store(up);
 
     for (Emitter& e : emitters_) {
         if (!e.alive || !e.visible) continue;
@@ -564,20 +561,14 @@ void ParticleRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, 
                 // velocity vector scaled by Length. Thickness runs along the
                 // normalised cross of velocity and the view ray, so the streak
                 // always presents its width to the camera.
-                float toCam[3] = {p.pos[0] - camera.pos[0], p.pos[1] - camera.pos[1],
-                                  p.pos[2] - camera.pos[2]};
-                float side[3];
-                Cross(p.vel, toCam, side);
-                const float len = std::sqrt(side[0] * side[0] + side[1] * side[1] +
-                                            side[2] * side[2]);
-                if (len > 1e-6f) {
-                    const float inv = 1.f / len;
-                    side[0] *= inv; side[1] *= inv; side[2] *= inv;
-                }
+                const Vec3 toCam = AsVec3(p.pos) - AsVec3(camera.pos);
+                Vec3 sideV = Cross(AsVec3(p.vel), toCam);
+                const float len = sideV.Length();
+                if (len > 1e-6f) sideV /= len;
                 for (int k = 0; k < 3; ++k) {
                     const float tail = p.pos[k] + p.vel[k] * p.sparkLength;
-                    a[k] = p.pos[k] + side[k] * p.sparkThickness;
-                    b[k] = tail + side[k] * p.sparkThickness;
+                    a[k] = p.pos[k] + sideV[k] * p.sparkThickness;
+                    b[k] = tail + sideV[k] * p.sparkThickness;
                     c[k] = tail;
                     d[k] = p.pos[k];
                 }

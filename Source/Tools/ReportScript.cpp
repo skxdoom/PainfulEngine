@@ -1,5 +1,6 @@
 // The script layer, and the assets it drives: animation, sound, waypoints.
 #include "Commands.h"
+#include "Core/Debug.h"
 
 #include <chrono>
 #include <thread>
@@ -44,9 +45,9 @@ int LuaCmd(const char* dataRoot, int frames, const char* level,
     // headlessly. Without it audio_ is null, every SOUND call is a silent no-op,
     // and the mixer - including its voice cap - cannot be measured at all.
     AudioEngine audio;
-    if (std::getenv("PAINFUL_AUDIO") && audio.Init(std::string(dataRoot) + "/Sounds"))
+    if (DebugFlag("PAINFUL_AUDIO") && audio.Init(std::string(dataRoot) + "/Sounds"))
         engine.AttachAudio(&audio);
-    const bool realtime = std::getenv("PAINFUL_REALTIME") != nullptr;
+    const bool realtime = DebugFlag("PAINFUL_REALTIME");
     const bool ok = host.Boot();
     if (ok) {
         host.CallGameInit();

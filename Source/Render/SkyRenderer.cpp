@@ -1,6 +1,7 @@
 #include "SkyRenderer.h"
 #include "ShaderLoad.h"
 #include "../Core/Common.h"
+#include "../Core/Debug.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
 #include "GpuBuffers.h"
@@ -211,8 +212,7 @@ void SkyRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int h
     world.m[15] = 1.f;
 
     // Diagnostic: PAINFUL_SKYLAYER=N draws only that layer (1-based).
-    int only = 0;
-    if (const char* e = getenv("PAINFUL_SKYLAYER")) only = atoi(e);
+    const int only = DebugInt("PAINFUL_SKYLAYER", 0);
     for (int i = 0; i < layerCount_; ++i) {
         const GpuLayer& layer = layers_[i];
         if (only > 0 && layer.number != only) continue;

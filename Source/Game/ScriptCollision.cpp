@@ -73,7 +73,7 @@ int ScriptEngine::L_PHYSICS_GetHavokBodyVelocity(lua_State* L) {
         self->physics_->GetScriptBodyVelocity(slot, v);
     }
     for (int c = 0; c < 3; ++c) lua_pushnumber(L, v[c]);
-    lua_pushnumber(L, std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]));
+    lua_pushnumber(L, AsVec3(v).Length());
     return 4;
 }
 
@@ -180,7 +180,7 @@ void ScriptEngine::TickCollisions(float dt) {
                 Entity* e = myEntity != 0 ? Find(myEntity) : nullptr;
                 if (e == nullptr || myHandle < 0) continue;
                 auto cb = e->ragdollCallbacks.find(joint);
-                static const bool kTrace = std::getenv("PAINFUL_CONTACT_TRACE") != nullptr;
+                static const bool kTrace = DebugFlag("PAINFUL_CONTACT_TRACE");
                 if (kTrace)
                     LogInfo("limb contact %s part %d joint %d closing %.2f armed %d cooldown %.2f min %.2f",
                             e->name.c_str(), myPart, joint, closing,
@@ -287,18 +287,13 @@ void ScriptEngine::TickGrenades() {
             const float vn = 2.f * (vel[0] * n[0] + vel[1] * n[1] + vel[2] * n[2]);
             for (int c = 0; c < 3; ++c) vel[c] -= n[c] * vn;
 
-            float rest[3];
-            for (int c = 0; c < 3; ++c) rest[c] = end[c] - hit.point[c];
-            const float rn = 2.f * (rest[0] * n[0] + rest[1] * n[1] + rest[2] * n[2]);
-            for (int c = 0; c < 3; ++c) {
-                end[c] -= n[c] * rn;
-                rest[c] -= n[c] * rn;
-            }
-            const float len = std::sqrt(rest[0] * rest[0] + rest[1] * rest[1] +
-                                        rest[2] * rest[2]);
-            if (len > 0.002f)
-                for (int c = 0; c < 3; ++c) rest[c] *= 0.002f / len;
-            for (int c = 0; c < 3; ++c) start[c] = hit.point[c] + rest[c];
+            Vec3 rest = AsVec3(end) - AsVec3(hit.point);
+            const float rn = 2.f * Dot(rest, AsVec3(n));
+            AsVec3(end) -= AsVec3(n) * rn;
+            rest -= AsVec3(n) * rn;
+            const float len = rest.Length();
+            if (len > 0.002f) rest *= 0.002f / len;
+            (AsVec3(hit.point) + rest).Store(start);
         }
         if (hits == 0) continue;
         if (hits >= 10) {

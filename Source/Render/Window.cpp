@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include "../Core/Debug.h"
 #include "../Core/Log.h"
 #include <SDL3/SDL.h>
 
@@ -97,8 +98,7 @@ bool Window::Open(const std::string& title, int width, int height) {
     // a window onto the desktop, stealing focus and vanishing is noise when a
     // batch of them runs back to back.
     SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE;
-    if (const char* hidden = std::getenv("PAINFUL_HIDDEN"))
-        if (*hidden && *hidden != '0') flags |= SDL_WINDOW_HIDDEN;
+    if (DebugFlag("PAINFUL_HIDDEN")) flags |= SDL_WINDOW_HIDDEN;
 
     window_ = SDL_CreateWindow(title.c_str(), width, height, flags);
     if (!window_) {

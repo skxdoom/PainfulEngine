@@ -97,7 +97,7 @@ int ScriptEngine::SpawnDecalEntity(lua_State* L, bool oriented, const char* stat
     }
     BuildDecalGeometry(stored, target, pos, n);
     // PAINFUL_DECAL_TRACE: what each spawn cut, for the headless probe.
-    static const bool kTrace = std::getenv("PAINFUL_DECAL_TRACE") != nullptr;
+    static const bool kTrace = DebugFlag("PAINFUL_DECAL_TRACE");
     if (kTrace) {
         const DecalInstance& d = decals_.decals()[size_t(stored.decalSlot)];
         LogInfo("decal %s at (%.2f %.2f %.2f) n=(%.2f %.2f %.2f) target=%d scale=%.2f "
@@ -215,7 +215,7 @@ int ScriptEngine::L_R3D_KeepDecals(lua_State* L) {
 int ScriptEngine::L_ENTITY_EnableCollisionsToRagdoll(lua_State* L) {
     ScriptEngine* self = From(L);
     Entity* e = self->Find(HandleArg(L, 1));
-    static const bool kTrace = std::getenv("PAINFUL_CONTACT_TRACE") != nullptr;
+    static const bool kTrace = DebugFlag("PAINFUL_CONTACT_TRACE");
     if (kTrace)
         LogInfo("EnableCollisionsToRagdoll(%d joint %d): %s", HandleArg(L, 1),
                 int(luaL_optnumber(L, 2, -1)),

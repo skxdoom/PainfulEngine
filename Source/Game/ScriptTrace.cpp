@@ -469,7 +469,7 @@ int ScriptEngine::L_SetPosAndRotRelativeToCamera(lua_State* L) {
     }
     // PAINFUL_VIEW_TRACE=1: the offset and angles the scripts hand over,
     // every call - the weapon's sway is in them.
-    static const bool kTrace = std::getenv("PAINFUL_VIEW_TRACE") != nullptr;
+    static const bool kTrace = DebugFlag("PAINFUL_VIEW_TRACE");
     if (kTrace)
         std::printf("view: e=%d offset %.4f %.4f %.4f angles %.4f %.4f %.4f\n", HandleArg(L, 1),
                     e->viewOffset[0], e->viewOffset[1], e->viewOffset[2], e->viewAngles[0],

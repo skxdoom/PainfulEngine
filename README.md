@@ -104,7 +104,8 @@ caught. That record is kept on purpose.
 | [`Menu.md`](Docs/Reference/Menu.md) | the widget model behind `PMENU`, and the staging |
 | [`Console.md`](Docs/Reference/Console.md) | the `~` console: panel, keys, `CONSOLE` natives, cheats |
 | [`Sound.md`](Docs/Reference/Sound.md) | the mixer, the voice pool and the `SOUND` natives |
-| [`Diagnostics.md`](Docs/Reference/Diagnostics.md) | checks vs ordinary answers, printf-checked logging, truncated files, layering |
+| [`Vectors.md`](Docs/Reference/Vectors.md) | the Vec3 type, its float[3] interop, and the tested conversion order |
+| [`Diagnostics.md`](Docs/Reference/Diagnostics.md) | checks vs ordinary answers, logging, truncated files, the PAINFUL_* switches, layering |
 
 [`Docs/Data/native_priority.tsv`](Docs/Data/native_priority.tsv) ranks the
 native API by call count. It is the work queue. [`CLAUDE.md`](CLAUDE.md) has

@@ -73,14 +73,14 @@ void ScriptEngine::TickMonsters(float dt) {
     // this monster sunk".
     static int traceTick = 0;
     ++traceTick;
-    const char* traceAt = std::getenv("PAINFUL_MONSTER_TRACE");
-    const bool dumpGround = traceAt && traceTick == std::atoi(traceAt);
+    static const int traceAt = DebugInt("PAINFUL_MONSTER_TRACE", 0);
+    const bool dumpGround = traceAt > 0 && traceTick == traceAt;
 
     // PAINFUL_ACTIVE_TRACE=<frame>: every active mesh that has left the spot
     // it was built at by more than 0.05, once, at that frame.
     {
-        const char* activeAt = std::getenv("PAINFUL_ACTIVE_TRACE");
-        if (activeAt && traceTick == std::atoi(activeAt)) {
+        static const int activeAt = DebugInt("PAINFUL_ACTIVE_TRACE", 0);
+        if (activeAt > 0 && traceTick == activeAt) {
             size_t moved = 0, total = 0;
             for (const auto& kv : entities_) {
                 const Entity& e = kv.second;
@@ -113,7 +113,7 @@ void ScriptEngine::TickMonsters(float dt) {
     if (!playerSpotDone_ && pawn_ && playerHandle_) {
         playerSpotDone_ = true;
         float at[3];
-        const char* spot = getenv("PAINFUL_PLAYER_AT");
+        const char* spot = DebugText("PAINFUL_PLAYER_AT");
         if (spot && std::sscanf(spot, "%f,%f,%f", &at[0], &at[1], &at[2]) == 3) {
             pawn_->Spawn(at);
             LogInfo("player moved to %.1f %.1f %.1f (PAINFUL_PLAYER_AT)", at[0], at[1], at[2]);

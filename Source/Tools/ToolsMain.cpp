@@ -8,6 +8,7 @@
 // text prints itself from it, and each row declares where its data root sits,
 // so the mounting cannot drift from the dispatch the way two parallel lists do.
 #include "Commands.h"
+#include "Core/Debug.h"
 
 #include <cstring>
 
@@ -15,7 +16,8 @@ namespace {
 
 // Where in argv a command's data root is, if it takes one. Anything else is
 // given the root its file-path argument points into.
-enum class Root { kArgv2, kArgv3, kFromPath };
+// kNone: the command reads no game data, so nothing is mounted for it.
+enum class Root { kNone, kArgv2, kArgv3, kFromPath };
 
 struct Command {
     const char* name;
@@ -86,6 +88,14 @@ const Command kCommands[] = {
 {"scale", 4, Root::kArgv3, "level", "<levelDir> <DataRoot>",
  "world scale sanity check",
  [](int, char** argv) { return ScaleCmd(argv[2], argv[3]); }},
+
+{"selftest", 2, Root::kNone, "script", "",
+ "numeric self-checks for Vec3 and the rotation helpers",
+ [](int, char**) { return SelfTestCmd(); }},
+
+{"traces", 2, Root::kNone, "script", "",
+ "the PAINFUL_* diagnostic switches and what each is set to",
+ [](int, char**) { DebugList(); return 0; }},
 
 {"levels", 3, Root::kArgv2, "level", "<DataRoot>",
  "list levels",
@@ -308,6 +318,7 @@ int main(int argc, char** argv) {
             case Root::kArgv2:    MountRoot(argv[2]); break;
             case Root::kArgv3:    MountRoot(argv[3]); break;
             case Root::kFromPath: MountForPath(argv[2], argv[0]); break;
+            case Root::kNone:     break;
         }
         return c.run(argc, argv);
     }

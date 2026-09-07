@@ -5,6 +5,8 @@
 #   AppPaths    finding the game data and the executable's own resources
 #   CrashReport a symbolised stack on a fault, to stderr and a file
 #   Check       PAINFUL_CHECK/ASSERT: a failed invariant that is logged, not silent
+#   Debug       the PAINFUL_* switch table, and the `traces` listing
+#   Vec3        a 3-vector with the layout of float[3], adopted incrementally
 #   Frustum     six view planes and AABB tests - pure maths, so World may use it
 #               without reaching up into Render
 add_library(Core STATIC
@@ -14,8 +16,10 @@ add_library(Core STATIC
   AppPaths.cpp    AppPaths.h
   CrashReport.cpp CrashReport.h
   Log.cpp         Log.h
+                  Vec3.h
                   Frustum.h
   Check.cpp       Check.h
+  Debug.cpp       Debug.h
   Config.cpp      Config.h
 )
 # Source/ is the include root: headers are reached as "../Core/Common.h".

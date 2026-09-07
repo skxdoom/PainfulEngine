@@ -186,7 +186,7 @@ bool ScriptEngine::EnableRagdoll(Entity& e, bool enable, const std::vector<Mat4>
     // Does the solver hold what it was handed? Straight back out again, with
     // no step in between, so a seed that does not round-trip is separated from
     // a simulation that drifts.
-    if (getenv("PAINFUL_RAGDOLL_DEBUG")) {
+    if (DebugFlag("PAINFUL_RAGDOLL_DEBUG")) {
         std::vector<float> back(parts.size() * 16, 0.f);
         if (physics_->GetRagdollPose(slot, back.data())) {
             float worst = 0.f;
@@ -301,7 +301,7 @@ void ScriptEngine::TickRagdolls() {
         // out of the solver. Everything the scripts can see goes through the
         // entity transform, so a ragdoll falling rigidly and a ragdoll whose
         // pose is not being updated at all look identical from Lua.
-        static const bool kDebug = getenv("PAINFUL_RAGDOLL_DEBUG") != nullptr;
+        static const bool kDebug = DebugFlag("PAINFUL_RAGDOLL_DEBUG");
         if (kDebug) {
             float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
             for (size_t p = 0; p < parts.size(); ++p)

@@ -1,8 +1,8 @@
-# Diagnostics — checks, logging, and truncated files
+# Diagnostics — checks, logging, truncated files, switches, layering
 
-Three rules about how the engine reports its own failures: which guards are
-checked, how a log line is written, and what a parser does with a file that
-ends early.
+How the engine reports its own failures: which guards are checked, how a log
+line is written, what a parser does with a file that ends early, where the
+PAINFUL_* switches live, and how the layering is kept honest.
 
 ## Checks
 
@@ -91,6 +91,34 @@ Measured: 110 adversarial parses of `1x01_Chaos.mpk` (19.7 MB) — 80 random
 truncations and 30 rounds of 128 corrupted bytes — plus a 352-point dense
 truncation sweep of `TestFloor.mpk`, with no fault. Every one reported an
 error and stopped.
+
+
+## The PAINFUL_* switches
+
+`Source/Core/Debug.h`, and the table itself is `Debug.cpp`. `PainfulTools
+traces` prints every switch, its kind, its help and what it is set to now; a
+run that has any of them on logs one `switches:` line at startup, so a log
+explains its own odd behaviour.
+
+They were 40 scattered `getenv` calls. Three things were wrong with that: the
+set was undiscoverable, the caching was inconsistent (`ScriptMonster` read one
+per tick), and a typo read as "off" with no complaint. The accessors are
+`DebugFlag` / `DebugInt` / `DebugFloat` / `DebugText`; a name absent from the
+table, or read at the wrong kind, is a check failure rather than a silent
+default. The environment is read once on first access, which is what every
+call site already assumed by caching in a `static const`.
+
+Two disagreements the table forced into the open:
+
+- **`PAINFUL_HIDDEN` meant two different things.** `GameApp` treated it as
+  presence, `Window` as `set and not "0"`, so `PAINFUL_HIDDEN=0` silenced the
+  audio but still showed the window. It is presence everywhere now.
+- **`PAINFUL_WINDOWED` genuinely is value-carrying** — `=0` means *off*, so it
+  stays `text` rather than becoming a flag, which would have inverted it.
+
+`PAINFUL_CHECK_BREAK` is in the table for listing but is read directly in
+`Check.cpp`: the check facility cannot call the switch table while the switch
+table reports its own errors through the check facility.
 
 ## Layering
 

@@ -1,5 +1,7 @@
 #include "PlayerPawn.h"
 
+#include "../Core/Debug.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -169,10 +171,7 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
             // standing scale is a play-test STAND-IN, not a recovered rule; a
             // hop from the floor ray's window above the ground drops it.
             // Docs/Reference/PlayerMovement.md, "The jump height that does not add up"
-            static const float kStandScale = [] {
-                const char* e = std::getenv("PAINFUL_JUMPSCALE");
-                return e ? float(std::atof(e)) : 1.16f;
-            }();
+            static const float kStandScale = DebugFloat("PAINFUL_JUMPSCALE", 1.16f);
             velY_ = jumpStrength * playerSpeed * 0.7f * (resting_ ? kStandScale : 1.f);
             // The scripts' jump sound hangs off this, so it must mean an actual
             // jump and not merely leaving the ground - a step-up does that too.
@@ -215,10 +214,7 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
                 // without it - except on a slope steep enough to slide, where
                 // the creep is balanced against the recovered 0.2.
                 // PAINFUL_WALK_FACTOR overrides. PlayerMovement.md, "The port".
-                static const float kWalkFactor = [] {
-                    const char* e = std::getenv("PAINFUL_WALK_FACTOR");
-                    return e ? float(std::atof(e)) : 0.4f;
-                }();
+                static const float kWalkFactor = DebugFloat("PAINFUL_WALK_FACTOR", 0.4f);
                 const float nh = std::sqrt(floorNormal_[0] * floorNormal_[0] +
                                            floorNormal_[2] * floorNormal_[2]);
                 const bool steep = nh > physics.settings().meshFriction * floorNormal_[1];
@@ -310,7 +306,7 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
     const float commandedX = velX_, commandedZ = velZ_;
     physics.SlidePlayer(centre, delta, true);
     // PAINFUL_PAWN_TRACE=1: one line per move with the sweep's result.
-    static const bool kTrace = std::getenv("PAINFUL_PAWN_TRACE") != nullptr;
+    static const bool kTrace = DebugFlag("PAINFUL_PAWN_TRACE");
     const float sweptX = centre[0], sweptY = centre[1], sweptZ = centre[2];
     // The fall speed a touchdown this frame reports, before resting zeroes it.
     const float fallSpeed = velY_ < 0.f ? -velY_ : 0.f;
