@@ -87,6 +87,7 @@ bool Animation::Load(const std::string& path, Animation& out) {
             for (AnimTrack& t : out.tracks)
                 for (AnimKey& k : t.keys) k.time -= out.startTime;
     }
+    if (r.overran() && out.error.empty()) out.error = "truncated";
     return out.error.empty();
 }
 

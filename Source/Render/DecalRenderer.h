@@ -16,6 +16,11 @@ namespace painful {
 class DecalRenderer {
 public:
     ~DecalRenderer() { Shutdown(); }
+    // Owns GPU handles that Shutdown destroys, so it is not copyable: a copy
+    // would free them twice.
+    DecalRenderer() = default;
+    DecalRenderer(const DecalRenderer&) = delete;
+    DecalRenderer& operator=(const DecalRenderer&) = delete;
 
     bool Init(const std::string& shaderDir);
     void Shutdown();

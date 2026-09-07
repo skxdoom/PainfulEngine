@@ -54,6 +54,10 @@ if(WIN32)
 endif()
 
 include(Folders)
+include(Layering)
+# Checked here rather than by the targets: an upward relative include compiles
+# and links clean, so only a direct check catches one. CMake/Layering.cmake.
+painful_check_layering(${PAINFUL_ROOT}/Source)
 include(Dependencies)
 # Shaders first: it compiles the .sc sources into C arrays that Render
 # includes, so its generated headers have to exist before Source builds.

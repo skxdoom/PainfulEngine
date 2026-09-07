@@ -23,6 +23,11 @@ namespace painful {
 class SkyRenderer {
 public:
     ~SkyRenderer() { Shutdown(); }
+    // Owns GPU handles that Shutdown destroys, so it is not copyable: a copy
+    // would free them twice.
+    SkyRenderer() = default;
+    SkyRenderer(const SkyRenderer&) = delete;
+    SkyRenderer& operator=(const SkyRenderer&) = delete;
 
     bool Init(const std::string& shaderDir);
     void Shutdown();

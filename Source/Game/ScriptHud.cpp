@@ -1,6 +1,7 @@
 // ScriptEngine: the 2D layer - MATERIAL, HUD.PrintXY, fonts and colour codes.
 
 #include "ScriptEngineInternal.h"
+#include "../Script/ScriptHandle.h"
 
 namespace painful {
 
@@ -68,21 +69,12 @@ std::string StripColorCodes(const std::string& text) {
 
 // A material handle travels through Lua as light userdata, because that is
 // what MATERIAL.Create returns in the original - a Texture* the scripts hold
-// opaquely and hand back. Scripts also pass a literal 0 to mean "no texture",
-// which arrives as a number and reads back as handle 0.
-void PushMaterial(lua_State* L, int handle) {
-    if (handle <= 0) {
-        lua_pushnil(L);
-        return;
-    }
-    lua_pushlightuserdata(L, reinterpret_cast<void*>(static_cast<intptr_t>(handle)));
-}
+// opaquely and hand back. Kind-tagged, so a handle of another kind reads as
+// "none" rather than as a material. Scripts also pass a literal 0 for "no
+// texture", which arrives as a number and reads back as handle 0.
+void PushMaterial(lua_State* L, int handle) { PushHandle(L, HandleKind::kMaterial, handle); }
 
-int ToMaterial(lua_State* L, int index) {
-    if (lua_islightuserdata(L, index))
-        return int(reinterpret_cast<intptr_t>(lua_touserdata(L, index)));
-    return 0;
-}
+int ToMaterial(lua_State* L, int index) { return ToHandle(L, index, HandleKind::kMaterial); }
 
 } // namespace
 

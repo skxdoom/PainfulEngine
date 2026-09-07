@@ -7,7 +7,9 @@ the detail, with the authority for each rule named where one exists.
 
 One directory, one CMakeLists, one target, one project in the IDE, so the
 solution reads like the tree does. The layering is one-directional and the CMake
-targets enforce it: each layer names what it may see, and nothing else.
+targets name what each layer may link. That is link-time only, so
+`CMake/Layering.cmake` checks the includes directly and fails the configure on
+an upward one. Docs/Reference/Diagnostics.md, "Layering".
 
 ```
 Core <- Assets <- World <- Render
@@ -15,8 +17,10 @@ Core <- Assets <- World <- Render
 
 ```
 Source/
-  Core/     Common          Mat4, Reader, ReadFile
-            Log
+  Core/     Common          Mat4, Reader (bounds-checked), ReadFile
+            Log             printf-checked emitters, three sinks
+            Check           PAINFUL_CHECK/ASSERT: a failed invariant, logged and tallied
+            Frustum         view-frustum planes and AABB tests (pure maths, so World may use it)
             PakArchive      one .pak: directory parse, name de-obfuscation, inflate
             FileSystem      the mounted view: archives shadow loose files
             AppPaths        finding the game data and the executable's resources
@@ -45,7 +49,6 @@ Source/
   Render/   Window          SDL3
             Renderer        bgfx device
             Camera          the camera, and the free camera's collision radius
-            Frustum         view-frustum planes and AABB tests
             MaterialState   .shader pass -> bgfx render state, blend modes
             TextureCache    extension-agnostic texture resolution
             WorldRenderer / EntityRenderer / SkyRenderer

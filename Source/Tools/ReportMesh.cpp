@@ -245,7 +245,9 @@ int BonesCmd(const char* path, const char* animName, const char* timeArg,
 
 int MapCmd(const char* path, const char* nameFilter) {
     MapMesh m;
-    MapMesh::Load(path, m);
+    // The stats below are still worth printing for a partial parse, so a
+    // failure is reported rather than fatal.
+    if (!MapMesh::Load(path, m)) LogWarn("%s: %s", path, m.error.c_str());
     // With a filter: every object whose name contains it, with its raw bounds -
     // the way to find WHERE a named piece of the world is.
     if (nameFilter && nameFilter[0]) {
@@ -345,7 +347,9 @@ int MapCmd(const char* path, const char* nameFilter) {
 // Diagnostic: how are the four texture slots actually populated?
 int MatsCmd(const char* path, const char* nameFilter) {
     MapMesh m;
-    MapMesh::Load(path, m);
+    // The stats below are still worth printing for a partial parse, so a
+    // failure is reported rather than fatal.
+    if (!MapMesh::Load(path, m)) LogWarn("%s: %s", path, m.error.c_str());
 
     // With a name, report that object in full instead of the whole-map summary:
     // every slot with its UV transform, plus the raw UV span of the geometry.

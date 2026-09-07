@@ -11,6 +11,7 @@
 #include "Assets/Waypoints.h"
 #include "Audio/AudioEngine.h"
 #include "Core/AppPaths.h"
+#include "Core/Check.h"
 #include "Core/Config.h"
 #include "Core/FileSystem.h"
 #include "Core/Log.h"
@@ -1211,6 +1212,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
     }
     LogInfo("game loop ended: %s", host.quitRequested() ? "scripts called Exit()"
                                                         : "window closed");
+    ReportChecks();
     return 0;
 }
 

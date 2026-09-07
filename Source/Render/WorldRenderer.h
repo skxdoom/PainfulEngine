@@ -3,7 +3,7 @@
 #include "../Assets/ShaderScript.h"
 #include "../World/Level.h"
 #include "../World/Zones.h"
-#include "Frustum.h"
+#include "../Core/Frustum.h"
 #include "MaterialState.h"
 #include "Camera.h"
 #include "TextureCache.h"
@@ -20,6 +20,11 @@ namespace painful {
 class WorldRenderer {
 public:
     ~WorldRenderer() { Shutdown(); }
+    // Owns GPU handles that Shutdown destroys, so it is not copyable: a copy
+    // would free them twice.
+    WorldRenderer() = default;
+    WorldRenderer(const WorldRenderer&) = delete;
+    WorldRenderer& operator=(const WorldRenderer&) = delete;
 
     // shaderDir holds the compiled vs_world.bin / fs_world.bin.
     bool Init(const std::string& shaderDir);

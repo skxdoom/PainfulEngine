@@ -33,6 +33,11 @@ namespace painful {
 class BillboardRenderer {
 public:
     ~BillboardRenderer() { Shutdown(); }
+    // Owns GPU handles that Shutdown destroys, so it is not copyable: a copy
+    // would free them twice.
+    BillboardRenderer() = default;
+    BillboardRenderer(const BillboardRenderer&) = delete;
+    BillboardRenderer& operator=(const BillboardRenderer&) = delete;
 
     bool Init(const std::string& shaderDir);
     void Shutdown();

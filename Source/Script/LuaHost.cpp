@@ -1,6 +1,7 @@
 #include "LuaHost.h"
 #include <filesystem>
 
+#include "../Core/Check.h"
 #include "../Core/Common.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
@@ -515,6 +516,7 @@ void LuaHost::PrintCallReport(size_t top) const {
         LogInfo("  %6llu  %s", static_cast<unsigned long long>(rows[i].second),
                 rows[i].first.c_str());
     if (rows.size() > top) LogInfo("  ... (+%zu more)", rows.size() - top);
+    ReportChecks();
 }
 
 } // namespace painful

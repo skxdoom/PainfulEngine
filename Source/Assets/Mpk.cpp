@@ -159,6 +159,9 @@ bool MapMesh::Load(const std::string& path, MapMesh& out) {
             }
         }
 
+        // A truncated record read zeros rather than walking off the buffer;
+        // this is where that becomes an error instead of a short object.
+        if (r.overran()) { out.error = "truncated record: " + o.name; break; }
         out.objects.push_back(std::move(o));
         p = r.pos();
     }

@@ -120,6 +120,7 @@ bool DatPack::Load(const std::string& path, DatPack& out) {
     }
 
     if (out.objects.empty() && out.error.empty()) out.error = "no objects";
+    if (r.overran() && out.error.empty()) out.error = "truncated";
     return out.error.empty();
 }
 

@@ -23,6 +23,12 @@ class HudRenderer {
 public:
     bool Init(const std::string& shaderDir, const std::string& fontsRoot);
     void Shutdown();
+    // Every other renderer frees its GPU handles from its destructor; this one
+    // relied on the process exiting.
+    ~HudRenderer() { Shutdown(); }
+    HudRenderer() = default;
+    HudRenderer(const HudRenderer&) = delete;
+    HudRenderer& operator=(const HudRenderer&) = delete;
     bool ready() const { return bgfx::isValid(program_); }
 
     // A material is a texture the scripts hold by handle. Handle 0 is "no

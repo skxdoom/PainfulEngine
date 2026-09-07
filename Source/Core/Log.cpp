@@ -1,5 +1,6 @@
 #include "Log.h"
 
+#include <cstdarg>
 #include <cstdio>
 #include <ctime>
 
@@ -55,5 +56,28 @@ void LogLine(LogSink sink, const char* prefix, const char* text) {
     if (sink == LogSink::kScript) Write(g_script, prefix, text);
     if (sink == LogSink::kShader) Write(g_shader, prefix, text);
 }
+
+namespace {
+// One line, truncated rather than wrapped: anything longer than this is a
+// dump, and a dump belongs in a report.
+void Emit(LogSink sink, const char* prefix, const char* fmt, va_list args) {
+    char buf[2048];
+    std::vsnprintf(buf, sizeof buf, fmt, args);
+    LogLine(sink, prefix, buf);
+}
+}  // namespace
+
+#define PAINFUL_EMIT(sink, prefix) \
+    va_list args;                  \
+    va_start(args, fmt);           \
+    Emit(sink, prefix, fmt, args); \
+    va_end(args)
+
+void LogInfo(const char* fmt, ...) { PAINFUL_EMIT(LogSink::kMain, ""); }
+void LogWarn(const char* fmt, ...) { PAINFUL_EMIT(LogSink::kMain, "warning: "); }
+void LogScript(const char* fmt, ...) { PAINFUL_EMIT(LogSink::kScript, "warning: "); }
+void LogShader(const char* fmt, ...) { PAINFUL_EMIT(LogSink::kShader, ""); }
+
+#undef PAINFUL_EMIT
 
 }  // namespace painful

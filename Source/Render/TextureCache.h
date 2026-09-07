@@ -14,6 +14,11 @@ namespace painful {
 class TextureCache {
 public:
     ~TextureCache() { Shutdown(); }
+    // Owns GPU handles that Shutdown destroys, so it is not copyable: a copy
+    // would free them twice.
+    TextureCache() = default;
+    TextureCache(const TextureCache&) = delete;
+    TextureCache& operator=(const TextureCache&) = delete;
 
     // texturesRoot is <DataRoot>/Textures.
     // createWhite=false builds only the file index, so the resolver can be used

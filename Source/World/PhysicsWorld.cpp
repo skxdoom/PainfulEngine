@@ -33,8 +33,9 @@
 
 #include "../Assets/Dat.h"
 #include "../Assets/Pkmdl.h"
-#include "../Core/FileSystem.h"
+#include "../Core/Check.h"
 #include "../Core/CrashReport.h"
+#include "../Core/FileSystem.h"
 #include "../Core/Log.h"
 #include "Level.h"
 #include "Templates.h"
@@ -558,7 +559,9 @@ struct PhysicsWorld::Impl {
     };
     std::vector<Character> characters;
     Character* CharacterOf(int slot) {
-        if (slot < 0 || size_t(slot) >= scriptBodies.size()) return nullptr;
+        if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < scriptBodies.size(),
+                           "physics: script body slot %d of %zu", slot, scriptBodies.size()))
+            return nullptr;
         const int c = scriptBodies[size_t(slot)].character;
         if (c < 0 || size_t(c) >= characters.size()) return nullptr;
         return &characters[size_t(c)];

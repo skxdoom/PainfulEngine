@@ -1,5 +1,6 @@
 #include "BillboardRenderer.h"
 #include "ShaderLoad.h"
+#include "../Core/Check.h"
 #include "../Core/Common.h"
 #include "../Core/Log.h"
 #include "MaterialState.h"
@@ -242,6 +243,8 @@ int BillboardRenderer::SetupScriptCorona(int slot, const float args[9],
                                          uint32_t packedColor, int blendMode,
                                          bool spriteOnly, TextureCache& textures,
                                          const std::string& levelHint) {
+    PAINFUL_CHECK(slot < 0 || size_t(slot) < sprites_.size(),
+                  "BillboardRenderer: stale corona slot %d of %zu", slot, sprites_.size());
     if (slot < 0 || size_t(slot) >= sprites_.size()) {
         sprites_.push_back(Sprite());
         slot = int(sprites_.size() - 1);
@@ -276,17 +279,23 @@ int BillboardRenderer::SetupScriptCorona(int slot, const float args[9],
 }
 
 void BillboardRenderer::SetScriptSpritePos(int slot, const float pos[3]) {
-    if (slot < 0 || size_t(slot) >= sprites_.size()) return;
+    if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < sprites_.size(),
+                       "BillboardRenderer: sprite slot %d of %zu", slot, sprites_.size()))
+        return;
     for (int i = 0; i < 3; ++i) sprites_[slot].pos[i] = pos[i] * scaleMultiplier_;
 }
 
 void BillboardRenderer::SetScriptSpriteVisible(int slot, bool visible) {
-    if (slot < 0 || size_t(slot) >= sprites_.size()) return;
+    if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < sprites_.size(),
+                       "BillboardRenderer: sprite slot %d of %zu", slot, sprites_.size()))
+        return;
     sprites_[slot].scriptVisible = visible;
 }
 
 void BillboardRenderer::RemoveScriptSprite(int slot) {
-    if (slot < 0 || size_t(slot) >= sprites_.size()) return;
+    if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < sprites_.size(),
+                       "BillboardRenderer: sprite slot %d of %zu", slot, sprites_.size()))
+        return;
     sprites_[slot].alive = false;
 }
 

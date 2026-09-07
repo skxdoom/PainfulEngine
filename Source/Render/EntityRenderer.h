@@ -26,6 +26,11 @@ namespace painful {
 class EntityRenderer {
 public:
     ~EntityRenderer() { Shutdown(); }
+    // Owns GPU handles that Shutdown destroys, so it is not copyable: a copy
+    // would free them twice.
+    EntityRenderer() = default;
+    EntityRenderer(const EntityRenderer&) = delete;
+    EntityRenderer& operator=(const EntityRenderer&) = delete;
 
     bool Init(const std::string& shaderDir);
     void Shutdown();

@@ -109,6 +109,7 @@ bool WaypointSet::Load(const std::string& path, WaypointSet& out) {
     // Select_OnSelectedFloors family - which groups waypoints into regions.
     // Routing does not need it, so it is measured and left alone.
     out.floorBytes = bytes.size() - out.consumed;
+    if (r.overran()) { out.error = "truncated"; return false; }
     return true;
 }
 

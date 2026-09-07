@@ -104,25 +104,11 @@ caught. That record is kept on purpose.
 | [`Menu.md`](Docs/Reference/Menu.md) | the widget model behind `PMENU`, and the staging |
 | [`Console.md`](Docs/Reference/Console.md) | the `~` console: panel, keys, `CONSOLE` natives, cheats |
 | [`Sound.md`](Docs/Reference/Sound.md) | the mixer, the voice pool and the `SOUND` natives |
+| [`Diagnostics.md`](Docs/Reference/Diagnostics.md) | checks vs ordinary answers, printf-checked logging, truncated files, layering |
 
 [`Docs/Data/native_priority.tsv`](Docs/Data/native_priority.tsv) ranks the
 native API by call count. It is the work queue. [`CLAUDE.md`](CLAUDE.md) has
 the project conventions.
-
-## Licence
-
-Copyright © 2026 Dmitry Karpukhin.
-
-Painful Engine is **GPL-3.0-or-later**. See [`LICENSE`](LICENSE).
-
-- The licence covers this project's own code only. It grants no rights over
-  *Painkiller*, which belongs to its rights holders.
-- No game data, assets or binaries are included. You need your own copy of the
-  game.
-- *Painkiller* was made by People Can Fly. This project is not affiliated with
-  them or with the game's current rights holders.
-- Anyone may study, change and share this project. Nobody may make it closed
-  source or sell it on.
 
 ## Third-party
 

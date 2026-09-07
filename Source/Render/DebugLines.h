@@ -17,6 +17,11 @@ namespace painful {
 class DebugLines {
 public:
     ~DebugLines() { Shutdown(); }
+    // Owns GPU handles that Shutdown destroys, so it is not copyable: a copy
+    // would free them twice.
+    DebugLines() = default;
+    DebugLines(const DebugLines&) = delete;
+    DebugLines& operator=(const DebugLines&) = delete;
 
     bool Init(const std::string& shaderDir);
     void Shutdown();

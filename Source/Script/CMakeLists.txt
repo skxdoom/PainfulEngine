@@ -3,6 +3,7 @@
 # render state are wired in from Game, above.
 add_library(Script STATIC
   LuaHost.cpp  LuaHost.h
+               ScriptHandle.h
   Natives.cpp  NativeList.inc
 )
 target_link_libraries(Script PUBLIC Core Lua)

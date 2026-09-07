@@ -1,5 +1,6 @@
 #include "ParticleRenderer.h"
 #include "ShaderLoad.h"
+#include "../Core/Check.h"
 #include "../Core/Common.h"
 #include "../Core/Log.h"
 #include "MaterialState.h"
@@ -445,7 +446,9 @@ int ParticleRenderer::AddScriptEmitter(const std::string& emitterFile,
 }
 
 bool ParticleRenderer::ScriptEmitterFinished(int slot) const {
-    if (slot < 0 || size_t(slot) >= emitters_.size()) return true;
+    if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < emitters_.size(),
+                       "ParticleRenderer: emitter slot %d of %zu", slot, emitters_.size()))
+        return true;
     const Emitter& e = emitters_[slot];
     if (!e.alive) return true;
     if (e.evolve) return false;                 // still emitting
@@ -454,11 +457,15 @@ bool ParticleRenderer::ScriptEmitterFinished(int slot) const {
 }
 
 void ParticleRenderer::SetScriptEmitterEvolve(int slot, bool evolve) {
-    if (slot >= 0 && size_t(slot) < emitters_.size()) emitters_[slot].evolve = evolve;
+    if (PAINFUL_CHECK(slot >= 0 && size_t(slot) < emitters_.size(),
+                      "ParticleRenderer: emitter slot %d of %zu", slot, emitters_.size()))
+        emitters_[slot].evolve = evolve;
 }
 
 void ParticleRenderer::StopScriptEmitter(int slot) {
-    if (slot < 0 || size_t(slot) >= emitters_.size()) return;
+    if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < emitters_.size(),
+                       "ParticleRenderer: emitter slot %d of %zu", slot, emitters_.size()))
+        return;
     Emitter& e = emitters_[slot];
     e.evolve = false;
     e.spawnedTotal = std::max(e.spawnedTotal, std::max(1, e.params->maxParticles));
@@ -467,7 +474,9 @@ void ParticleRenderer::StopScriptEmitter(int slot) {
 void ParticleRenderer::SetupScriptEmitter(int slot, float refScale,
                                           const float refOffset[3],
                                           const float refRotDegrees[3]) {
-    if (slot < 0 || size_t(slot) >= emitters_.size()) return;
+    if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < emitters_.size(),
+                       "ParticleRenderer: emitter slot %d of %zu", slot, emitters_.size()))
+        return;
     Emitter& e = emitters_[slot];
     for (int i = 0; i < 3; ++i) {
         e.refOffset[i] = refOffset[i];
@@ -480,7 +489,9 @@ void ParticleRenderer::SetupScriptEmitter(int slot, float refScale,
 void ParticleRenderer::SetScriptEmitterOwner(int slot, const float ownerPos[3],
                                              const float ownerRot9[9],
                                              float entityScale, bool visible) {
-    if (slot < 0 || size_t(slot) >= emitters_.size()) return;
+    if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < emitters_.size(),
+                       "ParticleRenderer: emitter slot %d of %zu", slot, emitters_.size()))
+        return;
     Emitter& e = emitters_[slot];
     for (int i = 0; i < 3; ++i) e.ownerPos[i] = ownerPos[i] * scaleMultiplier_;
     for (int i = 0; i < 9; ++i) e.ownerRot9[i] = ownerRot9[i];
@@ -490,7 +501,9 @@ void ParticleRenderer::SetScriptEmitterOwner(int slot, const float ownerPos[3],
 }
 
 void ParticleRenderer::RemoveScriptEmitter(int slot) {
-    if (slot < 0 || size_t(slot) >= emitters_.size()) return;
+    if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < emitters_.size(),
+                       "ParticleRenderer: emitter slot %d of %zu", slot, emitters_.size()))
+        return;
     emitters_[slot].alive = false;
     emitters_[slot].particles.clear();
 }

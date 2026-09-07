@@ -15,6 +15,10 @@ enum class Key { Forward, Back, Left, Right, Up, Down, Fast, ScaleUp, ScaleDown 
 class Window {
 public:
     ~Window() { Close(); }
+    // Owns the SDL window Close destroys; a copy would free it twice.
+    Window() = default;
+    Window(const Window&) = delete;
+    Window& operator=(const Window&) = delete;
 
     bool Open(const std::string& title, int width, int height);
     void Close();

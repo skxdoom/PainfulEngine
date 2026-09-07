@@ -1,5 +1,6 @@
 #include "AudioEngine.h"
 
+#include "../Core/Check.h"
 #include "../Core/Common.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
@@ -785,7 +786,10 @@ size_t AudioEngine::voicesPlaying() const {
 // ---------------------------------------------------------------- music
 
 bool AudioEngine::StreamLoad(int slot, const std::string& name) {
-    if (slot < 0 || slot > 15) return false;
+    // 16 music slots (SOUND.StreamLoad); outside that is a script bug, not a
+    // slot that happens to be empty.
+    if (!PAINFUL_CHECK(slot >= 0 && slot <= 15, "audio: music slot %d out of 0..15", slot))
+        return false;
     StreamDelete(slot);
     if (name.empty()) return false;
     auto ms = std::make_unique<MusicStream>();

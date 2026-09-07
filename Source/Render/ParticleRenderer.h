@@ -27,6 +27,11 @@ namespace painful {
 class ParticleRenderer {
 public:
     ~ParticleRenderer() { Shutdown(); }
+    // Owns GPU handles that Shutdown destroys, so it is not copyable: a copy
+    // would free them twice.
+    ParticleRenderer() = default;
+    ParticleRenderer(const ParticleRenderer&) = delete;
+    ParticleRenderer& operator=(const ParticleRenderer&) = delete;
 
     bool Init(const std::string& shaderDir);
     void Shutdown();

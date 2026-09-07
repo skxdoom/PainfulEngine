@@ -22,6 +22,11 @@ namespace painful {
 class FontCache {
 public:
     ~FontCache() { Shutdown(); }
+    // Owns GPU handles that Shutdown destroys, so it is not copyable: a copy
+    // would free them twice.
+    FontCache() = default;
+    FontCache(const FontCache&) = delete;
+    FontCache& operator=(const FontCache&) = delete;
 
     void SetRoot(const std::string& fontsRoot) { root_ = fontsRoot; }
     void Shutdown();

@@ -55,10 +55,21 @@ backlog. Rewrite one when you are already editing that function, not as a
 sweep. Older files still carry their full derivations inline; that is known and
 is not a defect to fix in bulk.
 
+## Failing loudly
+
+A guard that hides a real bug is worse than a crash. Use
+`PAINFUL_CHECK(cond, "what broke %d", x)` where a false condition means the
+engine is wrong; leave the silent early return where it means the data is
+ordinary (a bone-less prop, an unattached slot, a nil argument). It logs once
+per site and tallies, so the reports end with `checks: none failed` or the
+list. Docs/Reference/Diagnostics.md draws the line.
+
 ## Layout
 
 One directory, one `CMakeLists.txt`, one target, one project in the IDE. The
-layering goes one way and the CMake targets enforce it:
+layering goes one way, and `CMake/Layering.cmake` checks it at configure time
+(the targets alone enforce it only at link time, which an upward relative
+include slips past):
 
 ```
 Core <- Assets <- World <- Render        Script beside Assets; Audio off Core

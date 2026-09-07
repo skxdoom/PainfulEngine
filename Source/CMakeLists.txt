@@ -2,7 +2,8 @@
 #
 #   Core <- Assets <- World <- Render
 #
-# Each layer only knows about the ones to its left. Script sits beside Assets;
+# Each layer only knows about the ones to its left, checked by
+# painful_check_layering() in CMake/Layering.cmake. Script sits beside Assets;
 # Audio hangs off Core; Game is the seam above all of them; App is the
 # executable on top. One directory, one CMakeLists, one target, one project in
 # the IDE - so the solution reads like this folder does.

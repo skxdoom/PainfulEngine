@@ -1,5 +1,7 @@
 #include "LuaHost.h"
+#include "ScriptHandle.h"
 
+#include "../Core/Check.h"
 #include "../Core/Common.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
@@ -15,6 +17,7 @@ extern "C" {
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -654,18 +657,66 @@ int L_FS_FindFiles(lua_State* L) {
 // 0x1017e8f0 CreateFileWriter): File_Open hands back a writer, File_Write
 // appends, File_Close commits - to disk, or into the pak that CreatePAK
 // opened, under the file's basename. Docs/Reference/LuaHost.md, "Saving".
+//
+// The writer is FULL userdata with its own metatable, not a bare pointer: a
+// lightuserdata of another kind used to be written through as if it were one.
+// __gc also reclaims a writer the scripts abandon.
 
 struct ScriptFile {
     std::string path;
     std::vector<uint8_t> data;
+    bool closed = false;
 };
+
+const char* const kFileMeta = "painful.File";
+
+int L_FS_File_GC(lua_State* L) {
+    ScriptFile* f = static_cast<ScriptFile*>(lua_touserdata(L, 1));
+    if (!f) return 0;
+    PAINFUL_CHECK(f->closed, "FS.File_Open(%s) was never closed", f->path.c_str());
+    f->~ScriptFile();
+    return 0;
+}
+
+// The writer at `index`, or null. A missing or nil argument is an ordinary
+// answer; anything else that is not one of ours is a mix-up worth naming,
+// because before the metatable it was written through as if it were.
+ScriptFile* CheckFile(lua_State* L, int index) {
+    if (lua_isnoneornil(L, index)) return nullptr;
+    bool ours = false;
+    if (lua_getmetatable(L, index)) {
+        lua_pushstring(L, kFileMeta);
+        lua_rawget(L, LUA_REGISTRYINDEX);
+        ours = lua_rawequal(L, -1, -2) != 0;
+        lua_pop(L, 2);
+    }
+    if (!PAINFUL_CHECK(ours, "FS.File_*: argument %d is a %s, not a file writer", index,
+                       lua_typename(L, lua_type(L, index))))
+        return nullptr;
+    return static_cast<ScriptFile*>(lua_touserdata(L, index));
+}
 
 int L_FS_File_Open(lua_State* L) {
     const char* path = luaL_optstring(L, 1, "");
     if (!*path) return 0;
-    ScriptFile* f = new ScriptFile;
+    void* mem = lua_newuserdata(L, sizeof(ScriptFile));
+    ScriptFile* f = new (mem) ScriptFile;
     f->path = LuaHost::FromState(L)->ResolvePath(path);
-    lua_pushlightuserdata(L, f);
+
+    // One metatable per state, created on first use and kept in the registry.
+    lua_pushstring(L, kFileMeta);
+    lua_rawget(L, LUA_REGISTRYINDEX);
+    if (lua_isnil(L, -1)) {
+        lua_pop(L, 1);
+        lua_newtable(L);
+        lua_pushstring(L, "__gc");
+        lua_pushcfunction(L, L_FS_File_GC);
+        lua_rawset(L, -3);
+        lua_pushstring(L, kFileMeta);
+        lua_pushvalue(L, -2);
+        lua_rawset(L, LUA_REGISTRYINDEX);
+    }
+    lua_setmetatable(L, -2);
     return 1;
 }
 
@@ -673,7 +724,7 @@ int L_FS_File_Open(lua_State* L) {
 // original (0x10124180) strips it and writes its own CRLF, which is why the
 // shipped .Info files are CRLF though the scripts write "\n".
 int L_FS_File_Write(lua_State* L) {
-    ScriptFile* f = static_cast<ScriptFile*>(lua_touserdata(L, 1));
+    ScriptFile* f = CheckFile(L, 1);
     if (!f || !lua_isstring(L, 2)) return 0;
     const char* s = lua_tostring(L, 2);
     size_t n = lua_strlen(L, 2);
@@ -691,11 +742,14 @@ int L_FS_File_Write(lua_State* L) {
 }
 
 int L_FS_File_Close(lua_State* L) {
-    ScriptFile* f = static_cast<ScriptFile*>(lua_touserdata(L, 1));
+    ScriptFile* f = CheckFile(L, 1);
     if (!f) return 0;
+    if (!PAINFUL_CHECK(!f->closed, "FS.File_Close(%s) called twice", f->path.c_str())) return 0;
     if (!FileSystem::Get().WriteFile(f->path, f->data))
         LogWarn("FS.File_Close: cannot write %s", f->path.c_str());
-    delete f;
+    f->closed = true;
+    f->data.clear();
+    f->data.shrink_to_fit();
     return 0;
 }
 
@@ -732,14 +786,14 @@ int L_FS_RegisterPack(lua_State* L) {
     const std::string dir = host->ResolvePath(luaL_optstring(L, 2, ""));
     const int handle = FileSystem::Get().MountPack(pak, dir);
     if (handle <= 0) return 0;
-    lua_pushlightuserdata(L, reinterpret_cast<void*>(static_cast<intptr_t>(handle)));
+    PushHandle(L, HandleKind::kPack, handle);
     return 1;
 }
 
 int L_FS_UnregisterPack(lua_State* L) {
-    if (!lua_islightuserdata(L, 1)) return 0;
-    FileSystem::Get().UnmountPack(
-        int(reinterpret_cast<intptr_t>(lua_touserdata(L, 1))));
+    const int handle = ToHandle(L, 1, HandleKind::kPack);
+    if (!PAINFUL_CHECK(handle > 0, "FS.UnregisterPack: not a pack handle")) return 0;
+    FileSystem::Get().UnmountPack(handle);
     return 0;
 }
 

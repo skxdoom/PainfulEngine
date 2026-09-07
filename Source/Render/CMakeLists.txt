@@ -15,7 +15,6 @@ add_library(Render STATIC
   HudRenderer.cpp        HudRenderer.h
   ShaderLoad.cpp         ShaderLoad.h
                          Camera.h
-                         Frustum.h
                          MeshVertex.h
 )
 

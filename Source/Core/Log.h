@@ -6,6 +6,25 @@
 // LogOpen has been called - painful.log for everything, painful_script.log
 // for script errors, painful_shader.log for the shader loader. The tools
 // never call LogOpen and keep printing to the console only.
+//
+// The emitters are C variadic rather than variadic templates so the format
+// string can be annotated: GCC and Clang then reject a mismatched argument at
+// the call site, and MSVC's analysis does the same. A template hides the
+// format from both, which is how "%s" with an int compiles silently.
+#if defined(__GNUC__) || defined(__clang__)
+#define PAINFUL_FORMAT_ATTR(fmtIndex, firstArg) \
+    __attribute__((format(printf, fmtIndex, firstArg)))
+#define PAINFUL_FORMAT_STRING(decl) decl
+#else
+#define PAINFUL_FORMAT_ATTR(fmtIndex, firstArg)
+#if defined(_MSC_VER)
+#include <sal.h>
+#define PAINFUL_FORMAT_STRING(decl) _Printf_format_string_ decl
+#else
+#define PAINFUL_FORMAT_STRING(decl) decl
+#endif
+#endif
+
 namespace painful {
 
 enum class LogSink { kMain, kScript, kShader };
@@ -17,38 +36,11 @@ void LogClose();
 // when the sink is not the main one.
 void LogLine(LogSink sink, const char* prefix, const char* text);
 
-namespace detail {
-template <typename... Args>
-inline void Emit(LogSink sink, const char* prefix, const char* fmt, Args... args) {
-    char buf[2048];
-    std::snprintf(buf, sizeof buf, fmt, args...);
-    LogLine(sink, prefix, buf);
-}
-inline void Emit(LogSink sink, const char* prefix, const char* fmt) {
-    LogLine(sink, prefix, fmt);
-}
-}  // namespace detail
-
-template <typename... Args>
-inline void LogInfo(const char* fmt, Args... args) {
-    detail::Emit(LogSink::kMain, "", fmt, args...);
-}
-
-template <typename... Args>
-inline void LogWarn(const char* fmt, Args... args) {
-    detail::Emit(LogSink::kMain, "warning: ", fmt, args...);
-}
-
+void LogInfo(PAINFUL_FORMAT_STRING(const char* fmt), ...) PAINFUL_FORMAT_ATTR(1, 2);
+void LogWarn(PAINFUL_FORMAT_STRING(const char* fmt), ...) PAINFUL_FORMAT_ATTR(1, 2);
 // A script error: the main log and painful_script.log.
-template <typename... Args>
-inline void LogScript(const char* fmt, Args... args) {
-    detail::Emit(LogSink::kScript, "warning: ", fmt, args...);
-}
-
+void LogScript(PAINFUL_FORMAT_STRING(const char* fmt), ...) PAINFUL_FORMAT_ATTR(1, 2);
 // The shader loader: the main log and painful_shader.log.
-template <typename... Args>
-inline void LogShader(const char* fmt, Args... args) {
-    detail::Emit(LogSink::kShader, "", fmt, args...);
-}
+void LogShader(PAINFUL_FORMAT_STRING(const char* fmt), ...) PAINFUL_FORMAT_ATTR(1, 2);
 
-} // namespace painful
+}  // namespace painful

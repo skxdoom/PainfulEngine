@@ -1,9 +1,10 @@
 #include "EntityRenderer.h"
 #include "ShaderLoad.h"
+#include "../Core/Check.h"
 #include "../Core/Common.h"
 #include "../Core/FileSystem.h"
+#include "../Core/Frustum.h"
 #include "../Core/Log.h"
-#include "Frustum.h"
 #include "GpuBuffers.h"
 #include "MeshVertex.h"
 
@@ -609,7 +610,9 @@ int EntityRenderer::CreateScriptPack(const std::string& packName,
 }
 
 void EntityRenderer::SetScriptPose(int slot, const float pos[3], const float rotWXYZ[4]) {
-    if (slot < 0 || size_t(slot) >= instances_.size()) return;
+    if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
+                       "EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
+        return;
     Instance& instance = instances_[slot];
     for (int c = 0; c < 3; ++c) instance.pos[c] = pos[c];
     EngineQuatToRot9(rotWXYZ, instance.rot);
@@ -618,7 +621,9 @@ void EntityRenderer::SetScriptPose(int slot, const float pos[3], const float rot
 }
 
 void EntityRenderer::SetScriptSkinning(int slot, const Mat4* skin, size_t count) {
-    if (slot < 0 || size_t(slot) >= instances_.size()) return;
+    if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
+                       "EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
+        return;
     Instance& inst = instances_[slot];
     if (!skin || count == 0) { inst.skin.clear(); return; }
     inst.skin.assign(skin, skin + count);
@@ -649,7 +654,9 @@ void EntityRenderer::SetScriptSkinning(int slot, const Mat4* skin, size_t count)
 }
 
 void EntityRenderer::SetScriptVisible(int slot, bool visible) {
-    if (slot < 0 || size_t(slot) >= instances_.size()) return;
+    if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
+                       "EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
+        return;
     instances_[slot].visible = visible;
 }
 
@@ -661,7 +668,10 @@ void EntityRenderer::SetScriptVisible(int slot, bool visible) {
 // the whole actor, so this has to be per instance rather than per model.
 void EntityRenderer::SetScriptMaterial(int slot, const std::string& name,
                                        TextureCache& textures) {
-    if (slot < 0 || size_t(slot) >= instances_.size() || name.empty()) return;
+    if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
+                       "EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
+        return;
+    if (name.empty()) return;
     Instance& inst = instances_[slot];
     if (!shaders_ || !shaders_->Find(name)) {
         LogWarn("MDL.SetMaterial: no material %s", name.c_str());
@@ -676,7 +686,10 @@ void EntityRenderer::SetScriptMaterial(int slot, const std::string& name,
 
 void EntityRenderer::SetScriptMeshVisibility(int slot, const std::string& meshName,
                                              bool visible) {
-    if (slot < 0 || size_t(slot) >= instances_.size() || meshName.empty()) return;
+    if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
+                       "EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
+        return;
+    if (meshName.empty()) return;
     Instance& inst = instances_[slot];
     if (inst.model >= models_.size()) return;
     const GpuModel& model = models_[inst.model];
@@ -692,7 +705,9 @@ void EntityRenderer::SetScriptMeshVisibility(int slot, const std::string& meshNa
 }
 
 void EntityRenderer::ReleaseScript(int slot) {
-    if (slot < 0 || size_t(slot) >= instances_.size()) return;
+    if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
+                       "EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
+        return;
     Instance& inst = instances_[slot];
     // A posed buffer belongs to the instance, so it dies with it. Slots are
     // reused, and leaving these behind would leak one buffer per projectile
@@ -704,7 +719,9 @@ void EntityRenderer::ReleaseScript(int slot) {
 }
 
 bool EntityRenderer::GetScriptDimensions(int slot, float out[3]) const {
-    if (slot < 0 || size_t(slot) >= instances_.size()) return false;
+    if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
+                       "EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
+        return false;
     const Instance& instance = instances_[slot];
     const GpuModel& model = models_[instance.model];
     for (int i = 0; i < 3; ++i)

@@ -18,6 +18,11 @@ public:
     static constexpr bgfx::ViewId kHudView = 2;
 
     ~Renderer() { Shutdown(); }
+    // Owns GPU handles that Shutdown destroys, so it is not copyable: a copy
+    // would free them twice.
+    Renderer() = default;
+    Renderer(const Renderer&) = delete;
+    Renderer& operator=(const Renderer&) = delete;
 
     bool Init(Window& window);
     void Shutdown();
