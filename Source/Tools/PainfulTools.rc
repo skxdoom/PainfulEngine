@@ -1,2 +1,40 @@
 // The game's icon on the tools too - see App/PainfulEngine.rc for the ID.
 1 ICON "../PainfulEngine.ico"
+
+// Same version block as the game, so the two binaries never disagree about
+// which build they are. App/PainfulEngine.rc has the notes.
+#include "../Core/Version.h"
+#include <winver.h>
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION PAINFUL_VERSION_COMMAS
+PRODUCTVERSION PAINFUL_VERSION_COMMAS
+FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+#ifdef _DEBUG
+FILEFLAGS VS_FF_DEBUG | VS_FF_PRERELEASE
+#else
+FILEFLAGS VS_FF_PRERELEASE
+#endif
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+	BLOCK "StringFileInfo"
+	BEGIN
+		BLOCK "040904B0"
+		BEGIN
+			VALUE "FileDescription", PAINFUL_APP_NAME " Tools"
+			VALUE "FileVersion", PAINFUL_VERSION
+			VALUE "InternalName", "PainfulTools"
+			VALUE "OriginalFilename", "PainfulTools.exe"
+			VALUE "ProductName", PAINFUL_APP_NAME
+			VALUE "ProductVersion", PAINFUL_VERSION
+			VALUE "LegalCopyright", PAINFUL_COPYRIGHT
+			VALUE "Comments", "Diagnostics and the free-camera viewer for Painful Engine."
+		END
+	END
+	BLOCK "VarFileInfo"
+	BEGIN
+		VALUE "Translation", 0x409, 1200
+	END
+END

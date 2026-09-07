@@ -3,6 +3,27 @@
 A running inventory of the port. The short version lives in the README; this is
 the detail, with the authority for each rule named where one exists.
 
+## Version
+
+`Source/Core/Version.h` is the one place it is set — two numbers and a stage.
+Bumping it is editing that header and the README line; nothing else carries a
+copy, and the `.rc` files include the same header behind `RC_INVOKED`.
+
+It comes out as two strings, deliberately:
+
+| | |
+|---|---|
+| `Painful Engine` | the window, the taskbar, and Task Manager's process list — `FileDescription` in the `VERSIONINFO` block, not `ProductName`, which is the field Task Manager actually reads |
+| `Painful Engine 0.5 alpha` | the head of `painful.log` — a log is read after the fact and has to say which build wrote it |
+
+The window carries no version on purpose: it read as clutter in the taskbar.
+Explorer's Details tab gets the numbers instead, with `FileVersion` and
+`ProductVersion` both plain `0.5`.
+
+Not to be confused with the version the **scripts** ask about:
+`GetEngineVersionString` must keep answering exactly `"1.4"` or `Game:Init`
+refuses to run. That is the original engine's number and never follows this one.
+
 ## Source layout
 
 One directory, one CMakeLists, one target, one project in the IDE, so the

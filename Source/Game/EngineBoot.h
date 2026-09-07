@@ -27,7 +27,7 @@ public:
 	// Opens the window and brings the device and the caches up. False when the
 	// window or the renderer will not start, which is the caller's cue to give
 	// up rather than draw into nothing.
-	bool Init(const std::string& dataRoot, const char* exePath, const char* title,
+	bool Init(const std::string& dataRoot, const char* exePath, const std::string& title,
 			int width = 1280, int height = 720);
 
 	const std::string& root() const { return root_; }

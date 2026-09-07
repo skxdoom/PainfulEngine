@@ -9,6 +9,7 @@
 #   CrashReport a symbolised stack on a fault, to stderr and a file
 #   Check       PAINFUL_CHECK/ASSERT: a failed invariant that is logged, not silent
 #   Debug       the PAINFUL_* switch table, and the `traces` listing
+#   Version     the port's version number, and the name on the window
 #   Frustum     six view planes and AABB tests - pure maths, so World may use it
 #               without reaching up into Render
 add_library(Core STATIC
@@ -21,6 +22,7 @@ add_library(Core STATIC
 		CrashReport.cpp CrashReport.h
 		Log.cpp Log.h
 		Frustum.h
+		Version.h
 		Check.cpp Check.h
 		Debug.cpp Debug.h
 		Config.cpp Config.h

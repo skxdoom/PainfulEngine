@@ -3,3 +3,43 @@
 // the taskbar with no runtime call. The path is relative to this file; the .ico
 // sits one level up because PainfulTools shares it.
 1 ICON "../PainfulEngine.ico"
+
+// The Details tab in Explorer's properties, and the friendly name Task Manager
+// shows for the process - that one is FileDescription, not ProductName. The
+// numbers come from Core/Version.h, which is the only place they are set.
+#include "../Core/Version.h"
+#include <winver.h>
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION PAINFUL_VERSION_COMMAS
+PRODUCTVERSION PAINFUL_VERSION_COMMAS
+FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+#ifdef _DEBUG
+FILEFLAGS VS_FF_DEBUG | VS_FF_PRERELEASE
+#else
+FILEFLAGS VS_FF_PRERELEASE
+#endif
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+	BLOCK "StringFileInfo"
+	BEGIN
+		// 040904B0: US English, Unicode - matched by the Translation value below.
+		BLOCK "040904B0"
+		BEGIN
+			VALUE "FileDescription", PAINFUL_APP_NAME
+			VALUE "FileVersion", PAINFUL_VERSION
+			VALUE "InternalName", "PainfulEngine"
+			VALUE "OriginalFilename", "PainfulEngine.exe"
+			VALUE "ProductName", PAINFUL_APP_NAME
+			VALUE "ProductVersion", PAINFUL_VERSION
+			VALUE "LegalCopyright", PAINFUL_COPYRIGHT
+			VALUE "Comments", "Open reimplementation of PainEngine (Painkiller, 2004). Ships no game assets."
+		END
+	END
+	BLOCK "VarFileInfo"
+	BEGIN
+		VALUE "Translation", 0x409, 1200
+	END
+END

@@ -6,9 +6,9 @@ A 64-bit, cross-platform recreation of **PainEngine**, the engine behind
 You need your own copy of the game. This project ships no game assets or
 binaries.
 
-**The project is at an early stage.** It launches the game and the game is
-playable, with some bugs and occasional crashes. See
-[`Docs/Status.md`](Docs/Status.md). The next milestone is a first alpha.
+**The project is at an early stage — alpha version 0.5.** It launches the game
+and the game is playable, with some bugs and occasional crashes. See
+[`Docs/Status.md`](Docs/Status.md).
 
 ## Goals (all on-going)
 

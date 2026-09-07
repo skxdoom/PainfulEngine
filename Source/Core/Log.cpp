@@ -1,5 +1,7 @@
 #include "Log.h"
 
+#include "Version.h"
+
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -46,7 +48,7 @@ void LogOpen(const std::string& dir) {
 	const std::time_t now = std::time(nullptr);
 	char when[64] = {};
 	std::strftime(when, sizeof when, "%Y-%m-%d %H:%M:%S", std::localtime(&now));
-	std::fprintf(g_file, "PainfulEngine %s\n", when);
+	std::fprintf(g_file, "%s - %s\n", kBuildId, when);
 	std::fflush(g_file);
 }
 

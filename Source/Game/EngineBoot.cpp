@@ -8,7 +8,7 @@
 
 namespace painful {
 
-bool EngineBoot::Init(const std::string& dataRoot, const char* exePath, const char* title,
+bool EngineBoot::Init(const std::string& dataRoot, const char* exePath, const std::string& title,
 		int width, int height) {
 	root_ = dataRoot;
 	shaderDir_ = ShaderDirFor(exePath);

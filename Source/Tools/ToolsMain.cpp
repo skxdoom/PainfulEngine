@@ -10,6 +10,7 @@
 #include "Commands.h"
 #include "../Core/Vectors.h"
 #include "Core/Debug.h"
+#include "Core/Version.h"
 
 #include <cstring>
 #include <string>
@@ -271,7 +272,7 @@ const char* GroupTitle(const char* group) {
 }
 
 int Usage() {
-	LogInfo("PainfulTools - diagnostics over a Painkiller data root.");
+	LogInfo("PainfulTools %s - diagnostics over a Painkiller data root.", kVersion);
 	LogInfo("%s", "");
 	for (const char* group : kGroups) {
 		LogInfo("%s", GroupTitle(group));

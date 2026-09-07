@@ -15,6 +15,7 @@
 #include "Core/Check.h"
 #include "Core/Config.h"
 #include "Core/Debug.h"
+#include "Core/Version.h"
 #include "Core/FileSystem.h"
 #include "Core/Log.h"
 #include "Game/EngineBoot.h"
@@ -112,7 +113,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	// The window, the device, and everything keyed by name rather than by
 	// level. Shared with PainfulTools' `run` viewer; see Game/EngineBoot.h.
 	EngineBoot boot;
-	if (!boot.Init(dataRoot, exePath, "PainfulEngine")) return 3;
+	if (!boot.Init(dataRoot, exePath, kAppName)) return 3;
 	const std::string& root = boot.root();
 	const std::string& shaderDir = boot.shaderDir();
 	Window& window = boot.window();

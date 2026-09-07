@@ -20,10 +20,11 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} PREFIX "" FILES
 		${CMAKE_CURRENT_SOURCE_DIR}/GameApp.h
 		${CMAKE_CURRENT_SOURCE_DIR}/PainfulEngine.rc)
 
-# The .ico is not a source. MSBuild's tracker finds it anyway; Ninja does not
-# scan RC statements, and would keep linking the previous icon.
+# Neither the .ico nor Version.h is a source. MSBuild's tracker finds them
+# anyway; Ninja does not
+# scan RC statements, and would keep linking the previous icon and version.
 set_source_files_properties(PainfulEngine.rc PROPERTIES
-		OBJECT_DEPENDS ${PAINFUL_SOURCE}/PainfulEngine.ico)
+		OBJECT_DEPENDS "${PAINFUL_SOURCE}/PainfulEngine.ico;${PAINFUL_SOURCE}/Core/Version.h")
 
 # The optional copy into a game folder. It lives here because
 # add_custom_command(TARGET) has to be in the directory that defines the target.

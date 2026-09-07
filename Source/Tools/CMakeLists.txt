@@ -28,4 +28,4 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} PREFIX "" FILES
 
 # See App/CMakeLists.txt for why the .ico dependency is spelled out.
 set_source_files_properties(PainfulTools.rc PROPERTIES
-		OBJECT_DEPENDS ${PAINFUL_SOURCE}/PainfulEngine.ico)
+		OBJECT_DEPENDS "${PAINFUL_SOURCE}/PainfulEngine.ico;${PAINFUL_SOURCE}/Core/Version.h")

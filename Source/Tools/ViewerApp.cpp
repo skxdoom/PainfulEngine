@@ -7,6 +7,7 @@
 #include "../Core/Vectors.h"
 #include "Commands.h"
 #include "Core/Debug.h"
+#include "Core/Version.h"
 #include "Game/EngineBoot.h"
 #include <string>
 #include <vector>
@@ -19,7 +20,7 @@ int RunCmd(const char* levelDir, const char* dataRoot,
 	// The window, the device and the level-independent caches, the same ones
 	// the game boots. Game/EngineBoot.h.
 	EngineBoot boot;
-	if (!boot.Init(dataRoot, exePath, "PainfulEngine")) return 3;
+	if (!boot.Init(dataRoot, exePath, std::string(kAppName) + " - viewer")) return 3;
 	const std::string& root = boot.root();
 	const std::string& shaderDir = boot.shaderDir();
 
