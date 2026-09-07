@@ -6,14 +6,19 @@
 #include "LevelStats.h"
 #include "Commands.h"
 #include "Core/Debug.h"
+#include "Game/EngineBoot.h"
 
 int RunCmd(const char* levelDir, const char* dataRoot,
                   const std::string& shotPath, const char* exePath,
                   const float* startPos, const float* startAngles,
                   int cullMode, int entityCull, float entityScale, bool skyOnly,
                   bool novis, bool noclip, bool physicsDebug) {
-    const std::string root = dataRoot;
-    const std::string shaderDir = ShaderDirFor(exePath);
+    // The window, the device and the level-independent caches, the same ones
+    // the game boots. Game/EngineBoot.h.
+    EngineBoot boot;
+    if (!boot.Init(dataRoot, exePath, "PainfulEngine")) return 3;
+    const std::string& root = boot.root();
+    const std::string& shaderDir = boot.shaderDir();
 
     // Enumerate every level once so they can be cycled without restarting.
     std::vector<std::string> levelDirs;
@@ -37,27 +42,22 @@ int RunCmd(const char* levelDir, const char* dataRoot,
         }
     }
 
-    Window window;
-    if (!window.Open("PainfulEngine", 1280, 720)) return 3;
-
-    Renderer renderer;
-    if (!renderer.Init(window)) return 3;
-    LogInfo("renderer: %s", renderer.BackendName().c_str());
-
-    // These are level-independent, so they are built once and reused.
-    TextureCache textures;
-    textures.Init(root + "/Textures");
-    TemplateCache templates;
-    templates.Init(root + "/LScripts/Templates");
-    ShaderLibrary shaderScripts;
-    if (!shaderScripts.LoadDirectory(root + "/Shaders/Scripts")) {
-        for (const std::string& e : shaderScripts.errors()) LogWarn("%s", e.c_str());
-    }
+    Window& window = boot.window();
+    Renderer& renderer = boot.renderer();
+    TextureCache& textures = boot.textures();
+    ShaderLibrary& shaderScripts = boot.shaders();
+    EmitterLibrary& emitterScripts = boot.emitters();
+    PhysicsWorld& physics = boot.physics();
+    DebugLines& debugLines = boot.debugLines();
+    const bool debugLinesReady = boot.debugLinesReady();
     LogInfo("%zu material definitions", shaderScripts.size());
-    EmitterLibrary emitterScripts;
-    emitterScripts.Init(root + "/Scripts");
     LogInfo("%zu emitters, %zu particle effects", emitterScripts.indexedEmitters(),
             emitterScripts.indexedEffects());
+
+    // The viewer builds its own entity placement, which the game leaves to the
+    // scripts, so the template chain is its alone.
+    TemplateCache templates;
+    templates.Init(root + "/LScripts/Templates");
 
     float liveScale = entityScale;
     std::unique_ptr<Level> level;
@@ -67,13 +67,6 @@ int RunCmd(const char* levelDir, const char* dataRoot,
     std::unique_ptr<ParticleRenderer> particles;
     std::unique_ptr<BillboardRenderer> billboards;
     CollisionMesh collision;
-    PhysicsWorld physics;
-    physics.SetProbeRadius(kCameraRadius);
-    // The player's own pusher: the widest of the four spheres the shape factory
-    // builds for BodyTypes.Player at bodyScale 1.0 (Engine.dll 0x101b3e20).
-    physics.SetPawnProbeRadius(0.4f);
-    DebugLines debugLines;
-    const bool debugLinesReady = debugLines.Init(shaderDir);
     std::vector<DebugLine> physicsWireframe;
     std::vector<BodyPose> movedProps;
     Camera camera;

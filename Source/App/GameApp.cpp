@@ -16,6 +16,7 @@
 #include "Core/Debug.h"
 #include "Core/FileSystem.h"
 #include "Core/Log.h"
+#include "Game/EngineBoot.h"
 #include "Game/Input.h"
 #include "Game/PlayerPawn.h"
 #include "Game/ScriptEngine.h"
@@ -108,24 +109,18 @@ static bool ProjectToScreen(const float world[3], const float viewProj[16],
 // same subsystems by hand - as natives grow real, this path takes over.
 int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
                    const std::string& shotPath, const char* exec, bool devUI, bool mpMove) {
-    const std::string root = dataRoot;
-    const std::string shaderDir = ShaderDirFor(exePath);
-
-    Window window;
-    if (!window.Open("PainfulEngine", 1280, 720)) return 3;
-    Renderer renderer;
-    if (!renderer.Init(window)) return 3;
-    LogInfo("renderer: %s", renderer.BackendName().c_str());
-    // Which diagnostic switches this run had on, so a log explains its own
-    // odd behaviour. PainfulTools traces lists them all.
-    if (const std::string on = DebugActive(); !on.empty()) LogInfo("switches: %s", on.c_str());
-
-    TextureCache textures;
-    textures.Init(root + "/Textures");
-    ShaderLibrary shaderScripts;
-    if (!shaderScripts.LoadDirectory(root + "/Shaders/Scripts")) {
-        for (const std::string& e : shaderScripts.errors()) LogWarn("%s", e.c_str());
-    }
+    // The window, the device, and everything keyed by name rather than by
+    // level. Shared with PainfulTools' `run` viewer; see Game/EngineBoot.h.
+    EngineBoot boot;
+    if (!boot.Init(dataRoot, exePath, "PainfulEngine")) return 3;
+    const std::string& root = boot.root();
+    const std::string& shaderDir = boot.shaderDir();
+    Window& window = boot.window();
+    Renderer& renderer = boot.renderer();
+    TextureCache& textures = boot.textures();
+    ShaderLibrary& shaderScripts = boot.shaders();
+    EmitterLibrary& emitterScripts = boot.emitters();
+    PhysicsWorld& physics = boot.physics();
 
     EntityRenderer entities;
     // .pkmdl winding; pack meshes carry their own state. PAINFUL_ECULL is a
@@ -137,8 +132,6 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
     // before the level loads, since the scripts create entities as they go.
     entities.SetShaders(&shaderScripts);
 
-    EmitterLibrary emitterScripts;
-    emitterScripts.Init(root + "/Scripts");
     ParticleRenderer particles;
     const bool particlesReady = particles.Init(shaderDir);
     BillboardRenderer billboards;
@@ -151,11 +144,6 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
     // let them load the level: every ENTITY.Create lands in the renderer,
     // every PO_Create in Jolt, every AddEmitter and SetupCorona in its
     // renderer, as they happen.
-    PhysicsWorld physics;
-    physics.SetProbeRadius(kCameraRadius);
-    // The player's own pusher: the widest of the four spheres the shape factory
-    // builds for BodyTypes.Player at bodyScale 1.0 (Engine.dll 0x101b3e20).
-    physics.SetPawnProbeRadius(0.4f);   // the four-sphere player body as a sensor
     PlayerPawn pawn;
     Input input;
     LuaHost host;
@@ -197,8 +185,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
     // The debug overlays: F1 collision wireframe, F2 the same without the
     // level, F3 nameplates. Off unless asked for, and each independent - the
     // wireframe and the labels answer different questions.
-    DebugLines debugLines;
-    const bool debugLinesReady = debugLines.Init(shaderDir);
+    DebugLines& debugLines = boot.debugLines();
+    const bool debugLinesReady = boot.debugLinesReady();
     std::vector<DebugLine> debugWireframe;
     // Two different questions, so two independent overlays rather than one
     // mode with three positions:

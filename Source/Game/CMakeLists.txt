@@ -6,10 +6,14 @@
 # table that binds them. ScriptBind only calls the seventeen binders, so adding
 # a native touches one file instead of the header and all thirty TUs below it.
 # ScriptEngineInternal.h carries what they share.
+#
+# EngineBoot is the window, the device and the level-independent caches, shared
+# with PainfulTools' `run` viewer so the two do not boot separately.
 add_library(Game STATIC
   MenuSystem.cpp    MenuSystem.h
   Console.cpp       Console.h
   PlayerPawn.cpp    PlayerPawn.h
+  EngineBoot.cpp    EngineBoot.h
   Input.cpp         Input.h
 
   ScriptEngine.cpp  ScriptEngine.h

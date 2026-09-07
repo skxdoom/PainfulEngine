@@ -1,12 +1,19 @@
 #pragma once
 
-// The game itself: the script-driven run.
+// The game itself: the script-driven run. One function, not a class - the
+// header used to imply otherwise.
 //
 // Game:LoadLevel reads the level and creates its entities through the native
 // API, Game:OnPlay creates the player, and the frame loop ticks the script
 // layer against the engine subsystems. This is what launching the executable
-// does; the hand-driven loader behind PainfulTools' `run` is a diagnostic and
-// shares nothing with it but the renderer underneath.
+// does; the hand-driven loader behind PainfulTools' `run` is a diagnostic, and
+// the two now share their boot through Game/EngineBoot.h - the window, the
+// device and the caches that do not belong to any one level.
+//
+// The frame loop itself is still one long body. Its phases (input, the debug
+// keys, the tick chain, drawing) are not split out because none of them can be
+// exercised without a person at the keyboard, and an untestable extraction of
+// recovered frame order is a bad trade.
 
 #include <string>
 
