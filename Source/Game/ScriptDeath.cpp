@@ -32,6 +32,17 @@ struct DeathNatives : ScriptNativesBase {
 	static int L_MDL_SetRagdollMovedByExplosions(lua_State* L);
 	static int L_MDL_RagdollSelfExplosion(lua_State* L);
 	static int L_MDL_ApplyVelocitiesToAllJoints(lua_State* L);
+	static int L_MDL_SetPinned(lua_State* L);
+	static int L_MDL_IsPinned(lua_State* L);
+	static int L_MDL_SetPinnedJoint(lua_State* L);
+	static int L_MDL_IsPinnedJoint(lua_State* L);
+	static int L_MDL_GetRagdollJointPos(lua_State* L);
+	static int L_MDL_GetRagdollJointRotation(lua_State* L);
+	static int L_MDL_ApplyVelocitiesToJoint(lua_State* L);
+	static int L_MDL_ApplyVelocitiesToJointLinked(lua_State* L);
+	static int L_PHYSICS_IsHavokBodyPinned(lua_State* L);
+	static int L_PHYSICS_SetHavokBodyVelocity(lua_State* L);
+	static int JointVelocity(lua_State* L, bool linked);
 };
 
 namespace {
@@ -1051,6 +1062,128 @@ int DeathNatives::L_MDL_ApplyVelocitiesToAllJoints(lua_State* L) {
 }
 
 
+// The pin queries. Three scripts read them through `not` - CActor:Electrize,
+// meat.lua and PainHead:Tick - so answering nil said "free" about a corpse
+// nailed to a wall. Docs/Reference/Physics.md, "Pinning".
+int DeathNatives::L_MDL_SetPinned(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (e && self->physics_)
+		self->physics_->SetRagdollPinned(e->ragdollSlot, lua_toboolean(L, 2) != 0);
+	return 0;
+}
+
+int DeathNatives::L_MDL_IsPinned(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const Entity* e = self->Find(HandleArg(L, 1));
+	lua_pushboolean(L, e && self->physics_ &&
+			self->physics_->RagdollPinned(e->ragdollSlot) ? 1 : 0);
+	return 1;
+}
+
+// MDL.SetPinnedJoint(e, joint, pinned = false) - Ragdoll::Joint_SetPinned.
+int DeathNatives::L_MDL_SetPinnedJoint(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || !self->physics_) return 0;
+	const int part = self->RagdollPartOfJoint(*e, int(luaL_optnumber(L, 2, -1)));
+	if (part >= 0)
+		self->physics_->SetRagdollPartPinned(e->ragdollSlot, part, lua_toboolean(L, 3) != 0);
+	return 0;
+}
+
+int DeathNatives::L_MDL_IsPinnedJoint(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	int part = -1;
+	if (e && self->physics_) part = self->RagdollPartOfJoint(*e, int(luaL_optnumber(L, 2, -1)));
+	lua_pushboolean(L, part >= 0 &&
+			self->physics_->RagdollPartPinned(e->ragdollSlot, part) ? 1 : 0);
+	return 1;
+}
+
+// MDL.GetRagdollJointPos / GetRagdollJointRotation - where the SOLVER has a
+// limb, not where the animation would put it. Both answer for an absent
+// ragdoll (0,0,0 and identity) because Apoc_zombie feeds them to a Vector and
+// a Quaternion constructor without checking.
+int DeathNatives::L_MDL_GetRagdollJointPos(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	Vec3 p;
+	if (e && self->physics_) {
+		const int part = self->RagdollPartOfJoint(*e, int(luaL_optnumber(L, 2, -1)));
+		if (part >= 0) self->physics_->GetRagdollPartPosition(e->ragdollSlot, part, p);
+	}
+	for (int c = 0; c < 3; ++c) lua_pushnumber(L, p[c]);
+	return 3;
+}
+
+int DeathNatives::L_MDL_GetRagdollJointRotation(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	Quat q{1.f, 0.f, 0.f, 0.f};
+	if (e && self->physics_) {
+		const int part = self->RagdollPartOfJoint(*e, int(luaL_optnumber(L, 2, -1)));
+		if (part >= 0) self->physics_->GetRagdollPartRotation(e->ragdollSlot, part, q);
+	}
+	for (int c = 0; c < 4; ++c) lua_pushnumber(L, q[c]);
+	return 4;
+}
+
+// MDL.ApplyVelocitiesToJoint(e, joint, lx,ly,lz, ax,ay,az) and its Linked
+// twin, which floods the constraint graph from that limb (0x1012D400 /
+// 0x1012D7B0). The Linked one is how PainHead throws a corpse off a wall.
+int DeathNatives::JointVelocity(lua_State* L, bool linked) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || !self->physics_) return 0;
+	const int part = self->RagdollPartOfJoint(*e, int(luaL_optnumber(L, 2, -1)));
+	if (part < 0) return 0;
+	const Vec3 lin{float(luaL_optnumber(L, 3, 0)), float(luaL_optnumber(L, 4, 0)),
+					float(luaL_optnumber(L, 5, 0))};
+	const Vec3 ang{float(luaL_optnumber(L, 6, 0)), float(luaL_optnumber(L, 7, 0)),
+					float(luaL_optnumber(L, 8, 0))};
+	if (linked) self->physics_->SetRagdollLinkedVelocity(e->ragdollSlot, part, lin, ang);
+	else self->physics_->SetRagdollPartVelocity(e->ragdollSlot, part, lin, ang);
+	return 0;
+}
+
+int DeathNatives::L_MDL_ApplyVelocitiesToJoint(lua_State* L) { return JointVelocity(L, false); }
+
+int DeathNatives::L_MDL_ApplyVelocitiesToJointLinked(lua_State* L) {
+	return JointVelocity(L, true);
+}
+
+// PHYSICS.IsHavokBodyPinned(he) / SetHavokBodyVelocity(he, x, y, z) - the same
+// two questions asked of a LIMB handle rather than an entity.
+int DeathNatives::L_PHYSICS_IsHavokBodyPinned(lua_State* L) {
+	ScriptEngine* self = From(L);
+	int entity = 0, joint = -1, part = -1;
+	Entity* e = nullptr;
+	if (lua_isnumber(L, 1) && self->physics_ &&
+			self->LimbFromHandle(int(lua_tonumber(L, 1)), entity, joint) &&
+			(e = self->Find(entity)) != nullptr)
+		part = self->RagdollPartForJoint(*e, joint);
+	lua_pushboolean(L, part >= 0 &&
+			self->physics_->RagdollPartPinned(e->ragdollSlot, part) ? 1 : 0);
+	return 1;
+}
+
+int DeathNatives::L_PHYSICS_SetHavokBodyVelocity(lua_State* L) {
+	ScriptEngine* self = From(L);
+	if (!lua_isnumber(L, 1) || !self->physics_) return 0;
+	int entity = 0, joint = -1;
+	if (!self->LimbFromHandle(int(lua_tonumber(L, 1)), entity, joint)) return 0;
+	Entity* e = self->Find(entity);
+	if (!e) return 0;
+	const int part = self->RagdollPartForJoint(*e, joint);
+	if (part < 0) return 0;
+	const Vec3 v{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+					float(luaL_optnumber(L, 4, 0))};
+	self->physics_->SetRagdollPartVelocity(e->ragdollSlot, part, v, Vec3{});
+	return 0;
+}
+
 void BindDeath(ScriptEngine& engine, LuaHost& host) {
 	const ScriptNative natives[] = {
 		{"MDL", "JointsLinked", DeathNatives::L_MDL_JointsLinked},
@@ -1071,6 +1204,17 @@ void BindDeath(ScriptEngine& engine, LuaHost& host) {
 		{"PHYSICS", "SetHavokBodyPosition", DeathNatives::L_PHYSICS_SetHavokBodyPosition},
 		{"PHYSICS", "PinHavokBody", DeathNatives::L_PHYSICS_PinHavokBody},
 		{"PHYSICS", "IsHavokBodyInWorld", DeathNatives::L_PHYSICS_IsHavokBodyInWorld},
+		{"PHYSICS", "IsHavokBodyPinned", DeathNatives::L_PHYSICS_IsHavokBodyPinned},
+		{"PHYSICS", "SetHavokBodyVelocity", DeathNatives::L_PHYSICS_SetHavokBodyVelocity},
+		{"MDL", "SetPinned", DeathNatives::L_MDL_SetPinned},
+		{"MDL", "IsPinned", DeathNatives::L_MDL_IsPinned},
+		{"MDL", "SetPinnedJoint", DeathNatives::L_MDL_SetPinnedJoint},
+		{"MDL", "IsPinnedJoint", DeathNatives::L_MDL_IsPinnedJoint},
+		{"MDL", "GetRagdollJointPos", DeathNatives::L_MDL_GetRagdollJointPos},
+		{"MDL", "GetRagdollJointRotation", DeathNatives::L_MDL_GetRagdollJointRotation},
+		{"MDL", "ApplyVelocitiesToJoint", DeathNatives::L_MDL_ApplyVelocitiesToJoint},
+		{"MDL", "ApplyVelocitiesToJointLinked",
+				DeathNatives::L_MDL_ApplyVelocitiesToJointLinked},
 	};
 	RegisterFamily(engine, host, natives);
 }

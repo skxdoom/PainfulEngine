@@ -712,6 +712,84 @@ moves them by impulse - being released and destroyed is the whole mechanism.
 Measured: blasted while pinned and immortal, moved 0.0000 and kept Health 1;
 released and mortal, the same blast takes it to -172 and kills it.
 
+### Pinning a CORPSE, and throwing one afterwards
+
+A stake nailing a body to a wall has always worked: `Stake:Tick` uses
+`PHYSICS.GetHavokBodyPosition`, `WORLD.LineTrace`, `ENTITY.IsFixedMesh`,
+`SetHavokBodyPosition` and `PinHavokBody`, and every one of those is real. What
+was missing is everything that asks about a pinned corpse afterwards, or moves
+one.
+
+| native | in the binary | notes |
+|---|---|---|
+| `MDL.SetPinned(e, on)` | `0x1012DE10` → `Ragdoll::SetPinned` | every limb |
+| `MDL.IsPinned(e)` | `0x1012DED0`, false without a ragdoll | |
+| `MDL.SetPinnedJoint(e, joint, on)` | `0x1012DF90` → `Ragdoll::Joint_SetPinned` | note the arg order: joint then flag |
+| `MDL.IsPinnedJoint(e, joint)` | `0x1012E060` | |
+| `PHYSICS.IsHavokBodyPinned(he)` | `0x10129740` | the same question about a LIMB handle |
+| `PHYSICS.SetHavokBodyVelocity(he, x, y, z)` | `0x101295E0` | linear only |
+| `MDL.GetRagdollJointPos(e, joint)` | `0x1012C420`, 3 floats, `(0,0,0)` when absent | where the SOLVER has the limb |
+| `MDL.GetRagdollJointRotation(e, joint)` | `0x1012C690`, 4 floats | `Ragdoll::Joint_GetRotation` |
+| `MDL.ApplyVelocitiesToJoint(e, j, lx,ly,lz, ax,ay,az)` | `0x1012D400` → `Joint_SetVelocities` | one limb |
+| `MDL.ApplyVelocitiesToJointLinked(...)` | `0x1012D7B0` → `Joint_SetVelocitiesForLinked` | see below |
+
+**Linked means the constraint graph, not the skeleton.** `FUN_101AEAC0` seeds a
+set with the named limb, then sweeps the ragdoll's constraint list and its
+additional-constraint list, adding the far end of any constraint with exactly
+one end already in the set, and repeats until the set stops growing. Only then
+does it write the linear and angular velocity to every body in it. So a chunk
+whose constraints have been broken is thrown **alone**, and an intact corpse is
+thrown whole. That is what `PainHead:Tick` wants when it tears a pinned body off
+a wall. Ported as the same flood fill over `JPH::Ragdoll::GetConstraint`,
+skipping disabled constraints.
+
+**The pin flag is held, not inferred.** The obvious reading — "pinned means the
+limb is kinematic" — is wrong here, because a LIVE monster's ragdoll is
+kinematic too (it is driven along the animation). `RagdollInst::pinned` carries
+one byte per limb, which is what `Ragdoll::IsPinned` reads in the original.
+Unpinning hands the limb back to the solver as dynamic and awake.
+
+Three scripts read these through `not`, which is why the absent versions were
+worse than useless: `CActor:Electrize` (`if i >= 0 and not MDL.IsPinned(...)`),
+`Vamp_Small/meat.lua` (`if not MDL.IsPinnedJoint(...)`) and `PainHead:Tick`
+(`if PHYSICS.IsHavokBodyPinned(he) or MDL.IsPinned(e)`). A nil answer said
+"free" about a body nailed to a wall.
+
+Measured on a Cathedral corpse, through a `Game_Tick3` hook in the `lua`
+command's exec chunk, taking the joint from the scripts' own
+`CActor:GetAnyJoint` (a bone the `.hke` skips has no body, and `ROOOT` is one of
+them — the first probe read `(0,0,0)` for exactly that reason):
+
+| step | reading |
+|---|---|
+| `GetRagdollJointPos` / `GetRagdollJointRotation` | `(-312.897, -2.801, -2.253)`, quat `(0.590, 0.023, -0.806, 0.036)` |
+| `IsPinned` / `IsPinnedJoint` before | false / false |
+| after `SetPinnedJoint(e, j, true)` | true / true |
+| 30 frames later | **dy 0.000** — a pinned limb does not fall |
+| after `SetPinnedJoint(e, j, false)` | false |
+| `ApplyVelocitiesToJointLinked(e, j, 0, 25, 0, 0,0,0)`, 2 frames | **dy +0.816**, against 25/60 x 2 = 0.833 less gravity |
+
+### A corpse's collision group is recovered but NOT applied
+
+`Ragdoll::SetCollisionGroup` (`0x1019C870` → `FUN_101AB570`) writes the group to
+each limb's body at `+0x20` and packs it into the filter byte at `+0x88` as
+`group * 2 | bit0`. It has one special case: **a group in [10, 19] is replaced
+by `counter + 10`, where `counter` is a global that rotates 0..9 and advances
+once per call.** `ECollisionGroups.RagdollNonColliding` is 10, so each
+non-colliding corpse is dealt one of ten group values in turn; groups outside
+that band (`RagdollColliding` 20, `Particles` 8) are written verbatim.
+
+What that band *means* is the part still missing: it is the group-pair filter
+table that decides whether a corpse collides with the player, with props, and
+with other corpses, and that table has not been recovered yet. Until it is,
+`MDL.SetRagdollCollisionGroup` stays a stub and **every corpse in the game
+collides like an ordinary moving body** (a simulated ragdoll is `Layers::kMoving`
+unconditionally), while 53 of the shipped monster scripts ask for
+`RagdollNonColliding` at `MDL.EnableRagdoll(e, true, group)` — whose third
+argument our native also ignores. Expect corpses to shove the player and each
+other more than they should. **What would settle it:** the `hkGroupFilter` setup
+in `Engine.dll` — the loop that enables or disables layer pairs at physics init.
+
 ### Strength is taken as an IMPULSE, and that is the tuning knob
 
 The engine accumulates into `PhysicsObject::EffectForce` and spends the total

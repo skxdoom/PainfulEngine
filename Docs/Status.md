@@ -367,13 +367,13 @@ The ordered work queue, with the evidence behind each item, is
   ([`MonsterMovement.md`](Reference/MonsterMovement.md)). Not yet exercised:
   stairs and slopes under the dynamic body, and flyers (`PO_SetFlying` is a
   real flag now, but the `Maintain*` movers behind it are still stubs).
-- **Corpse pinning.** The stake now reaches its wall test —
-  `PHYSICS.GetHavokBodyPosition`, `SetHavokBodyPosition` and `PinHavokBody` are
-  in — but the corpse side is not: `MDL.SetPinned` / `SetPinnedJoint` /
-  `IsPinned` / `SetRagdollCollisionGroup` and `PHYSICS.IsHavokBodyPinned` /
-  `SetHavokBodyVelocity` are stubs, so nothing stays on the wall.
-  `ENTITY.PO_SetPinned` works on props; corpses are the gap
-  ([`Stubs.md`](Stubs.md), Tier 1).
+- **Corpse collision groups.** Pinning itself works — a stake nails a body to a
+  wall, and the questions asked about a pinned corpse afterwards now answer
+  (`MDL.IsPinned` / `IsPinnedJoint`, the joint pose and velocity family;
+  [`Physics.md`](Reference/Physics.md), "Pinning a CORPSE"). What is left is the
+  group: 53 monster scripts enable their ragdoll as `RagdollNonColliding` and
+  every corpse here is an ordinary moving body instead, because the group-pair
+  filter behind those numbers has not been recovered.
 - **Active meshes, the leftovers.** World objects named `phys` are rigid
   bodies now, drawn by the entity path where physics puts them, released from
   `pinned` by blasts and group activation. Not ported: the autodelete timers

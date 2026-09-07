@@ -367,6 +367,7 @@ int PhysicsWorld::CreateRagdoll(const std::string& model, const Hke& def, float 
 	inst.ragdoll = cached->CreateRagdoll(impl_->nextRagdollGroup++, 0, &impl_->system);
 	if (inst.ragdoll == nullptr) return -1;
 	inst.bones = order;
+	inst.pinned.assign(order.size(), 0);
 	inst.ragdoll->AddToPhysicsSystem(JPH::EActivation::Activate);
 
 	for (size_t i = 0; i < impl_->ragdolls.size(); ++i)
@@ -389,6 +390,7 @@ void PhysicsWorld::RemoveRagdoll(int slot) {
 	inst.ragdoll->RemoveFromPhysicsSystem();
 	inst.ragdoll = nullptr;
 	inst.bones.clear();
+	inst.pinned.clear();
 }
 
 const std::vector<std::string>& PhysicsWorld::RagdollBones(int slot) const {
@@ -599,14 +601,101 @@ void PhysicsWorld::SetRagdollPartPosition(int slot, int part, const Vec3& pos) {
 }
 
 void PhysicsWorld::PinRagdollPart(int slot, int part) {
+	SetRagdollPartPinned(slot, part, true);
+}
+
+// Ragdoll::Joint_SetPinned (0x1019C9E0 -> FUN_101AC470), which pins one limb
+// when it has a constraint. Pinned is kinematic and at rest; unpinned hands
+// the limb back to the solver, awake.
+void PhysicsWorld::SetRagdollPartPinned(int slot, int part, bool pinned) {
+	if (!RagdollExists(slot) || part < 0) return;
+	Impl::RagdollInst& inst = impl_->ragdolls[size_t(slot)];
+	const auto& ids = inst.ragdoll->GetBodyIDs();
+	if (size_t(part) >= ids.size()) return;
+	JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+	const JPH::BodyID id = ids[size_t(part)];
+	if (size_t(part) < inst.pinned.size()) inst.pinned[size_t(part)] = pinned ? 1 : 0;
+	const JPH::EMotionType want = pinned ? JPH::EMotionType::Kinematic : JPH::EMotionType::Dynamic;
+	if (pinned) bodies.SetLinearAndAngularVelocity(id, JPH::Vec3::sZero(), JPH::Vec3::sZero());
+	if (bodies.GetMotionType(id) != want)
+		bodies.SetMotionType(id, want, JPH::EActivation::Activate);
+}
+
+bool PhysicsWorld::RagdollPartPinned(int slot, int part) const {
+	if (!RagdollExists(slot) || part < 0) return false;
+	const auto& flags = impl_->ragdolls[size_t(slot)].pinned;
+	return size_t(part) < flags.size() && flags[size_t(part)] != 0;
+}
+
+// Ragdoll::SetPinned (0x1019C900 -> FUN_101AC390) walks every limb.
+void PhysicsWorld::SetRagdollPinned(int slot, bool pinned) {
+	if (!RagdollExists(slot)) return;
+	const size_t parts = impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs().size();
+	for (size_t i = 0; i < parts; ++i) SetRagdollPartPinned(slot, int(i), pinned);
+}
+
+// Ragdoll::IsPinned. The original reads one flag for the whole corpse; a limb
+// is what actually gets nailed, so any pinned limb answers for it.
+bool PhysicsWorld::RagdollPinned(int slot) const {
+	if (!RagdollExists(slot)) return false;
+	for (uint8_t f : impl_->ragdolls[size_t(slot)].pinned)
+		if (f) return true;
+	return false;
+}
+
+bool PhysicsWorld::GetRagdollPartRotation(int slot, int part, Quat& out) const {
+	if (!RagdollExists(slot) || part < 0) return false;
+	const auto& ids = impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs();
+	if (size_t(part) >= ids.size()) return false;
+	const JPH::Quat q = impl_->system.GetBodyInterfaceNoLock().GetRotation(ids[size_t(part)]);
+	out = Quat{q.GetW(), q.GetX(), q.GetY(), q.GetZ()};
+	return true;
+}
+
+void PhysicsWorld::SetRagdollPartVelocity(int slot, int part, const Vec3& linear,
+		const Vec3& angular) {
 	if (!RagdollExists(slot) || part < 0) return;
 	const auto& ids = impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs();
 	if (size_t(part) >= ids.size()) return;
 	JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
 	const JPH::BodyID id = ids[size_t(part)];
-	bodies.SetLinearAndAngularVelocity(id, JPH::Vec3::sZero(), JPH::Vec3::sZero());
-	if (bodies.GetMotionType(id) != JPH::EMotionType::Kinematic)
-		bodies.SetMotionType(id, JPH::EMotionType::Kinematic, JPH::EActivation::Activate);
+	if (bodies.GetMotionType(id) != JPH::EMotionType::Dynamic) return;
+	if (!bodies.IsActive(id)) bodies.ActivateBody(id);
+	bodies.SetLinearAndAngularVelocity(id, JPH::Vec3(linear[0], linear[1], linear[2]),
+			JPH::Vec3(angular[0], angular[1], angular[2]));
+}
+
+// Joint_SetVelocitiesForLinked (FUN_101AEAC0) floods the CONSTRAINT graph from
+// the named limb and sets the velocity on everything it reaches - so a chunk
+// torn off a corpse is thrown alone, not with the body it left behind.
+void PhysicsWorld::SetRagdollLinkedVelocity(int slot, int part, const Vec3& linear,
+		const Vec3& angular) {
+	if (!RagdollExists(slot) || part < 0) return;
+	JPH::Ragdoll* rd = impl_->ragdolls[size_t(slot)].ragdoll;
+	const auto& ids = rd->GetBodyIDs();
+	if (size_t(part) >= ids.size()) return;
+
+	std::vector<uint8_t> reached(ids.size(), 0);
+	reached[size_t(part)] = 1;
+	const auto indexOf = [&ids](const JPH::Body* b) -> int {
+		if (b == nullptr) return -1;
+		for (size_t i = 0; i < ids.size(); ++i)
+			if (ids[i] == b->GetID()) return int(i);
+		return -1;
+	};
+	for (bool grew = true; grew;) {
+		grew = false;
+		for (size_t c = 0, n = rd->GetConstraintCount(); c < n; ++c) {
+			const JPH::TwoBodyConstraint* con = rd->GetConstraint(int(c));
+			if (con == nullptr || !con->GetEnabled()) continue;
+			const int a = indexOf(con->GetBody1()), b = indexOf(con->GetBody2());
+			if (a < 0 || b < 0 || reached[size_t(a)] == reached[size_t(b)]) continue;
+			reached[size_t(a)] = reached[size_t(b)] = 1;
+			grew = true;
+		}
+	}
+	for (size_t i = 0; i < reached.size(); ++i)
+		if (reached[i]) SetRagdollPartVelocity(slot, int(i), linear, angular);
 }
 
 void PhysicsWorld::RagdollPartPositions(int slot, std::vector<float>& outXYZ) const {

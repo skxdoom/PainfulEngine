@@ -325,6 +325,21 @@ public:
 	bool GetRagdollPartPosition(int slot, int part, Vec3& out) const;
 	void SetRagdollPartPosition(int slot, int part, const Vec3& pos);
 	void PinRagdollPart(int slot, int part);
+	// Ragdoll::Joint_SetPinned / Joint_IsPinned / SetPinned / IsPinned. A pinned
+	// limb is kinematic and at rest; unpinning hands it back to the solver.
+	// A whole ragdoll counts as pinned when any limb is. Physics.md, "Pinning".
+	void SetRagdollPartPinned(int slot, int part, bool pinned);
+	bool RagdollPartPinned(int slot, int part) const;
+	void SetRagdollPinned(int slot, bool pinned);
+	bool RagdollPinned(int slot) const;
+	// Ragdoll::Joint_GetRotation, for MDL.GetRagdollJointRotation.
+	bool GetRagdollPartRotation(int slot, int part, Quat& out) const;
+	// Ragdoll::Joint_SetVelocities on one limb, and Joint_SetVelocitiesForLinked
+	// on every limb still reachable from it through live constraints - the
+	// original floods the constraint graph (FUN_101AEAC0), so a torn-off chunk
+	// takes only its own piece. Physics.md, "Throwing a corpse".
+	void SetRagdollPartVelocity(int slot, int part, const Vec3& linear, const Vec3& angular);
+	void SetRagdollLinkedVelocity(int slot, int part, const Vec3& linear, const Vec3& angular);
 	// Ragdoll::SelfExplosion (0x1019CC40 -> FUN_101B0DC0): every limb inside
 	// `range` is pushed away from the centre by (strength / limbCount) *
 	// (1 - d / range). This is the law a blast applies to a whole ragdoll,

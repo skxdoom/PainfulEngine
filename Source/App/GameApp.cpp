@@ -1217,7 +1217,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	}
 	LogInfo("game loop ended: %s", host.quitRequested() ? "scripts called Exit()"
 			: "window closed");
-	ReportChecks();
+	// The same ranked stub report the `lua` command ends with. A play session
+	// exercises what no headless run reaches, and the per-call [stub] lines
+	// stop at three each, so without this the log cannot be counted.
+	host.PrintCallReport(40);
 	return 0;
 }
 

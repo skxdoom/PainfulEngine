@@ -682,6 +682,9 @@ struct PhysicsWorld::Impl {
 		JPH::Ref<JPH::Ragdoll> ragdoll;
 		std::vector<std::string> bones;
 		bool simulated = false; // dynamic (dead) rather than driven (alive)
+		// Ragdoll::Joint_SetPinned's flag per limb. Held rather than read back
+		// off the motion type, because a LIVE ragdoll is kinematic too.
+		std::vector<uint8_t> pinned;
 		// Per part, the pose at the last two steps (RecordStep).
 		struct PartHist {
 			JPH::RVec3 p0, p1;

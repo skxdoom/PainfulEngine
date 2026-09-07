@@ -86,24 +86,30 @@ are read back, and `nil ~= ""` is the inverted-test shape.
 
 ## Tier 1 — silent breakage on shared paths
 
-### 1. Corpse pinning and ragdoll collision groups
+### 1. Corpse pinning and ragdoll collision groups — MOSTLY DONE
 
-The stakegun's signature kill, and every AI grab/carry/throw move.
+**Correction to the census: pinning already worked.** `Stake:Tick`'s whole nail
+path — `GetHavokBodyPosition`, `LineTrace`, `IsFixedMesh`,
+`SetHavokBodyPosition`, `PinHavokBody` — was already implemented, so a stake
+does pin a body to a wall in play. What was missing was everything asked about
+a pinned corpse *afterwards*, and it is now in: `MDL.SetPinned` / `IsPinned` /
+`SetPinnedJoint` / `IsPinnedJoint`, `PHYSICS.IsHavokBodyPinned` /
+`SetHavokBodyVelocity`, `MDL.GetRagdollJointPos` / `GetRagdollJointRotation`,
+and `MDL.ApplyVelocitiesToJoint` / `ApplyVelocitiesToJointLinked` — the shapes,
+addresses and the constraint-graph rule behind "Linked" are in
+[`Physics.md`](Reference/Physics.md), "Pinning a CORPSE".
 
-| Native | Live sites | Where |
-|---|---|---|
-| `MDL.SetPinnedJoint` | 37 | Monsters:32 |
-| `MDL.SetRagdollCollisionGroup` | 37 | Monsters:23, Templates:10 |
-| `MDL.SetPinned` | 20 | Monsters:10, Templates:8 |
-| `MDL.IsPinned` / `IsPinnedJoint` / `GetRagdollCollisionGroup` | 8 | Weapons, Classes |
-| `PHYSICS.IsHavokBodyPinned` / `SetHavokBodyVelocity` | 3 | Weapons, Monsters |
-| `PHYSICS.GetHavokBodyRotation` / `SetHavokBodyRotation` | — | the rotation half of the body accessors |
+That closes three inverted tests (`CActor:Electrize`, `meat.lua`,
+`PainHead:Tick`), the Painkiller's corpse throw, and the Executioner, Loki,
+Vamp_Big and Apoc_zombie ragdoll moves.
 
-All of these are reached in the combat run today. The other half of the chain —
-`PHYSICS.PinHavokBody`, `GetHavokBodyPosition`, `SetHavokBodyPosition`,
-`ENTITY.PO_SetPinned` — is already done, and `PhysicsWorld` already branches
-`pinned ? Static : Dynamic` when it builds ragdoll parts. This family is a
-handful of natives away from a working stakegun.
+**Still open, and it is the bigger half:** `MDL.SetRagdollCollisionGroup` (37
+live sites) and `MDL.EnableRagdoll`'s ignored third argument. 53 monster scripts
+enable their ragdoll as `RagdollNonColliding`; a simulated ragdoll here is
+`Layers::kMoving` unconditionally, so **every corpse collides like an ordinary
+prop.** The native's own rule is recovered (a group in [10,19] is replaced by a
+rotating per-corpse value); what is not is the group-pair filter that says what
+those groups may touch. Same page, "A corpse's collision group".
 
 ### 2. Death zones
 
