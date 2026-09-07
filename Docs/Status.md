@@ -47,7 +47,9 @@ Source/
             Zones           portal/zone visibility graph
             Lighting        the light set reaching a point
             CollisionMesh   BVH over solid geometry, for line-of-sight queries
-            PhysicsWorld    Jolt: the static world, the placed props, queries
+            PhysicsWorld    Jolt: the static world, the placed props, queries;
+                            +ScriptBodies (script bodies, characters) and
+                            +Ragdolls, one class across three TUs
   Render/   Window          SDL3
             Renderer        bgfx device
             Camera          the camera, and the free camera's collision radius
@@ -63,8 +65,11 @@ Source/
                             ScriptEntity, ScriptMonster, ScriptSound,
                             ScriptPlayer, ScriptInput, ScriptTrace, ScriptAnim,
                             ScriptWorld, ScriptHud, ScriptMenu, ScriptDeath,
-                            ScriptLimbs - with ScriptBind mapping every one to
-                            the module and name the shipped Lua calls it by.
+                            ScriptLimbs - each declaring its own natives and
+                            its own binding table, so adding one recompiles
+                            that file alone. ScriptBind calls the binders.
+            EngineBoot      window, device and level-independent caches, shared
+                            with the `run` viewer
             MenuSystem      the retained widget model behind PMENU
             PlayerPawn      the engine-side mover
             Input           bindings, actions, mouse

@@ -202,6 +202,31 @@ of the sizer overwrites the value in a way the decompile does not settle.
 Measured headlessly: a `skrzynia_mala` walked into on TestFloor travels ahead
 of the player; left alone it settles at 0.92 within two seconds.
 
+
+## Where the code is
+
+`PhysicsWorld` is one class across three translation units, the way
+`ScriptEngine` is. No API change came with the split: every call site is
+untouched, and the class still presents one surface.
+
+| | |
+|---|---|
+| `PhysicsWorld.cpp` | the lifecycle, the static world, the placed props, the fixed step, the queries |
+| `PhysicsScriptBodies.cpp` | the bodies the scripts create, and the characters they walk |
+| `PhysicsRagdolls.cpp` | the constraint graph a `.hke` describes, and the corpses built from it |
+| `PhysicsWorldInternal.h` | the Jolt layer filters, `ScriptContactListener`, and `Impl` |
+
+The two cuts are the file's own section banners, so nothing was regrouped by
+hand. What was an anonymous namespace is `physics_detail` now — a header cannot
+have an anonymous one without giving every unit its own copy — and the six free
+functions in it are `inline`. `BuildScaledPropShape` moved there too: the props
+path and the script-body path both build shapes with it, which the single file
+had hidden.
+
+Checked by rebuilding the pre-split version and diffing: 6 ragdoll rigs dropped
+and settled, 75 grenades fired into geometry, 420 decal projections, and the
+`physics` probe — all byte-identical.
+
 ## The camera
 
 The free camera is still a free camera. It does not walk and it has no gravity —
