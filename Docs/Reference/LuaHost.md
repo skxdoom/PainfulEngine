@@ -217,6 +217,38 @@ FindFirstFile mask semantics where `*.*` matches everything),
 version/edition/CD flags. `WORLD.LoadSky`/`LoadLowQualitySky` return a real
 layer count of 0 until the renderer is wired in.
 
+## The singleplayer no-ops
+
+Five names were 43% of every stub call in a combat run and none of them has work
+to do without a network layer. They are implemented as what the binary does
+rather than as placeholders, so the report loses the noise and not the signal:
+
+| native | in the binary | here |
+|---|---|---|
+| `CONSOLE.DemoIsPlaying()` | `0x10027bd0`: `gDemoRec && *gDemoRec == 2` | false — no recorder ([Console.md](Console.md)) |
+| `NET.IsPlayingRecording()` | `0x10121db0` pushes a **constant** 0 | false, which is the shipped answer too |
+| `PLAYER.SetMPByte(e, v)` | `0x101391d0` → `PhysicsObject::SetMPByte`, truncated to a uchar, dropped when the entity has no body | stored on the entity |
+| `PLAYER.GetMPByte(e)` | `0x10139120` pushes the byte, and **0** when there is no body | the stored byte, 0 by default |
+| `ENTITY.EnableNetworkSynchronization(e, on = true, b = false, a4 = 0, a5 = 255, a6 = 0)` | `0x1012f880` → `Entity::SetSynchroState(flags, a4, a5, a6)` with `flags = on ? (b ? 8 : 0) + 1 : 0`, and `(0, 0, 255, 0)` when off | validates the handle and returns |
+| `ENTITY.SetSynchroString(e, s)` / `GetSynchroString(e)` | `0x1012f980` / `0x1012fa20`, `Entity+0x630`, `""` when unset | stored, and answered |
+
+Two of them are not free no-ops:
+
+- **`GetSynchroString` must answer `""`, not nil.** `Game_GetMsg`'s client
+  collision path reads `if str ~= "" then tmp = FindObj(str) end`, and
+  `nil ~= ""` is true — the inverted-test shape above.
+- **The MPByte pair is not multiplayer-only, despite the name.** `CPlayer:Tick`
+  writes it unconditionally (`CPlayer.lua:646`) and `PPlayerAnimation:Tick`
+  reads it back as the animation state, so the third-person player body needs
+  it. Its companion `PLAYER.GetPitch` is still a stub, and that one *divides*:
+  `PLAYER.GetPitch(e) / -(32767*0.75)` raises the moment that process ticks,
+  which is why nothing has reached `GetMPByte` yet.
+
+The deviation to remember: the original keeps the byte on the `PhysicsObject`
+and answers 0 for an entity that has none. Here it is a field on the entity, so
+a bodyless one remembers what was written. No shipped script reads the byte for
+anything but the player, which has a body either way.
+
 ## Script-driven level loading (Source/Game)
 
 `ScriptEngine` is the seam where the natives meet the engine subsystems: the

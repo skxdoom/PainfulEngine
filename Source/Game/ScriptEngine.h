@@ -233,6 +233,14 @@ public:
 		Vec3 viewAngles;
 		// ENTITY.SetTimeToDie countdown in seconds; negative means no timer.
 		float timeToDie = -1.f;
+		// PLAYER.SetMPByte / GetMPByte: the state byte CPlayer:Tick writes and
+		// PPlayerAnimation reads back. The original keeps it on the
+		// PhysicsObject (0x101391d0); here on the entity. LuaHost.md.
+		uint8_t mpByte = 0;
+		// ENTITY.SetSynchroString / GetSynchroString: Entity+0x630, answered as
+		// "" when unset (0x1012fa20). Multiplayer-only, kept because the getter
+		// is read on the client's collision path.
+		std::string synchroString;
 
 		// The animation clock. MDL.SetAnim hands the scripts an INDEX which
 		// they keep as _CurAnimIndex and pass back to every other MDL call,

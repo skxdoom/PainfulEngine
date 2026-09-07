@@ -35,6 +35,8 @@ struct PlayerNatives : ScriptNativesBase {
 	static int L_MOUSE_GetDelta(lua_State* L);
 	static int L_MOUSE_SetSensitivity(lua_State* L);
 	static int L_CAM_SetPositionDisplacement(lua_State* L);
+	static int L_PLAYER_SetMPByte(lua_State* L);
+	static int L_PLAYER_GetMPByte(lua_State* L);
 };
 
 // ---------------------------------------------------------------- player
@@ -531,6 +533,21 @@ int PlayerNatives::L_CAM_SetPositionDisplacement(lua_State* L) {
 }
 
 
+// PLAYER.SetMPByte(e, v) truncates to a uchar and drops the write when the
+// entity is gone; GetMPByte always answers a number, 0 when never set. The
+// pair carries CPlayer's animation state to PPlayerAnimation. LuaHost.md.
+int PlayerNatives::L_PLAYER_SetMPByte(lua_State* L) {
+	Entity* e = From(L)->Find(HandleArg(L, 1));
+	if (e) e->mpByte = uint8_t(int(luaL_optnumber(L, 2, 0)));
+	return 0;
+}
+
+int PlayerNatives::L_PLAYER_GetMPByte(lua_State* L) {
+	const Entity* e = From(L)->Find(HandleArg(L, 1));
+	lua_pushnumber(L, e ? e->mpByte : 0);
+	return 1;
+}
+
 void BindPlayer(ScriptEngine& engine, LuaHost& host) {
 	const ScriptNative natives[] = {
 		// A bare global, not a module native: the scripts call IsFinalBuild()
@@ -545,6 +562,8 @@ void BindPlayer(ScriptEngine& engine, LuaHost& host) {
 		{"ENTITY", "GetDimensions", PlayerNatives::L_GetDimensions},
 		{"ENTITY", "IsDrawEnabled", PlayerNatives::L_IsDrawEnabled},
 		{"PLAYER", "GetDistanceFromPoint", PlayerNatives::L_PLAYER_GetDistanceFromPoint},
+		{"PLAYER", "SetMPByte", PlayerNatives::L_PLAYER_SetMPByte},
+		{"PLAYER", "GetMPByte", PlayerNatives::L_PLAYER_GetMPByte},
 		{"REGION", "BuildFromPoint", PlayerNatives::L_REGION_BuildFromPoint},
 		{"CAM", "GetPos", PlayerNatives::L_CAM_GetPos},
 		{"CAM", "SetPos", PlayerNatives::L_CAM_SetPos},

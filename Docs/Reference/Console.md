@@ -41,7 +41,8 @@ embedded in the HUD (`renderer + 0x5d6bd0`); every thunk opens on
 | `GetCursorPos()` | `0x10027a20` | the SCROLL position (`+0x88`), 1 = newest at the bottom |
 | `SetFont(name, size)` | `0x10028210` | the panel's font; the constructor's default is `courbd` 20 |
 | `SetMPMsgColor(r, g, b)` / `SetMPMsgPosition(x, y)` / `SetMPMsgFont(name, tex, size)` | `0x100278c0` / `0x10027980` / `0x10027fc0` | the strip's look, set from `Hud:LoadData` |
-| `Demo*` (6) | | the demo recorder; stubs here |
+| `DemoIsPlaying()` | `0x10027bd0` | `gDemoRec && *gDemoRec == 2`; false here, there is no recorder |
+| `Demo*` (the other 5) | | the demo recorder; stubs here |
 
 A message with `'\n'` in it becomes several lines (`strchr` in
 `0x1002a530`). The log keeps 100 lines (`+0x84`); the strip keeps 4

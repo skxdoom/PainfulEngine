@@ -1,7 +1,13 @@
 # Plan — what is left, and why in this order
 
-The forward-looking half of the project. What already works is in
-[`Status.md`](Status.md); the recovered rules are in [`Reference/`](Reference).
+The forward-looking half of the project, stage by stage. What already works is
+in [`Status.md`](Status.md); the recovered rules are in
+[`Reference/`](Reference).
+
+**For what is left ranked by cost rather than by stage, see
+[`Stubs.md`](Stubs.md)** — the per-native census, measured against a combat run.
+Where the two disagree about whether something is a stub, Stubs.md is the newer
+count.
 
 ## The strategic finding
 

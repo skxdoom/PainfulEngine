@@ -51,6 +51,9 @@ struct EntityNatives : ScriptNativesBase {
 	static int L_ENTITY_GetPtrByIndex(lua_State* L);
 	static int L_PARTICLE_SetParentOffset(lua_State* L);
 	static int L_PARTICLE_Die(lua_State* L);
+	static int L_ENTITY_EnableNetworkSynchronization(lua_State* L);
+	static int L_ENTITY_SetSynchroString(lua_State* L);
+	static int L_ENTITY_GetSynchroString(lua_State* L);
 };
 
 // ---------------------------------------------------------------- ENTITY
@@ -1306,6 +1309,26 @@ void ScriptEngine::UpdateAttached() {
 }
 
 
+// The three network-synchronisation natives. There is no netcode, so
+// EnableNetworkSynchronization only validates; the string pair is real,
+// because a client reads it back off a collision. LuaHost.md, "Synchro".
+int EntityNatives::L_ENTITY_EnableNetworkSynchronization(lua_State* L) {
+	HandleArg(L, 1);
+	return 0;
+}
+
+int EntityNatives::L_ENTITY_SetSynchroString(lua_State* L) {
+	Entity* e = From(L)->Find(HandleArg(L, 1));
+	if (e) e->synchroString = luaL_optstring(L, 2, "");
+	return 0;
+}
+
+int EntityNatives::L_ENTITY_GetSynchroString(lua_State* L) {
+	const Entity* e = From(L)->Find(HandleArg(L, 1));
+	lua_pushstring(L, e ? e->synchroString.c_str() : "");
+	return 1;
+}
+
 void BindEntity(ScriptEngine& engine, LuaHost& host) {
 	const ScriptNative natives[] = {
 		{"ENTITY", "Create", EntityNatives::L_Create},
@@ -1348,6 +1371,10 @@ void BindEntity(ScriptEngine& engine, LuaHost& host) {
 		{"ENTITY", "GetIndex", EntityNatives::L_ENTITY_GetIndex},
 		{"ENTITY", "RegisterChild", EntityNatives::L_ENTITY_RegisterChild},
 		{"ENTITY", "ComputeChildMatrix", EntityNatives::L_ENTITY_ComputeChildMatrix},
+		{"ENTITY", "EnableNetworkSynchronization",
+				EntityNatives::L_ENTITY_EnableNetworkSynchronization},
+		{"ENTITY", "SetSynchroString", EntityNatives::L_ENTITY_SetSynchroString},
+		{"ENTITY", "GetSynchroString", EntityNatives::L_ENTITY_GetSynchroString},
 	};
 	RegisterFamily(engine, host, natives);
 }

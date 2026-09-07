@@ -4,8 +4,9 @@
 // thunk onto the HUD's embedded console; the argument shapes are read from
 // the thunks (Activate 0x10029d70, AddMessage 0x1002a7b0, Print 0x1002a930,
 // SetCurrentText 0x10029760, GetCurrentText 0x10028150, GetCursorPos
-// 0x10027a20, IsActive 0x10027870, SetFont 0x10028210). The Demo* family
-// stays stubbed: there is no demo recorder. Docs/Reference/Console.md.
+// 0x10027a20, IsActive 0x10027870, SetFont 0x10028210). There is no demo
+// recorder, so DemoIsPlaying is false and the rest of Demo* stays stubbed.
+// Docs/Reference/Console.md.
 
 #include "ScriptEngineInternal.h"
 
@@ -25,7 +26,16 @@ struct ConsoleNatives : ScriptNativesBase {
 	static int L_CONSOLE_SetMPMsgColor(lua_State* L);
 	static int L_CONSOLE_SetMPMsgPosition(lua_State* L);
 	static int L_CONSOLE_SetMPMsgFont(lua_State* L);
+	static int L_CONSOLE_DemoIsPlaying(lua_State* L);
 };
+
+// CONSOLE.DemoIsPlaying: the original reads the recorder's state word and
+// answers "== 2" (0x10027bd0). No recorder here, so it is always false - and
+// it is the noisiest name in the native report, 2.5 calls a frame.
+int ConsoleNatives::L_CONSOLE_DemoIsPlaying(lua_State* L) {
+	lua_pushboolean(L, 0);
+	return 1;
+}
 
 // CONSOLE.Activate(on = true, mode = 0)
 int ConsoleNatives::L_CONSOLE_Activate(lua_State* L) {
@@ -112,6 +122,7 @@ void BindConsole(ScriptEngine& engine, LuaHost& host) {
 		{"CONSOLE", "SetMPMsgColor", ConsoleNatives::L_CONSOLE_SetMPMsgColor},
 		{"CONSOLE", "SetMPMsgPosition", ConsoleNatives::L_CONSOLE_SetMPMsgPosition},
 		{"CONSOLE", "SetMPMsgFont", ConsoleNatives::L_CONSOLE_SetMPMsgFont},
+		{"CONSOLE", "DemoIsPlaying", ConsoleNatives::L_CONSOLE_DemoIsPlaying},
 	};
 	RegisterFamily(engine, host, natives);
 }

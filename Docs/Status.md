@@ -367,10 +367,13 @@ The ordered work queue, with the evidence behind each item, is
   ([`MonsterMovement.md`](Reference/MonsterMovement.md)). Not yet exercised:
   stairs and slopes under the dynamic body, and flyers (`PO_SetFlying` is a
   real flag now, but the `Maintain*` movers behind it are still stubs).
-- **Corpse pinning.** The stakegun cannot pin a body to a wall — its handler
-  raises on a nil from `PHYSICS.GetHavokBodyPosition` before it reaches the
-  wall test. `PinHavokBody` and the `MDL.SetPinned*` family are stubs.
-  `ENTITY.PO_SetPinned` works on props; corpses are the gap.
+- **Corpse pinning.** The stake now reaches its wall test —
+  `PHYSICS.GetHavokBodyPosition`, `SetHavokBodyPosition` and `PinHavokBody` are
+  in — but the corpse side is not: `MDL.SetPinned` / `SetPinnedJoint` /
+  `IsPinned` / `SetRagdollCollisionGroup` and `PHYSICS.IsHavokBodyPinned` /
+  `SetHavokBodyVelocity` are stubs, so nothing stays on the wall.
+  `ENTITY.PO_SetPinned` works on props; corpses are the gap
+  ([`Stubs.md`](Stubs.md), Tier 1).
 - **Active meshes, the leftovers.** World objects named `phys` are rigid
   bodies now, drawn by the entity path where physics puts them, released from
   `pinned` by blasts and group activation. Not ported: the autodelete timers
@@ -421,8 +424,9 @@ The ordered work queue, with the evidence behind each item, is
   create and retune.
 - Model material extras: `MESH.SetDetailMap` / `SetNormalMap` / `SetCubeMap` /
   `SetSpecular`, `MDL.SetMaterial` / `SetTexture`, `MATERIAL.Replace`.
-- `R3D.SetCameraFOV` is a stub, so the field of view is fixed — no weapon zoom
-  and no FOV effects.
+- `R3D.SetCameraFOV` / `GetCameraFOV` carry `Cfg.FOV`, and every shipped call
+  site is a whole-screen change (`Game:Init`, the menu's 90, the console's
+  `fov` command), so the field of view is no longer fixed.
 - Water above the fixed-function tier: the EMBM cube pass, reflection and
   refraction render targets, and the `FXWater` programs inside `Water.fxo`.
   Also the water combine above the reflection — which `o.Water` property feeds
@@ -468,11 +472,13 @@ The ordered work queue, with the evidence behind each item, is
 ### A caveat on the measurement
 
 The headless report runs clean — 0 script errors, and the HUD lays itself out
-from real material sizes (see [`Hud.md`](Reference/Hud.md)) — but it is an
-**idle run**: nothing fires, nothing takes damage and no monster engages. The
-weapon, explosion and pin natives are absent from its ranked list for lack of
-exercise rather than because they work. The static sweep across the shipped
-scripts is the fuller picture; both are in [`Plan.md`](Plan.md).
+from real material sizes (see [`Hud.md`](Reference/Hud.md)) — but by default it
+is an **idle run**: nothing fires, nothing takes damage and no monster engages,
+so the weapon, explosion and pin natives are absent for lack of exercise rather
+than because they work. The `lua` command's fourth argument fixes that: an exec
+chunk that gives ammo and pulses `Actions.Fire` makes the same run fight, which
+is the only way those families appear at all. The command, the census it
+produced and the static sweep behind it are in [`Stubs.md`](Stubs.md).
 
 ## Why it is built this way
 
