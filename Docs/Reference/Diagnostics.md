@@ -58,14 +58,48 @@ rather than quietly re-allocated.
 
 ## Logging
 
-`Source/Core/Log.h`. `LogInfo` / `LogWarn` / `LogScript` / `LogShader` are C
-variadic functions, not variadic templates, so the format string carries
-`__attribute__((format(printf, ...)))` on GCC and Clang and
+`Source/Core/Log.h`. One file, `painful.log`, beside the executable; the tools
+print to the console only. A crash still writes `painful_crash.log` of its own -
+that is the file worth handing to someone else, and it is written by a handler
+in a dying process.
+
+There were three files: `painful.log` plus filtered copies of the script and
+shader lines. Measured on a full Cathedral load plus 40 frames, the main log is
+190 lines and **both copies held nothing but their timestamp header**. The
+categories are line prefixes now and `grep` replaces the files.
+
+| Emitter | Tag | Level |
+|---|---|---|
+| `LogWarn` | `warning: ` | warn |
+| `LogScript` | `script: ` | warn — a script ERROR |
+| `LogShader` | `shader: ` | warn |
+| `LogInfo` | none | info |
+| `LogTrace` | none | trace |
+
+The scripts' own print output — `EDITOR.OutputText`, where `Game:Print` goes,
+and the `Log()` native — is `LogInfo` with a `lua: ` tag, so a script error and
+a script `print` do not read alike. `EDITOR.OutputText` used to hand-write
+`script: ` itself, which would have collided with the error tag exactly the way
+`PAINFUL_HIDDEN` once meant two things.
+
+`PAINFUL_LOG=warn|info|trace` sets the level; the default is `trace`. Measured
+on the same run: 190 lines at trace, 29 at info, 3 at warn. The 161 lines the
+first step drops are the `[stub]` instrumentation, which is why they are
+`LogTrace` and why trace is the default — `Docs/Plan.md` measures the remaining
+native work by counting them, so quiet-by-default would have thrown away the
+progress bar.
+
+`Log` reads `PAINFUL_LOG` with a raw `getenv` rather than through
+`Core/Debug`, for the same reason `PAINFUL_CHECK_BREAK` does: `Debug` reports a
+bad switch through `Check`, and `Check` logs. Both are listed in the switch
+table so `PainfulTools traces` shows them.
+
+The emitters are C variadic rather than variadic templates, so the format string
+carries `__attribute__((format(printf, ...)))` on GCC and Clang and
 `_Printf_format_string_` on MSVC. A template hides the format from both, which
 is how `"%s"` with an int compiles silently. One line is capped at 2048 bytes
-and truncated rather than wrapped; anything longer is a dump, and a dump
-belongs in a report.
-
+and truncated rather than wrapped; anything longer is a dump, and a dump belongs
+in a report.
 ## Truncated files
 
 `Reader` (`Source/Core/Common.h`) bounds-checks every read. Past the end it

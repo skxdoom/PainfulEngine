@@ -18,7 +18,7 @@ Core <- Assets <- World <- Render
 ```
 Source/
   Core/     Common          Mat4, Reader (bounds-checked), ReadFile
-            Log             printf-checked emitters, three sinks
+            Log             one painful.log, printf-checked, tagged by category
             Check           PAINFUL_CHECK/ASSERT: a failed invariant, logged and tallied
             Debug           the PAINFUL_* switch table (PainfulTools traces)
             Vec3            a 3-vector laid out as float[3], adopted incrementally

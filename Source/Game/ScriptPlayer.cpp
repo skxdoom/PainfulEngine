@@ -115,7 +115,7 @@ int PlayerNatives::L_PO_IsEnabled(lua_State* L) {
 // developer mode on sets both flags correctly and then produces nothing.
 int PlayerNatives::L_EDITOR_OutputText(lua_State* L) {
     const char* text = lua_isstring(L, 1) ? lua_tostring(L, 1) : nullptr;
-    if (text && *text) LogInfo("script: %s", text);
+    if (text && *text) LogInfo("lua: %s", text);
     return 0;
 }
 

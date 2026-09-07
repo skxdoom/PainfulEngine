@@ -169,13 +169,13 @@ int L_dofile(lua_State* L) {
 
 int L_Log(lua_State* L) {
     const char* s = lua_tostring(L, 1);   // converts numbers too
-    LogInfo("[lua] %s", s ? s : "");
+    LogInfo("lua: %s", s ? s : "");
     return 0;
 }
 
 int L_MsgBox(lua_State* L) {
     const char* s = lua_tostring(L, 1);
-    LogWarn("[lua msgbox] %s", s ? s : "");
+    LogWarn("lua msgbox: %s", s ? s : "");
     return 0;
 }
 

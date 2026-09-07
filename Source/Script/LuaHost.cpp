@@ -497,7 +497,7 @@ void LuaHost::RecordNativeCall(const char* fullName, lua_State* L) {
         default:            args += lua_typename(L, lua_type(L, i)); break;
         }
     }
-    LogInfo("[stub] %s(%s)", fullName, args.c_str());
+    LogTrace("[stub] %s(%s)", fullName, args.c_str());
 }
 
 void LuaHost::PrintCallReport(size_t top) const {

@@ -20,8 +20,9 @@ struct Row {
 };
 
 // Every PAINFUL_* switch the engine reads. Grouped the way the reports are.
-// PAINFUL_CHECK_BREAK is listed but read directly in Check.cpp, which cannot
-// call back into here without the two initialising each other.
+// PAINFUL_CHECK_BREAK and PAINFUL_LOG are listed but read directly where they
+// are used: Check and Log cannot call back into here without the three
+// initialising each other.
 Row g_rows[] = {
     // Run mode
     {"PAINFUL_HIDDEN",       Kind::kFlag,  "offscreen window, and silence - nobody is watching"},
@@ -34,6 +35,7 @@ Row g_rows[] = {
     {"PAINFUL_AUDIO",        Kind::kFlag,  "attach the mixer in the headless reports"},
     {"PAINFUL_REALTIME",     Kind::kFlag,  "the lua report ticks against the clock, not a fixed step"},
     {"PAINFUL_CHECK_BREAK",  Kind::kFlag,  "trap at the first failed PAINFUL_CHECK"},
+    {"PAINFUL_LOG",          Kind::kText,  "log level: warn, info, or trace (default trace)"},
 
     // Render
     {"PAINFUL_ECULL",        Kind::kInt,   "entity cull mode: 1 normal, 2 off (tells winding from missing geometry)"},

@@ -1,16 +1,19 @@
 #pragma once
-#include <cstdio>
 #include <string>
 
-// Logging: stdout always, plus the files beside the executable once
-// LogOpen has been called - painful.log for everything, painful_script.log
-// for script errors, painful_shader.log for the shader loader. The tools
-// never call LogOpen and keep printing to the console only.
+// One log: stdout always, plus painful.log beside the executable once LogOpen
+// has been called. The tools never call LogOpen and print to the console only.
+//
+// There used to be three files - painful.log plus filtered copies of the script
+// and shader lines. The copies held nothing but a timestamp in any run that did
+// not fail, so the categories are line prefixes now and grep replaces the files.
+// A crash still gets painful_crash.log of its own: it is the file worth handing
+// to someone else, and it is written while the process is dying.
 //
 // The emitters are C variadic rather than variadic templates so the format
 // string can be annotated: GCC and Clang then reject a mismatched argument at
-// the call site, and MSVC's analysis does the same. A template hides the
-// format from both, which is how "%s" with an int compiles silently.
+// the call site, and MSVC's analysis does the same. A template hides the format
+// from both, which is how "%s" with an int compiles silently.
 #if defined(__GNUC__) || defined(__clang__)
 #define PAINFUL_FORMAT_ATTR(fmtIndex, firstArg) \
     __attribute__((format(printf, fmtIndex, firstArg)))
@@ -27,20 +30,26 @@
 
 namespace painful {
 
-enum class LogSink { kMain, kScript, kShader };
+// How much reaches the log. PAINFUL_LOG=warn|info|trace picks it; the default
+// is trace, because the [stub] lines it carries are the native work queue and
+// Docs/Plan.md measures progress by them.
+enum class LogLevel { kWarn, kInfo, kTrace };
 
-// Opens the three files in `dir`. Safe to call once; later calls are ignored.
+// Opens painful.log in `dir`. Safe to call once; later calls are ignored.
 void LogOpen(const std::string& dir);
 void LogClose();
-// One line to stdout and to the main log, and to the sink's own file too
-// when the sink is not the main one.
-void LogLine(LogSink sink, const char* prefix, const char* text);
+// One line, already formatted and prefixed.
+void LogLine(const char* prefix, const char* text);
 
-void LogInfo(PAINFUL_FORMAT_STRING(const char* fmt), ...) PAINFUL_FORMAT_ATTR(1, 2);
 void LogWarn(PAINFUL_FORMAT_STRING(const char* fmt), ...) PAINFUL_FORMAT_ATTR(1, 2);
-// A script error: the main log and painful_script.log.
+void LogInfo(PAINFUL_FORMAT_STRING(const char* fmt), ...) PAINFUL_FORMAT_ATTR(1, 2);
+// The high-volume diagnostic stream: instrumented stubs and the traces. First
+// thing dropped when the level is turned down.
+void LogTrace(PAINFUL_FORMAT_STRING(const char* fmt), ...) PAINFUL_FORMAT_ATTR(1, 2);
+// A script ERROR - the scripts' own print output goes through LogInfo with a
+// "lua:" tag, so an error and a Game:Print do not read alike. And a shader the
+// loader could not resolve. Their own tags rather than their own files.
 void LogScript(PAINFUL_FORMAT_STRING(const char* fmt), ...) PAINFUL_FORMAT_ATTR(1, 2);
-// The shader loader: the main log and painful_shader.log.
 void LogShader(PAINFUL_FORMAT_STRING(const char* fmt), ...) PAINFUL_FORMAT_ATTR(1, 2);
 
 }  // namespace painful
