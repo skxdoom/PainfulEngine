@@ -137,7 +137,7 @@ The rule, the recovered attachment lookup and the two things not carried —
 shards, and a savegame remembering what is already broken — are in
 [`Physics.md`](Reference/Physics.md), "Glass".
 
-### 4. Mesh-group toggling — how levels change shape
+### 4. Mesh-group toggling — DONE
 
 | Native | Live sites | Where |
 |---|---|---|
@@ -147,11 +147,16 @@ shards, and a savegame remembering what is already broken — are in
 | `WORLD.SetCollisionGroupMeshGroup` | 13 | Monsters:13 |
 | `WORLD.SetTimeToDeleteMeshGroup` | 9 | Monsters:9 |
 
-This is how a level opens a gate, drops a bridge, reveals an arena or clears
-debris. A silent no-op leaves geometry in its authored state — including solid,
-drawn walls that were meant to vanish, which is a progression blocker rather
-than a cosmetic one. `Levels/C4L4_Alastor/C4L4_Alastor.lua` toggles ten groups
-in its opening alone.
+**Correction to the census: this is the two boss arenas, not campaign-wide level
+scripting.** Gates and bridges work by other means; the site counts above are
+concentrated in `C4L4_Alastor.lua`, `C5L4_Hell.lua` and `Alastor.lua`, plus a
+few props that use `MESH.SetMeshGroup` to join a group they were not authored
+into. What the family actually does is let an arena morph: `4x04_Alastor.mpk`
+carries 1,990 `actgrp` objects and shows a few groups at a time.
+
+All five are in. The engine calls behind them, the confirmed 0.0 delete
+sentinel and the measurements are in [`Physics.md`](Reference/Physics.md),
+"Mesh groups".
 
 ### 5. Collision plumbing
 
@@ -269,7 +274,7 @@ Ranked by calls per 900 combat frames:
 1. ~~Tier 0 no-ops~~ — done; the report is 43.6% quieter.
 2. Pinning + ragdoll collision groups — the stakegun.
 3. ~~Death zones, then glass~~ — both done.
-4. Mesh groups — unblocks level scripting across the campaign.
+4. ~~Mesh groups~~ done - the two boss arenas, not the campaign.
 5. Maintain\* movers + transporters — unblocks C2L1, C3L2, C3L3, C5L2.
 6. Scripted ragdoll joints, flying, boss explosions.
 7. Lights and materials, once the game plays and only looks wrong.

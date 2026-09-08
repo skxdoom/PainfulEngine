@@ -712,6 +712,71 @@ moves them by impulse - being released and destroyed is the whole mechanism.
 Measured: blasted while pinned and immortal, moved 0.0000 and kept Health 1;
 released and mortal, the same blast takes it to -172 and kills it.
 
+## Mesh groups
+
+**This family is not campaign-wide level scripting, and gates do not use it.**
+Its live call sites are concentrated in three files — `C4L4_Alastor.lua`,
+`C5L4_Hell.lua` and `Alastor.lua` — plus a handful of props. Both boss arenas
+are built to morph: `4x04_Alastor.mpk` carries **1,990 objects with `actgrp` in
+their names**, and the level shows a few groups at a time (683 of them are
+`actgrp05` alone).
+
+The group is the `actgrp<N>` already parsed by `MapObject::activeGroup()`; an
+active-mesh entity carries it as `Entity::meshGroup`, and `MESH.SetMeshGroup`
+overwrites it.
+
+| native | in the binary | |
+|---|---|---|
+| `WORLD.EnableDrawMeshGroup(g, on = true)` | `0x10120B80` → `World::MeshesActiveGroupEnableDraw(uchar, bool)` | the draw half |
+| `PHYSICS.StaticMeshGroupEnable(g, on = true)` | `0x10129B30` → `PhysicsWorld::StaticMeshesEnableByGroup(uchar, bool)` | the collision half; Alastor calls the two together for every group |
+| `WORLD.SetCollisionGroupMeshGroup(g, cg)` | `0x10120CD0` → `World::MeshesActiveGroupSetCollisionGroup(uchar, int)` | regroups rather than removes |
+| `WORLD.SetTimeToDeleteMeshGroup(g, t, rnd)` | `0x10120C00` | see below |
+| `MESH.SetMeshGroup(e, g)` | `0x1012ED30` | writes `Entity+0x7e2`, and only on a Mesh entity |
+
+**The delete sentinel is 0.0, and it is confirmed.** `SetTimeToDeleteMeshGroup`
+compares the time against the float at `0x103A74AC` and, when they match, calls
+`World::MeshesActiveGroupRemove` — remove now — otherwise
+`MeshesActiveGroupSetTimeToRemove(group, time, randomize)`. `ReadFloats` at that
+address reads **0.0**, which is exactly `Alastor.CActor`'s
+`o.WallsTimeToDelete = 0.0` against `FloorsTimeToDelete = 2.7` and
+`CoronasTimeToDelete = 1.0`: the walls go at once and the rest fade out behind
+them. The script passes a 4th argument the engine never reads.
+
+`MESH.SetMeshGroup(v, 70)` is how a prop joins a group it was not authored into
+— C2L1's antennas, C5L2's crane, C6L3's statue — so the level can switch them as
+one. That is where the group numbers above the authored range (69, 70) come from.
+
+Measured on C4L4_Alastor (level scale 3.6, 1,987 active meshes), tracing across
+an `actgrp05` object:
+
+| step | reading |
+|---|---|
+| trace before | hits at **14.341** |
+| `StaticMeshGroupEnable(5, false)` | **18.839** — through it, to what is behind |
+| `StaticMeshGroupEnable(5, true)` | back to **14.341** |
+| `SetTimeToDeleteMeshGroup(5, 0, 0)` | released 59 → **742**, i.e. **683** entities, exactly the `actgrp05` count in the map |
+| trace after the removal | **18.839** again |
+
+The draw toggle needs the renderer, so it was measured in the windowed build
+instead — same camera, same frame, `--shot` for its `entity draws` line:
+
+```
+PAINFUL_WINDOWED=1 PAINFUL_RES=640x360 PAINFUL_SHOT_FRAME=40 \
+  PainfulEngine game D:/Dev/PKRE/Data C4L4_Alastor --shot x.tga \
+  --exec "<hook Game_Tick, EnableDrawMeshGroup(5, true|false) on tick 5>"
+```
+
+**420 entity draws with group 5 shown, 384 with it hidden** — the 36 members in
+view at that camera. The `--shot` stats line answers this without ever opening
+the image.
+
+`SetCollisionGroupMeshGroup` on the same trace: 14.341 solid, **18.839** after
+`Noncolliding`, and solid again at 14.486 after `Normal`. Note that last figure:
+returning the group to a colliding state left its bodies 0.145 short of where
+they started, so a regrouped body is not restored exactly where it was. Small,
+and only visible on a group switched back and forth, but it is a real
+difference rather than noise — worth a look if Alastor's floors ever sag.
+
 ## Glass
 
 A pane is a **map object whose name contains `glass`**. Prison has 279 of them

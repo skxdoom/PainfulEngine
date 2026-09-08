@@ -29,6 +29,11 @@ struct WorldNatives : ScriptNativesBase {
 	static int L_ENTITY_EnableDeathZoneTest(lua_State* L);
 	static int L_WORLD_EnableDeathZone(lua_State* L);
 	static int L_WORLD_CheckStartGlass(lua_State* L);
+	static int L_WORLD_EnableDrawMeshGroup(lua_State* L);
+	static int L_PHYSICS_StaticMeshGroupEnable(lua_State* L);
+	static int L_WORLD_SetCollisionGroupMeshGroup(lua_State* L);
+	static int L_WORLD_SetTimeToDeleteMeshGroup(lua_State* L);
+	static int L_MESH_SetMeshGroup(lua_State* L);
 };
 
 // ------------------------------------------------------------ death zones
@@ -143,6 +148,94 @@ int WorldNatives::L_WORLD_CheckStartGlass(lua_State* L) {
 	return 1;
 }
 
+// ------------------------------------------------------------ mesh groups
+
+// The `actgrp<N>` an active mesh was authored into, and the four natives that
+// act on every member at once. Both boss arenas are built this way: C4L4_Alastor
+// carries 1,990 grouped objects and shows a few groups at a time.
+// Docs/Reference/Physics.md, "Mesh groups".
+void ScriptEngine::ForEachInMeshGroup(int group, const std::function<void(Entity&)>& fn) {
+	if (group < 0) return;
+	for (auto& kv : entities_)
+		if (kv.second.meshGroup == group) fn(kv.second);
+}
+
+// WORLD.EnableDrawMeshGroup(group, on = true) -> World::MeshesActiveGroupEnableDraw.
+int WorldNatives::L_WORLD_EnableDrawMeshGroup(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const bool on = lua_isnone(L, 2) ? true : (lua_toboolean(L, 2) != 0);
+	self->ForEachInMeshGroup(int(luaL_optnumber(L, 1, -1)), [&](Entity& e) {
+		e.visible = on;
+		if (self->renderer_ && e.rendererInstance >= 0)
+			self->renderer_->SetScriptVisible(e.rendererInstance, on);
+	});
+	return 0;
+}
+
+// PHYSICS.StaticMeshGroupEnable(group, on = true) ->
+// PhysicsWorld::StaticMeshesEnableByGroup. The collision half of the pair above;
+// Alastor calls them together for every group it shows or hides.
+int WorldNatives::L_PHYSICS_StaticMeshGroupEnable(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const bool on = lua_isnone(L, 2) ? true : (lua_toboolean(L, 2) != 0);
+	self->ForEachInMeshGroup(int(luaL_optnumber(L, 1, -1)), [&](Entity& e) {
+		if (self->physics_ && e.physicsBody >= 0)
+			self->physics_->SetScriptBodyEnabled(e.physicsBody, on);
+	});
+	return 0;
+}
+
+// WORLD.SetCollisionGroupMeshGroup(group, collisionGroup) ->
+// World::MeshesActiveGroupSetCollisionGroup. Alastor drops the floors out of
+// the player's way by regrouping them rather than removing them.
+int WorldNatives::L_WORLD_SetCollisionGroupMeshGroup(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const int cg = int(luaL_optnumber(L, 2, 0));
+	self->ForEachInMeshGroup(int(luaL_optnumber(L, 1, -1)), [&](Entity& e) {
+		e.collisionGroup = cg;
+		if (self->physics_ && e.physicsBody >= 0)
+			self->physics_->SetScriptBodyCollisionGroup(e.physicsBody, cg);
+	});
+	return 0;
+}
+
+// WORLD.SetTimeToDeleteMeshGroup(group, time, randomize) - time 0 removes the
+// group NOW (World::MeshesActiveGroupRemove; the sentinel at 0x103a74ac reads
+// 0.0, and Alastor's WallsTimeToDelete is exactly 0.0), otherwise it schedules
+// the removal at time + rand(0..randomize). The script's 4th argument is not
+// read by the engine.
+int WorldNatives::L_WORLD_SetTimeToDeleteMeshGroup(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const int group = int(luaL_optnumber(L, 1, -1));
+	const float time = float(luaL_optnumber(L, 2, 0));
+	const float randomize = float(luaL_optnumber(L, 3, 0));
+	if (time != 0.f) {
+		self->ForEachInMeshGroup(group, [&](Entity& e) {
+			const float jitter = randomize > 0.f
+					? randomize * (float(std::rand()) / float(RAND_MAX)) : 0.f;
+			e.timeToDie = time + jitter;
+		});
+		return 0;
+	}
+	// Removing walks the map, so collect first: erasing inside the walk would
+	// invalidate it.
+	std::vector<int> doomed;
+	for (const auto& kv : self->entities_)
+		if (kv.second.meshGroup == group) doomed.push_back(kv.first);
+	for (int h : doomed) self->ReleaseEntity(h);
+	return 0;
+}
+
+// MESH.SetMeshGroup(e, group) - Entity+0x7e2, and only on a Mesh entity
+// (0x1012ED30 checks the type). C2L1's antennas and C5L2's crane put
+// themselves into group 70 so the level can switch them as one.
+int WorldNatives::L_MESH_SetMeshGroup(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (e && e->type == kMesh) e->meshGroup = int(luaL_optnumber(L, 2, 0));
+	return 0;
+}
+
 // ENTITY.EnableDeathZoneTest(e, on = true) - the byte at Entity+0x11b.
 int WorldNatives::L_ENTITY_EnableDeathZoneTest(lua_State* L) {
 	ScriptEngine* self = From(L);
@@ -244,6 +337,7 @@ void ScriptEngine::CreateActiveMeshes() {
 		e.worldObject = true;
 		e.inWorld = true;
 		e.activeMesh = int(i);
+		e.meshGroup = o.activeGroup();
 		e.physicsBody = slot;
 		e.collisionGroup = 3; // AddMesh creates every one in group 3
 		for (int c = 0; c < 3; ++c) e.pos[c] = e.activeOrigin[c] = origin[c];
@@ -609,6 +703,13 @@ void BindWorld(ScriptEngine& engine, LuaHost& host) {
 		{"ENTITY", "EnableDeathZoneTest", WorldNatives::L_ENTITY_EnableDeathZoneTest},
 		{"WORLD", "EnableDeathZone", WorldNatives::L_WORLD_EnableDeathZone},
 		{"WORLD", "CheckStartGlass", WorldNatives::L_WORLD_CheckStartGlass},
+		{"WORLD", "EnableDrawMeshGroup", WorldNatives::L_WORLD_EnableDrawMeshGroup},
+		{"PHYSICS", "StaticMeshGroupEnable", WorldNatives::L_PHYSICS_StaticMeshGroupEnable},
+		{"WORLD", "SetCollisionGroupMeshGroup",
+				WorldNatives::L_WORLD_SetCollisionGroupMeshGroup},
+		{"WORLD", "SetTimeToDeleteMeshGroup",
+				WorldNatives::L_WORLD_SetTimeToDeleteMeshGroup},
+		{"MESH", "SetMeshGroup", WorldNatives::L_MESH_SetMeshGroup},
 	};
 	RegisterFamily(engine, host, natives);
 }

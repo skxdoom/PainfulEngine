@@ -150,6 +150,10 @@ public:
 		// The map object its geometry was cut from, when it was exactly one.
 		// A pane that breaks takes the decals stuck to it with it.
 		int decalObject = -1;
+		// The mesh group this belongs to: `actgrp<N>` in the name for an active
+		// mesh, or whatever MESH.SetMeshGroup last wrote (Entity+0x7e2). The
+		// WORLD.*MeshGroup family acts on every entity sharing one.
+		int meshGroup = -1;
 		// MDL.SetMeshVisibility, kept so it survives the renderer instance
 		// being rebuilt. name -> shown.
 		std::map<std::string, bool> hiddenMeshes;
@@ -605,6 +609,8 @@ public:
 	// BreakGlassAt answers WORLD.CheckStartGlass: true when the point is in a
 	// pane, which also takes that pane out of the world.
 	void BuildGlass();
+	// Every entity in one `actgrp` mesh group - the WORLD.*MeshGroup family.
+	void ForEachInMeshGroup(int group, const std::function<void(Entity&)>& fn);
 	bool BreakGlassAt(const Vec3& at, float radius);
 	// Where the segment first crosses a water surface, if it does.
 	bool TraceWater(const Vec3& from, const Vec3& to, float& t, int& entity) const;

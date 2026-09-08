@@ -241,6 +241,10 @@ Falling out of the level kills: the map's `deathzone*` volumes are read with
 the water surfaces, and anything asking to be tested posts `IN_DEATH_ZONE` when
 it enters an enabled one. Levels switch individual zones on and off.
 
+A level can switch whole `actgrp` mesh groups: drawn, collidable, regrouped or
+removed outright. That is what the two boss arenas are built from — Alastor's
+map carries 1,990 grouped objects and shows a few groups at a time.
+
 Windows break. Every `*glass*` object is its own static body, and a shot that
 starts one takes it out of the collision, out of the drawn world and takes the
 bullet holes stuck to it with it — so the shot carries on through, which is what
