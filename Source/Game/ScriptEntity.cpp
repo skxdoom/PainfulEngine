@@ -56,6 +56,7 @@ struct EntityNatives : ScriptNativesBase {
 	static int L_PO_MaintainLinearMovement(lua_State* L);
 	static int L_PO_EnableSpeedDamping(lua_State* L);
 	static int L_PO_SetAsTransporter(lua_State* L);
+	static int L_PO_SetPlayerFlying(lua_State* L);
 	static int L_PO_Activate(lua_State* L);
 	static int L_PO_GetMass(lua_State* L);
 	static int L_PO_Impulse(lua_State* L);
@@ -1387,6 +1388,18 @@ int EntityNatives::L_PO_SetAsTransporter(lua_State* L) {
 	return 0;
 }
 
+// ENTITY.PO_SetPlayerFlying(e, seconds) -> PhysicsObject::SetPlayerShocked(t)
+// (0x10133CD0 -> 0x101967D0), which writes the timer at player+0x3c. Every
+// caller follows it with ENTITY.SetVelocity, so this is "a monster throws the
+// player": the Giant's strike 0.5, Deto and the Executioner 0.33, ordinary
+// melee 0.3. Only the PLAYER has the timer.
+int EntityNatives::L_PO_SetPlayerFlying(lua_State* L) {
+	ScriptEngine* self = From(L);
+	if (self->pawn_ && HandleArg(L, 1) == self->playerHandle_ && self->playerHandle_)
+		self->pawn_->SetShocked(float(luaL_optnumber(L, 2, 0)));
+	return 0;
+}
+
 // ENTITY.PO_Activate(e, on = FALSE) - PhysicsObject::Activate (0x10130E40).
 // Note the default: a bare call puts the body to SLEEP. CObject:PO_Create
 // wakes a pinned body right after pinning it, working around a Havok bug.
@@ -1559,6 +1572,7 @@ void BindEntity(ScriptEngine& engine, LuaHost& host) {
 		{"ENTITY", "PO_MaintainLinearMovement", EntityNatives::L_PO_MaintainLinearMovement},
 		{"ENTITY", "PO_EnableSpeedDamping", EntityNatives::L_PO_EnableSpeedDamping},
 		{"ENTITY", "PO_SetAsTransporter", EntityNatives::L_PO_SetAsTransporter},
+		{"ENTITY", "PO_SetPlayerFlying", EntityNatives::L_PO_SetPlayerFlying},
 		{"ENTITY", "PO_Activate", EntityNatives::L_PO_Activate},
 		{"ENTITY", "PO_GetMass", EntityNatives::L_PO_GetMass},
 		{"ENTITY", "PO_Impulse", EntityNatives::L_PO_Impulse},

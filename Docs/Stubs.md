@@ -192,10 +192,24 @@ Riding one works — the pawn takes its floor body's velocity, confirmed in play
 on the Factory belts. **Left:** `PLAYER.AttachToUnderBody`, the handcar's
 explicit attach.
 
-### 7. Flying monsters
+### 7. Being thrown by a monster — DONE
 
-`ENTITY.PO_SetPlayerFlying` (10, Monsters:9). `PO_SetFlying` is done; this is
-the player-relative variant the ravens and Alastor use.
+**Correction to the census: `PO_SetPlayerFlying` has nothing to do with flying.**
+It calls `PhysicsObject::SetPlayerShocked(float)` — seconds of no control — and
+every caller follows it with `SetVelocity` on the player. It is a monster
+throwing you: the Giant 0.5, Deto and the Executioner 0.33, ordinary melee 0.3.
+Flying monsters were never this native's business; `PO_SetFlying` /
+`PO_IsFlying` were already done, which is why the crows work.
+
+The timer, why stripping the input alone was not enough, and the measurement
+(a grounded throw carries 7.400 against 4.641) are in
+[`PlayerMovement.md`](Reference/PlayerMovement.md), "Being thrown" — together
+with a TestFloor fight showing that the ORDINARY melee site passes a nil handle
+and is a no-op in the shipped game too, so what little shove it gives comes from
+`SetVelocity` and is spent by the walk factor.
+
+`ENTITY.PO_SetPlayerShocked` is a different function despite the name and stays
+stubbed.
 
 ### 8. Scripted ragdoll moves
 

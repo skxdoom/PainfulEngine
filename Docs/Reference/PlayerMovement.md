@@ -873,6 +873,73 @@ took the exit: the stats crawl was skipped and left in the same motion.
 `Input::SetKeyDown` clears that only on an up, which reproduces the state
 machine's effect. Guarded by six checks in `PainfulTools selftest`.
 
+## Being thrown
+
+`ENTITY.PO_SetPlayerFlying(e, seconds)` (`0x10133CD0`) is not about flying at
+all, and it has nothing to do with `PO_SetFlying`, the monster flag. It calls
+**`PhysicsObject::SetPlayerShocked(float)`** (`0x101967D0`), which writes the
+seconds straight to the player state at `+0x3c` — a timer with no control.
+
+Every caller follows it immediately with `ENTITY.SetVelocity` on the player:
+
+```lua
+ENTITY.PO_SetPlayerFlying(Player._Entity, 0.5)
+ENTITY.SetVelocity(Player._Entity, v.X*forceX, forceY, v.Z*forceX)
+```
+
+That is a monster throwing you: the Giant's strike 0.5, Deto and the
+Executioner's spike 0.33, `CActor`'s ordinary melee 0.3, AlastorKing 0.3. Only
+the player has the timer — `CActor.lua:409` guards it on
+`_Class == "CPlayer"`.
+
+`PlayerPawn::Move` counts the timer down and, while it runs, **takes neither the
+grounded nor the airborne branch**. Stripping the movement bits alone is not
+enough and was tried first: with no input the grounded walk closes the gap to a
+wish of ZERO, which stopped the throw dead before it left the floor.
+
+Measured on Cathedral, holding Forward, `SetVelocity(15, 0, 0)` so the player
+stays grounded and the walk gets its chance, over 30 frames:
+
+| | dx | dz |
+|---|---|---|
+| without the timer | **4.641** — dragged back to walking speed | 0.087 |
+| with the timer | **7.400** = 14.8 u/s, the throw as given | 0.000 |
+
+The same launch with an upward component (`15, 8, 0`) reads 7.499 against 7.500:
+airborne, air control is weak enough that the throw survives either way. The
+horizontal case is the one that shows the mechanism.
+
+`ENTITY.PO_SetPlayerShocked(e)` is a DIFFERENT function despite the name — the
+no-argument `SetPlayerShocked()` overload (`0x10188E50`) zeroes a field rather
+than setting the timer, so it is left stubbed until what it clears is known.
+
+### The ordinary melee site passes nil, in the shipped game too
+
+Spawning an `EvilMonkV2` next to the player on TestFloor and letting it hit
+(`AddObject("EvilMonkV2.CActor", 1, ...)` from the `lua` command's exec chunk —
+a monster engages there with no waypoints) shows the common path in full:
+
+- It lands melee hits, 10 damage each, six in 900 frames.
+- Each one calls `ENTITY.PO_SetPlayerFlying(e_other, 0.3)` — and **`e_other` is
+  nil** in `CActor:damage`'s scope.
+- **The original ignores it too.** The thunk reads `Script::GetInt(1, 0)` and
+  guards on `0 < handle`, so a nil argument is 0 and the whole body is skipped.
+  This call site never armed the timer in the shipped game either.
+
+So the shove at that site is `ENTITY.SetVelocity` alone. The script asks for
+**11.6–12.8 units/s** (purely horizontal — `par4` is 0 for this monster) and the
+player travels **0.29 in 18 frames**, about 0.97 u/s averaged. That is the
+grounded walk eating it: `PAINFUL_WALK_FACTOR` closes 40% of the gap per frame,
+which spends an 11.6 shove in about ten frames. At the RECOVERED 0.2 the same
+shove would carry roughly twice as far (0.58 against 0.29) — still a nudge
+rather than a knockback, which is worth knowing before anyone reaches for the
+tuning knob.
+
+The sites that DO arm the timer name the player explicitly:
+`Giant.lua:687` and `AlastorKing.lua:878` pass `Player._Entity`. Neither monster
+engaged on TestFloor within 25 seconds of spawning, so that pairing has not been
+caught in a real fight — only in the synthetic A/B above.
+
 ## Not yet ported
 
 Ice, ladders, moving platforms, underwater (`UnderwaterSpeed` family),

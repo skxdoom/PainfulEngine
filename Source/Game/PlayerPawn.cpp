@@ -58,6 +58,15 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
 	jumpedThisMove_ = false;
 	dt = std::min(dt, 0.05f); // a hitch must not become a teleport
 
+	// ENTITY.PO_SetPlayerFlying(e, t) is PhysicsObject::SetPlayerShocked(t) -
+	// t seconds with no control, which is what lets the SetVelocity every
+	// caller makes right after it actually throw the player.
+	// Docs/Reference/PlayerMovement.md, "Being thrown".
+	if (shocked_ > 0.f) {
+		shocked_ -= dt;
+		action &= ~(Act::Forward | Act::Backward | Act::Left | Act::Right | Act::Jump);
+	}
+
 	// Two movers, two tweak blocks. PlayerAction (0x10192260) reads the
 	// PlayerMove block at tweaks+0x00..0x50; MultiPlayerAction (0x10194580)
 	// reads MultiPlayerMove at +0x5c..+0xac and nothing else.
@@ -147,7 +156,13 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
 	// A floor steeper than SlopeAngleToSlide for more than five frames is
 	// walked as air (the counter at helper +0x70): weak control, sliding.
 	const bool sliding = slopeCount_ > 5;
-	if (onGround_ && !sliding) {
+	// Thrown: neither branch commands anything, so the velocity the caller set
+	// is the velocity that is spent. Stripping the input alone was not enough -
+	// the grounded walk closes the gap to a wish of ZERO, which stopped the
+	// throw dead before it left the floor.
+	if (shocked_ > 0.f) {
+		stepping_ = false;
+	} else if (onGround_ && !sliding) {
 		groundedTime_ += dt;
 		// While grounded, PlayerAction stores BOTH the travel direction and
 		// the movement bits on the physics object, every frame - including

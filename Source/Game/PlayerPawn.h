@@ -116,6 +116,10 @@ public:
 	// velY_, horizontal into the air direction and speed the air branch
 	// steers with. jumpedThisMove_ stays false: a pad is not an input jump,
 	// and the scripts' jump sound hangs off that.
+	// ENTITY.PO_SetPlayerFlying: seconds of no control, so a monster's strike
+	// can throw the player. Counted down in Move.
+	void SetShocked(float seconds) { shocked_ = seconds > 0.f ? seconds : 0.f; }
+	bool shocked() const { return shocked_ > 0.f; }
 	void SetVelocity(const Vec3& v) {
 		velX_ = v[0];
 		velY_ = v[1];
@@ -192,6 +196,7 @@ private:
 	// The body's velocity, PlayerAction's `v` - persistent, since every
 	// frame's impulse is measured against it.
 	float velX_ = 0.f, velY_ = 0.f, velZ_ = 0.f;
+	float shocked_ = 0.f; // PO_SetPlayerFlying's timer
 	bool onGround_ = false; // floor ray or step: the grounded branch
 	bool resting_ = false; // set on the floor by the probe
 	bool stepping_ = false; // a rung answered 1..3 (flag bit 0)
