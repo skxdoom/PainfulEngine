@@ -701,6 +701,10 @@ struct PhysicsWorld::Impl {
 		JPH::Ref<JPH::Ragdoll> ragdoll;
 		std::vector<std::string> bones;
 		bool simulated = false; // dynamic (dead) rather than driven (alive)
+		// The ECollisionGroups value MDL.EnableRagdoll or SetRagdollCollisionGroup
+		// last named; -1 until one does, which keeps the old full-collision
+		// behaviour for anything that never asks.
+		int collisionGroup = -1;
 		// Ragdoll::Joint_SetPinned's flag per limb. Held rather than read back
 		// off the motion type, because a LIVE ragdoll is kinematic too.
 		std::vector<uint8_t> pinned;

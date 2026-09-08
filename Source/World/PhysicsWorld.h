@@ -313,6 +313,10 @@ public:
 	bool GetRagdollPose(int slot, float* boneMatrices) const;
 	// Is this ragdoll being simulated rather than driven? MDL.IsRagdollActive.
 	bool RagdollActive(int slot) const;
+	// MDL.SetRagdollCollisionGroup / GetRagdollCollisionGroup, and the layer an
+	// ECollisionGroups value maps to. Physics.md, "A corpse's collision group".
+	void SetRagdollCollisionGroup(int slot, int group);
+	int RagdollCollisionGroup(int slot) const;
 	// MDL.SetRagdollLinearDamping / AngularDamping / Friction, and the mass
 	// CActor:EnableRagdoll pushes in right after activating one. The .hke
 	// supplies all of these; the scripts override them per monster.

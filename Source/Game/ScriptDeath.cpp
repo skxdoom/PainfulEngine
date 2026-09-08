@@ -32,6 +32,8 @@ struct DeathNatives : ScriptNativesBase {
 	static int L_MDL_SetRagdollMovedByExplosions(lua_State* L);
 	static int L_MDL_RagdollSelfExplosion(lua_State* L);
 	static int L_MDL_ApplyVelocitiesToAllJoints(lua_State* L);
+	static int L_MDL_SetRagdollCollisionGroup(lua_State* L);
+	static int L_MDL_GetRagdollCollisionGroup(lua_State* L);
 	static int L_MDL_SetPinned(lua_State* L);
 	static int L_MDL_IsPinned(lua_State* L);
 	static int L_MDL_SetPinnedJoint(lua_State* L);
@@ -550,7 +552,28 @@ int DeathNatives::L_MDL_EnableRagdoll(lua_State* L) {
 	Entity* e = self->Find(HandleArg(L, 1));
 	if (!e) return 0;
 	self->EnableRagdoll(*e, lua_toboolean(L, 2) != 0);
+	// The THIRD argument is the corpse's collision group, and 53 of the
+	// shipped monsters pass RagdollNonColliding here.
+	if (lua_isnumber(L, 3) && self->physics_ && e->ragdollSlot >= 0)
+		self->physics_->SetRagdollCollisionGroup(e->ragdollSlot, int(lua_tonumber(L, 3)));
 	return 0;
+}
+
+int DeathNatives::L_MDL_SetRagdollCollisionGroup(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (e && self->physics_ && e->ragdollSlot >= 0)
+		self->physics_->SetRagdollCollisionGroup(e->ragdollSlot,
+				int(luaL_optnumber(L, 2, 0)));
+	return 0;
+}
+
+int DeathNatives::L_MDL_GetRagdollCollisionGroup(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const Entity* e = self->Find(HandleArg(L, 1));
+	lua_pushnumber(L, e && self->physics_ && e->ragdollSlot >= 0
+			? self->physics_->RagdollCollisionGroup(e->ragdollSlot) : 0);
+	return 1;
 }
 
 // MDL.IsRagdoll(e) - does this actor HAVE a ragdoll. CActor:EnableRagdoll
@@ -1206,6 +1229,8 @@ void BindDeath(ScriptEngine& engine, LuaHost& host) {
 		{"PHYSICS", "IsHavokBodyInWorld", DeathNatives::L_PHYSICS_IsHavokBodyInWorld},
 		{"PHYSICS", "IsHavokBodyPinned", DeathNatives::L_PHYSICS_IsHavokBodyPinned},
 		{"PHYSICS", "SetHavokBodyVelocity", DeathNatives::L_PHYSICS_SetHavokBodyVelocity},
+		{"MDL", "SetRagdollCollisionGroup", DeathNatives::L_MDL_SetRagdollCollisionGroup},
+		{"MDL", "GetRagdollCollisionGroup", DeathNatives::L_MDL_GetRagdollCollisionGroup},
 		{"MDL", "SetPinned", DeathNatives::L_MDL_SetPinned},
 		{"MDL", "IsPinned", DeathNatives::L_MDL_IsPinned},
 		{"MDL", "SetPinnedJoint", DeathNatives::L_MDL_SetPinnedJoint},

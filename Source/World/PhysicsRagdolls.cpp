@@ -643,6 +643,30 @@ bool PhysicsWorld::RagdollPinned(int slot) const {
 	return false;
 }
 
+// Which layer an ECollisionGroups value puts a dead ragdoll in. Only
+// Noncolliding (7) is certain; everything else, RagdollNonColliding included,
+// collides as it always has. Reading the [10,19] band as "the static world
+// only" was TRIED and measured worse - see Docs/Reference/Physics.md,
+// "A corpse's collision group".
+static JPH::ObjectLayer RagdollLayer(int group) {
+	return group == 7 ? Layers::kNoCollide : Layers::kMoving;
+}
+
+void PhysicsWorld::SetRagdollCollisionGroup(int slot, int group) {
+	if (!RagdollExists(slot)) return;
+	Impl::RagdollInst& inst = impl_->ragdolls[size_t(slot)];
+	inst.collisionGroup = group;
+	if (!inst.simulated) return; // the live layer is the hitbox one
+	JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+	const JPH::ObjectLayer layer = RagdollLayer(group);
+	for (JPH::BodyID id : inst.ragdoll->GetBodyIDs())
+		if (bodies.GetObjectLayer(id) != layer) bodies.SetObjectLayer(id, layer);
+}
+
+int PhysicsWorld::RagdollCollisionGroup(int slot) const {
+	return RagdollExists(slot) ? impl_->ragdolls[size_t(slot)].collisionGroup : 0;
+}
+
 bool PhysicsWorld::GetRagdollPartRotation(int slot, int part, Quat& out) const {
 	if (!RagdollExists(slot) || part < 0) return false;
 	const auto& ids = impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs();
@@ -735,7 +759,7 @@ void PhysicsWorld::SetRagdollPose(int slot, const float* boneMatrices, bool kine
 		kinematic ? JPH::EMotionType::Kinematic : JPH::EMotionType::Dynamic;
 	// Alive, the limbs are hitboxes and nothing else; dead, they are a
 	// corpse that lies on the floor and bumps into things.
-	const JPH::ObjectLayer layer = kinematic ? Layers::kHitbox : Layers::kMoving;
+	const JPH::ObjectLayer layer = kinematic ? Layers::kHitbox : RagdollLayer(inst.collisionGroup);
 	const JPH::Array<JPH::BodyID>& ids = inst.ragdoll->GetBodyIDs();
 	const JPH::RagdollSettings* settings = inst.ragdoll->GetRagdollSettings();
 	for (size_t i = 0; i < ids.size(); ++i) {

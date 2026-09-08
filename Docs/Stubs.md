@@ -103,13 +103,14 @@ That closes three inverted tests (`CActor:Electrize`, `meat.lua`,
 `PainHead:Tick`), the Painkiller's corpse throw, and the Executioner, Loki,
 Vamp_Big and Apoc_zombie ragdoll moves.
 
-**Still open, and it is the bigger half:** `MDL.SetRagdollCollisionGroup` (37
-live sites) and `MDL.EnableRagdoll`'s ignored third argument. 53 monster scripts
-enable their ragdoll as `RagdollNonColliding`; a simulated ragdoll here is
-`Layers::kMoving` unconditionally, so **every corpse collides like an ordinary
-prop.** The native's own rule is recovered (a group in [10,19] is replaced by a
-rotating per-corpse value); what is not is the group-pair filter that says what
-those groups may touch. Same page, "A corpse's collision group".
+`MDL.SetRagdollCollisionGroup` / `GetRagdollCollisionGroup` and
+`MDL.EnableRagdoll`'s third argument are in too, so a corpse carries its group
+(a Cathedral corpse reads back 10). **What the group MEANS is still unrecovered**
+— the Havok group-pair filter — so only `Noncolliding` (7) changes the layer and
+the rest collide as before. A reading of the [10,19] band was tried, appeared to
+measure worse, and turned out to be an uncontrolled A/B against a
+non-deterministic fight; it was withdrawn. Same page, "A corpse's collision
+group", including how to test it properly.
 
 ### 2. Death zones — DONE
 

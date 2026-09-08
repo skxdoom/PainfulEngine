@@ -1063,7 +1063,7 @@ them — the first probe read `(0,0,0)` for exactly that reason):
 | after `SetPinnedJoint(e, j, false)` | false |
 | `ApplyVelocitiesToJointLinked(e, j, 0, 25, 0, 0,0,0)`, 2 frames | **dy +0.816**, against 25/60 x 2 = 0.833 less gravity |
 
-### A corpse's collision group is recovered but NOT applied
+### A corpse's collision group
 
 `Ragdoll::SetCollisionGroup` (`0x1019C870` → `FUN_101AB570`) writes the group to
 each limb's body at `+0x20` and packs it into the filter byte at `+0x88` as
@@ -1073,16 +1073,31 @@ once per call.** `ECollisionGroups.RagdollNonColliding` is 10, so each
 non-colliding corpse is dealt one of ten group values in turn; groups outside
 that band (`RagdollColliding` 20, `Particles` 8) are written verbatim.
 
-What that band *means* is the part still missing: it is the group-pair filter
-table that decides whether a corpse collides with the player, with props, and
-with other corpses, and that table has not been recovered yet. Until it is,
-`MDL.SetRagdollCollisionGroup` stays a stub and **every corpse in the game
-collides like an ordinary moving body** (a simulated ragdoll is `Layers::kMoving`
-unconditionally), while 53 of the shipped monster scripts ask for
-`RagdollNonColliding` at `MDL.EnableRagdoll(e, true, group)` — whose third
-argument our native also ignores. Expect corpses to shove the player and each
-other more than they should. **What would settle it:** the `hkGroupFilter` setup
-in `Engine.dll` — the loop that enables or disables layer pairs at physics init.
+What that band *means* is still missing: it is the group-pair filter table that
+decides whether a corpse collides with the player, with props and with other
+corpses, and that table is inside statically linked Havok. **What would settle
+it:** the `hkGroupFilter` setup in `Engine.dll`, the loop that enables or
+disables layer pairs at physics init. A search for the rotating counter's other
+references found none.
+
+`MDL.SetRagdollCollisionGroup` / `GetRagdollCollisionGroup` are implemented and
+`MDL.EnableRagdoll`'s third argument is recorded, so a corpse now knows its
+group — a Cathedral corpse reads back **10**, `RagdollNonColliding`, which is
+what 53 of the shipped monsters ask for against the 5 that set
+`CollidableRagdoll = true`. **Only group 7 (`Noncolliding`) changes the layer**;
+everything else, the [10,19] band included, still collides exactly as before.
+
+**A reading of the band was tried and withdrawn.** The obvious inference — 53
+against 5 means "non-colliding corpses meet the static world only" — was built
+as a `kCorpse` layer and measured against a corpse forced back to
+`RagdollColliding`: it fell 1.06 over 120 frames against 0.168. That looked
+decisive and was not. **The A/B was one sample each, and the fight is not
+deterministic** (`math.random` decides where a monster dies), so the corpses
+being compared were different corpses in different places. Re-running with the
+layer reverted reproduced the same 1.14 fall. The number measured the fight, not
+the change. If the band is revisited, the test has to hold the corpse fixed —
+spawn one at a known spot and drop it on a known prop — rather than sample
+whatever the harness happens to kill.
 
 ### Strength is taken as an IMPULSE, and that is the tuning knob
 
