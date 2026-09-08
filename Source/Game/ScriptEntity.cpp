@@ -51,6 +51,12 @@ struct EntityNatives : ScriptNativesBase {
 	static int L_ENTITY_GetPtrByIndex(lua_State* L);
 	static int L_PARTICLE_SetParentOffset(lua_State* L);
 	static int L_PARTICLE_Die(lua_State* L);
+	static int L_PO_Activate(lua_State* L);
+	static int L_PO_GetMass(lua_State* L);
+	static int L_PO_Impulse(lua_State* L);
+	static int L_ENTITY_EnableGunPass(lua_State* L);
+	static int L_ENTITY_SetLocalBBox(lua_State* L);
+	static int L_ENTITY_EnableCollisionsToAll(lua_State* L);
 	static int L_ENTITY_EnableNetworkSynchronization(lua_State* L);
 	static int L_ENTITY_SetSynchroString(lua_State* L);
 	static int L_ENTITY_GetSynchroString(lua_State* L);
@@ -1309,6 +1315,109 @@ void ScriptEngine::UpdateAttached() {
 }
 
 
+// ENTITY.PO_Activate(e, on = FALSE) - PhysicsObject::Activate (0x10130E40).
+// Note the default: a bare call puts the body to SLEEP. CObject:PO_Create
+// wakes a pinned body right after pinning it, working around a Havok bug.
+int EntityNatives::L_PO_Activate(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (e && self->physics_ && e->physicsBody >= 0)
+		self->physics_->ActivateScriptBody(e->physicsBody, lua_toboolean(L, 2) != 0);
+	return 0;
+}
+
+// ENTITY.PO_GetMass(e) -> the body's mass, 0 without one (0x10131800).
+int EntityNatives::L_PO_GetMass(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const Entity* e = self->Find(HandleArg(L, 1));
+	lua_pushnumber(L, e && self->physics_ && e->physicsBody >= 0
+			? self->physics_->ScriptBodyMass(e->physicsBody) : 0.f);
+	return 1;
+}
+
+// ENTITY.PO_Impulse(e, px,py,pz, ix,iy,iz) - PhysicsObject::Impulse at a point.
+// The engine drops the call unless the impulse LENGTH is in (0.01, 10000):
+// the two doubles at 0x102C02D0 and 0x102C5688.
+int EntityNatives::L_PO_Impulse(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || !self->physics_ || e->physicsBody < 0) return 0;
+	const Vec3 at{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+					float(luaL_optnumber(L, 4, 0))};
+	const Vec3 impulse{float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
+					float(luaL_optnumber(L, 7, 0))};
+	const float len = std::sqrt(impulse[0] * impulse[0] + impulse[1] * impulse[1] +
+			impulse[2] * impulse[2]);
+	if (len <= 0.01f || len >= 10000.f) return 0;
+	self->physics_->AddScriptBodyImpulse(e->physicsBody, at, impulse);
+	return 0;
+}
+
+// ENTITY.EnableGunPass(e, children = false) - writes collision group 7
+// (Noncolliding) to the entity, and to every child when asked (0x10136550).
+int EntityNatives::L_ENTITY_EnableGunPass(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e) return 0;
+	const bool alsoChildren = lua_toboolean(L, 2) != 0;
+	auto pass = [&](Entity& t) {
+		t.collisionGroup = 7;
+		if (self->physics_ && t.physicsBody >= 0)
+			self->physics_->SetScriptBodyCollisionGroup(t.physicsBody, 7);
+	};
+	pass(*e);
+	if (alsoChildren)
+		for (int c : e->children)
+			if (Entity* kid = self->Find(c)) pass(*kid);
+	return 0;
+}
+
+// ENTITY.SetLocalBBox(e, minx,miny,minz, maxx,maxy,maxz) - the entity's own
+// box, which CEnvironment sizes from its Size block (0x10131DC0). Held; the
+// engine's box drives volume tests this port does not make yet.
+int EntityNatives::L_ENTITY_SetLocalBBox(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e) return 0;
+	for (int c = 0; c < 3; ++c) {
+		e->localBoxMin[c] = float(luaL_optnumber(L, 2 + c, 0));
+		e->localBoxMax[c] = float(luaL_optnumber(L, 5 + c, 0));
+	}
+	e->hasLocalBox = true;
+	return 0;
+}
+
+// ENTITY.EnableCollisionsToAll(on = true, minTime = 0.5, minStrength = 1,
+// minMass = 0.1, maxMass = 10, percent = 10, group = -1) -> how many bodies
+// it armed. PhysicsWorld::SetCollisionToAll (0x1011DCE0): contact reporting
+// for a share of one active-mesh group, which is what makes falling rubble
+// audible. Docs/Reference/Physics.md, "Contacts".
+int EntityNatives::L_ENTITY_EnableCollisionsToAll(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const bool on = lua_isnone(L, 1) ? true : (lua_toboolean(L, 1) != 0);
+	const float minTime = float(luaL_optnumber(L, 2, 0.5));
+	const float minStrength = float(luaL_optnumber(L, 3, 1.0));
+	const float minMass = float(luaL_optnumber(L, 4, 0.1));
+	const float maxMass = float(luaL_optnumber(L, 5, 10.0));
+	const float percent = float(luaL_optnumber(L, 6, 10.0));
+	const int group = int(luaL_optnumber(L, 7, -1));
+	int count = 0;
+	for (auto& kv : self->entities_) {
+		Entity& e = kv.second;
+		if (e.activeMesh < 0 || e.physicsBody < 0 || !self->physics_) continue;
+		if (group >= 0 && e.meshGroup != group) continue;
+		const float mass = self->physics_->ScriptBodyMass(e.physicsBody);
+		if (mass < minMass || mass > maxMass) continue;
+		if (percent < 100.f && float(std::rand()) / float(RAND_MAX) * 100.f >= percent) continue;
+		e.collisionsOn = on;
+		e.collisionMinTime = minTime;
+		e.collisionMinStrength = minStrength;
+		++count;
+	}
+	lua_pushnumber(L, count);
+	return 1;
+}
+
 // The three network-synchronisation natives. There is no netcode, so
 // EnableNetworkSynchronization only validates; the string pair is real,
 // because a client reads it back off a collision. LuaHost.md, "Synchro".
@@ -1373,6 +1482,12 @@ void BindEntity(ScriptEngine& engine, LuaHost& host) {
 		{"ENTITY", "ComputeChildMatrix", EntityNatives::L_ENTITY_ComputeChildMatrix},
 		{"ENTITY", "EnableNetworkSynchronization",
 				EntityNatives::L_ENTITY_EnableNetworkSynchronization},
+		{"ENTITY", "PO_Activate", EntityNatives::L_PO_Activate},
+		{"ENTITY", "PO_GetMass", EntityNatives::L_PO_GetMass},
+		{"ENTITY", "PO_Impulse", EntityNatives::L_PO_Impulse},
+		{"ENTITY", "EnableGunPass", EntityNatives::L_ENTITY_EnableGunPass},
+		{"ENTITY", "SetLocalBBox", EntityNatives::L_ENTITY_SetLocalBBox},
+		{"ENTITY", "EnableCollisionsToAll", EntityNatives::L_ENTITY_EnableCollisionsToAll},
 		{"ENTITY", "SetSynchroString", EntityNatives::L_ENTITY_SetSynchroString},
 		{"ENTITY", "GetSynchroString", EntityNatives::L_ENTITY_GetSynchroString},
 	};

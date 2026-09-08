@@ -712,6 +712,30 @@ moves them by impulse - being released and destroyed is the whole mechanism.
 Measured: blasted while pinned and immortal, moved 0.0000 and kept Health 1;
 released and mortal, the same blast takes it to -172 and kills it.
 
+## The body natives, and who may report a contact
+
+| native | in the binary | |
+|---|---|---|
+| `ENTITY.PO_Activate(e, on = FALSE)` | `0x10130E40` → `PhysicsObject::Activate` | **the default is false** — a bare call sleeps the body. `CObject:PO_Create` wakes a pinned one right after pinning it, marked `-- bug havoka` |
+| `ENTITY.PO_GetMass(e)` | `0x10131800`, 0 without a body | Cathedral: an urn 60, a small barrel 220, 133 bodies with mass |
+| `ENTITY.PO_Impulse(e, px,py,pz, ix,iy,iz)` | `0x10133AA0` → `PhysicsObject::Impulse` at a point | dropped unless the impulse LENGTH is in **(0.01, 10000)** — the two DOUBLES at `0x102C02D0` and `0x102C5688` (the float column there is garbage) |
+| `ENTITY.EnableGunPass(e, children = false)` | `0x10136550` | writes collision group **7** (Noncolliding) to `Entity+0x24`, and to every child when asked |
+| `ENTITY.SetLocalBBox(e, min, max)` | `0x10131DC0` | held on the entity; nothing reads it here yet |
+
+`ENTITY.EnableCollisionsToAll(on = true, minTime = 0.5, minStrength = 1,
+minMass = 0.1, maxMass = 10, percent = 10, group = -1)` → `PhysicsWorld::
+SetCollisionToAll` (`0x1011DCE0`), **and it returns a count** the scripts print.
+It is not per entity: it arms contact reporting on a SHARE of one active-mesh
+group — mass-filtered, and only `percent` of those, which is the
+collision-callback lottery. `CLevel` runs it over groups 20..30 at level start,
+and Thor and four levels do the same for their own rubble.
+
+Measured on C4L4_Alastor: `group = -1` armed **1987** bodies, `group = 5` armed
+**683** — the map's `actgrp05` count exactly. On Cathedral, a 400 impulse on the
+60 kg urn moved it +0.110 in two frames (part of it goes to spin, since the
+impulse lands at a point). The impulse window itself was not isolated in a
+measurement; it is a transcription of the two constants above.
+
 ## Mesh groups
 
 **This family is not campaign-wide level scripting, and gates do not use it.**

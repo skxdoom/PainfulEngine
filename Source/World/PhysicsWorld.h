@@ -132,6 +132,10 @@ public:
 	// COLLISION_WITH_OTHER_ENTITY, which is an entity-to-entity message.
 	void CollectScriptContacts(std::vector<ScriptContact>& out);
 	void SetScriptBodyMass(int slot, float mass);
+	// ENTITY.PO_GetMass, 0 without a body. ENTITY.PO_Activate(e, on) is
+	// PhysicsObject::Activate: wake the body, or put it to sleep.
+	float ScriptBodyMass(int slot) const;
+	void ActivateScriptBody(int slot, bool on);
 	// ENTITY.PO_SetFreedomOfRotation(e, EFreedomsOfRotation, softness).
 	void SetScriptBodyFreedomOfRotation(int slot, int mode, float softness);
 	void SetScriptBodyLinearDamping(int slot, float damping);

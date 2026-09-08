@@ -225,6 +225,19 @@ void PhysicsWorld::CollectScriptContacts(std::vector<ScriptContact>& out) {
 // PhysicsObject::SetMass (0x10189510) branches on the freedom-of-rotation
 // mode: AllAxes and FullFree rescale the inertia with the mass, every other
 // mode sets the mass alone and leaves the inertia the mode chose.
+float PhysicsWorld::ScriptBodyMass(int slot) const {
+	return ScriptBodyExists(slot) ? impl_->scriptBodies[slot].mass : 0.f;
+}
+
+void PhysicsWorld::ActivateScriptBody(int slot, bool on) {
+	if (!ScriptBodyExists(slot)) return;
+	const JPH::BodyID id = impl_->scriptBodies[slot].body;
+	if (id.IsInvalid()) return;
+	JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+	if (on) bodies.ActivateBody(id);
+	else bodies.DeactivateBody(id);
+}
+
 void PhysicsWorld::SetScriptBodyMass(int slot, float mass) {
 	if (!ScriptBodyExists(slot) || mass <= 0.f) return;
 	JPH::BodyLockWrite lock(impl_->system.GetBodyLockInterface(),

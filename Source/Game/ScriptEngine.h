@@ -150,6 +150,9 @@ public:
 		// The map object its geometry was cut from, when it was exactly one.
 		// A pane that breaks takes the decals stuck to it with it.
 		int decalObject = -1;
+		// ENTITY.SetLocalBBox, the entity's own box in LOCAL space.
+		Vec3 localBoxMin, localBoxMax;
+		bool hasLocalBox = false;
 		// The mesh group this belongs to: `actgrp<N>` in the name for an active
 		// mesh, or whatever MESH.SetMeshGroup last wrote (Entity+0x7e2). The
 		// WORLD.*MeshGroup family acts on every entity sharing one.

@@ -158,12 +158,16 @@ All five are in. The engine calls behind them, the confirmed 0.0 delete
 sentinel and the measurements are in [`Physics.md`](Reference/Physics.md),
 "Mesh groups".
 
-### 5. Collision plumbing
+### 5. Collision plumbing — DONE
 
-`ENTITY.PO_Activate` (9 sites in `CObject` / `CActor` / `CAction`, **218 calls a
-run** — the wake-up after every physics apply), `EnableCollisionsToAll` (5),
-`EnableGunPass` (2), `PO_Impulse` (5), `PO_GetMass` (5), `SetLocalBBox` (2, in
-`CEnvironment`). Cheap, and they decide what a shot and a body may touch.
+`ENTITY.PO_Activate` (9 sites, **218 calls a run**), `EnableCollisionsToAll`
+(5), `EnableGunPass` (2), `PO_Impulse` (5), `PO_GetMass` (5), `SetLocalBBox`
+(2). All in; shapes, the two impulse constants and the contact lottery are in
+[`Physics.md`](Reference/Physics.md), "The body natives".
+
+`PO_Activate`'s default turned out to be **false** — a bare call sleeps a body —
+and `EnableCollisionsToAll` is not per entity at all: it arms a mass-filtered
+share of one active-mesh group and returns the count.
 
 ## Tier 2 — scoped progression blockers
 
