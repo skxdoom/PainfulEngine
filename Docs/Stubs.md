@@ -228,10 +228,16 @@ are Leper_monk, Preacher, Skull, Pinokio and Apoc_zombie_V2; Leper and Vamp_Big
 have their own calls commented out with *"chyba to nie dziala...?"*, so the
 original's authors thought it did not work.
 
-### 9. Boss attacks
+### 9. Boss attacks — DONE
 
-`WORLD.ExplosionUp` and `WORLD.ExplosionParabolic` — one live site each (Thor,
-the Panzer Demon). Small, but they gate two boss fights.
+`WORLD.ExplosionUp` and `WORLD.ExplosionParabolic` — one live site each, both
+Thor's (the hammer slam and the fists). The laws, the constants and the reason
+**both are velocities rather than impulses** — Thor's own `stren = 80` and
+`flightTime = 8` make no sense read the other way — are in
+[`Physics.md`](Reference/Physics.md), "The boss explosions". Measured: a
+parabolic throw at a target 10 away lands 12.23 out against the predicted 12.5.
+
+Left: the unidentified body field both functions filter on.
 
 ## Tier 3 — feel and signature effects
 

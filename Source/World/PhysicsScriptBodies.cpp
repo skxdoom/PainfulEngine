@@ -709,6 +709,17 @@ void PhysicsWorld::SetScriptBodyVelocity(int slot, const Vec3& v) {
 }
 
 
+void PhysicsWorld::AddScriptBodyAngularImpulse(int slot, const Vec3& impulse) {
+	if (!ScriptBodyExists(slot) || !impl_->scriptBodies[size_t(slot)].inWorld) return;
+	const JPH::Vec3 j(impulse[0], impulse[1], impulse[2]);
+	if (j.IsNearZero()) return;
+	JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+	const JPH::BodyID id = impl_->scriptBodies[slot].body;
+	if (bodies.GetMotionType(id) != JPH::EMotionType::Dynamic) return;
+	if (!bodies.IsActive(id)) bodies.ActivateBody(id);
+	bodies.AddAngularImpulse(id, j);
+}
+
 void PhysicsWorld::AddScriptBodyImpulse(int slot, const Vec3& at,
 		const Vec3& impulse) {
 	if (!ScriptBodyExists(slot)) return;

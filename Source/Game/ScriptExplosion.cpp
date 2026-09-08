@@ -16,6 +16,7 @@
 
 #include "ScriptEngineInternal.h"
 #include "../Core/Vectors.h"
+#include <cstdlib>
 #include <vector>
 
 namespace painful {
@@ -25,6 +26,8 @@ namespace painful {
 struct ExplosionNatives : ScriptNativesBase {
 	static int L_WORLD_Explosion2(lua_State* L);
 	static int L_PO_SetMovedByExplosions(lua_State* L);
+	static int L_WORLD_ExplosionUp(lua_State* L);
+	static int L_WORLD_ExplosionParabolic(lua_State* L);
 	static int L_PO_SetPinned(lua_State* L);
 	static int L_PO_IsPinned(lua_State* L);
 };
@@ -245,6 +248,90 @@ int ExplosionNatives::L_PO_IsPinned(lua_State* L) {
 	return 1;
 }
 
+namespace {
+
+// rand() in [-1, 1): the engine's own form, 2 * rand * (1/32768) - 1 with
+// RAND_MAX 32767 (0x102AF888 reads 3.051851e-5).
+float Signed1() { return float(std::rand()) * (2.f / 32768.f) - 1.f; }
+
+} // namespace
+
+// WORLD.ExplosionUp(x, y, z, strength, range, maxImpulse, random) ->
+// PhysicsWorld::ExplosionUp (0x10197E70). Thor's hammer: everything in range
+// goes UP, with a 0.05 tilt in X and Z, a +/-`random` scale on the magnitude
+// and a random spin. Docs/Reference/Physics.md, "The boss explosions".
+int ExplosionNatives::L_WORLD_ExplosionUp(lua_State* L) {
+	ScriptEngine* self = From(L);
+	if (!self->physics_) return 0;
+	const Vec3 centre{float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
+					float(luaL_optnumber(L, 3, 0))};
+	const float strength = float(luaL_optnumber(L, 4, 0));
+	const float range = float(luaL_optnumber(L, 5, 0));
+	const float maxImpulse = float(luaL_optnumber(L, 6, 0));
+	const float random = float(luaL_optnumber(L, 7, 0));
+	if (range <= 0.f) return 0;
+	for (auto& kv : self->entities_) {
+		Entity& e = kv.second;
+		if (e.physicsBody < 0 || !e.poEnabled || !e.movedByExplosions) continue;
+		float d2 = 0.f;
+		for (int c = 0; c < 3; ++c) {
+			const float k = e.pos[c] - centre[c];
+			d2 += k * k;
+		}
+		const float d = std::sqrt(d2);
+		if (d >= range) continue;
+		float m = (1.f - d / range) * strength;
+		if (maxImpulse > 0.f && m > maxImpulse) m = maxImpulse;
+		m *= 1.f + Signed1() * random;
+		const Vec3 up{Signed1() * 0.05f * m, m, Signed1() * 0.05f * m};
+		// A VELOCITY, not an impulse - see the note in Physics.md. Thor caps
+		// this at stren = 80, which is a launch speed and not a 60 kg nudge.
+		self->physics_->SetScriptBodyVelocity(e.physicsBody, up);
+		self->physics_->SetScriptBodyAngularVelocity(e.physicsBody,
+				Vec3{Signed1(), Signed1(), Signed1()});
+	}
+	return 0;
+}
+
+// WORLD.ExplosionParabolic(x, y, z, flightTime, radius, tx, ty, tz) ->
+// 0x10198420. Thor's fists: everything in `radius` is thrown so as to land on
+// (tx,ty,tz) after `flightTime`, the horizontal overshot by 1.25 and the
+// vertical given up to 15% extra.
+int ExplosionNatives::L_WORLD_ExplosionParabolic(lua_State* L) {
+	ScriptEngine* self = From(L);
+	if (!self->physics_) return 0;
+	const Vec3 centre{float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
+					float(luaL_optnumber(L, 3, 0))};
+	const float flight = float(luaL_optnumber(L, 4, 0));
+	const float radius = float(luaL_optnumber(L, 5, 0));
+	const Vec3 target{float(luaL_optnumber(L, 6, 0)), float(luaL_optnumber(L, 7, 0)),
+					float(luaL_optnumber(L, 8, 0))};
+	if (flight <= 0.f || radius <= 0.f) return 0;
+	const float k = 1.f / flight;
+	const float gravity = self->physics_->settings().gravity;
+	for (auto& kv : self->entities_) {
+		Entity& e = kv.second;
+		if (e.physicsBody < 0 || !e.poEnabled || !e.movedByExplosions) continue;
+		float d2 = 0.f;
+		for (int c = 0; c < 3; ++c) {
+			const float t = e.pos[c] - centre[c];
+			d2 += t * t;
+		}
+		if (std::sqrt(d2) >= radius) continue;
+		Vec3 v{(target[0] - e.pos[0]) * k * 1.25f,
+				(target[1] - e.pos[1]) * k + gravity * 0.5f * flight,
+				(target[2] - e.pos[2]) * k * 1.25f};
+		// rand() * 4.5777765e-6 is [0, 0.15): the vertical gets up to 15% more.
+		v[1] *= 1.f + float(std::rand()) * 4.5777765e-6f;
+		// The ballistic identity only holds if this is a VELOCITY: with Thor's
+		// flightTime of 8 the vertical term is gravity * 0.5 * 8 = 78 u/s.
+		self->physics_->SetScriptBodyVelocity(e.physicsBody, v);
+		self->physics_->SetScriptBodyAngularVelocity(e.physicsBody,
+				Vec3{Signed1(), Signed1(), Signed1()});
+	}
+	return 0;
+}
+
 void BindExplosion(ScriptEngine& engine, LuaHost& host) {
 	const ScriptNative natives[] = {
 		{"WORLD", "Explosion2", ExplosionNatives::L_WORLD_Explosion2},
@@ -254,6 +341,8 @@ void BindExplosion(ScriptEngine& engine, LuaHost& host) {
 		{"ENTITY", "PO_SetMovedByExplosions", ExplosionNatives::L_PO_SetMovedByExplosions},
 		{"ENTITY", "PO_SetPinned", ExplosionNatives::L_PO_SetPinned},
 		{"ENTITY", "PO_IsPinned", ExplosionNatives::L_PO_IsPinned},
+		{"WORLD", "ExplosionUp", ExplosionNatives::L_WORLD_ExplosionUp},
+		{"WORLD", "ExplosionParabolic", ExplosionNatives::L_WORLD_ExplosionParabolic},
 	};
 	RegisterFamily(engine, host, natives);
 }

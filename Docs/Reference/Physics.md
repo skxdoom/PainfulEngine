@@ -1143,6 +1143,66 @@ the change. If the band is revisited, the test has to hold the corpse fixed —
 spawn one at a known spot and drop it on a known prop — rather than sample
 whatever the harness happens to kill.
 
+### The boss explosions, and why these two are VELOCITIES
+
+Thor's two moves, one live call site each.
+
+**`WORLD.ExplosionUp(x, y, z, strength, range, maxImpulse, random)`**
+(`0x1011EF20` → `PhysicsWorld::ExplosionUp` `0x10197E70`) launches everything in
+range straight up:
+
+```
+d = |body - centre|;  skip d >= range
+m = (1 - d/range) * strength,  clamped to maxImpulse
+m *= 1 + rand[-1,1] * random
+linear  = (rand[-1,1] * 0.05 * m,  m,  rand[-1,1] * 0.05 * m)
+angular = (rand[-1,1], rand[-1,1], rand[-1,1])
+```
+
+The constants are `0x102AF838` = 0.05 (the tilt), `0x102AE5A4` = 1.0 and
+`0x102AF888` = 3.051851e-5, which is `2 * rand() / 32768` — so the engine's
+random is `rand()` with RAND_MAX 32767 mapped to [-1, 1).
+
+**`WORLD.ExplosionParabolic(x, y, z, flightTime, radius, tx, ty, tz)`**
+(`0x1011F020` → `0x10198420`) throws everything in `radius` so that it lands on
+the target:
+
+```
+k  = 1 / flightTime
+vx = (tx - px) * k * 1.25        (0x102B46D0)
+vy = (ty - py) * k + gravity * 0.5 * flightTime
+vz = (tz - pz) * k * 1.25
+vy *= 1 + rand() * 4.5777765e-6  -> up to +15%   (0x102C86D4)
+```
+
+**Both are velocities, not impulses, and Thor's own data is what says so.**
+`Thor.CActor` gives the hammer `stren = 80` with the cap at the same 80, and the
+fists `flightTime = 8`. Read as impulses on a 60 kg body those are a 1.3 u/s
+nudge and nothing at all; read as velocities they are an 80 u/s launch and a
+78 u/s lob with eight seconds of hang time. The ballistic term settles it — the
+identity `vy = dy/T + g·T/2` only holds for a velocity. Applied through
+`SetScriptBodyVelocity` here. This is the same ambiguity noted below for
+`Explosion2`'s strength, resolved the other way, and for the same reason: the
+arithmetic only means something in one of the two readings.
+
+Measured on a 60 kg urn (Cathedral) and a 300 kg ammo box on the empty
+TestFloor:
+
+| | |
+|---|---|
+| `ExplosionUp(strength 400, range 6)` | dy **+18.2** in 20 frames |
+| `ExplosionParabolic`, target 10 units away, `flightTime 1` | dx **12.23** after one second against the predicted 1.25 × 10 = **12.5** |
+| the same throw's vertical | dy **+0.81**, inside the 0–15% jitter band on a `vy` of 9.81 |
+
+The first cut applied both as impulses and the box moved 0.045 — the number that
+sent me to Thor's data.
+
+**Not carried:** the filter on the body field at `+0x44`, which both functions
+test against (-0.5, 0.5). It is most likely an inverse mass, i.e. "heavier than
+2", but the field is not identified and guessing it would silently exclude
+things, so every movable body in range is thrown. Both functions also skip the
+player (`+0x5c != 0`), which is honoured.
+
 ### Strength is taken as an IMPULSE, and that is the tuning knob
 
 The engine accumulates into `PhysicsObject::EffectForce` and spends the total

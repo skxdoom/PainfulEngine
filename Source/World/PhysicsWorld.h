@@ -273,6 +273,8 @@ public:
 	// ENTITY.PO_Hit / WORLD.HitPhysicObject: an impulse at a world point, so
 	// a shot shoves what it lands on and spins it about the point it struck.
 	void AddScriptBodyImpulse(int slot, const Vec3& at, const Vec3& impulse);
+	// The random spin both boss explosions add on top of the throw.
+	void AddScriptBodyAngularImpulse(int slot, const Vec3& impulse);
 	// The world-space mesh radius, which is what PO_GetMaxSphereRay reports.
 	float ScriptBodyRadius(int slot) const;
 	// Where Jolt actually put the body, world space. Settles placement.
