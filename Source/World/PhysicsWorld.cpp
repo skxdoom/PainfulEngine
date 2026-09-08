@@ -223,7 +223,9 @@ bool PhysicsWorld::BuildStaticWorld(const MapMesh& map, float worldScale,
 		if (!o.isCollidable()) continue;
 		// CreateActiveMeshBody's, and CreateStaticTwinBody's: a destructible's
 		// intact twin is its own static body, so its release can remove it.
-		if (promoteActiveMeshes && (o.isActiveMesh() || o.isStaticTwin())) continue;
+		// A glass pane goes the same way, so breaking one can take it out.
+		if (promoteActiveMeshes && (o.isActiveMesh() || o.isStaticTwin() || o.isGlass()))
+			continue;
 		const JPH::uint32 base = static_cast<JPH::uint32>(vertices.size());
 		for (size_t v = 0; v < o.vertexCount(); ++v) {
 			Vec3 p, w;

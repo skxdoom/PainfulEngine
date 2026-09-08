@@ -124,11 +124,18 @@ same way water is; Cathedral has six. The zones, the `IN_DEATH_ZONE` message
 they post and the one deviation (an AABB where the original picks between two
 volume tests) are in [`Physics.md`](Reference/Physics.md), "Death zones".
 
-### 3. Breakable glass
+### 3. Breakable glass — DONE
 
 `WORLD.CheckStartGlass` — **443 calls in 900 combat frames** through a single
 funnel, `CheckStartGlass()` in `Main/Utils.lua:662`, which on a true return
 calls `Game:OnBrokenGlass`. One native; every window in the game.
+
+A pane is a map object named `*glass*` (Prison has 279, Cemetery one, Cathedral
+none — the call count is per impact, not per pane), and each is its own static
+body now, so breaking one removes it from collision and from the drawn world.
+The rule, the recovered attachment lookup and the two things not carried —
+shards, and a savegame remembering what is already broken — are in
+[`Physics.md`](Reference/Physics.md), "Glass".
 
 ### 4. Mesh-group toggling — how levels change shape
 
@@ -240,6 +247,10 @@ Ranked by calls per 900 combat frames:
 - **Visibility switching** — `WORLD.UseSwitchZones`, `EnablePortal`, the
   antiportal family, `EnableOcclude`. Correctness of what is drawn, and the
   frame cost of drawing it.
+- **Glass shards.** A pane breaks and vanishes correctly; the original
+  fractures it into pieces and this does not. Cosmetic, and the largest single
+  item in this tier — generated geometry has no draw path yet
+  ([`Physics.md`](Reference/Physics.md), "Glass").
 - **Debug and HUD draw** — `R3D.RenderLine` (34), `RenderBox` (29),
   `VectorToScreen` (23), `DrawSphere` (14). `VectorToScreen`'s return is
   consumed at 22 of its 23 sites, so those raise rather than no-op if reached.
@@ -257,7 +268,7 @@ Ranked by calls per 900 combat frames:
 
 1. ~~Tier 0 no-ops~~ — done; the report is 43.6% quieter.
 2. Pinning + ragdoll collision groups — the stakegun.
-3. ~~Death zones~~ done; glass next — one native on a shared path.
+3. ~~Death zones, then glass~~ — both done.
 4. Mesh groups — unblocks level scripting across the campaign.
 5. Maintain\* movers + transporters — unblocks C2L1, C3L2, C3L3, C5L2.
 6. Scripted ragdoll joints, flying, boss explosions.

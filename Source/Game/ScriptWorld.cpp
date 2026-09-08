@@ -28,6 +28,7 @@ struct WorldNatives : ScriptNativesBase {
 	static int L_MESH_SetDefaultDetailMaps(lua_State* L);
 	static int L_ENTITY_EnableDeathZoneTest(lua_State* L);
 	static int L_WORLD_EnableDeathZone(lua_State* L);
+	static int L_WORLD_CheckStartGlass(lua_State* L);
 };
 
 // ------------------------------------------------------------ death zones
@@ -73,6 +74,73 @@ void ScriptEngine::TickDeathZones() {
 			break;
 		}
 	}
+}
+
+// ------------------------------------------------------------------ glass
+
+// One static body per pane, kept out of the static mesh by the same rule that
+// keeps a destructible's twin out, so breaking one can remove it.
+void ScriptEngine::BuildGlass() {
+	glass_.clear();
+	if (!mapLoaded_ || !physics_) return;
+	const float scale = world_.scale > 0.f ? world_.scale : 1.f;
+	for (size_t i = 0; i < map_.objects.size(); ++i) {
+		const MapObject& o = map_.objects[i];
+		if (!o.isGlass() || o.vertexCount() == 0) continue;
+		GlassPane g;
+		g.object = i;
+		Vec3 origin;
+		g.body = physics_->CreateStaticTwinBody(o, scale, -1, origin);
+		if (g.body < 0) continue;
+		for (int a = 0; a < 3; ++a) {
+			g.lo[a] = o.bboxMin[a] * scale;
+			g.hi[a] = o.bboxMax[a] * scale;
+		}
+		glass_.push_back(g);
+	}
+	if (!glass_.empty()) LogInfo("glass: %zu panes", glass_.size());
+}
+
+// The original identifies the pane from the BODY the caller hit and spends the
+// radius on which shards to start. Ours has one static world body, so the
+// point and radius pick the pane instead - the deviation is in Physics.md.
+bool ScriptEngine::BreakGlassAt(const Vec3& at, float radius) {
+	const float r = radius > 0.f ? radius : 0.5f;
+	for (GlassPane& g : glass_) {
+		if (g.broken) continue;
+		bool inside = true;
+		for (int a = 0; a < 3 && inside; ++a)
+			inside = at[a] >= g.lo[a] - r && at[a] <= g.hi[a] + r;
+		if (!inside) continue;
+		g.broken = true;
+		if (physics_ && g.body >= 0) physics_->SetScriptBodyEnabled(g.body, false);
+		if (worldObjectVisible_) worldObjectVisible_(g.object, false);
+		// The bullet holes were cut from the pane's own triangles, so they
+		// would hang in the air once it is gone.
+		int cleared = 0;
+		for (auto& kv : entities_) {
+			Entity& d = kv.second;
+			if (d.decalSlot >= 0 && d.decalObject == int(g.object)) {
+				decals_.ClearGeometry(d.decalSlot);
+				++cleared;
+			}
+		}
+		static const bool kTrace = DebugFlag("PAINFUL_DECAL_TRACE");
+		if (kTrace) LogInfo("glass: pane %zu broken, %d decals cleared", g.object, cleared);
+		return true;
+	}
+	return false;
+}
+
+// WORLD.CheckStartGlass(he, x, y, z, radius = 0.5, vx, vy, vz) -> was it glass.
+// The return value is gameplay, not decoration: BoltStick passes THROUGH what
+// it breaks and ElectroDisk does not bounce off it.
+int WorldNatives::L_WORLD_CheckStartGlass(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const Vec3 at{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+					float(luaL_optnumber(L, 4, 0))};
+	lua_pushboolean(L, self->BreakGlassAt(at, float(luaL_optnumber(L, 5, 0.5))) ? 1 : 0);
+	return 1;
 }
 
 // ENTITY.EnableDeathZoneTest(e, on = true) - the byte at Entity+0x11b.
@@ -345,6 +413,7 @@ int WorldNatives::L_WORLD_LoadMap(lua_State* L) {
 			// named `noclip` - so it is registered separately here.
 			self->BuildWaterSurfaces();
 			self->BuildDeathZones();
+			self->BuildGlass();
 		} else {
 			LogWarn("WORLD.LoadMap: %s failed: %s", path.c_str(),
 					self->map_.error.c_str());
@@ -363,6 +432,7 @@ void ScriptEngine::ResetLevelState() {
 	decals_.Clear();
 	water_.clear();
 	deathZones_.clear();
+	glass_.clear();
 	lastExploded_.clear();
 	contactVelocity_.clear();
 	excludedSlots_.clear();
@@ -538,6 +608,7 @@ void BindWorld(ScriptEngine& engine, LuaHost& host) {
 		{"MESH", "SetDefaultDetailMaps", WorldNatives::L_MESH_SetDefaultDetailMaps},
 		{"ENTITY", "EnableDeathZoneTest", WorldNatives::L_ENTITY_EnableDeathZoneTest},
 		{"WORLD", "EnableDeathZone", WorldNatives::L_WORLD_EnableDeathZone},
+		{"WORLD", "CheckStartGlass", WorldNatives::L_WORLD_CheckStartGlass},
 	};
 	RegisterFamily(engine, host, natives);
 }

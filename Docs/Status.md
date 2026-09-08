@@ -241,6 +241,13 @@ Falling out of the level kills: the map's `deathzone*` volumes are read with
 the water surfaces, and anything asking to be tested posts `IN_DEATH_ZONE` when
 it enters an enabled one. Levels switch individual zones on and off.
 
+Windows break. Every `*glass*` object is its own static body, and a shot that
+starts one takes it out of the collision, out of the drawn world and takes the
+bullet holes stuck to it with it — so the shot carries on through, which is what
+the stake and the electro disk ask about. **The shards are not ported**: the
+pane vanishes with the shipped dust puff and nothing else, and a savegame does
+not remember what is broken ([`Physics.md`](Reference/Physics.md), "Glass").
+
 Details, the numbers, and the sizeable list of what is still missing are in
 [`Physics.md`](Reference/Physics.md).
 

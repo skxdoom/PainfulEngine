@@ -712,6 +712,101 @@ moves them by impulse - being released and destroyed is the whole mechanism.
 Measured: blasted while pinned and immortal, moved 0.0000 and kept Health 1;
 released and mortal, the same blast takes it to -172 and kills it.
 
+## Glass
+
+A pane is a **map object whose name contains `glass`**. Prison has 279 of them
+(`cele_glass_trans*`, the cell windows), Cemetery one (`szyba_trans_glassshape2`
+— *szyba*, pane), Cathedral and Factory none. Prison also has
+`death_glass_transshape7`, which is glass and not a death zone: the zone rule
+matches `deathzone`, so the two never collide.
+
+In the original every pane is **its own `PhysicsObject`** —
+`PhysicsObject::SetAsGlass` / `GetGlass`, built by `World::BuildGlasses`
+(`0x10059330`) and persisted by `Load/SaveGlasses`. Each is therefore its own
+static body here too, kept out of the one big static mesh by the same rule that
+keeps a destructible's intact twin out, so breaking one can remove it.
+
+`WORLD.CheckStartGlass(he, x, y, z, radius = 0.5, vx, vy, vz)` → bool
+(`0x101201A0` → `PhysicsWorld::CheckStartGlass` `0x1019BC80` → `FUN_101B2690`).
+The engine walks the hit body's attachment list at `+0x78` (count `+0x7c`),
+looks for kind **3** — the `Glass` — breaks it, and answers whether it found
+one. Note the radius default of 0.5, which comes from the thunk.
+
+**The return value is gameplay, not decoration.** `BoltStick:Tick` passes
+THROUGH what it breaks (`if CheckStartGlass(...) or cg==7 or cg==8`) and
+`ElectroDisk` refuses to bounce off it. The sound and `FX_BrokenGlass` are
+script-side, in `Game:OnBrokenGlass`, behind the `CheckStartGlass()` wrapper in
+`Main/Utils.lua:662`.
+
+**Deviation: the pane is found by point and radius, not by the body.** The
+original is handed the body it hit and spends the radius on which shards to
+start; our world is one static body and a trace reports no per-object handle, so
+the point (expanded by the radius) picks the pane instead. Panes are small and
+far apart, so this resolves them individually — measured below.
+
+Measured on Prison (279 panes, level scale 1.0), against
+`cele_glass_trans131shape` at `x[-44.21..-43.14] y[8.53..13.27] z[-6.96..-6.92]`,
+tracing across it from `z = -8.5` to `z = -5.0`:
+
+| step | reading |
+|---|---|
+| trace before | hit at `z = -6.955`, distance 1.545 — solid |
+| `CheckStartGlass` at the pane centre | **true** |
+| the same call again | **false** — a second shot goes past it |
+| the same call at the origin | false |
+| trace after | **miss** — the ray goes straight through |
+| a neighbouring pane at `x = -42.5`, radius 0.1 | true — panes break one at a time |
+
+All 279 objects became bodies, so excluding them from the static mesh leaves no
+hole. Cathedral has no glass and still called the native 443 times in 900 combat
+frames: **the call is per impact, not per pane.**
+
+**A decal on a pane goes with it.** A glass pane is a body with no entity behind
+it, so the decal's target lookup found nothing and fell through to the
+"everything the box overlaps" path — a bullet hole cut from several objects at
+once, left hanging in the air when the pane vanished. The pane's body is now
+matched directly, the decal records the single object it was cut from
+(`Entity::decalObject`), and breaking the pane clears their geometry. Measured
+with `PAINFUL_DECAL_TRACE=1`: the hole cuts `objects=1 verts=12`, and the break
+logs `pane 492 broken, 1 decals cleared`.
+
+**Not carried: the shards.** This is what `BuildGlasses` spends its time on. Per
+pane it builds a `PolygonalMesh` from the pane's `SimpleMesh` and subdivides it
+(`FUN_1003A070` / `FUN_10035FF0` / `FUN_10036070`), caching the pieces on the
+`Glass`. The break (`FUN_10037C10`) then:
+
+```
+if (!broken) { RemoveStaticMesh(pane); KillAllChildren(entity);
+               RemoveEntity(entity); FUN_10037390(point, velocity); broken = 1; }
+else if (!FUN_10036370(point, velocity)) return;   // break more pieces, or nothing left
+QueueMessage("BROKEN_GLASS", "%f,%f,%f,%d", x, y, z, frame);
+```
+
+Two things follow from that. The first branch is what this port does — remove the
+pane's collision and stop drawing it — so the *pane* behaves correctly; only the
+pieces are missing. And an already-broken pane still answers **true** in the
+original, because there are shards left to break; here it answers false, since
+there is nothing left and a second shot should carry through.
+
+Porting the pieces needs three things this engine does not have: a fracture
+generator over the pane polygon, a way to DRAW generated geometry (the renderer
+draws map objects and models, and pre-generating pieces as map objects would add
+~2,000 objects on Prison alone, against a bgfx index-buffer pool already
+exhausted at 1,585 active meshes), and bodies with a lifetime for the pieces.
+
+What IS visible on a break today is script-side and always was: `FX_BrokenGlass`
+is two emitters, `broken_glass.ini` (dust.tga, 4 particles) and
+`broken_glass1.ini` (smokewhite.dds, 2 particles, 0.7–0.9 s). A puff of dust, not
+shards. The script path is confirmed reached — `Game:OnBrokenGlass` runs and the
+effect entity is created.
+
+The engine's own `BROKEN_GLASS` message is **not** posted here. `Game_GetMsg`
+routes it to the same `Game:OnBrokenGlass` the `CheckStartGlass()` wrapper
+already calls, so posting it as well would double the sound.
+
+`World::SaveGlasses` persists broken panes into a savegame; ours does not, so a
+reloaded save has its windows back.
+
 ## Death zones
 
 A death zone is a **map object named `deathzone*`** — the same name-only rule

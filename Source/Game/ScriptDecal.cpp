@@ -128,18 +128,22 @@ void ScriptEngine::BuildDecalGeometry(Entity& decal, int target, const Vec3& pos
 		const Vec3& normal) {
 	const int slot = decal.decalSlot;
 	if (slot < 0 || !mapLoaded_) return;
+	decal.decalObject = -1;
 	auto worldObject = [&](const Entity* we) {
 		if (we == nullptr || !we->worldObject) return false;
 		if (we->activeMesh >= 0 && size_t(we->activeMesh) < map_.objects.size()) {
 			const MapObject& o = map_.objects[size_t(we->activeMesh)];
 			decals_.Append(slot, o, WorldObjectToWorld(o, world_.scale, *we));
+			decal.decalObject = we->activeMesh;
 			return true;
 		}
 		// A water surface: a world-object entity that names its object and
 		// was never re-based - the splash lands on the mesh as authored.
-		for (const MapObject& o : map_.objects) {
+		for (size_t i = 0; i < map_.objects.size(); ++i) {
+			const MapObject& o = map_.objects[i];
 			if (o.name != we->name) continue;
 			decals_.Append(slot, o, MapObjectToWorld(o, world_.scale));
+			decal.decalObject = int(i);
 			return true;
 		}
 		return false;
@@ -165,9 +169,20 @@ void ScriptEngine::BuildDecalGeometry(Entity& decal, int target, const Vec3& pos
 		if (physics_->RayCast(from, to, hit, true)) {
 			if (hit.bodySlot >= 0) {
 				if (worldObject(Find(EntityForBody(hit.bodySlot)))) return;
+				// A glass pane is a body with no entity behind it, so the
+				// lookup above finds nothing: clip to the pane's own object,
+				// which is also what lets breaking it take the decal away.
+				for (const GlassPane& g : glass_)
+					if (g.body == hit.bodySlot) {
+						const MapObject& o = map_.objects[g.object];
+						decals_.Append(slot, o, MapObjectToWorld(o, world_.scale));
+						decal.decalObject = int(g.object);
+						return;
+					}
 			} else if (hit.worldObject >= 0 && size_t(hit.worldObject) < map_.objects.size()) {
 				const MapObject& o = map_.objects[size_t(hit.worldObject)];
 				decals_.Append(slot, o, MapObjectToWorld(o, world_.scale));
+				decal.decalObject = hit.worldObject;
 				return;
 			}
 		}

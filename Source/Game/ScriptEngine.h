@@ -147,6 +147,9 @@ public:
 		std::map<int, RagdollCallback> ragdollCallbacks;
 		// A Decal entity's DecalSystem slot, -1 for a precache-only one.
 		int decalSlot = -1;
+		// The map object its geometry was cut from, when it was exactly one.
+		// A pane that breaks takes the decals stuck to it with it.
+		int decalObject = -1;
 		// MDL.SetMeshVisibility, kept so it survives the renderer instance
 		// being rebuilt. name -> shown.
 		std::map<std::string, bool> hiddenMeshes;
@@ -598,6 +601,11 @@ public:
 	// flagged entity inside an enabled one gets one IN_DEATH_ZONE message.
 	void BuildDeathZones();
 	void TickDeathZones();
+	// The glass panes, built with the active meshes because they need physics.
+	// BreakGlassAt answers WORLD.CheckStartGlass: true when the point is in a
+	// pane, which also takes that pane out of the world.
+	void BuildGlass();
+	bool BreakGlassAt(const Vec3& at, float radius);
 	// Where the segment first crosses a water surface, if it does.
 	bool TraceWater(const Vec3& from, const Vec3& to, float& t, int& entity) const;
 	// Bound 3D sounds: start the delayed ones, follow what they hang off.
@@ -1054,6 +1062,15 @@ private:
 		bool enabled = true;
 	};
 	std::vector<DeathZone> deathZones_;
+	// The level's breakable panes, one static body each so a broken one can be
+	// taken out of the world. Physics.md, "Glass".
+	struct GlassPane {
+		size_t object = 0;
+		int body = -1;
+		Vec3 lo, hi; // world-space AABB, for the point-and-radius lookup
+		bool broken = false;
+	};
+	std::vector<GlassPane> glass_;
 	// INP.Get/SetTimeMultiplier - the game-speed scale, 1 at normal speed.
 	// StdOnCollision multiplies the impact speed by it before comparing, so an
 	// absent one would throw rather than merely read wrong.

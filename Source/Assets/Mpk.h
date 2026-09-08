@@ -76,6 +76,10 @@ struct MapObject {
 	// neighbour releases it. "concave": a mesh body rather than a hull.
 	// "actgrpNN": the active mesh group, -1 when the name gives none.
 	bool isPinned() const { return nameHas("pinned"); }
+	// A breakable pane. Its own PhysicsObject in the original
+	// (PhysicsObject::SetAsGlass), so it is its own body here too and is kept
+	// out of the static mesh. Docs/Reference/Physics.md, "Glass".
+	bool isGlass() const { return nameHas("glass"); }
 	int activeGroup() const;
 	// A destructible: "statdest" is the intact static twin, "physdest" its
 	// pieces, held out of the world until a blast or a group activation swaps
