@@ -1063,6 +1063,50 @@ them — the first probe read `(0,0,0)` for exactly that reason):
 | after `SetPinnedJoint(e, j, false)` | false |
 | `ApplyVelocitiesToJointLinked(e, j, 0, 25, 0, 0,0,0)`, 2 frames | **dy +0.816**, against 25/60 x 2 = 0.833 less gravity |
 
+### Holding a body by one joint
+
+How a monster carries something: it poses one ragdoll joint every tick.
+Leper_monk holds a hostage this way, and so do Preacher, Skull, Pinokio,
+Apoc_zombie_V2 and `PBindJointToJoint.CProcess`.
+
+| native | in the binary | |
+|---|---|---|
+| `MDL.ApplyPositionToJoint(e, joint, x, y, z)` | `0x1012D910` → `Ragdoll::Joint_SetPosition` | |
+| `MDL.SetJointPositionLowLevel(...)` | `0x1012DA20` → `Joint_SetPositionLL` | what "low level" skips is not recovered; both place the limb here |
+| `MDL.ApplyRotationToJoint(e, joint, ...)` | `0x1012DB30` → `Joint_SetRotation` | see below |
+| `MDL.MoveAllJoints(e, x, y, z)` | `0x1012D220` → `Ragdoll::Move` | the whole corpse by an offset |
+
+**`ApplyRotationToJoint` takes either form, and decides on the argument count.**
+The thunk asks `FUN_10147B00(script, 6)` whether a sixth argument exists: with
+three numbers they are an EULER, converted by `FUN_1011BEA0` (the same builder
+behind `0x1011C390`); with four they are a quaternion in `w, x, y, z`.
+`Leper_monk` uses both spellings within twenty lines.
+
+Measured on a Cathedral corpse, setting and reading back **within one tick**
+(reproduced across two runs):
+
+| | |
+|---|---|
+| quaternion set → get | identical to the last digit |
+| position set → get | exactly `(1.5, 20.25, -3.75)` |
+| Euler `(0.3, 0.7, -0.2)` as three arguments | the same quaternion as `Quaternion:New_FromEuler(0.3, 0.7, -0.2)` passed as four — the engine's Euler and the scripts' agree |
+| `MoveAllJoints(0, 5, 0)` | dy 5.33 |
+
+**Read it back a tick later and none of that holds**: the solver drags a posed
+limb back through its constraints within one step (the same probe across a tick
+boundary read `(-94.9, 4.3, -5.0)` for a limb placed at `(1.5, 20.25, -3.75)`).
+That is not a fault — it is why the scripts pose every tick rather than once.
+
+**A conversion bug this caught.** `GetRagdollJointRotation` was reading Jolt's
+quaternion straight into engine order, without the conjugate, so it returned a
+MIRRORED rotation — landed earlier with the pin family and invisible until
+something round-tripped it. `EngineQuatToJolt` / `JoltQuatToEngine` now live in
+`PhysicsWorldInternal.h` instead of being file-local to the script-body file, so
+the two cannot drift again.
+
+Not exercised in a real fight: spawning a `Leper_monk` alone on TestFloor gives
+it no hostage, so the hold path never runs. It wants a level that places one.
+
 ### A corpse's collision group
 
 `Ragdoll::SetCollisionGroup` (`0x1019C870` → `FUN_101AB570`) writes the group to

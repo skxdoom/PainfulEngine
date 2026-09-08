@@ -14,15 +14,8 @@ namespace painful {
 // The engine applies its textbook quaternion matrix to ROW vectors, which in
 // standard column convention is the rotation by the CONJUGATE - the same
 // transpose CollectPoses and LoadProps handle for matrices, expressed on the
-// quaternion itself.
-static JPH::Quat EngineQuatToJolt(const Quat& q) {
-	JPH::Quat j(-q.x, -q.y, -q.z, q.w);
-	return j.LengthSq() < 1e-12f ? JPH::Quat::sIdentity() : j.Normalized();
-}
-
-static Quat JoltQuatToEngine(const JPH::Quat& j) {
-	return Quat(j.GetW(), -j.GetX(), -j.GetY(), -j.GetZ());
-}
+// quaternion itself. EngineQuatToJolt / JoltQuatToEngine live in
+// PhysicsWorldInternal.h so the ragdoll file uses the same pair.
 
 void PhysicsWorld::LoadWorldMesh(const MapMesh& map, float worldScale,
 		const std::string& dataRoot) {

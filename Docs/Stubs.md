@@ -211,15 +211,22 @@ and is a no-op in the shipped game too, so what little shove it gives comes from
 `ENTITY.PO_SetPlayerShocked` is a different function despite the name and stays
 stubbed.
 
-### 8. Scripted ragdoll moves
+### 8. Scripted ragdoll moves — DONE
 
 `MDL.ApplyVelocitiesToJoint` (16), `ApplyRotationToJoint` (15, Monsters:14),
 `ApplyPositionToJoint` (6), `GetRagdollJointPos` / `GetRagdollJointRotation`
 (12, Monsters), `MoveAllJoints`, `CopyMatrixFromJointToJoint`,
-`SetJointPositionLowLevel`, `ApplyVelocitiesToJointLinked`. This is how the
-Leper carries a brain, how Vamp_Big throws a body, how bosses pose. The read
-half (`Get*`) is the dangerous kind: it answers `nil` and the caller does
-arithmetic on it.
+`SetJointPositionLowLevel`, `ApplyVelocitiesToJointLinked`. This is how a
+monster carries something: it poses one joint every tick.
+
+**Done except `CopyMatrixFromJointToJoint`** (one live site). The
+argument-count branch in `ApplyRotationToJoint` — three numbers are an Euler,
+four a quaternion — the exact round trips, and a mirrored-rotation bug this
+caught in `GetRagdollJointRotation` are in
+[`Physics.md`](Reference/Physics.md), "Holding a body by one joint". The users
+are Leper_monk, Preacher, Skull, Pinokio and Apoc_zombie_V2; Leper and Vamp_Big
+have their own calls commented out with *"chyba to nie dziala...?"*, so the
+original's authors thought it did not work.
 
 ### 9. Boss attacks
 

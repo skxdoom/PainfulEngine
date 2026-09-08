@@ -73,6 +73,18 @@ namespace physics_detail {
 
 // Object layers. Static geometry, the things that move, and three special
 // cases the pair filter below tells apart.
+// Engine quaternions are the CONJUGATE of Jolt's - the same transpose the pose
+// collectors undo for matrices, expressed on the quaternion. Shared so the
+// ragdoll and script-body files cannot drift apart on it.
+inline JPH::Quat EngineQuatToJolt(const Quat& q) {
+	JPH::Quat j(-q.x, -q.y, -q.z, q.w);
+	return j.LengthSq() < 1e-12f ? JPH::Quat::sIdentity() : j.Normalized();
+}
+
+inline Quat JoltQuatToEngine(const JPH::Quat& j) {
+	return Quat(j.GetW(), -j.GetX(), -j.GetY(), -j.GetZ());
+}
+
 namespace Layers {
 constexpr JPH::ObjectLayer kNonMoving = 0;
 constexpr JPH::ObjectLayer kMoving = 1;

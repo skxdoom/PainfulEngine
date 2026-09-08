@@ -34,6 +34,9 @@ struct DeathNatives : ScriptNativesBase {
 	static int L_MDL_ApplyVelocitiesToAllJoints(lua_State* L);
 	static int L_MDL_SetRagdollCollisionGroup(lua_State* L);
 	static int L_MDL_GetRagdollCollisionGroup(lua_State* L);
+	static int L_MDL_ApplyPositionToJoint(lua_State* L);
+	static int L_MDL_ApplyRotationToJoint(lua_State* L);
+	static int L_MDL_MoveAllJoints(lua_State* L);
 	static int L_MDL_SetPinned(lua_State* L);
 	static int L_MDL_IsPinned(lua_State* L);
 	static int L_MDL_SetPinnedJoint(lua_State* L);
@@ -1085,6 +1088,55 @@ int DeathNatives::L_MDL_ApplyVelocitiesToAllJoints(lua_State* L) {
 }
 
 
+// MDL.ApplyPositionToJoint(e, joint, x, y, z) -> Ragdoll::Joint_SetPosition,
+// and SetJointPositionLowLevel -> Joint_SetPositionLL. This is how a monster
+// HOLDS a body: Leper_monk poses its hostage's joint every tick, and so do
+// Preacher, Skull and Pinokio. What "low level" skips is not recovered, so
+// both place the limb. Docs/Reference/Physics.md, "Holding a body by one joint".
+int DeathNatives::L_MDL_ApplyPositionToJoint(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || !self->physics_) return 0;
+	const int part = self->RagdollPartOfJoint(*e, int(luaL_optnumber(L, 2, -1)));
+	if (part < 0) return 0;
+	const Vec3 p{float(luaL_optnumber(L, 3, 0)), float(luaL_optnumber(L, 4, 0)),
+					float(luaL_optnumber(L, 5, 0))};
+	self->physics_->SetRagdollPartPosition(e->ragdollSlot, part, p);
+	return 0;
+}
+
+// MDL.ApplyRotationToJoint(e, joint, ...) takes EITHER form: three numbers are
+// an Euler (converted as FUN_1011BEA0 does), four are a quaternion in w,x,y,z.
+// The thunk decides on whether argument 6 exists. Leper_monk uses both.
+int DeathNatives::L_MDL_ApplyRotationToJoint(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || !self->physics_) return 0;
+	const int part = self->RagdollPartOfJoint(*e, int(luaL_optnumber(L, 2, -1)));
+	if (part < 0) return 0;
+	Quat q;
+	if (lua_isnumber(L, 6)) {
+		q = Quat{float(luaL_optnumber(L, 3, 1)), float(luaL_optnumber(L, 4, 0)),
+					float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0))};
+	} else {
+		q = Quat::FromEuler(float(luaL_optnumber(L, 3, 0)), float(luaL_optnumber(L, 4, 0)),
+				float(luaL_optnumber(L, 5, 0)));
+	}
+	self->physics_->SetRagdollPartRotation(e->ragdollSlot, part, q);
+	return 0;
+}
+
+// MDL.MoveAllJoints(e, x, y, z) -> Ragdoll::Move: the whole corpse by an offset.
+int DeathNatives::L_MDL_MoveAllJoints(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || !self->physics_) return 0;
+	const Vec3 d{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+					float(luaL_optnumber(L, 4, 0))};
+	self->physics_->MoveRagdoll(e->ragdollSlot, d);
+	return 0;
+}
+
 // The pin queries. Three scripts read them through `not` - CActor:Electrize,
 // meat.lua and PainHead:Tick - so answering nil said "free" about a corpse
 // nailed to a wall. Docs/Reference/Physics.md, "Pinning".
@@ -1231,6 +1283,10 @@ void BindDeath(ScriptEngine& engine, LuaHost& host) {
 		{"PHYSICS", "SetHavokBodyVelocity", DeathNatives::L_PHYSICS_SetHavokBodyVelocity},
 		{"MDL", "SetRagdollCollisionGroup", DeathNatives::L_MDL_SetRagdollCollisionGroup},
 		{"MDL", "GetRagdollCollisionGroup", DeathNatives::L_MDL_GetRagdollCollisionGroup},
+		{"MDL", "ApplyPositionToJoint", DeathNatives::L_MDL_ApplyPositionToJoint},
+		{"MDL", "SetJointPositionLowLevel", DeathNatives::L_MDL_ApplyPositionToJoint},
+		{"MDL", "ApplyRotationToJoint", DeathNatives::L_MDL_ApplyRotationToJoint},
+		{"MDL", "MoveAllJoints", DeathNatives::L_MDL_MoveAllJoints},
 		{"MDL", "SetPinned", DeathNatives::L_MDL_SetPinned},
 		{"MDL", "IsPinned", DeathNatives::L_MDL_IsPinned},
 		{"MDL", "SetPinnedJoint", DeathNatives::L_MDL_SetPinnedJoint},

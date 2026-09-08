@@ -348,6 +348,11 @@ public:
 	// (kinematic, at rest) when the corpse is nailed to a wall.
 	bool GetRagdollPartPosition(int slot, int part, Vec3& out) const;
 	void SetRagdollPartPosition(int slot, int part, const Vec3& pos);
+	// Ragdoll::Joint_SetRotation and Ragdoll::Move: a carried body is HELD by
+	// posing one limb every tick (Leper_monk's hostage, Preacher, Skull).
+	// Docs/Reference/Physics.md, "Holding a body by one joint".
+	void SetRagdollPartRotation(int slot, int part, const Quat& rot);
+	void MoveRagdoll(int slot, const Vec3& delta);
 	void PinRagdollPart(int slot, int part);
 	// Ragdoll::Joint_SetPinned / Joint_IsPinned / SetPinned / IsPinned. A pinned
 	// limb is kinematic and at rest; unpinning hands it back to the solver.

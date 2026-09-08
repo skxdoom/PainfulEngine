@@ -671,9 +671,30 @@ bool PhysicsWorld::GetRagdollPartRotation(int slot, int part, Quat& out) const {
 	if (!RagdollExists(slot) || part < 0) return false;
 	const auto& ids = impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs();
 	if (size_t(part) >= ids.size()) return false;
-	const JPH::Quat q = impl_->system.GetBodyInterfaceNoLock().GetRotation(ids[size_t(part)]);
-	out = Quat{q.GetW(), q.GetX(), q.GetY(), q.GetZ()};
+	out = JoltQuatToEngine(impl_->system.GetBodyInterfaceNoLock().GetRotation(ids[size_t(part)]));
 	return true;
+}
+
+void PhysicsWorld::SetRagdollPartRotation(int slot, int part, const Quat& rot) {
+	if (!RagdollExists(slot) || part < 0) return;
+	const auto& ids = impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs();
+	if (size_t(part) >= ids.size()) return;
+	JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+	bodies.SetRotation(ids[size_t(part)], EngineQuatToJolt(rot), JPH::EActivation::Activate);
+	impl_->ragdolls[size_t(slot)].hist.clear(); // placed, not moved: no blend
+}
+
+// Ragdoll::Move - every limb by the same offset, which is how a whole corpse
+// is carried rather than posed limb by limb.
+void PhysicsWorld::MoveRagdoll(int slot, const Vec3& delta) {
+	if (!RagdollExists(slot)) return;
+	JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+	for (JPH::BodyID id : impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs()) {
+		const JPH::RVec3 p = bodies.GetPosition(id);
+		bodies.SetPosition(id, p + JPH::RVec3(delta[0], delta[1], delta[2]),
+				JPH::EActivation::Activate);
+	}
+	impl_->ragdolls[size_t(slot)].hist.clear();
 }
 
 void PhysicsWorld::SetRagdollPartVelocity(int slot, int part, const Vec3& linear,
