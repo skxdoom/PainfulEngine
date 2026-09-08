@@ -459,6 +459,14 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
 			PhysicsWorld::RayHit sHit;
 			scriptFloor_ = physics.RayCast(sFrom, sTo, sHit);
 		}
+		// A lift, a handcar or a conveyor carries whoever stands on it. Havok
+		// does this through contact friction; the pawn is a query, so it takes
+		// the floor body's own velocity. Physics.md, "The scripted movers".
+		if (floorHit && hit.bodySlot >= 0) {
+			Vec3 carry;
+			if (physics.CarriedBy(hit.bodySlot, carry))
+				for (int c = 0; c < 3; ++c) centre[c] += carry[c] * dt;
+		}
 		const bool grounded = floorHit || stepping_;
 		if (grounded && !onGround_) {
 			groundedTime_ = 0.f; // touchdown

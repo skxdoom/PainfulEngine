@@ -453,6 +453,7 @@ void PhysicsWorld::Update(float dt) {
 		// Monsters are re-commanded per STEP, as PhysicsObject::Tick is run
 		// per physics tick: the 0.5 carry-over is a per-tick decay.
 		StepCharacters();
+		StepMovers();
 		impl_->system.Update(kStep, 1, &impl_->temp, &impl_->jobs);
 		impl_->accumulator -= kStep;
 		RecordStep();

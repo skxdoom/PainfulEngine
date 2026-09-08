@@ -631,6 +631,25 @@ struct PhysicsWorld::Impl {
 		// the group byte at WorldMesh+0x7e2, whether the static twin still
 		// stands, whether explosions may release it, and the bounds radius
 		// the release test adds to the blast range.
+		// The Maintain* family: Havok actions in the original, a per-step servo
+		// here. Physics.md, "The scripted movers".
+		struct Mover {
+			bool position = false;
+			Vec3 target;
+			float positionGain = 1.f;
+			bool velocity = false;
+			Vec3 wish;
+			float velocityGain = 1.f;
+			bool alongAxis = false;
+			Vec3 axis;
+			bool damped = false;
+			float maxLinear = 70.f, maxAngular = 50.f, stopBelow = 0.01f;
+			bool transporter = false;
+			Vec3 carry;
+			float carryGain = 0.1f;
+			bool any() const { return position || velocity || alongAxis || damped; }
+		};
+		Mover mover;
 		bool activeMesh = false;
 		int activeGroup = -1;
 		bool activePinned = false;

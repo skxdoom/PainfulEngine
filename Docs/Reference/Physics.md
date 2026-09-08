@@ -712,6 +712,67 @@ moves them by impulse - being released and destroyed is the whole mechanism.
 Measured: blasted while pinned and immortal, moved 0.0000 and kept Health 1;
 released and mortal, the same blast takes it to -172 and kills it.
 
+## The scripted movers
+
+The lift, the handcar, the truck, the moving bar and boulder, and the Factory
+conveyors. Each native takes `(e, on = true, x, y, z, k)` and hangs a Havok
+ACTION on the body — `FUN_101C3140` finds an existing action of that type,
+`FUN_101C32F0` removes it and `FUN_101C3170` adds the new one (type 3 position,
+4 velocity).
+
+| native | in the binary | defaults |
+|---|---|---|
+| `PO_MaintainPosition` | `0x10134EB0` → `PhysicsObject::MaintainPosition` `0x1018C560` | target `(0,0,0)`, gain 1 |
+| `PO_MaintainVelocity` | `0x10134FC0` → `0x1018A810` | wish `(0,0,0)`, gain 1 |
+| `PO_MaintainLinearMovement` | `0x10134DA0` → `0x1018A720` | axis **`(0,1,0)`**, plus an unread bool |
+| `PO_EnableSpeedDamping` | `0x10134CB0` → `0x1018A650` | 70, 50, 0.01 |
+| `PO_SetAsTransporter` | `0x101351E0` → `0x1018A9F0` | carry `(0,0,0)`, k 0.1 |
+
+The lift is the shape worth remembering:
+`PO_Create(FromMeshNonConvex, nil, ECollisionGroups.Fixed)` — group 1, so
+**kinematic** here — then `MaintainPosition(target, 2.0)`,
+`EnableSpeedDamping(3.0, 0.0, 0.5)` and `MaintainLinearMovement(0, 1, 0)`.
+
+**The servo laws are a reconstruction and cannot be recovered further.** The
+actions are built inside statically linked Havok, so only the argument lists
+survive. `StepMovers` runs once per step: position sets
+`v = (target - pos) * gain`, velocity blends `v += (wish - v) * gain`,
+`MaintainLinearMovement` projects `v` onto its axis, and the damping clamps
+linear and angular speed and zeroes anything below `stopBelow`. What would
+settle it: the Havok action `Apply` bodies behind `FUN_101A5BE0` (position) and
+`FUN_101A5DE0` (velocity).
+
+One recovered detail that did survive and is worth keeping: `MaintainPosition`
+subtracts `GetPivotOffset(this)` from the target, because the original's body
+origin is not the entity's. Script bodies here are built AT the entity position,
+so no correction is applied — if a platform ever parks off by its own half-size,
+that is the line to revisit.
+
+Measured on Cathedral against a 60 kg urn (a dynamic body, so gravity works
+against it between steps):
+
+| | |
+|---|---|
+| `MaintainVelocity(0, 5, 0)` | +2.259 over 30 frames = 4.52 units/s against a commanded 5 |
+| `MaintainPosition(y + 3, gain 2)` with damping `(3.0, 0.0, 0.5)` | settles 0.247 short |
+
+That shortfall is the damping doing what it was told: the servo asks for
+`0.247 * 2 = 0.494`, which is below `stopBelow = 0.5`, so it is zeroed. The
+deadband is `stopBelow / gain`. A kinematic lift has no gravity fighting it, but
+it has the same deadband — worth knowing if a platform stops just short.
+
+C5L2_Docks, C3L2_Factory and C2L1_Bridge all load with 0 script errors.
+
+**Riding one works, confirmed in play on the Factory belts.** `PlayerPawn` adds
+the floor body's velocity (plus a transporter's belt speed) to the pawn each
+frame, which is what Havok gets from contact friction and a query-based pawn
+cannot. No headless setup could prove it — a barrel is too small to stand the
+pawn on (it lands beside it, on the floor at y 18.49 against the barrel's
+19.27), and the belt entity reports position `(0,0,0)` because it is a
+world-mesh object bound by name — so this one rests on the play test.
+
+`PLAYER.AttachToUnderBody` — the handcar's explicit attach — is still a stub.
+
 ## The body natives, and who may report a contact
 
 | native | in the binary | |

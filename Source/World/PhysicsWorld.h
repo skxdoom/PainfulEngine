@@ -136,6 +136,22 @@ public:
 	// PhysicsObject::Activate: wake the body, or put it to sleep.
 	float ScriptBodyMass(int slot) const;
 	void ActivateScriptBody(int slot, bool on);
+	// The ENTITY.PO_Maintain* family. Each is a Havok ACTION in the original,
+	// replaced here by a servo run once per step (StepMovers). The position
+	// target is an ENTITY position and is pivot-corrected, as
+	// PhysicsObject::MaintainPosition does with GetPivotOffset.
+	// Docs/Reference/Physics.md, "The scripted movers".
+	void MaintainBodyPosition(int slot, bool on, const Vec3& target, float gain);
+	void MaintainBodyVelocity(int slot, bool on, const Vec3& wish, float gain);
+	void MaintainBodyLinearMovement(int slot, bool on, const Vec3& axis);
+	void EnableBodySpeedDamping(int slot, bool on, float maxLin, float maxAng, float stopBelow);
+	void SetBodyAsTransporter(int slot, bool on, const Vec3& carry, float gain);
+	// The carrying velocity of the transporter under a point, or false.
+	bool TransporterUnder(const Vec3& at, float reach, Vec3& carry) const;
+	// What a body standing on this one is carried at: its own linear velocity,
+	// plus a transporter's belt speed. Havok gets this from contact friction;
+	// the pawn is a query, so it has to ask.
+	bool CarriedBy(int slot, Vec3& carry) const;
 	// ENTITY.PO_SetFreedomOfRotation(e, EFreedomsOfRotation, softness).
 	void SetScriptBodyFreedomOfRotation(int slot, int mode, float softness);
 	void SetScriptBodyLinearDamping(int slot, float damping);
@@ -524,6 +540,7 @@ private:
 	void CreateProbe();
 	// PhysicsObject::Tick for every character, once per fixed step.
 	void StepCharacters();
+	void StepMovers();
 	// After each step: every body's previous and current pose, which the
 	// read-backs blend by Alpha() so frames between steps still move.
 	void RecordStep();

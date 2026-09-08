@@ -225,6 +225,114 @@ void PhysicsWorld::CollectScriptContacts(std::vector<ScriptContact>& out) {
 // PhysicsObject::SetMass (0x10189510) branches on the freedom-of-rotation
 // mode: AllAxes and FullFree rescale the inertia with the mass, every other
 // mode sets the mass alone and leaves the inertia the mode chose.
+// The Maintain* servos, run once per step. The original hangs a Havok ACTION
+// on the body for each (types 3 position, 4 velocity); the laws below are a
+// reconstruction from the argument lists, since the action bodies are inside
+// statically linked Havok. Docs/Reference/Physics.md, "The scripted movers".
+void PhysicsWorld::StepMovers() {
+	JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+	for (Impl::ScriptBody& sb : impl_->scriptBodies) {
+		const Impl::ScriptBody::Mover& m = sb.mover;
+		if (!m.any() || sb.body.IsInvalid() || !sb.inWorld) continue;
+		if (bodies.GetMotionType(sb.body) == JPH::EMotionType::Static) continue;
+		JPH::Vec3 v = bodies.GetLinearVelocity(sb.body);
+		if (m.position) {
+			const JPH::RVec3 p = bodies.GetPosition(sb.body);
+			v = (JPH::Vec3(m.target[0], m.target[1], m.target[2]) - JPH::Vec3(p)) *
+					m.positionGain;
+		}
+		if (m.velocity) {
+			const JPH::Vec3 wish(m.wish[0], m.wish[1], m.wish[2]);
+			const float k = m.velocityGain >= 1.f ? 1.f : m.velocityGain;
+			v += (wish - v) * k;
+		}
+		// MaintainLinearMovement names the one axis the body may travel along.
+		if (m.alongAxis) {
+			const JPH::Vec3 axis = JPH::Vec3(m.axis[0], m.axis[1], m.axis[2]).NormalizedOr(
+					JPH::Vec3::sZero());
+			if (!axis.IsNearZero()) v = axis * v.Dot(axis);
+		}
+		if (m.damped) {
+			if (v.Length() > m.maxLinear && m.maxLinear > 0.f)
+				v = v.Normalized() * m.maxLinear;
+			if (v.Length() < m.stopBelow) v = JPH::Vec3::sZero();
+			JPH::Vec3 w = bodies.GetAngularVelocity(sb.body);
+			if (w.Length() > m.maxAngular)
+				w = m.maxAngular > 0.f ? w.Normalized() * m.maxAngular : JPH::Vec3::sZero();
+			bodies.SetAngularVelocity(sb.body, w);
+		}
+		if (!bodies.IsActive(sb.body) && !v.IsNearZero()) bodies.ActivateBody(sb.body);
+		bodies.SetLinearVelocity(sb.body, v);
+	}
+}
+
+void PhysicsWorld::MaintainBodyPosition(int slot, bool on, const Vec3& target, float gain) {
+	if (!ScriptBodyExists(slot)) return;
+	Impl::ScriptBody::Mover& m = impl_->scriptBodies[size_t(slot)].mover;
+	m.position = on;
+	m.target = target;
+	m.positionGain = gain;
+}
+
+void PhysicsWorld::MaintainBodyVelocity(int slot, bool on, const Vec3& wish, float gain) {
+	if (!ScriptBodyExists(slot)) return;
+	Impl::ScriptBody::Mover& m = impl_->scriptBodies[size_t(slot)].mover;
+	m.velocity = on;
+	m.wish = wish;
+	m.velocityGain = gain;
+}
+
+void PhysicsWorld::MaintainBodyLinearMovement(int slot, bool on, const Vec3& axis) {
+	if (!ScriptBodyExists(slot)) return;
+	Impl::ScriptBody::Mover& m = impl_->scriptBodies[size_t(slot)].mover;
+	m.alongAxis = on;
+	m.axis = axis;
+}
+
+void PhysicsWorld::EnableBodySpeedDamping(int slot, bool on, float maxLin, float maxAng,
+		float stopBelow) {
+	if (!ScriptBodyExists(slot)) return;
+	Impl::ScriptBody::Mover& m = impl_->scriptBodies[size_t(slot)].mover;
+	m.damped = on;
+	m.maxLinear = maxLin;
+	m.maxAngular = maxAng;
+	m.stopBelow = stopBelow;
+}
+
+void PhysicsWorld::SetBodyAsTransporter(int slot, bool on, const Vec3& carry, float gain) {
+	if (!ScriptBodyExists(slot)) return;
+	Impl::ScriptBody::Mover& m = impl_->scriptBodies[size_t(slot)].mover;
+	m.transporter = on;
+	m.carry = carry;
+	m.carryGain = gain;
+}
+
+// A conveyor carries what stands on it, so the pawn asks what is under its
+// feet. The body's own bounds decide, which is enough for the flat belts the
+// shipped levels use.
+bool PhysicsWorld::TransporterUnder(const Vec3& at, float reach, Vec3& carry) const {
+	const JPH::BodyInterface& bodies = impl_->system.GetBodyInterfaceNoLock();
+	for (const Impl::ScriptBody& sb : impl_->scriptBodies) {
+		if (!sb.mover.transporter || sb.body.IsInvalid() || !sb.inWorld) continue;
+		JPH::AABox box = bodies.GetTransformedShape(sb.body).GetWorldSpaceBounds();
+		box.mMax += JPH::Vec3(0.f, reach, 0.f);
+		if (!box.Contains(JPH::Vec3(at[0], at[1], at[2]))) continue;
+		carry = sb.mover.carry;
+		return true;
+	}
+	return false;
+}
+
+bool PhysicsWorld::CarriedBy(int slot, Vec3& carry) const {
+	if (!ScriptBodyExists(slot)) return false;
+	const Impl::ScriptBody& sb = impl_->scriptBodies[size_t(slot)];
+	if (sb.body.IsInvalid() || !sb.inWorld) return false;
+	const JPH::Vec3 v = impl_->system.GetBodyInterfaceNoLock().GetLinearVelocity(sb.body);
+	carry[0] = v.GetX(); carry[1] = v.GetY(); carry[2] = v.GetZ();
+	if (sb.mover.transporter) for (int c = 0; c < 3; ++c) carry[c] += sb.mover.carry[c];
+	return carry[0] != 0.f || carry[1] != 0.f || carry[2] != 0.f;
+}
+
 float PhysicsWorld::ScriptBodyMass(int slot) const {
 	return ScriptBodyExists(slot) ? impl_->scriptBodies[slot].mass : 0.f;
 }

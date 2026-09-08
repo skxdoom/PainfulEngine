@@ -178,10 +178,18 @@ share of one active-mesh group and returns the count.
 sites in the same six templates: `C2L1_Drezynka` (the handcar), `C3L3_Truck`,
 `C5L2_Winda` (the lift), `MovingBar`, `MovingBoulder`, `klocKiller`. With
 `ENTITY.PO_SetAsTransporter` (4 — the Factory conveyor belts) and
-`PLAYER.AttachToUnderBody` / `DetachFromUnderBody`, this family is "the player
-rides a moving thing", and the levels that need it cannot be finished without
-it. Havok actions in the original; a per-step velocity/position servo in
-`StepCharacters` here.
+`ENTITY.PO_SetAsTransporter` (4 — the Factory conveyor belts), this family is
+"the player rides a moving thing".
+
+**The five movers are in**, as a per-step servo (`StepMovers`) standing in for
+the Havok actions, which cannot be recovered further — the laws are a
+reconstruction from the argument lists and are marked as such in
+[`Physics.md`](Reference/Physics.md), "The scripted movers", along with the
+measurements and the `stopBelow / gain` deadband.
+
+Riding one works — the pawn takes its floor body's velocity, confirmed in play
+on the Factory belts. **Left:** `PLAYER.AttachToUnderBody`, the handcar's
+explicit attach.
 
 ### 7. Flying monsters
 

@@ -51,6 +51,11 @@ struct EntityNatives : ScriptNativesBase {
 	static int L_ENTITY_GetPtrByIndex(lua_State* L);
 	static int L_PARTICLE_SetParentOffset(lua_State* L);
 	static int L_PARTICLE_Die(lua_State* L);
+	static int L_PO_MaintainPosition(lua_State* L);
+	static int L_PO_MaintainVelocity(lua_State* L);
+	static int L_PO_MaintainLinearMovement(lua_State* L);
+	static int L_PO_EnableSpeedDamping(lua_State* L);
+	static int L_PO_SetAsTransporter(lua_State* L);
 	static int L_PO_Activate(lua_State* L);
 	static int L_PO_GetMass(lua_State* L);
 	static int L_PO_Impulse(lua_State* L);
@@ -1315,6 +1320,73 @@ void ScriptEngine::UpdateAttached() {
 }
 
 
+// The Maintain* family. Every one takes (e, on = true, x, y, z, k) and hangs a
+// Havok action on the body; the defaults below are the thunks'. The lift is the
+// shape to keep in mind: PO_Create(FromMeshNonConvex, Fixed) - so KINEMATIC
+// here - then MaintainPosition(target, 2.0), EnableSpeedDamping(3, 0, 0.5) and
+// MaintainLinearMovement(0,1,0). Docs/Reference/Physics.md, "The scripted movers".
+int EntityNatives::L_PO_MaintainPosition(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || !self->physics_ || e->physicsBody < 0) return 0;
+	const Vec3 target{float(luaL_optnumber(L, 3, 0)), float(luaL_optnumber(L, 4, 0)),
+					float(luaL_optnumber(L, 5, 0))};
+	self->physics_->MaintainBodyPosition(e->physicsBody,
+			lua_isnone(L, 2) ? true : (lua_toboolean(L, 2) != 0), target,
+			float(luaL_optnumber(L, 6, 1.0)));
+	return 0;
+}
+
+int EntityNatives::L_PO_MaintainVelocity(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || !self->physics_ || e->physicsBody < 0) return 0;
+	const Vec3 wish{float(luaL_optnumber(L, 3, 0)), float(luaL_optnumber(L, 4, 0)),
+					float(luaL_optnumber(L, 5, 0))};
+	self->physics_->MaintainBodyVelocity(e->physicsBody,
+			lua_isnone(L, 2) ? true : (lua_toboolean(L, 2) != 0), wish,
+			float(luaL_optnumber(L, 6, 1.0)));
+	return 0;
+}
+
+// The axis default is (0, 1, 0) - straight up, which is the lift.
+int EntityNatives::L_PO_MaintainLinearMovement(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || !self->physics_ || e->physicsBody < 0) return 0;
+	const Vec3 axis{float(luaL_optnumber(L, 3, 0)), float(luaL_optnumber(L, 4, 1)),
+					float(luaL_optnumber(L, 5, 0))};
+	self->physics_->MaintainBodyLinearMovement(e->physicsBody,
+			lua_isnone(L, 2) ? true : (lua_toboolean(L, 2) != 0), axis);
+	return 0;
+}
+
+int EntityNatives::L_PO_EnableSpeedDamping(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || !self->physics_ || e->physicsBody < 0) return 0;
+	self->physics_->EnableBodySpeedDamping(e->physicsBody,
+			lua_isnone(L, 2) ? true : (lua_toboolean(L, 2) != 0),
+			float(luaL_optnumber(L, 3, 70.0)), float(luaL_optnumber(L, 4, 50.0)),
+			float(luaL_optnumber(L, 5, 0.01)));
+	return 0;
+}
+
+// ENTITY.PO_SetAsTransporter(e, on, x, y, z, k = 0.1) - the Factory belts
+// (12,0,0, 0.5) and the Bridge corridor (0,0,20, 0.05). It carries what stands
+// on it rather than moving itself.
+int EntityNatives::L_PO_SetAsTransporter(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || !self->physics_ || e->physicsBody < 0) return 0;
+	const Vec3 carry{float(luaL_optnumber(L, 3, 0)), float(luaL_optnumber(L, 4, 0)),
+					float(luaL_optnumber(L, 5, 0))};
+	self->physics_->SetBodyAsTransporter(e->physicsBody,
+			lua_isnone(L, 2) ? true : (lua_toboolean(L, 2) != 0), carry,
+			float(luaL_optnumber(L, 6, 0.1)));
+	return 0;
+}
+
 // ENTITY.PO_Activate(e, on = FALSE) - PhysicsObject::Activate (0x10130E40).
 // Note the default: a bare call puts the body to SLEEP. CObject:PO_Create
 // wakes a pinned body right after pinning it, working around a Havok bug.
@@ -1482,6 +1554,11 @@ void BindEntity(ScriptEngine& engine, LuaHost& host) {
 		{"ENTITY", "ComputeChildMatrix", EntityNatives::L_ENTITY_ComputeChildMatrix},
 		{"ENTITY", "EnableNetworkSynchronization",
 				EntityNatives::L_ENTITY_EnableNetworkSynchronization},
+		{"ENTITY", "PO_MaintainPosition", EntityNatives::L_PO_MaintainPosition},
+		{"ENTITY", "PO_MaintainVelocity", EntityNatives::L_PO_MaintainVelocity},
+		{"ENTITY", "PO_MaintainLinearMovement", EntityNatives::L_PO_MaintainLinearMovement},
+		{"ENTITY", "PO_EnableSpeedDamping", EntityNatives::L_PO_EnableSpeedDamping},
+		{"ENTITY", "PO_SetAsTransporter", EntityNatives::L_PO_SetAsTransporter},
 		{"ENTITY", "PO_Activate", EntityNatives::L_PO_Activate},
 		{"ENTITY", "PO_GetMass", EntityNatives::L_PO_GetMass},
 		{"ENTITY", "PO_Impulse", EntityNatives::L_PO_Impulse},
