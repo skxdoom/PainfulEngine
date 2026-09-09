@@ -100,6 +100,7 @@ caught. That record is kept on purpose.
 | [`Docs/Reference/Particles.md`](Docs/Reference/Particles.md) | emitter formats and simulation |
 | [`Docs/Reference/Billboards.md`](Docs/Reference/Billboards.md) | billboards, coronas and the occlusion trace |
 | [`Docs/Reference/Decals.md`](Docs/Reference/Decals.md) | impact marks and blood: the `.ini`, projection, fade, who spawns them |
+| [`Docs/Reference/Lighting.md`](Docs/Reference/Lighting.md) | dynamic lights: the flashlight, carried torches, scripted flashes |
 | [`Docs/Reference/TextureTransforms.md`](Docs/Reference/TextureTransforms.md) | pan, tile and the detail-map transform |
 | [`Docs/Reference/Water.md`](Docs/Reference/Water.md) | water surfaces and the material tiers |
 | [`Docs/Reference/Hud.md`](Docs/Reference/Hud.md) | the 2D layer: `MATERIAL`, `HUD.PrintXY`, fonts and the colour palette |

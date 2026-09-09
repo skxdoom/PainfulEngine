@@ -189,6 +189,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	DebugLines& debugLines = boot.debugLines();
 	const bool debugLinesReady = boot.debugLinesReady();
 	std::vector<DebugLine> debugWireframe;
+	// The script-owned lights, rebuilt every frame - see CollectLights.
+	std::vector<LightSource> scriptLights;
 	// Two different questions, so two independent overlays rather than one
 	// mode with three positions:
 	//
@@ -393,12 +395,11 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 
 	// Model lighting. In this path there is no Level object at all - the script
 	// layer creates the entities and hands the renderer state over through the
-	// WORLD.* natives - but the CLight and CEnvironment placements it works
-	// from are the same files on disk, so they are read directly.
-	//
-	// The scripts also create lights of their own at runtime (LIGHT.Setup,
-	// LIGHT.SetFalloff, ENVIRONMENT.AddLight are all still stubs), so muzzle
-	// flashes and fireballs do not light anything yet. Level lighting does.
+	// WORLD.* natives - so only the CEnvironment boxes are read from the file
+	// here. The LIGHTS all arrive through LIGHT.Setup instead: CLight:Apply
+	// places the level's own, and the flashlight, the torches monsters carry
+	// and the flashes an action fires off come through the same door.
+	// Docs/Reference/Lighting.md
 	{
 		Level lightingLevel;
 		const std::string levelDir = std::string(dataRoot) + "/Levels/" + levelName;
@@ -406,12 +407,13 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			TemplateCache lightingTemplates;
 			lightingTemplates.Init(std::string(dataRoot) + "/LScripts/Templates");
 			lightingTemplates.SetLevelOverlay(levelDir + "/Templates");
-			entities.BuildLighting(lightingLevel, lightingTemplates);
+			entities.BuildLighting(lightingLevel, lightingTemplates, true);
+			entities.SetTextureSource(&textures, levelName);
 			// The ambient the scripts actually set (CLevel:Apply -> WORLD.AmbientColor),
 			// class default 50,50,50 included - the level file alone may omit it.
 			entities.SetLevelAmbient(engine.world().ambient);
-			LogInfo("entity lighting: %zu lights, %zu environment boxes",
-					entities.lightCount(), entities.environmentCount());
+			LogInfo("entity lighting: %zu environment boxes, lights come from the scripts",
+					entities.environmentCount());
 		} else {
 			LogWarn("no entity lighting: %s", lightingLevel.error().c_str());
 		}
@@ -966,6 +968,15 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		// Entities the scripts spawned this frame get their renderer slots.
 		engine.FlushToRenderer();
 
+		// The lights the scripts own, at where they ended the frame: the
+		// flashlight on the camera, a torch on the hand that carries it, a
+		// flash halfway through fading out. Models take all of them; the
+		// world mesh takes only the ones flagged dynamic, since the rest are
+		// in its lightmap. Docs/Reference/Lighting.md
+		engine.CollectLights(scriptLights);
+		world.SetDynamicLights(scriptLights);
+		entities.SetDynamicLights(scriptLights);
+
 		// Cfg.FOV is a horizontal angle; the projection wants the vertical
 		// one for this window's aspect.
 		{
@@ -1150,11 +1161,12 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		renderer.DebugText(7, "hud: %s, %zu quads in %zu draws, %zu fonts baked",
 				hudReady ? "on" : "OFF", hud.quadsThisFrame(), hud.drawCalls(),
 				hud.fonts().baked());
-		renderer.DebugText(3, "%zu world draws, %zu entity draws (%zu skinned), zones %zu/%zu",
+		renderer.DebugText(3, "%zu world draws, %zu entity draws (%zu skinned), zones %zu/%zu, "
+				"%zu script lights",
 				worldReady ? world.drawCalls() : 0, entities.drawCalls(),
 				entities.posedInstances(),
 				worldReady ? world.zonesVisible() : 0,
-				worldReady ? world.zoneCount() : 0);
+				worldReady ? world.zoneCount() : 0, scriptLights.size());
 		renderer.DebugText(4, "pos %.1f %.1f %.1f   rot %.2f %.2f   %s", camera.pos[0],
 				camera.pos[1], camera.pos[2], camera.yaw, camera.pitch,
 				walking ? (pawn.onGround() ? "walking" : "airborne")
@@ -1207,6 +1219,18 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 						hud.fonts().baked());
 				LogInfo("  particles: %zu live in %zu emitters", particles.liveParticles(),
 						particles.emitters());
+				LogInfo("  lights: %zu placed, %zu from scripts (%zu of them dynamic), "
+						"%zu environment boxes", entities.lightCount(), scriptLights.size(),
+						size_t(std::count_if(scriptLights.begin(), scriptLights.end(),
+								[](const LightSource& l) { return l.dynamic; })),
+						entities.environmentCount());
+				for (const LightSource& l : scriptLights) {
+					if (!l.dynamic) continue;
+					LogInfo("    dynamic light: type %d at %.2f %.2f %.2f, dir %.2f %.2f %.2f, "
+							"range %.1f, intensity %.2f, cone %.3f/%.3f, projector '%s'",
+							l.type, l.pos[0], l.pos[1], l.pos[2], l.dir[0], l.dir[1], l.dir[2],
+							l.range, l.intensity, l.coneCos, l.coneOuterCos, l.projector.c_str());
+				}
 				LogInfo("  camera %.2f %.2f %.2f, player %s", camera.pos[0],
 						camera.pos[1], camera.pos[2],
 						walking ? (pawn.onGround() ? "on the ground" : "airborne")

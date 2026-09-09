@@ -1,7 +1,13 @@
-$input v_texcoord0, v_texcoord1, v_normal, v_viewdist
+$input v_texcoord0, v_texcoord1, v_normal, v_viewdist, v_wpos
 
 // Deliberately NOT physically based: these assets are diffuse maps plus baked
 // lightmaps authored in 2004, so the shading model stays albedo * lightmap.
+//
+// Dynamic lights are the one thing the lightmap cannot carry, and they are
+// added on top of it here. The original drew them as extra `blend add` passes
+// over the same geometry (WorldMesh::RenderLightPass, 0x101d9740, one per
+// light off the mesh's own list); folding them into this pass reaches the same
+// sum in one draw. Docs/Reference/Lighting.md
 #include <bgfx_shader.sh>
 
 SAMPLER2D(s_diffuse, 0);
@@ -9,6 +15,10 @@ SAMPLER2D(s_lightmap, 1);
 SAMPLER2D(s_detail, 2);
 SAMPLER2D(s_blend2, 3);
 SAMPLER2D(s_mask2, 4);
+// The dynamic lights, and the flashlight's two maps at stages 5 and 6.
+#define PAINFUL_PROJ_STAGE 5
+#define PAINFUL_PROJFALL_STAGE 6
+#include "shared_lights.sh"
 
 uniform vec4 u_params; // x: has lightmap, y: alpha-test ref (<0 off), z: terrain blend, w: unused
 uniform vec4 u_uvanim; // xy: stage-0 scroll offset, zw: stage-1 scroll offset
@@ -73,10 +83,18 @@ void main()
 	// No ambient: defaultTU2 is `lighting false`, so the lightmap is the only
 	// light term. o.Ambient drives the vertex lighting the MODELS use (c11).
 	//
-	// Unlightmapped objects are defaultNTU - vertex-lit like a model - but the
-	// world's additive light passes (WorldMesh::RenderLightPass) do not exist
-	// here yet, so they stay at full albedo instead of going black.
+	// Unlightmapped objects are defaultNTU - vertex-lit like a model - and are
+	// left at full albedo rather than going black; only the dynamic lights
+	// below reach them.
 	vec3 color = albedo * light;
+
+	// The dynamic lights, added over the lightmap - the same call the models
+	// make, with no specular, because the world's light passes have none.
+	vec3 lit = vec3_splat(0.0);
+	vec3 unusedSpec = vec3_splat(0.0);
+	DynamicLights(v_wpos, normalize(v_normal), vec3_splat(0.0), vec3_splat(0.0),
+			lit, unusedSpec);
+	color += albedo * lit;
 
 	// Fog modes match CLevel.lua: 0=none, 1=exp, 2=exp2, 3=linear. As in D3D
 	// fixed function, only linear fog uses the start/end range; the

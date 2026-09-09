@@ -1,4 +1,10 @@
-$input v_texcoord0, v_texcoord1, v_normal, v_viewdist
+// This is the ONLY fragment shader paired with a vertex shader of a different
+// name: SkyRenderer::Init builds its program from vs_world + fs_sky. So this
+// $input list has to carry everything vs_world writes, v_wpos included, even
+// though the sky never reads it - bgfx links the two by their varying
+// signature, and a mismatch fails createProgram outright. Adding a varying to
+// vs_world means adding it here. Shaders/common.sc
+$input v_texcoord0, v_texcoord1, v_normal, v_viewdist, v_wpos
 
 // One sky layer: two independently animated textures composited by a mask,
 // then modulated by a lightmap.

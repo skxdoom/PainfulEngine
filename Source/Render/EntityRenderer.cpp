@@ -81,9 +81,10 @@ MaterialState LookupMaterial(ShaderLibrary* lib, const std::string& name, bool c
 
 // The specular exponent and strength. skin.shader only says `specular true`,
 // leaving the numbers to the fixed-function material, so these are tuned to the
-// look rather than read from data: a broad, weak sheen, which is all a
-// once-per-model half-vector can produce anyway. PAINFUL_SPECULAR overrides
-// them as "exponent,strength" while that is being judged.
+// look rather than read from data. The half-vector is per pixel now, from the
+// real eye, so the sheen can be tighter than the original's camera-facing wash
+// without reading as wrong. PAINFUL_SPECULAR overrides them as
+// "exponent,strength,gate" while that is being judged.
 const float* SpecularParams() {
 	// z softens the N.L gate on the specular. The original switches on it
 	// hard, and can only do that because it lights per vertex and interpolates
@@ -128,9 +129,10 @@ bool EntityRenderer::Init(const std::string& shaderDir) {
 	uSpecular_ = bgfx::createUniform("u_specular", bgfx::UniformType::Vec4);
 	sStage1_ = bgfx::createUniform("s_stage1", bgfx::UniformType::Sampler);
 	uStage1_ = bgfx::createUniform("u_stage1", bgfx::UniformType::Vec4);
-	uLightColor_ = bgfx::createUniform("u_lightColor", bgfx::UniformType::Vec4, kMaxEntityLights);
-	uLightDir_ = bgfx::createUniform("u_lightDir", bgfx::UniformType::Vec4, kMaxEntityLights);
-	uLightHalf_ = bgfx::createUniform("u_lightHalf", bgfx::UniformType::Vec4, kMaxEntityLights);
+	uDirColor_ = bgfx::createUniform("u_dirColor", bgfx::UniformType::Vec4);
+	uDirDir_ = bgfx::createUniform("u_dirDir", bgfx::UniformType::Vec4);
+	uEye_ = bgfx::createUniform("u_eye", bgfx::UniformType::Vec4);
+	lightUniforms_.Init();
 	return true;
 }
 
@@ -158,6 +160,12 @@ void EntityRenderer::Shutdown() {
 	if (bgfx::isValid(uUv0_)) { bgfx::destroy(uUv0_); uUv0_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uUv1_)) { bgfx::destroy(uUv1_); uUv1_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uTile_)) { bgfx::destroy(uTile_); uTile_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uSpecular_)) { bgfx::destroy(uSpecular_); uSpecular_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uDirColor_)) { bgfx::destroy(uDirColor_); uDirColor_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uDirDir_)) { bgfx::destroy(uDirDir_); uDirDir_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uEye_)) { bgfx::destroy(uEye_); uEye_ = BGFX_INVALID_HANDLE; }
+	lightUniforms_.Shutdown();
+	projector_.Clear();
 }
 
 bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textures,
@@ -400,8 +408,9 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
 	return true;
 }
 
-void EntityRenderer::BuildLighting(const Level& level, TemplateCache& templates) {
-	lighting_.Build(level, templates);
+void EntityRenderer::BuildLighting(const Level& level, TemplateCache& templates,
+		bool lightsFromScripts) {
+	lighting_.Build(level, templates, lightsFromScripts);
 }
 
 void EntityRenderer::Build(const Level& level, TemplateCache& templates,
@@ -794,6 +803,11 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 								info.fogDensity};
 	bgfx::setUniform(uFog_, fogParams);
 
+	// The projector maps, once a light asks for one. Only the flashlight does.
+	if (textures_)
+		for (const LightSource& l : lighting_.dynamicLights())
+			if (projector_.Resolve(l.projector, *textures_, levelHint_)) break;
+
 	// Frame time, for the CEnvironment cross-fade. Draw is the only per-frame
 	// hook this renderer has, and a level reload rewinds the clock.
 	float dt = timeSeconds - lastTime_;
@@ -862,23 +876,28 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 						bgfx::copy(posedVerts_.data(), bytes));
 			}
 		}
-		// This model's lighting, evaluated once at its origin - which is what
-		// the original does too: ComputeVSLights takes the entity position, not
-		// a per-vertex one, so a monk is lit as a whole.
+		// This model's lighting. The SELECTION is still made at the origin -
+		// which of the level's lights are worth a slot is a per-model question,
+		// as it is in Entity::AddLight - but the lights themselves are handed
+		// over whole and shaded per pixel, the same way the world mesh gets
+		// them. Docs/Reference/Lighting.md
 		EntityLightState lit;
-		lighting_.Evaluate(instance.pos, camera.pos, dt, instance.lightFade, lit);
-		float lightColor[kMaxEntityLights][4], lightDir[kMaxEntityLights][4];
-		float lightHalf[kMaxEntityLights][4];
-		for (int s = 0; s < kMaxEntityLights; ++s)
-			for (int c = 0; c < 4; ++c) {
-				lightColor[s][c] = lit.slots[s].color[c];
-				lightDir[s][c] = lit.slots[s].dir[c];
-				lightHalf[s][c] = lit.slots[s].half[c];
-			}
-		bgfx::setUniform(uLightColor_, lightColor, kMaxEntityLights);
-		bgfx::setUniform(uLightDir_, lightDir, kMaxEntityLights);
-		bgfx::setUniform(uLightHalf_, lightHalf, kMaxEntityLights);
+		// The instance's own bounds, which UpdateBounds already grew to the
+		// posed skeleton - so a light reaching an outstretched arm still wins
+		// a slot for the model.
+		const float lightRadius = (instance.aabbHi - instance.aabbLo).Length() * 0.5f;
+		lighting_.Evaluate(instance.pos, lightRadius, dt, instance.lightFade, lit);
+		const float dirColor[4] = {lit.dirColor[0], lit.dirColor[1], lit.dirColor[2], 1.f};
+		const float dirDir[4] = {lit.dirDir[0], lit.dirDir[1], lit.dirDir[2], 0.f};
+		const float eyePos[4] = {camera.pos[0], camera.pos[1], camera.pos[2], 0.f};
+		bgfx::setUniform(uDirColor_, dirColor);
+		bgfx::setUniform(uDirDir_, dirDir);
+		bgfx::setUniform(uEye_, eyePos);
 		bgfx::setUniform(uSpecular_, SpecularParams());
+
+		LightBlock lights;
+		for (int s = 0; s < lit.lightCount; ++s)
+			PackLight(lights, s, *lit.lights[s], projector_.name());
 
 
 		const float detail[4] = {1.f, 1.f, 0.f, 0.f};
@@ -947,7 +966,11 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			bgfx::setTexture(1, sStage1_,
 					bgfx::isValid(stage1Tex) ? stage1Tex : white_,
 					mat.sampler[1]);
-			bgfx::setTexture(2, sDetail_, white_);
+			// Stages 2 and 3 are the projector pair; models sample no detail
+			// map, so nothing else wants them.
+			lightUniforms_.Submit(lights, 2, 3,
+					bgfx::isValid(projector_.cookie()) ? projector_.cookie() : white_,
+					bgfx::isValid(projector_.falloff()) ? projector_.falloff() : white_);
 			bgfx::setState(state);
 			bgfx::submit(view, program_);
 			++drawCalls_;

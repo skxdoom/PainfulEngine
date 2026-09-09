@@ -1,5 +1,5 @@
 $input a_position, a_normal, a_texcoord0
-$output v_texcoord0, v_normal, v_viewdist
+$output v_texcoord0, v_normal, v_viewdist, v_wpos
 
 // Models. Unlike the world mesh these carry no lightmap - PainEngine lit them
 // at runtime instead, from an ambient, one directional light and up to four
@@ -15,6 +15,8 @@ void main()
 	gl_Position = mul(u_proj, viewPos);
 
 	v_viewdist = length(viewPos.xyz);
+	// The world position: the positional lights are measured from it per pixel.
+	v_wpos = mul(u_model[0], vec4(a_position, 1.0)).xyz;
 	v_normal = normalize(mul(u_model[0], vec4(a_normal, 0.0)).xyz);
 	v_texcoord0 = a_texcoord0;
 }

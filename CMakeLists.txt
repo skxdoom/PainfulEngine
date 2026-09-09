@@ -25,6 +25,19 @@ endif()
 set(PAINFUL_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
 list(APPEND CMAKE_MODULE_PATH ${PAINFUL_ROOT}/CMake)
 
+# How many dynamic lights one model or one chunk of world is lit by at once.
+#
+# THE ONLY PLACE THIS NUMBER IS WRITTEN. The C++ side sizes its uniform arrays
+# by it and the shaders declare theirs by it, and bgfx matches the two by name
+# at runtime rather than at compile time - so a value that drifts between them
+# is silently wrong lighting, not a build error. Both sides are fed from here:
+# Source/World/CMakeLists.txt as a compile definition, Shaders/CMakeLists.txt
+# as a shaderc --define. Docs/Reference/Lighting.md
+#
+# The original's four was a vertex-constant budget (Entity::MaxLights, filling
+# c12..c23), not a rule; the lighting is per pixel from uniforms here.
+set(PAINFUL_MAX_DYN_LIGHTS 8 CACHE STRING "Dynamic lights per model / per world chunk")
+
 # Everything buildable lands in two folders rather than beside whichever
 # CMakeLists declared it. The generator appends /<Config>, so a Release build
 # leaves both executables in Build/Bin/Release.

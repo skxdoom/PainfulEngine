@@ -4,10 +4,12 @@
 #include "../Assets/Mpk.h"
 #include "../Assets/ShaderScript.h"
 #include "../World/Level.h"
+#include "../World/Lighting.h"
 #include "../World/Zones.h"
 #include "../Core/Frustum.h"
 #include "MaterialState.h"
 #include "Camera.h"
+#include "LightUniforms.h"
 #include "TextureCache.h"
 #include <bgfx/bgfx.h>
 #include <string>
@@ -46,6 +48,12 @@ public:
 	// destructible's release does to its intact twin: World::RemoveEntity on
 	// the "statdest" mesh (FUN_101B5010). Docs/Reference/Physics.md
 	void SetObjectVisible(size_t object, bool visible);
+
+	// The lights the scripts made this frame. Only the ones flagged
+	// IsDynamic reach the world mesh: the placed lights are already in its
+	// lightmap, and adding them again would double every torch alcove.
+	// Docs/Reference/Lighting.md
+	void SetDynamicLights(const std::vector<LightSource>& lights);
 
 	// ambient/fogColor are 0-255 as stored in the level file.
 	void Draw(bgfx::ViewId view, const Camera& camera, int width, int height,
@@ -125,6 +133,14 @@ private:
 	bgfx::TextureHandle waterNormal_ = BGFX_INVALID_HANDLE;
 	bgfx::TextureHandle waterCube_ = BGFX_INVALID_HANDLE;
 	size_t waterChunks_ = 0;
+	// Dynamic lights: the same uniforms and the same packing the models use,
+	// plus the list each chunk picks its own from.
+	LightUniforms lightUniforms_;
+	ProjectorMaps projector_;
+	TextureCache* textures_ = nullptr; // for the projector maps, loaded on demand
+	std::string levelHint_;
+	std::vector<LightSource> dynamicLights_;
+	std::vector<int> chunkLights_; // scratch: the picked slots, reused per chunk
 	bgfx::TextureHandle detailTex_ = BGFX_INVALID_HANDLE;
 	float detailTile_[2] = {8.2f, 7.1f};
 	bool detailOn_ = false;

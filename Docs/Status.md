@@ -433,10 +433,18 @@ The ordered work queue, with the evidence behind each item, is
   / `UpdateDecal`, `R3D.KeepDecals` and `Cfg.DecalsStayTime`, cut against the
   map object under the hit ([`Decals.md`](Reference/Decals.md)). Not on models
   or pack meshes. Trails (`AttachTrailToBones`) are still stubs.
-- Script-driven dynamic lights: `LIGHT.Setup` / `SetFalloff` and the
-  `ENVIRONMENT.Set*` family are stubs. Static `CLight`s already light models
-  (see Entity lighting above); what is missing is the runtime kind the scripts
-  create and retune.
+- Script-driven dynamic lights are in: the whole `LIGHT.*` family, so the
+  flashlight (cookie, cone and flicker), the torches monsters carry and the
+  flashes an action fires off all light both models and the world mesh
+  ([`Lighting.md`](Reference/Lighting.md)). The lights now come from the
+  scripts rather than from the level file, `CLight:Apply` included, and models
+  and the world run the SAME per-pixel evaluation - eight lights each, with the
+  gains recovered from the shipped `proj.pso` / `ps_atten_dst2.pso`. That last
+  part is deliberately better than the original, whose model path was four
+  per-entity constants on a different falloff curve; the reasons are listed
+  under "Deviations". Left: `ENTITY.AddLight`, `WORLD.SetDirLight`,
+  `LIGHT.SetLitParentFlag`, and shadows - a dynamic light lights through a wall
+  within its range.
 - Model material extras: `MESH.SetDetailMap` / `SetNormalMap` / `SetCubeMap` /
   `SetSpecular`, `MDL.SetMaterial` / `SetTexture`, `MATERIAL.Replace`.
 - `R3D.SetCameraFOV` / `GetCameraFOV` carry `Cfg.FOV`, and every shipped call

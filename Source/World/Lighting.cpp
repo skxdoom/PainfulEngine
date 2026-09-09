@@ -58,12 +58,81 @@ bool ReadVector(TemplateCache& templates, const Properties& props, const std::st
 
 } // namespace
 
+// LIGHT.SetFalloff's third argument, and the ConeAngle property behind it.
+// 0x10137720 stores cos(a * pi/180) as the cone cosine and cos(a * pi/180 *
+// 0.8) beside it, so ONE angle gives both edges: full brightness inside 0.8a,
+// ramping to nothing at a. Degrees go through unhalved.
+void SetCone(LightSource& l, float degrees) {
+	if (degrees <= 0.f) {
+		l.coneCos = l.coneOuterCos = -1.f;
+		return;
+	}
+	const float rad = degrees * 3.14159265f / 180.f;
+	l.coneOuterCos = std::cos(rad);
+	l.coneCos = std::cos(rad * 0.8f);
+}
+
+float LightReach(const LightSource& l) {
+	if (l.type != LightSource::kSpot || l.coneOuterCos <= -1.f) return l.range;
+	// The beam runs `range` along the axis; the cone's rim is the slant, which
+	// is longer. Clamped so a near-hemispherical cone does not blow up.
+	return l.range / std::max(l.coneOuterCos, 0.2f);
+}
+
+float LightAttenuation(const LightSource& l, const Vec3& at, float radius) {
+	if (l.type == LightSource::kDirectional) return l.intensity;
+
+	const Vec3 toPoint = AsVec3(at) - l.pos;
+	const float dist = toPoint.Length();
+	// A spot's falloff runs ALONG ITS AXIS - tu2_proj_1 reads the ramp from
+	// one plane row, not from a radius - so its score is measured there too.
+	// Measured radially it drops to zero on a sphere the beam is wider than,
+	// and a model in the far half of the beam loses the light entirely.
+	// GetAttIntensity uses the radius for both; this is a deviation.
+	const bool spot = l.type == LightSource::kSpot && l.coneOuterCos > -1.f;
+
+	float d = dist; // how far along the light the shape sits
+	if (spot) {
+		d = Dot(toPoint, l.dir);
+		if (d < -radius) return 0.f;
+		// Sphere against cone: the perpendicular offset against the cone's
+		// radius at that depth, both grown by `radius`. Tested at the CENTRE
+		// alone this is a knife edge, and because a zero score means "no slot"
+		// rather than "no light", a model whose origin leaves the beam goes
+		// dark whole while half of it is still inside - a pop as the beam
+		// sweeps past, with every other slot free.
+		const float perp2 = std::max(0.f, dist * dist - d * d);
+		const float c = std::min(std::max(l.coneOuterCos, 1e-3f), 0.999f);
+		const float coneR = std::max(d, 0.f) * (std::sqrt(1.f - c * c) / c) + radius;
+		if (perp2 > coneR * coneR) return 0.f;
+	}
+	d = std::max(0.f, d - radius);
+	if (d > l.range) return 0.f;
+
+	float att = 1.f;
+	if (d > l.startFalloff && l.range > l.startFalloff)
+		att = (d - l.range) / (l.startFalloff - l.range);
+
+	// The cone's soft edge, for the POINT form only. With a radius the sphere
+	// test above has already answered, and grading by the centre's angle would
+	// score a model whose near side is fully lit as though it were unlit.
+	if (spot && radius <= 0.f) {
+		Vec3 dir = toPoint;
+		Normalize(dir);
+		const float c = Dot(dir, l.dir);
+		if (c < l.coneCos && l.coneCos > l.coneOuterCos)
+			att *= (c - l.coneOuterCos) / (l.coneCos - l.coneOuterCos);
+	}
+	return att * l.intensity;
+}
+
 void EntityLighting::Clear() {
 	lights_.clear();
 	environments_.clear();
 }
 
-void EntityLighting::Build(const Level& level, TemplateCache& templates) {
+void EntityLighting::Build(const Level& level, TemplateCache& templates,
+		bool lightsFromScripts) {
 	Clear();
 	const LevelInfo& info = level.info();
 	for (int i = 0; i < 3; ++i) {
@@ -76,6 +145,7 @@ void EntityLighting::Build(const Level& level, TemplateCache& templates) {
 
 	for (const Entity& e : level.entities()) {
 		if (e.type == "CLight") {
+			if (lightsFromScripts) continue;
 			Light l;
 			l.type = static_cast<int>(
 					templates.ResolveNumber(e.props, e.baseObj, "Type", kPoint));
@@ -85,12 +155,10 @@ void EntityLighting::Build(const Level& level, TemplateCache& templates) {
 					templates.ResolveNumber(e.props, e.baseObj, "Range", 10.0));
 			l.startFalloff = static_cast<float>(
 					templates.ResolveNumber(e.props, e.baseObj, "StartFalloff", 0.0));
-			// A cone that was never authored must not black out a spot light,
-			// so an absent angle means "no cone".
-			const double cone = templates.ResolveNumber(e.props, e.baseObj, "ConeAngle", 0.0);
-			const double outer = templates.ResolveNumber(e.props, e.baseObj, "ConeOuterAngle", cone);
-			l.coneCos = cone > 0.0 ? float(std::cos(cone * 3.14159265 / 360.0)) : -1.f;
-			l.coneOuterCos = outer > 0.0 ? float(std::cos(outer * 3.14159265 / 360.0)) : -1.f;
+			// One authored angle, two cosines - see SetCone. A cone that was
+			// never authored must not black out a spot light, so an absent
+			// angle means "no cone".
+			SetCone(l, float(templates.ResolveNumber(e.props, e.baseObj, "ConeAngle", 0.0)));
 			l.fakeSpecular = templates.ResolveNumber(e.props, e.baseObj, "IsFakeSpecular", 0.0) != 0.0 ||
 					e.props.Bool("IsFakeSpecular", false);
 			l.color[0] = l.color[1] = l.color[2] = 1.f;
@@ -143,27 +211,6 @@ void EntityLighting::Build(const Level& level, TemplateCache& templates) {
 	}
 }
 
-float EntityLighting::AttIntensity(const Light& l, const Vec3& pos) const {
-	if (l.type == kDirectional) return l.intensity;
-
-	const float d = Dist(l.pos, pos);
-	if (d > l.range) return 0.f;
-	float att = 1.f;
-	if (d > l.startFalloff && l.range > l.startFalloff)
-		att = (d - l.range) / (l.startFalloff - l.range);
-
-	if (l.type == kSpot && l.coneCos > -1.f) {
-		// Axis term: how far off the cone centre the entity sits.
-		Vec3 toEntity = AsVec3(pos) - l.pos;
-		Normalize(toEntity);
-		const float c = Dot(toEntity, l.dir);
-		if (c < l.coneOuterCos) return 0.f;
-		if (c < l.coneCos && l.coneCos > l.coneOuterCos)
-			att *= (c - l.coneOuterCos) / (l.coneCos - l.coneOuterCos);
-	}
-	return att * l.intensity;
-}
-
 const EntityLighting::Environment* EntityLighting::Innermost(const Vec3& pos) const {
 	const Environment* best = nullptr;
 	for (const Environment& e : environments_) {
@@ -177,7 +224,7 @@ const EntityLighting::Environment* EntityLighting::Innermost(const Vec3& pos) co
 	return best;
 }
 
-void EntityLighting::Evaluate(const Vec3& pos, const Vec3& camPos, float dt,
+void EntityLighting::Evaluate(const Vec3& pos, float radius, float dt,
 		EntityLightFade& fade, EntityLightState& out) const {
 	// --- ambient and the one directional, per environment ---
 	Vec3 ambient = levelAmbient_;
@@ -220,70 +267,45 @@ void EntityLighting::Evaluate(const Vec3& pos, const Vec3& camPos, float dt,
 		Normalize(fade.dirDir);
 	}
 	out.ambient = fade.ambient;
+	out.dirColor = fade.dirColor;
+	out.dirDir = fade.dirDir;
 
-	// --- the four slots ---
-	// Entity::AddLight keeps a list of four sorted by attenuated intensity,
-	// descending, so a model near two torches takes the two brightest.
+	// --- the positional lights ---
+	// Entity::AddLight keeps its list sorted by attenuated intensity,
+	// descending, so a model near two torches takes the two brightest. That
+	// part is kept; the length is not (see kMaxDynamicLights), and the
+	// environment directional no longer competes for a place in it.
 	//
-	// The environment's directional is ONE OF THEM, not a term beside them:
-	// Entity::ResetLights (0x1d2c70) does AddLight(this,
-	// GetEnvironmentDirLight(this)), so it competes for a slot like any other
-	// light and, being a light, casts specular too. Its score is its intensity
-	// flat (Light::GetAttIntensity returns that for type 1), which usually wins
-	// it slot 0.
-	int best[kMaxEntityLights] = {-1, -1, -1, -1};
-	float score[kMaxEntityLights] = {0, 0, 0, 0};
+	// The list is the placed lights followed by the ones the scripts made this
+	// frame, so a torch a monk is carrying is ranked against the level's own on
+	// the same terms - which is what Entity::AddLight does, it has one list and
+	// does not care where a light came from. Only the SCORE is evaluated at the
+	// entity origin now; the light itself is handed over whole and shaded per
+	// pixel.
+	const LightSource* best[kMaxDynamicLights] = {};
+	float score[kMaxDynamicLights] = {};
 	int count = 0;
-	// -1 is the environment directional; 0.. index lights_.
-	auto consider = [&](int index, float s) {
-		if (s <= 0.f) return;
+	auto consider = [&](const LightSource& l, float s) {
+		// Entity::AddLight (0x1d1b70) rejects a light carrying the
+		// fake-specular flag: those belong to the world mesh, and Cathedral's
+		// aa_fake1 has Range 5000, so one would occupy a slot level-wide.
+		if (s <= 0.f || l.fakeSpecular) return;
 		int at = 0;
 		while (at < count && score[at] >= s) ++at;
-		if (at >= kMaxEntityLights) return;
-		for (int j = std::min(count, kMaxEntityLights - 1); j > at; --j) {
+		if (at >= kMaxDynamicLights) return;
+		for (int j = std::min(count, kMaxDynamicLights - 1); j > at; --j) {
 			best[j] = best[j - 1];
 			score[j] = score[j - 1];
 		}
-		best[at] = index;
+		best[at] = &l;
 		score[at] = s;
-		if (count < kMaxEntityLights) ++count;
+		if (count < kMaxDynamicLights) ++count;
 	};
-	const float dirScore = std::max({fade.dirColor[0], fade.dirColor[1], fade.dirColor[2]});
-	consider(-1, dirScore);
-	for (size_t i = 0; i < lights_.size(); ++i) consider(int(i), AttIntensity(lights_[i], pos));
+	for (const Light& l : lights_) consider(l, LightAttenuation(l, pos, radius));
+	for (const Light& l : dynamic_) consider(l, LightAttenuation(l, pos, radius));
 
-	for (int s = 0; s < kMaxEntityLights; ++s) {
-		EntityLightSlot& slot = out.slots[s];
-		if (best[s] < 0 && s >= count) { slot = EntityLightSlot(); continue; }
-
-		Vec3 dir, color;
-		float att = score[s];
-		bool fakeSpecular = false;
-		if (best[s] < 0) {
-			// The environment directional, already faded.
-			dir = fade.dirDir;
-			color = fade.dirColor;
-			att = 1.f;
-		} else {
-			const Light& l = lights_[best[s]];
-			fakeSpecular = l.fakeSpecular;
-			dir = l.type == kDirectional ? -l.dir : l.pos - AsVec3(pos);
-			color = l.color * att;
-		}
-		Normalize(dir);
-
-		color.Store(slot.color);
-		slot.color[3] = att;
-		dir.Store(slot.dir);
-		slot.dir[3] = 1.f;
-
-		// ComputeVSLights: H = normalize((camera - entity) + lightDir), once
-		// for the whole model.
-		Vec3 h = (AsVec3(camPos) - AsVec3(pos)) + dir;
-		Normalize(h);
-		h.Store(slot.half);
-		slot.half[3] = fakeSpecular ? 0.f : 1.f;
-	}
+	out.lightCount = count;
+	for (int s = 0; s < kMaxDynamicLights; ++s) out.lights[s] = best[s];
 }
 
 } // namespace painful

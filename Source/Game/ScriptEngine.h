@@ -19,6 +19,7 @@
 #include "../Script/LuaHost.h"
 #include "../World/Decals.h"
 #include "../World/Level.h"
+#include "../World/Lighting.h"
 #include "../World/PhysicsWorld.h"
 #include "Input.h"
 
@@ -145,6 +146,13 @@ public:
 			float cooldown = 0.f;
 		};
 		std::map<int, RagdollCallback> ragdollCallbacks;
+		// What this entity lights, when it was created as ETypes.Light. The
+		// scripts own every field of it through the LIGHT.* family and rewrite
+		// most of them every tick - a torch flickers by resetting intensity
+		// and falloff, the flashlight by resetting its direction from the
+		// camera. Docs/Reference/Lighting.md
+		LightSource light;
+		bool hasLight = false;
 		// A Decal entity's DecalSystem slot, -1 for a precache-only one.
 		int decalSlot = -1;
 		// The map object its geometry was cut from, when it was exactly one.
@@ -684,6 +692,11 @@ public:
 	// Pushes every registry entity that has none into the attached renderer.
 	void FlushToRenderer();
 
+	// Every live LIGHT.Setup light, at where its entity is now. Rebuilt each
+	// frame and handed to the renderers, because a torch rides a joint and
+	// the flashlight rides the camera. Docs/Reference/Lighting.md
+	void CollectLights(std::vector<LightSource>& out) const;
+
 	// Each native family is a struct defined in its own Script*.cpp; it needs
 	// the private state the natives work on. One line here per family, instead
 	// of one declaration per native.
@@ -705,6 +718,7 @@ public:
 	friend struct SaveNatives;
 	friend struct WaterNatives;
 	friend struct DecalNatives;
+	friend struct LightNatives;
 
 private:
 	static ScriptEngine* From(lua_State* L);

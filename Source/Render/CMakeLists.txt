@@ -5,6 +5,7 @@ add_library(Render STATIC
 		TextureCache.cpp TextureCache.h
 		WorldRenderer.cpp WorldRenderer.h
 		EntityRenderer.cpp EntityRenderer.h
+		LightUniforms.cpp LightUniforms.h
 		MaterialState.cpp MaterialState.h
 		SkyRenderer.cpp SkyRenderer.h
 		ParticleRenderer.cpp ParticleRenderer.h

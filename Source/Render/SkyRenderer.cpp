@@ -2,6 +2,7 @@
 #include "ShaderLoad.h"
 #include "../Core/Vectors.h"
 #include "../Core/Matrix.h"
+#include "../Core/Check.h"
 #include "../Core/Debug.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
@@ -51,10 +52,17 @@ bool IsTransparentShell(const std::string& name) {
 bool SkyRenderer::Init(const std::string& shaderDir) {
 	layout_ = MakeMeshLayout();
 	namespace fs = std::filesystem;
+	// The sky borrows the WORLD vertex shader - a dome is world geometry, it
+	// just shades differently. bgfx links a program by the varying signature,
+	// so fs_sky must $input everything vs_world writes; a varying added to
+	// vs_world and not to fs_sky fails here and the sky silently stops
+	// drawing, which is how v_wpos broke it once.
 	bgfx::ShaderHandle vs = LoadShader(shaderDir, "vs_world");
 	bgfx::ShaderHandle fsh = LoadShader(shaderDir, "fs_sky");
 	if (!bgfx::isValid(vs) || !bgfx::isValid(fsh)) return false;
 	program_ = bgfx::createProgram(vs, fsh, true);
+	PAINFUL_CHECK(bgfx::isValid(program_),
+			"sky program: vs_world and fs_sky varyings do not match");
 	if (!bgfx::isValid(program_)) return false;
 
 	sTex1_ = bgfx::createUniform("s_tex1", bgfx::UniformType::Sampler);

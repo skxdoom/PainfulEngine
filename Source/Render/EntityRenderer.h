@@ -11,6 +11,7 @@
 #include "../World/Lighting.h"
 #include "../World/Templates.h"
 #include "Camera.h"
+#include "LightUniforms.h"
 #include "TextureCache.h"
 #include <bgfx/bgfx.h>
 #include <map>
@@ -40,10 +41,24 @@ public:
 	// The CLight and CEnvironment placements that light the models. Build
 	// does this too; the script-driven path has no Level to pass to Build
 	// and calls this on its own.
-	void BuildLighting(const Level& level, TemplateCache& templates);
+	void BuildLighting(const Level& level, TemplateCache& templates,
+			bool lightsFromScripts = false);
 	void SetLevelAmbient(const Vec3& rgb255) { lighting_.SetLevelAmbient(rgb255); }
+	// The lights the scripts made this frame - torches, flashes, the
+	// flashlight. Handed over whole because they all move.
+	void SetDynamicLights(std::vector<LightSource> lights) {
+		lighting_.SetDynamicLights(std::move(lights));
+	}
+	// Where to resolve a light's projector texture from. Named by the light
+	// rather than by the level, so it cannot be looked up until one asks.
+	void SetTextureSource(TextureCache* textures, const std::string& levelHint) {
+		textures_ = textures;
+		levelHint_ = levelHint;
+		projector_.Clear();
+	}
 	size_t lightCount() const { return lighting_.lightCount(); }
 	size_t environmentCount() const { return lighting_.environmentCount(); }
+	size_t dynamicLightCount() const { return lighting_.dynamicCount(); }
 
 	void Build(const Level& level, TemplateCache& templates, TextureCache& textures,
 			const std::string& dataRoot, ShaderLibrary* shaders = nullptr);
@@ -255,12 +270,17 @@ private:
 	bgfx::UniformHandle uUv0_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uUv1_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uTile_ = BGFX_INVALID_HANDLE;
-	// The model lighting block - the engine's c10 ambient and its c12..c23
-	// four-light set. See World/Lighting.h.
-	bgfx::UniformHandle uLightColor_ = BGFX_INVALID_HANDLE;
-	bgfx::UniformHandle uLightDir_ = BGFX_INVALID_HANDLE;
-	bgfx::UniformHandle uLightHalf_ = BGFX_INVALID_HANDLE;
+	// The model lighting block: ambient and the environment directional are the
+	// engine's own (c10/c11), the positional lights go through the shared
+	// per-pixel path. See World/Lighting.h and Render/LightUniforms.h.
+	bgfx::UniformHandle uDirColor_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uDirDir_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uEye_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uSpecular_ = BGFX_INVALID_HANDLE;
+	LightUniforms lightUniforms_;
+	ProjectorMaps projector_;
+	TextureCache* textures_ = nullptr; // for the projector maps only
+	std::string levelHint_;
 	bgfx::UniformHandle sStage1_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uStage1_ = BGFX_INVALID_HANDLE;
 	EntityLighting lighting_;

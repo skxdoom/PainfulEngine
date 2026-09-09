@@ -9,7 +9,13 @@
 # _glsl, _mtl onto the shader name, so the bin2c symbol has to match exactly.
 
 set(SHADER_INC ${PAINFUL_ROOT}/External/bgfx/bgfx/src)
-set(SHADER_DEF ${CMAKE_CURRENT_SOURCE_DIR}/varying.def.sc)
+# The varying declarations every shader resolves its $input/$output names
+# against. bgfx would find a file named varying.def.sc on its own; this one is
+# named for what it holds, so --varyingdef below is not optional.
+set(SHADER_DEF ${CMAKE_CURRENT_SOURCE_DIR}/common.sc)
+# Shared shader code, included by name. Listed so an edit rebuilds every shader
+# that pulls it in - shaderc's own dependency tracking does not reach us.
+set(SHADER_SHARED ${CMAKE_CURRENT_SOURCE_DIR}/shared_lights.sh)
 set(SHADER_GEN ${CMAKE_CURRENT_BINARY_DIR}/generated)
 set(PAINFUL_SHADER_GEN_DIR ${SHADER_GEN} PARENT_SCOPE)
 
@@ -59,9 +65,12 @@ foreach(NAME ${SHADER_NAMES})
 				COMMAND $<TARGET_FILE:shaderc>
 				-f ${CMAKE_CURRENT_SOURCE_DIR}/${NAME}.sc -o ${BIN}
 				--type ${TYPE} --platform ${PLATFORM} -p ${PROFILE}
-				-i ${SHADER_INC} --varyingdef ${SHADER_DEF}
+				-i ${SHADER_INC} -i ${CMAKE_CURRENT_SOURCE_DIR}
+				--varyingdef ${SHADER_DEF}
+				--define PAINFUL_MAX_DYN=${PAINFUL_MAX_DYN_LIGHTS}
 				COMMAND $<TARGET_FILE:bin2c> -f ${BIN} -o ${HDR} -n ${NAME}_${SUFFIX}
-				DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${NAME}.sc ${SHADER_DEF} shaderc bin2c
+				DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${NAME}.sc ${SHADER_DEF}
+				${SHADER_SHARED} shaderc bin2c
 				COMMENT "shaderc ${NAME}.sc -> ${SUFFIX}"
 				VERBATIM)
 		list(APPEND SHADER_HEADERS ${HDR})
@@ -107,6 +116,9 @@ file(GENERATE OUTPUT ${SHADER_GEN}/ShaderBlobs.h CONTENT "${BLOBS}")
 
 # SOURCES carries the .sc files so they are browsable and editable in the IDE;
 # HEADER_FILE_ONLY stops anything trying to compile them as C++.
-add_custom_target(Shaders ALL DEPENDS ${SHADER_HEADERS} SOURCES ${SHADER_SOURCES} ${SHADER_DEF})
-set_source_files_properties(${SHADER_SOURCES} ${SHADER_DEF} PROPERTIES HEADER_FILE_ONLY TRUE)
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} PREFIX "" FILES ${SHADER_SOURCES} ${SHADER_DEF})
+add_custom_target(Shaders ALL DEPENDS ${SHADER_HEADERS}
+		SOURCES ${SHADER_SOURCES} ${SHADER_DEF} ${SHADER_SHARED})
+set_source_files_properties(${SHADER_SOURCES} ${SHADER_DEF} ${SHADER_SHARED}
+		PROPERTIES HEADER_FILE_ONLY TRUE)
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} PREFIX ""
+		FILES ${SHADER_SOURCES} ${SHADER_DEF} ${SHADER_SHARED})

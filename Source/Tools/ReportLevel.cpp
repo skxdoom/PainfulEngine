@@ -385,32 +385,42 @@ int LightingCmd(const char* levelDir, const char* dataRoot,
 	Vec3 pos = AsVec3(at);
 	EntityLightFade fade;
 	EntityLightState lit;
-	lighting.Evaluate(pos, AsVec3(eye), 0.f, fade, lit);
+	lighting.Evaluate(pos, 0.f, 0.f, fade, lit);
 	LogInfo("at (%.1f, %.1f, %.1f), eye (%.1f, %.1f, %.1f):", pos[0], pos[1], pos[2],
 			eye[0], eye[1], eye[2]);
 	LogInfo("  ambient   %.3f %.3f %.3f", lit.ambient[0], lit.ambient[1], lit.ambient[2]);
-	LogInfo("  dirlight  %.3f %.3f %.3f   toward (%.2f, %.2f, %.2f)  (competes for a slot)",
-			fade.dirColor[0], fade.dirColor[1], fade.dirColor[2],
-			fade.dirDir[0], fade.dirDir[1], fade.dirDir[2]);
-	for (int s = 0; s < kMaxEntityLights; ++s) {
-		const EntityLightSlot& l = lit.slots[s];
-		if (l.dir[3] < 0.5f) { LogInfo("  light %d   -", s); continue; }
-		LogInfo("  light %d   %.3f %.3f %.3f  att %.3f  toward (%.2f, %.2f, %.2f)  %s",
-				s, l.color[0], l.color[1], l.color[2], l.color[3],
-				l.dir[0], l.dir[1], l.dir[2],
-				l.half[3] < 0.5f ? "specular only" : "diffuse+specular");
-	}
-	// What the fragment shader would end up multiplying a white texel by, for a
-	// normal facing straight at the camera.
-	Vec3 toEye = {eye[0] - pos[0], eye[1] - pos[1], eye[2] - pos[2]};
-	const float n = std::sqrt(toEye[0] * toEye[0] + toEye[1] * toEye[1] + toEye[2] * toEye[2]);
-	if (n > 1e-4f) for (int i = 0; i < 3; ++i) toEye[i] /= n;
+	LogInfo("  dirlight  %.3f %.3f %.3f   toward (%.2f, %.2f, %.2f)",
+			lit.dirColor[0], lit.dirColor[1], lit.dirColor[2],
+			lit.dirDir[0], lit.dirDir[1], lit.dirDir[2]);
+	// The point the shader would shade is this one, so the report evaluates
+	// the lights here the same way shared_lights.sh does - colour x gain x
+	// attenuation, before N.L.
 	Vec3 diffuse = lit.ambient;
-	for (int s = 0; s < kMaxEntityLights; ++s) {
-		const EntityLightSlot& l = lit.slots[s];
-		if (l.dir[3] < 0.5f) continue;
-		const float d = std::max(0.f, toEye[0] * l.dir[0] + toEye[1] * l.dir[1] + toEye[2] * l.dir[2]);
-		for (int i = 0; i < 3; ++i) diffuse[i] += l.color[i] * d * l.half[3];
+	{
+		Vec3 toEye = {eye[0] - pos[0], eye[1] - pos[1], eye[2] - pos[2]};
+		const float n = std::sqrt(
+				toEye[0] * toEye[0] + toEye[1] * toEye[1] + toEye[2] * toEye[2]);
+		if (n > 1e-4f) for (int i = 0; i < 3; ++i) toEye[i] /= n;
+		const float dirN = std::max(0.f, toEye[0] * lit.dirDir[0] +
+				toEye[1] * lit.dirDir[1] + toEye[2] * lit.dirDir[2]);
+		for (int i = 0; i < 3; ++i) diffuse[i] += lit.dirColor[i] * dirN;
+		for (int s = 0; s < kMaxDynamicLights; ++s) {
+			if (s >= lit.lightCount) { LogInfo("  light %d   -", s); continue; }
+			const LightSource& l = *lit.lights[s];
+			Vec3 d = {l.pos[0] - pos[0], l.pos[1] - pos[1], l.pos[2] - pos[2]};
+			const float dist2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+			const float range = std::max(l.range, 0.001f);
+			const float att = std::max(0.f, 1.f - dist2 / (range * range));
+			const float gain = (l.type == LightSource::kSpot ? 4.f : 2.f) *
+					std::min(l.intensity * 0.5f, 1.f);
+			const float len = std::sqrt(dist2);
+			if (len > 1e-4f) for (int i = 0; i < 3; ++i) d[i] /= len;
+			const float ndotl = std::max(0.f,
+					toEye[0] * d[0] + toEye[1] * d[1] + toEye[2] * d[2]);
+			LogInfo("  light %d   %.3f %.3f %.3f  att %.3f  gain %.2f  toward (%.2f, %.2f, %.2f)",
+					s, l.color[0], l.color[1], l.color[2], att, gain, d[0], d[1], d[2]);
+			for (int i = 0; i < 3; ++i) diffuse[i] += l.color[i] * gain * att * ndotl;
+		}
 	}
 	LogInfo("  => a camera-facing white texel lands at %.3f %.3f %.3f",
 			diffuse[0], diffuse[1], diffuse[2]);

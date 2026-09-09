@@ -278,10 +278,11 @@ cheapest possible fix list — most of them are one query each.
 
 Ranked by calls per 900 combat frames:
 
-- **Dynamic lights** — `LIGHT.Setup` / `SetFalloff` (1002 each), the five flag
-  setters (102 each), `ENVIRONMENT.SetAmbient` / `SetFog` / `SetDirLight` /
-  `RemoveLights` / `SetWater` / `ResetReflectList` (~350). The single biggest
-  visual gap.
+- ~~**Dynamic lights**~~ — done. `LIGHT.Setup` / `SetFalloff` (1002 each), the
+  five flag setters (102 each) and `ENVIRONMENT.RemoveLight(s)` are
+  implemented ([`Lighting.md`](Reference/Lighting.md)). Still stubs in the same
+  area: `WORLD.SetDirLight`, `ENVIRONMENT.SetFog` / `SetWater` /
+  `ResetReflectList`, `ENTITY.AddLight`.
 - **Model and mesh materials** — `MESH.SetDetailMap` / `SetNormalMap` /
   `SetCubeMap` (245 each), `SetSpecular` / `AddSpecularLight` /
   `ResetSpecularLights` (~110), `MDL.CreateShadowMap` (38), `MATERIAL.Replace`
@@ -317,7 +318,7 @@ Ranked by calls per 900 combat frames:
 4. ~~Mesh groups~~ done - the two boss arenas, not the campaign.
 5. Maintain\* movers + transporters — unblocks C2L1, C3L2, C3L3, C5L2.
 6. Scripted ragdoll joints, flying, boss explosions.
-7. Lights and materials, once the game plays and only looks wrong.
+7. ~~Lights~~ done. Materials next, once the game plays and only looks wrong.
 
 ## How these numbers were produced
 

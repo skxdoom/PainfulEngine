@@ -117,5 +117,6 @@ void BindCollision(ScriptEngine& engine, LuaHost& host);
 void BindExplosion(ScriptEngine& engine, LuaHost& host);
 void BindSave(ScriptEngine& engine, LuaHost& host);
 void BindWater(ScriptEngine& engine, LuaHost& host);
+void BindLight(ScriptEngine& engine, LuaHost& host);
 
 } // namespace painful

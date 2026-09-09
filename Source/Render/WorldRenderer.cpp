@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <bx/math.h>
+#include <cmath>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -58,6 +59,7 @@ bool WorldRenderer::Init(const std::string& shaderDir) {
 	uUv0_ = bgfx::createUniform("u_uv0", bgfx::UniformType::Vec4);
 	uUv1_ = bgfx::createUniform("u_uv1", bgfx::UniformType::Vec4);
 	uTile_ = bgfx::createUniform("u_tile", bgfx::UniformType::Vec4);
+	lightUniforms_.Init();
 	return true;
 }
 
@@ -77,6 +79,11 @@ void WorldRenderer::Clear() {
 	zoneGraph_ = ZoneGraph();
 	waterChunks_ = 0;
 	detailOn_ = false;
+	// The texture cache owns these, and a level switch may re-Init it, so the
+	// handles are dropped rather than destroyed.
+	dynamicLights_.clear();
+	projector_.Clear();
+	textures_ = nullptr;
 }
 
 void WorldRenderer::Shutdown() {
@@ -96,6 +103,7 @@ void WorldRenderer::Shutdown() {
 	if (bgfx::isValid(uUv0_)) { bgfx::destroy(uUv0_); uUv0_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uUv1_)) { bgfx::destroy(uUv1_); uUv1_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uTile_)) { bgfx::destroy(uTile_); uTile_ = BGFX_INVALID_HANDLE; }
+	lightUniforms_.Shutdown();
 	if (bgfx::isValid(waterProgram_)) { bgfx::destroy(waterProgram_); waterProgram_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(sNormal_)) { bgfx::destroy(sNormal_); sNormal_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(sCube_)) { bgfx::destroy(sCube_); sCube_ = BGFX_INVALID_HANDLE; }
@@ -112,6 +120,10 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
 	const bool overbright = info.overbright;
 	chunks_.reserve(map.objects.size());
 	worldScale_ = worldScale;
+	// Kept for the projector maps, which are named by a light rather than by
+	// the map and so cannot be resolved until one asks for them.
+	textures_ = &textures;
+	levelHint_ = levelHint;
 	// The zone/portal helper geometry drives visibility culling.
 	zoneGraph_.Build(map, worldScale);
 
@@ -333,6 +345,36 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
 	}
 }
 
+// Only the dynamic ones. A placed CLight is in the lightmap already, and
+// WorldMesh::Draw agrees: the legacy branch of its light loop tests flag
+// 0x400000 - Light::EnableDynamic's - before issuing a pass.
+void WorldRenderer::SetDynamicLights(const std::vector<LightSource>& lights) {
+	dynamicLights_.clear();
+	for (const LightSource& l : lights)
+		if (l.dynamic && !l.fakeSpecular && l.type != LightSource::kDirectional)
+			dynamicLights_.push_back(l);
+}
+
+namespace {
+
+// Does a light's reach touch a chunk's box? The light list is small and the
+// chunk list is not, so this runs per chunk per light and stays a box test.
+// LightReach, not range: a spot beam is wider than the sphere of its range at
+// the far end, and culling it by that sphere cuts the beam off at whichever
+// chunk boundary the sphere happens to cross.
+bool LightTouches(const LightSource& l, const Vec3& lo, const Vec3& hi) {
+	float d2 = 0.f;
+	for (int a = 0; a < 3; ++a) {
+		const float v = l.pos[a] < lo[a] ? lo[a] - l.pos[a]
+				: (l.pos[a] > hi[a] ? l.pos[a] - hi[a] : 0.f);
+		d2 += v * v;
+	}
+	const float reach = LightReach(l);
+	return d2 <= reach * reach;
+}
+
+} // namespace
+
 void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int height,
 		const LevelInfo& info, float timeSeconds) {
 	const float* ambient = info.ambient;
@@ -384,6 +426,19 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 				kPortalNearRadius, zoneVisible_);
 		zonesVisible_ = size_t(std::count(zoneVisible_.begin(), zoneVisible_.end(), true));
 	}
+
+	// The projector maps, once a light asks for one. Only the flashlight does.
+	if (textures_)
+		for (const LightSource& l : dynamicLights_)
+			if (projector_.Resolve(l.projector, *textures_, levelHint_)) break;
+	// Both samplers are declared in fs_world, so both are bound every draw
+	// whether a projector light exists or not.
+	bgfx::TextureHandle fallback = BGFX_INVALID_HANDLE;
+	if (textures_) fallback = textures_->White();
+	const bgfx::TextureHandle projTex =
+			bgfx::isValid(projector_.cookie()) ? projector_.cookie() : fallback;
+	const bgfx::TextureHandle projFall =
+			bgfx::isValid(projector_.falloff()) ? projector_.falloff() : fallback;
 
 	for (const Chunk& c : chunks_) {
 		if (c.hidden) continue;
@@ -463,6 +518,37 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 			continue;
 		}
 
+		// The dynamic lights this chunk is inside the reach of, strongest
+		// first at its centre - the same ordering Entity::AddLight uses for a
+		// model, applied to a lump of wall.
+		LightBlock lights;
+		if (!dynamicLights_.empty()) {
+			const Vec3 centre{(c.aabbLo[0] + c.aabbHi[0]) * 0.5f,
+					(c.aabbLo[1] + c.aabbHi[1]) * 0.5f,
+					(c.aabbLo[2] + c.aabbHi[2]) * 0.5f};
+			chunkLights_.clear();
+			for (size_t i = 0; i < dynamicLights_.size(); ++i) {
+				const LightSource& l = dynamicLights_[i];
+				if (!LightTouches(l, c.aabbLo, c.aabbHi)) continue;
+				chunkLights_.push_back(int(i));
+			}
+			// Scored against the chunk's own sphere, not its centre: a chunk is
+			// large, and a beam that clips its corner must not rank as unlit.
+			const float chunkRadius = (c.aabbHi - c.aabbLo).Length() * 0.5f;
+			std::sort(chunkLights_.begin(), chunkLights_.end(), [&](int a, int b) {
+				const float sa = LightAttenuation(dynamicLights_[a], centre, chunkRadius);
+				const float sb = LightAttenuation(dynamicLights_[b], centre, chunkRadius);
+				// An important light outranks a brighter unimportant one:
+				// SetImportantDynamic is what keeps the flashlight's pass.
+				const bool ia = dynamicLights_[a].important, ib = dynamicLights_[b].important;
+				return ia != ib ? ia : sa > sb;
+			});
+			if (chunkLights_.size() > size_t(kMaxDynamicLights))
+				chunkLights_.resize(kMaxDynamicLights);
+			for (size_t s = 0; s < chunkLights_.size(); ++s)
+				PackLight(lights, int(s), dynamicLights_[chunkLights_[s]], projector_.name());
+		}
+
 		for (const Batch& b : c.batches) {
 			const float params[4] = {b.hasLightmap ? 1.f : 0.f,
 					c.material.alphaRef,
@@ -474,6 +560,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 			bgfx::setUniform(uUv0_, b.uvDiffuse);
 			bgfx::setUniform(uUv1_, b.uvBlend);
 			bgfx::setUniform(uTile_, tile);
+			lightUniforms_.Submit(lights, 5, 6, projTex, projFall);
 			bgfx::setTexture(2, sDetail_, detailOn_ ? detailTex_ : b.diffuse,
 					BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC);
 			bgfx::setTexture(3, sBlend2_, b.blended ? b.blend2 : b.diffuse);
