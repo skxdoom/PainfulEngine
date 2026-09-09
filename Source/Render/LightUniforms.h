@@ -35,6 +35,15 @@ struct LightBlock {
 	float shadowMtx[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f,
 			0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
 	float shadowParams[4] = {0.f, 0.f, 0.f, 0.f};
+	// The model shadows' orthographic map: matrix, (strength, normal offset,
+	// light offset, 1/size), (to the light, the PAINFUL_SHADOWVIEW flag).
+	float dirShadowMtx[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f,
+			0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
+	float dirShadowParams[4] = {0.f, 0.f, 0.f, 0.f};
+	float dirShadowDir[4] = {0.f, 1.f, 0.f, 0.f};
+	float dirShadowWorld[4] = {0.f, 0.f, 0.f, 0.f}; // 1/size of the world map, edge fade
+	float dirWorldMtx[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f,
+			0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
 };
 
 // Writes one light into a slot. projName is the projector texture the renderer
@@ -44,6 +53,8 @@ void PackLight(LightBlock& block, int slot, const LightSource& light,
 // Writes the shadow map's matrix and offsets; null or inactive leaves the
 // block reading "no shadow".
 void PackShadow(LightBlock& block, const ShadowMap* shadow);
+// Same for the model shadows' orthographic map and the world's depth beside it.
+void PackDirShadow(LightBlock& block, const ShadowMap* shadow, const ShadowMap* world);
 
 // The bgfx handles behind LightBlock. Both renderers own one; bgfx refcounts
 // uniforms by name, so creating the same names twice is a share, not a clash -
@@ -62,9 +73,13 @@ public:
 	// Every sampler is declared in the shader, so each is bound whether a
 	// projector light exists or not; an invalid shadow handle binds nothing,
 	// which the shader never reads while the block says off.
+	// The directional pair takes dirShadowStage and the next: the models'
+	// map, then the world's own depth beside it.
 	void Submit(const LightBlock& block, int projStage, int projFallStage,
 			bgfx::TextureHandle proj, bgfx::TextureHandle projFall,
-			int shadowStage, bgfx::TextureHandle shadow) const;
+			int shadowStage, bgfx::TextureHandle shadow,
+			int dirShadowStage, bgfx::TextureHandle dirShadow,
+			bgfx::TextureHandle dirWorld) const;
 
 private:
 	bgfx::UniformHandle count_ = BGFX_INVALID_HANDLE;
@@ -79,6 +94,13 @@ private:
 	bgfx::UniformHandle shadowMtx_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle shadowParams_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle sShadow_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle dirShadowMtx_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle dirShadowParams_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle dirShadowDir_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle dirShadowWorld_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle dirWorldMtx_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle sDirShadow_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle sDirWorld_ = BGFX_INVALID_HANDLE;
 };
 
 // The projector maps, loaded once for whichever light asks for one. Only

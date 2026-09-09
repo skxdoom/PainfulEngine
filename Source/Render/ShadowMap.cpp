@@ -106,4 +106,51 @@ void ShadowMap::Begin(bgfx::ViewId view, const LightSource& light) {
 	bgfx::touch(view);
 }
 
+void ShadowMap::BeginOrtho(bgfx::ViewId view, const Vec3& toLightIn, const Vec3& centre,
+		float extent, float back, float forward) {
+	active_ = ready();
+	if (!active_) return;
+
+	Vec3 toLight = toLightIn;
+	if (toLight.LengthSq() < 1e-12f) toLight = Vec3{0.f, 1.f, 0.f};
+	toLight /= toLight.Length();
+	toLight_ = toLight;
+	const Vec3 up = std::abs(toLight[1]) > 0.9f ? Vec3{1.f, 0.f, 0.f} : Vec3{0.f, 1.f, 0.f};
+	const bx::Vec3 eye = {centre[0] + toLight[0] * back, centre[1] + toLight[1] * back,
+			centre[2] + toLight[2] * back};
+	const bx::Vec3 at = {centre[0], centre[1], centre[2]};
+	bx::mtxLookAt(view_, eye, at, {up[0], up[1], up[2]}, bx::Handedness::Right);
+
+	// Texel snapping: the window is slid by the sub-texel part of the world
+	// origin's light-space position, so every world point keeps its phase in
+	// the grid as the centre moves. Row-vector matrices: the translation is
+	// the last row.
+	texelWorld_ = 2.f * extent / float(size_);
+	const float rx = view_[12] - std::round(view_[12] / texelWorld_) * texelWorld_;
+	const float ry = view_[13] - std::round(view_[13] / texelWorld_) * texelWorld_;
+	const bgfx::Caps* caps = bgfx::getCaps();
+	bx::mtxOrtho(proj_, -extent + rx, extent + rx, -extent + ry, extent + ry, 0.f,
+			back + forward, 0.f, caps->homogeneousDepth, bx::Handedness::Right);
+	frustum_ = Frustum::FromViewProj(view_, proj_);
+
+	const float sy = caps->originBottomLeft ? 0.5f : -0.5f;
+	const float sz = caps->homogeneousDepth ? 0.5f : 1.0f;
+	const float tz = caps->homogeneousDepth ? 0.5f : 0.0f;
+	const float crop[16] = {
+		0.5f, 0.0f, 0.0f, 0.0f,
+		0.0f, sy, 0.0f, 0.0f,
+		0.0f, 0.0f, sz, 0.0f,
+		0.5f, 0.5f, tz, 1.0f,
+	};
+	float projCrop[16];
+	bx::mtxMul(projCrop, proj_, crop);
+	bx::mtxMul(matrix_, view_, projCrop);
+
+	bgfx::setViewFrameBuffer(view, fb_);
+	bgfx::setViewRect(view, 0, 0, uint16_t(size_), uint16_t(size_));
+	bgfx::setViewClear(view, BGFX_CLEAR_DEPTH, 0, 1.0f, 0);
+	bgfx::setViewTransform(view, view_, proj_);
+	bgfx::touch(view);
+}
+
 } // namespace painful

@@ -207,68 +207,88 @@ void EntityLighting::Build(const Level& level, TemplateCache& templates,
 				templates.ResolveNumber(e.props, e.baseObj, "DirLight.Intensity", 1.0));
 		env.fadeTime = float(
 				templates.ResolveNumber(e.props, e.baseObj, "DirLight.FadeTime", 0.0));
+		// A box thinner than two margins would never reach full weight.
+		env.margin = std::min(kEnvBlendMargin, std::min(half[0], std::min(half[1], half[2])));
 		environments_.push_back(env);
 	}
+	// Outermost first: Evaluate applies them in this order, so a dark alcove
+	// inside a dark hall overrides the hall, weighted by its own edge ramp.
+	std::sort(environments_.begin(), environments_.end(),
+			[](const Environment& a, const Environment& b) { return a.volume > b.volume; });
 }
 
-const EntityLighting::Environment* EntityLighting::Innermost(const Vec3& pos) const {
-	const Environment* best = nullptr;
-	for (const Environment& e : environments_) {
-		bool inside = true;
-		for (int i = 0; i < 3 && inside; ++i)
-			inside = pos[i] >= e.lo[i] && pos[i] <= e.hi[i];
-		// Boxes nest - a dark alcove sits inside a dark hall - and the tightest
-		// one is the one the entity is actually standing in.
-		if (inside && (!best || e.volume < best->volume)) best = &e;
+namespace {
+
+// 0 outside the box, rising to 1 `margin` inside its nearest face.
+float BoxWeight(const Vec3& lo, const Vec3& hi, float margin, const Vec3& p) {
+	float inside = 1e9f;
+	for (int i = 0; i < 3; ++i)
+		inside = std::min(inside, std::min(p[i] - lo[i], hi[i] - p[i]));
+	if (inside <= 0.f) return 0.f;
+	return margin > 1e-6f ? std::min(1.f, inside / margin) : 1.f;
+}
+
+float Luminance(const Vec3& c) { return 0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2]; }
+
+} // namespace
+
+void EntityLighting::DirectionalBoxes(std::vector<DirBox>& out, float& levelFactor) const {
+	// Each box's directional on its own, against the brightest in the level.
+	std::vector<float> strength;
+	float reference = Luminance(levelDirColor_) * levelDirIntensity_;
+	for (const Environment& env : environments_) {
+		if (!env.dirOverwrite) { strength.push_back(-1.f); continue; }
+		const float s = Luminance(env.hasDirColor ? env.dirColor : levelDirColor_) *
+				env.dirIntensity;
+		strength.push_back(s);
+		reference = std::max(reference, s);
 	}
-	return best;
+	out.clear();
+	if (reference <= 1e-6f) { levelFactor = 0.f; return; }
+	levelFactor = Luminance(levelDirColor_) * levelDirIntensity_ / reference;
+	for (size_t i = 0; i < environments_.size(); ++i) {
+		if (strength[i] < 0.f) continue;
+		const Environment& env = environments_[i];
+		out.push_back({env.lo, env.hi, env.margin, strength[i] / reference});
+	}
 }
 
 void EntityLighting::Evaluate(const Vec3& pos, float radius, float dt,
 		EntityLightFade& fade, EntityLightState& out) const {
 	// --- ambient and the one directional, per environment ---
+	// Outermost box first, each weighted by how far inside its faces the
+	// point is (kEnvBlendMargin), so a doorway is a ramp in space. The
+	// original snaps to the tightest box and lerps over DirLight.FadeTime;
+	// fs_world blends the same list the same way for the model shadows.
+	(void)dt;
 	Vec3 ambient = levelAmbient_;
 	Vec3 dirColor = levelDirColor_; // intensity applied below
 	Vec3 dirDir = levelDirDir_;
 	float intensity = levelDirIntensity_;
-	float fadeTime = 0.f;
-	if (const Environment* env = Innermost(pos)) {
-		fadeTime = env->fadeTime;
-		if (env->ambientOverwrite && env->hasAmbient)
-			ambient = env->ambient;
-		if (env->dirOverwrite) {
+	for (const Environment& env : environments_) {
+		const float w = BoxWeight(env.lo, env.hi, env.margin, pos);
+		if (w <= 0.f) continue;
+		if (env.ambientOverwrite && env.hasAmbient)
+			ambient += (env.ambient - ambient) * w;
+		if (env.dirOverwrite) {
 			// Intensity always applies; colour and direction only where stated.
-			if (env->hasDirColor)
-				dirColor = env->dirColor;
-			intensity = env->dirIntensity;
-			if (env->hasDirDir) {
-				dirDir = -env->dirDir;
+			intensity += (env.dirIntensity - intensity) * w;
+			if (env.hasDirColor) dirColor += (env.dirColor - dirColor) * w;
+			if (env.hasDirDir) {
+				dirDir += (-env.dirDir - dirDir) * w;
 				Normalize(dirDir);
 			}
 		}
 	}
 	// The intensity multiplies whichever colour won.
 	dirColor *= intensity;
-
-	// Entity::GetEnvironmentDirLight lerps toward the new environment instead
-	// of snapping, so walking through a doorway is a fade, not a step.
-
-	float k = 1.f;
-	if (fade.primed && fadeTime > 1e-3f) k = std::min(1.f, dt / fadeTime);
-	if (!fade.primed) {
-		fade.ambient = ambient;
-		fade.dirColor = dirColor;
-		fade.dirDir = dirDir;
-		fade.primed = true;
-	} else {
-		fade.ambient += (ambient - fade.ambient) * k;
-		fade.dirColor += (dirColor - fade.dirColor) * k;
-		fade.dirDir += (dirDir - fade.dirDir) * k;
-		Normalize(fade.dirDir);
-	}
-	out.ambient = fade.ambient;
-	out.dirColor = fade.dirColor;
-	out.dirDir = fade.dirDir;
+	fade.ambient = ambient;
+	fade.dirColor = dirColor;
+	fade.dirDir = dirDir;
+	fade.primed = true;
+	out.ambient = ambient;
+	out.dirColor = dirColor;
+	out.dirDir = dirDir;
 
 	// --- the positional lights ---
 	// Entity::AddLight keeps its list sorted by attenuated intensity,

@@ -12,8 +12,9 @@ namespace painful {
 //
 //   ambient          from the level's o.Ambient, overwritten by whichever
 //                    CEnvironment box the entity stands in
-//   one directional  from o.DirLight, likewise overwritten, and CROSS-FADED
-//                    over DirLight.FadeTime as the entity crosses a boundary
+//   one directional  from o.DirLight, likewise overwritten. The original
+//                    cross-fades over DirLight.FadeTime at a boundary; here
+//                    the boxes blend in SPACE (kEnvBlendMargin) instead
 //   the nearest      picked by attenuated intensity and handed to the shader
 //   positional ones  as positions, so they are evaluated PER PIXEL
 //
@@ -42,6 +43,19 @@ namespace painful {
 #error "PAINFUL_MAX_DYN_LIGHTS comes from CMake - it must match the shaders'."
 #endif
 constexpr int kMaxDynamicLights = PAINFUL_MAX_DYN_LIGHTS;
+
+// The CEnvironment boxes the WORLD shader blends for the model shadows'
+// strength, in the order and with the weights the models blend them. Same
+// one-number rule: set in the top-level CMakeLists, nowhere else.
+#ifndef PAINFUL_MAX_ENV_BOXES
+#error "PAINFUL_MAX_ENV_BOXES comes from CMake - it must match the shaders'."
+#endif
+constexpr int kMaxEnvBoxes = PAINFUL_MAX_ENV_BOXES;
+// How far inside a box's face its values reach full weight, in world units:
+// a doorway is a ramp in SPACE. The original lerps over DirLight.FadeTime
+// instead, which fades even a model standing still on the line.
+// Docs/Reference/Lighting.md, "Deviations".
+constexpr float kEnvBlendMargin = 1.f;
 
 // One light, level-placed or created at runtime by LIGHT.Setup. The runtime
 // ones are the flashlight, the torches monsters carry and the flashes an
@@ -156,6 +170,18 @@ public:
 	}
 
 	const std::vector<LightSource>& dynamicLights() const { return dynamic_; }
+
+	// The boxes that overwrite the directional, outermost first, for the
+	// world shader: bounds, blend margin, and the directional's strength
+	// relative to the brightest in the level (0..1). levelFactor applies
+	// outside every box. What scales a model's shadow on the world.
+	struct DirBox {
+		Vec3 lo, hi;
+		float margin;
+		float factor;
+	};
+	void DirectionalBoxes(std::vector<DirBox>& out, float& levelFactor) const;
+
 	size_t lightCount() const { return lights_.size(); }
 	size_t environmentCount() const { return environments_.size(); }
 	size_t dynamicCount() const { return dynamic_.size(); }
@@ -178,11 +204,10 @@ private:
 		Vec3 dirColor;
 		Vec3 dirDir{0, -1, 0};
 		float dirIntensity = 1.f;
-		float fadeTime = 0.f;
-		float volume = 0.f; // smallest box wins
+		float fadeTime = 0.f; // authored; the blend is spatial now (kEnvBlendMargin)
+		float volume = 0.f; // sorted descending: the tighter box applies last
+		float margin = 0.f; // kEnvBlendMargin, capped at the box's half-extent
 	};
-
-	const Environment* Innermost(const Vec3& pos) const;
 
 	std::vector<Light> lights_;
 	std::vector<Light> dynamic_;

@@ -37,6 +37,10 @@ list(APPEND CMAKE_MODULE_PATH ${PAINFUL_ROOT}/CMake)
 # The original's four was a vertex-constant budget (Entity::MaxLights, filling
 # c12..c23), not a rule; the lighting is per pixel from uniforms here.
 set(PAINFUL_MAX_DYN_LIGHTS 8 CACHE STRING "Dynamic lights per model / per world chunk")
+# The CEnvironment boxes the world shader blends for the model shadows'
+# strength; a level with more hands the nearest this many to the shader.
+# Cathedral places 50. Same one-number rule as the lights.
+set(PAINFUL_MAX_ENV_BOXES 64 CACHE STRING "Environment boxes the world shader takes")
 
 # Everything buildable lands in two folders rather than beside whichever
 # CMakeLists declared it. The generator appends /<Config>, so a Release build

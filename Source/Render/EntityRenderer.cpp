@@ -673,11 +673,19 @@ void EntityRenderer::SetScriptCastsShadow(int slot, bool casts) {
 	instances_[slot].castsShadow = casts;
 }
 
-void EntityRenderer::DrawShadow(bgfx::ViewId view, float timeSeconds) {
-	shadowDrawCalls_ = 0;
-	if (!shadow_ || !shadow_->active() || !bgfx::isValid(shadow_->program())) return;
-	const Frustum& frustum = shadow_->frustum();
-	const bgfx::ProgramHandle program = shadow_->program();
+void EntityRenderer::DirectionalAt(const Vec3& pos, Vec3& toLight, Vec3& color) const {
+	EntityLightFade snap;
+	EntityLightState lit;
+	lighting_.Evaluate(pos, 0.f, 0.f, snap, lit);
+	toLight = lit.dirDir;
+	color = lit.dirColor;
+}
+
+void EntityRenderer::DrawShadow(bgfx::ViewId view, const ShadowMap& map, float timeSeconds) {
+	// Counted across the maps drawn this frame; Draw resets it.
+	if (!map.active() || !bgfx::isValid(map.program())) return;
+	const Frustum& frustum = map.frustum();
+	const bgfx::ProgramHandle program = map.program();
 	const float identityUv[4] = {1.f, 1.f, 0.f, 0.f};
 	static const bool kNoATest = DebugFlag("PAINFUL_NOATEST");
 
@@ -835,6 +843,7 @@ void EntityRenderer::SetScaleMultiplier(float k) {
 void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int height,
 		const LevelInfo& info, float timeSeconds) {
 	drawCalls_ = 0;
+	shadowDrawCalls_ = 0;
 	posedInstances_ = 0;
 	posedModels_.clear();
 	if (!bgfx::isValid(program_) || instances_.empty()) return;
@@ -869,16 +878,22 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 	lastTime_ = timeSeconds;
 
 	const bool beam = shadow_ && shadow_->active();
+	const bool box = modelShadow_ && modelShadow_->active();
 	bgfx::TextureHandle shadowTex = BGFX_INVALID_HANDLE;
 	if (shadow_ && shadow_->ready()) shadowTex = shadow_->texture();
+	bgfx::TextureHandle modelShadowTex = BGFX_INVALID_HANDLE;
+	if (modelShadow_ && modelShadow_->ready()) modelShadowTex = modelShadow_->texture();
+	bgfx::TextureHandle worldOcclusionTex = BGFX_INVALID_HANDLE;
+	if (worldOcclusion_ && worldOcclusion_->ready()) worldOcclusionTex = worldOcclusion_->texture();
 
 	for (Instance& instance : instances_) {
 		if (!instance.alive || !instance.visible) continue;
-		// In view, or in the flashlight's beam: the beam reaches past the
-		// screen edge, and a caster there still has to be posed this frame.
+		// In view, or in a shadow map's frustum: a caster past the screen
+		// edge still has to be posed this frame.
 		const bool inView = !visCulling_ || frustum.VisibleAabb(instance.aabbLo, instance.aabbHi);
-		const bool inBeam = beam && instance.castsShadow &&
-				shadow_->frustum().VisibleAabb(instance.aabbLo, instance.aabbHi);
+		const bool inBeam = instance.castsShadow &&
+				((beam && shadow_->frustum().VisibleAabb(instance.aabbLo, instance.aabbHi)) ||
+				(box && modelShadow_->frustum().VisibleAabb(instance.aabbLo, instance.aabbHi)));
 		if (!inView && !inBeam) continue;
 		const GpuModel& model = models_[instance.model];
 
@@ -963,6 +978,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 		for (int s = 0; s < lit.lightCount; ++s)
 			PackLight(lights, s, *lit.lights[s], projector_.name());
 		PackShadow(lights, shadow_);
+		PackDirShadow(lights, modelShadow_, worldOcclusion_);
 
 
 		const float detail[4] = {1.f, 1.f, 0.f, 0.f};
@@ -1031,12 +1047,14 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			bgfx::setTexture(1, sStage1_,
 					bgfx::isValid(stage1Tex) ? stage1Tex : white_,
 					mat.sampler[1]);
-			// Stages 2 and 3 are the projector pair and 4 the shadow map;
-			// models sample no detail map, so nothing else wants them.
+			// Stages 2 and 3 are the projector pair, 4 the flashlight's
+			// shadow map, 5 and 6 the model shadow map and the world's depth
+			// beside it; models sample no detail map, so nothing else wants
+			// them.
 			lightUniforms_.Submit(lights, 2, 3,
 					bgfx::isValid(projector_.cookie()) ? projector_.cookie() : white_,
 					bgfx::isValid(projector_.falloff()) ? projector_.falloff() : white_,
-					4, shadowTex);
+					4, shadowTex, 5, modelShadowTex, worldOcclusionTex);
 			bgfx::setState(state);
 			bgfx::submit(view, program_);
 			++drawCalls_;

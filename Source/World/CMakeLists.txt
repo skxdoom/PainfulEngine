@@ -21,5 +21,6 @@ target_link_libraries(World PUBLIC Assets Jolt)
 # PUBLIC: Lighting.h sizes kMaxDynamicLights from this, and Render and Game
 # both build uniform arrays against it. The shaders take the same number
 # through shaderc --define. Set in the top-level CMakeLists.
-target_compile_definitions(World PUBLIC PAINFUL_MAX_DYN_LIGHTS=${PAINFUL_MAX_DYN_LIGHTS})
+target_compile_definitions(World PUBLIC PAINFUL_MAX_DYN_LIGHTS=${PAINFUL_MAX_DYN_LIGHTS}
+		PAINFUL_MAX_ENV_BOXES=${PAINFUL_MAX_ENV_BOXES})
 painful_layer(World)

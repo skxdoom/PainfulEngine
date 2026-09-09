@@ -46,6 +46,16 @@ const Known kKnown[] = {
 	{"ShadowMapSize", "512",
 			"The shadow map's size in texels. Larger is sharper and dearer; 512 reads as\n"
 			"# a torch beam, 2048 as a spotlight."},
+	{"ModelShadows", "1",
+			"Whether the models cast shadows from the level's directional light, onto\n"
+			"# the world and each other. 1 on, 0 off. The world's own shadows are baked\n"
+			"# into its lightmaps and are not affected."},
+	{"ModelShadowMapSize", "1024",
+			"The model shadow map's size in texels. It covers 48 units about the camera."},
+	{"ModelShadowStrength", "60",
+			"How dark a model's shadow falls on the world, in percent of the baked light,\n"
+			"# where the level's environment boxes give their full directional; a box that\n"
+			"# says shade weakens the shadow with the light."},
 };
 
 } // namespace

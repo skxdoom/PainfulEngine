@@ -58,6 +58,7 @@ public:
 		levelHint_ = levelHint;
 		projector_.Clear();
 	}
+	const EntityLighting& lighting() const { return lighting_; }
 	size_t lightCount() const { return lighting_.lightCount(); }
 	size_t environmentCount() const { return lighting_.environmentCount(); }
 	size_t dynamicLightCount() const { return lighting_.dynamicCount(); }
@@ -72,9 +73,19 @@ public:
 	// Set BEFORE Draw: an instance inside the beam is posed even when the
 	// camera cannot see it, so its shadow is not in last frame's pose.
 	void SetShadowMap(const ShadowMap* shadow) { shadow_ = shadow; }
-	// The depth pass: every opaque part of every caster inside the beam,
-	// from the buffers Draw posed. Called after Draw.
-	void DrawShadow(bgfx::ViewId view, float timeSeconds);
+	// The models' own shadows from the environment directional: an
+	// orthographic map about the camera that only the models cast into.
+	void SetModelShadowMap(const ShadowMap* shadow) { modelShadow_ = shadow; }
+	// The world's depth from the same light: a model takes a shadow only
+	// where the light reaches the world around it.
+	void SetWorldOcclusionMap(const ShadowMap* shadow) { worldOcclusion_ = shadow; }
+	// A depth pass into `map`: every opaque part of every caster inside its
+	// frustum, from the buffers Draw posed. Called after Draw, once per map.
+	void DrawShadow(bgfx::ViewId view, const ShadowMap& map, float timeSeconds);
+	// The environment directional at a point - the direction TO the light
+	// and its colour - as a model standing there would be lit. What aims
+	// the model shadow map.
+	void DirectionalAt(const Vec3& pos, Vec3& toLight, Vec3& color) const;
 	// Whether an instance casts into the shadow map. Off for the view model:
 	// it sits in front of the flashlight and would black out the beam.
 	void SetScriptCastsShadow(int slot, bool casts);
@@ -295,6 +306,8 @@ private:
 	LightUniforms lightUniforms_;
 	ProjectorMaps projector_;
 	const ShadowMap* shadow_ = nullptr;
+	const ShadowMap* modelShadow_ = nullptr;
+	const ShadowMap* worldOcclusion_ = nullptr;
 	size_t shadowDrawCalls_ = 0;
 	TextureCache* textures_ = nullptr; // for the projector maps only
 	std::string levelHint_;

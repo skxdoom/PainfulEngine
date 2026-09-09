@@ -143,6 +143,28 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		const int size = on ? Settings().GetInt("ShadowMapSize", 512) : 0;
 		shadow.Init(shaderDir, DebugInt("PAINFUL_SHADOWMAP", size));
 	}
+	// The models' shadows from the environment directional: an orthographic
+	// box about the camera that only the models cast into. ModelShadows,
+	// ModelShadowMapSize and ModelShadowStrength in painful_config.ini.
+	ShadowMap modelShadow;
+	{
+		const bool on = Settings().GetBool("ModelShadows", true);
+		const int size = on ? Settings().GetInt("ModelShadowMapSize", 1024) : 0;
+		if (DebugInt("PAINFUL_SHADOWMAP", 1) > 0) modelShadow.Init(shaderDir, size);
+		modelShadow.SetStrength(float(Settings().GetInt("ModelShadowStrength", 60)) / 100.f);
+	}
+	entities.SetModelShadowMap(&modelShadow);
+	// The world's own depth in the same box, so a model's shadow lands only
+	// where the light reaches the world. The model map's size, so the gate's
+	// edges sit where the shadows' do.
+	ShadowMap worldOcclusion;
+	if (modelShadow.ready()) worldOcclusion.Init(shaderDir, modelShadow.size());
+	entities.SetWorldOcclusionMap(&worldOcclusion);
+	constexpr float kModelShadowExtent = 24.f; // half-width of the box, world units
+	constexpr float kModelShadowDepth = 24.f; // half-depth along the light
+	// The world's depth reaches much further toward the light: the roof that
+	// shades the foot of a tall building sits 30-40 units up a 66-degree ray.
+	constexpr float kWorldOcclusionReach = 256.f;
 	entities.SetShadowMap(&shadow);
 
 	ParticleRenderer particles;
@@ -344,6 +366,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	WorldRenderer world;
 	const bool worldInit = world.Init(shaderDir);
 	world.SetShadowMap(&shadow);
+	world.SetModelShadowMap(&modelShadow);
+	world.SetWorldOcclusionMap(&worldOcclusion);
 	bool worldReady = false;
 	SkyRenderer sky;
 	const bool skyInit = sky.Init(shaderDir);
@@ -425,6 +449,14 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			// The ambient the scripts actually set (CLevel:Apply -> WORLD.AmbientColor),
 			// class default 50,50,50 included - the level file alone may omit it.
 			entities.SetLevelAmbient(engine.world().ambient);
+			// The boxes' directional, for the world's share of the model
+			// shadows: the world blends the same list the models do.
+			{
+				std::vector<EntityLighting::DirBox> boxes;
+				float levelFactor = 1.f;
+				entities.lighting().DirectionalBoxes(boxes, levelFactor);
+				world.SetEnvironmentBoxes(boxes, levelFactor);
+			}
 			LogInfo("entity lighting: %zu environment boxes, lights come from the scripts",
 					entities.environmentCount());
 		} else {
@@ -1001,6 +1033,24 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 				}
 		if (flashlight) shadow.Begin(Renderer::kShadowView, *flashlight);
 		else shadow.End();
+		// The model shadows follow the directional the camera's own
+		// environment box gives, over a box pushed half its width ahead -
+		// nothing behind the eye can be seen casting.
+		if (modelShadow.ready() && worldOcclusion.ready()) {
+			Vec3 toLight, dirColor;
+			entities.DirectionalAt(camera.pos, toLight, dirColor);
+			const Vec3 forward = camera.Forward();
+			const Vec3 centre = camera.pos + forward * (kModelShadowExtent * 0.5f);
+			// The same window for both, so they line up in xy; the world's
+			// reaches further up the light.
+			modelShadow.BeginOrtho(Renderer::kModelShadowView, toLight, centre,
+					kModelShadowExtent, kModelShadowDepth, kModelShadowDepth);
+			worldOcclusion.BeginOrtho(Renderer::kWorldShadowView, toLight, centre,
+					kModelShadowExtent, kWorldOcclusionReach, kModelShadowDepth);
+		} else {
+			modelShadow.End();
+			worldOcclusion.End();
+		}
 
 		// Cfg.FOV is a horizontal angle; the projection wants the vertical
 		// one for this window's aspect.
@@ -1021,8 +1071,12 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		// The casters, after the passes that cull the zones and pose the
 		// models; bgfx orders the views, not the calls.
 		if (shadow.active()) {
-			if (worldReady) world.DrawShadow(Renderer::kShadowView, elapsed);
-			entities.DrawShadow(Renderer::kShadowView, elapsed);
+			if (worldReady) world.DrawShadow(Renderer::kShadowView, shadow, elapsed);
+			entities.DrawShadow(Renderer::kShadowView, shadow, elapsed);
+		}
+		if (modelShadow.active()) {
+			entities.DrawShadow(Renderer::kModelShadowView, modelShadow, elapsed);
+			if (worldReady) world.DrawShadow(Renderer::kWorldShadowView, worldOcclusion, elapsed);
 		}
 		// Decals over the world and the props, before anything blended.
 		if (decalsReady) {
@@ -1251,8 +1305,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 						hud.fonts().baked());
 				LogInfo("  particles: %zu live in %zu emitters", particles.liveParticles(),
 						particles.emitters());
-				LogInfo("  shadow map: %s, %zu world draws, %zu entity draws",
+				LogInfo("  shadow maps: flashlight %s, models %s; %zu world draws, "
+						"%zu entity draws in all",
 						shadow.active() ? "on" : (shadow.ready() ? "idle" : "OFF"),
+						modelShadow.active() ? "on" : "OFF",
 						world.shadowDrawCalls(), entities.shadowDrawCalls());
 				LogInfo("  lights: %zu placed, %zu from scripts (%zu of them dynamic), "
 						"%zu environment boxes", entities.lightCount(), scriptLights.size(),

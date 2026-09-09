@@ -64,10 +64,23 @@ public:
 	// The flashlight's shadow map, read by Draw and written by DrawShadow.
 	// Null for the viewer, which has no flashlight.
 	void SetShadowMap(const ShadowMap* shadow) { shadow_ = shadow; }
-	// The depth pass: every opaque chunk inside the beam. Called AFTER Draw,
-	// whose zone set it reuses - the light sits at the camera, so the
-	// camera's rooms are the beam's rooms.
-	void DrawShadow(bgfx::ViewId view, float timeSeconds);
+	// The models' shadows from the environment directional, read by Draw and
+	// laid over the lightmap. The world casts nothing into it.
+	void SetModelShadowMap(const ShadowMap* shadow) { modelShadow_ = shadow; }
+	// The CEnvironment boxes that overwrite the directional, outermost first,
+	// and the factor outside them all: what scales a model's shadow on the
+	// world. Docs/Reference/Lighting.md, "Shadows"
+	void SetEnvironmentBoxes(const std::vector<EntityLighting::DirBox>& boxes,
+			float levelFactor);
+	// The world's own depth from the directional, in the model shadow map's
+	// box: where that light reaches at all. Read by Draw beside the model
+	// map; written by DrawShadow with it.
+	void SetWorldOcclusionMap(const ShadowMap* shadow) { worldOcclusion_ = shadow; }
+	// A depth pass into `map`: every opaque chunk inside its frustum. Called
+	// AFTER Draw. The flashlight's map also reuses Draw's zone set - the
+	// light sits at the camera, so the camera's rooms are the beam's rooms;
+	// the directional's box is culled by its frustum alone.
+	void DrawShadow(bgfx::ViewId view, const ShadowMap& map, float timeSeconds);
 
 	size_t drawCalls() const { return drawCalls_; }
 	size_t shadowDrawCalls() const { return shadowDrawCalls_; }
@@ -158,7 +171,18 @@ private:
 	std::vector<LightSource> dynamicLights_;
 	std::vector<int> chunkLights_; // scratch: the picked slots, reused per chunk
 	const ShadowMap* shadow_ = nullptr;
+	const ShadowMap* modelShadow_ = nullptr;
+	const ShadowMap* worldOcclusion_ = nullptr;
 	size_t shadowDrawCalls_ = 0;
+	std::vector<EntityLighting::DirBox> envBoxes_;
+	float envLevelFactor_ = 1.f;
+	// The boxes packed for the shader, the nearest kMaxEnvBoxes when there
+	// are more, rebuilt per frame.
+	std::vector<float> envLoPacked_, envHiPacked_;
+	std::vector<size_t> envPick_; // scratch
+	bgfx::UniformHandle uEnvCount_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uEnvLo_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uEnvHi_ = BGFX_INVALID_HANDLE;
 	bgfx::TextureHandle detailTex_ = BGFX_INVALID_HANDLE;
 	float detailTile_[2] = {8.2f, 7.1f};
 	bool detailOn_ = false;

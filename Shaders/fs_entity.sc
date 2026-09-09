@@ -26,6 +26,8 @@ SAMPLER2D(s_stage1, 1);
 #define PAINFUL_PROJ_STAGE 2
 #define PAINFUL_PROJFALL_STAGE 3
 #define PAINFUL_SHADOW_STAGE 4
+#define PAINFUL_DIRSHADOW_STAGE 5
+#define PAINFUL_DIRWORLD_STAGE 6
 #include "shared_lights.sh"
 
 uniform vec4 u_params; // y: alpha-test ref (<0 off)
@@ -61,6 +63,10 @@ void main()
 	// left with nothing but the ambient its CEnvironment gave it, which is the
 	// whole point of those boxes.
 	float ndotl = max(dot(n, u_dirDir.xyz), 0.0);
+	// Models cast the directional shadows and never receive them: the
+	// original lit a model from its box alone, and receiving was tried and
+	// judged not worth its artefacts. PAINFUL_SHADOWVIEW draws them grey.
+	if (u_dirShadowDir.w > 0.5) { gl_FragColor = vec4(vec3_splat(0.8), 1.0); return; }
 	vec3 diffuse = u_ambient.rgb + u_dirColor.rgb * ndotl;
 
 	// The directional's specular, still `lit`-gated on N.L > 0 - a step in the

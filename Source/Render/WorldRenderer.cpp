@@ -17,6 +17,62 @@ namespace painful {
 
 namespace {
 
+// Which way cross(b - a, c - a) faces on this level's winding: agreed with
+// the normals of the objects that carry them, so the ones that do not can be
+// rebuilt facing the same way.
+float WindingSign(const MapMesh& map) {
+	double agree = 0.0;
+	for (const MapObject& o : map.objects) {
+		if (o.normals.empty() && o.uvChannels != 1) continue;
+		for (size_t t = 0; t + 2 < o.indices.size(); t += 3) {
+			Vec3 a, b, c, n;
+			o.position(o.indices[t], a);
+			o.position(o.indices[t + 1], b);
+			o.position(o.indices[t + 2], c);
+			const Vec3 face = Cross(b - a, c - a);
+			for (int k = 0; k < 3; ++k) {
+				o.normal(o.indices[t + k], n);
+				if (std::isfinite(n[0]) && std::isfinite(n[1]) && std::isfinite(n[2]))
+					agree += Dot(face, n);
+			}
+		}
+	}
+	return agree < 0.0 ? -1.f : 1.f;
+}
+
+// Normals the file does not carry, or carries broken. A 2-UV object has no
+// inline normal, and what sits in that slot is a packed colour whose bits
+// read as NaN - which turned every chunk the flashlight reached black, the
+// dynamic lights being the only thing that reads a world normal.
+size_t RepairNormals(const MapObject& o, std::vector<MeshVertex>& verts, float sign) {
+	const bool none = o.normals.empty() && o.uvChannels == 2;
+	size_t rebuilt = 0;
+	std::vector<Vec3> built(verts.size());
+	for (size_t t = 0; t + 2 < o.indices.size(); t += 3) {
+		const uint16_t i0 = o.indices[t], i1 = o.indices[t + 1], i2 = o.indices[t + 2];
+		if (i0 >= verts.size() || i1 >= verts.size() || i2 >= verts.size()) continue;
+		const Vec3 a{verts[i0].x, verts[i0].y, verts[i0].z};
+		const Vec3 b{verts[i1].x, verts[i1].y, verts[i1].z};
+		const Vec3 c{verts[i2].x, verts[i2].y, verts[i2].z};
+		const Vec3 face = Cross(b - a, c - a) * sign; // area-weighted
+		built[i0] += face;
+		built[i1] += face;
+		built[i2] += face;
+	}
+	for (size_t i = 0; i < verts.size(); ++i) {
+		MeshVertex& v = verts[i];
+		const bool bad = none || !std::isfinite(v.nx) || !std::isfinite(v.ny) ||
+				!std::isfinite(v.nz) || v.nx * v.nx + v.ny * v.ny + v.nz * v.nz < 1e-8f;
+		if (!bad) continue;
+		Vec3 n = built[i];
+		const float len = n.Length();
+		n = len > 1e-12f ? n / len : Vec3{0.f, 1.f, 0.f};
+		v.nx = n[0]; v.ny = n[1]; v.nz = n[2];
+		++rebuilt;
+	}
+	return rebuilt;
+}
+
 } // namespace
 
 bool WorldRenderer::Init(const std::string& shaderDir) {
@@ -60,8 +116,17 @@ bool WorldRenderer::Init(const std::string& shaderDir) {
 	uUv0_ = bgfx::createUniform("u_uv0", bgfx::UniformType::Vec4);
 	uUv1_ = bgfx::createUniform("u_uv1", bgfx::UniformType::Vec4);
 	uTile_ = bgfx::createUniform("u_tile", bgfx::UniformType::Vec4);
+	uEnvCount_ = bgfx::createUniform("u_envCount", bgfx::UniformType::Vec4);
+	uEnvLo_ = bgfx::createUniform("u_envLo", bgfx::UniformType::Vec4, kMaxEnvBoxes);
+	uEnvHi_ = bgfx::createUniform("u_envHi", bgfx::UniformType::Vec4, kMaxEnvBoxes);
 	lightUniforms_.Init();
 	return true;
+}
+
+void WorldRenderer::SetEnvironmentBoxes(const std::vector<EntityLighting::DirBox>& boxes,
+		float levelFactor) {
+	envBoxes_ = boxes;
+	envLevelFactor_ = levelFactor;
 }
 
 // Drops the LEVEL and keeps the programs: what a level switch wants. Upload
@@ -85,6 +150,8 @@ void WorldRenderer::Clear() {
 	dynamicLights_.clear();
 	projector_.Clear();
 	textures_ = nullptr;
+	envBoxes_.clear();
+	envLevelFactor_ = 1.f;
 }
 
 void WorldRenderer::Shutdown() {
@@ -104,6 +171,9 @@ void WorldRenderer::Shutdown() {
 	if (bgfx::isValid(uUv0_)) { bgfx::destroy(uUv0_); uUv0_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uUv1_)) { bgfx::destroy(uUv1_); uUv1_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uTile_)) { bgfx::destroy(uTile_); uTile_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uEnvCount_)) { bgfx::destroy(uEnvCount_); uEnvCount_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uEnvLo_)) { bgfx::destroy(uEnvLo_); uEnvLo_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uEnvHi_)) { bgfx::destroy(uEnvHi_); uEnvHi_ = BGFX_INVALID_HANDLE; }
 	lightUniforms_.Shutdown();
 	if (bgfx::isValid(waterProgram_)) { bgfx::destroy(waterProgram_); waterProgram_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(sNormal_)) { bgfx::destroy(sNormal_); sNormal_ = BGFX_INVALID_HANDLE; }
@@ -119,6 +189,8 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
 		ShaderLibrary* shaders, bool skipActiveMeshes) {
 	const float worldScale = info.scale;
 	const bool overbright = info.overbright;
+	const float normalSign = WindingSign(map);
+	size_t normalsRebuilt = 0, normalObjects = 0;
 	chunks_.reserve(map.objects.size());
 	worldScale_ = worldScale;
 	// Kept for the projector maps, which are named by a light rather than by
@@ -175,6 +247,10 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
 				v.u1 = uv[0];
 				v.v1 = uv[1];
 			}
+		}
+		if (const size_t n = RepairNormals(o, verts, normalSign)) {
+			normalsRebuilt += n;
+			++normalObjects;
 		}
 
 		Chunk chunk;
@@ -345,6 +421,9 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
 		triangles_ += o.triangleCount();
 		chunks_.push_back(std::move(chunk));
 	}
+	if (normalsRebuilt)
+		LogInfo("world normals: rebuilt %zu vertices in %zu objects (winding %+.0f)",
+				normalsRebuilt, normalObjects, normalSign);
 }
 
 // Only the dynamic ones. A placed CLight is in the lightmap already, and
@@ -381,6 +460,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 		const LevelInfo& info, float timeSeconds) {
 	const float* ambient = info.ambient;
 	drawCalls_ = 0;
+	shadowDrawCalls_ = 0; // counted across the maps DrawShadow fills after this
 	litChunks_ = 0;
 	if (!bgfx::isValid(program_)) return;
 
@@ -444,6 +524,43 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 			bgfx::isValid(projector_.falloff()) ? projector_.falloff() : fallback;
 	bgfx::TextureHandle shadowTex = BGFX_INVALID_HANDLE;
 	if (shadow_ && shadow_->ready()) shadowTex = shadow_->texture();
+	bgfx::TextureHandle modelShadowTex = BGFX_INVALID_HANDLE;
+	if (modelShadow_ && modelShadow_->ready()) modelShadowTex = modelShadow_->texture();
+	bgfx::TextureHandle worldOcclusionTex = BGFX_INVALID_HANDLE;
+	if (worldOcclusion_ && worldOcclusion_->ready()) worldOcclusionTex = worldOcclusion_->texture();
+
+	// The environment boxes for the model shadows' strength: all of them, or
+	// the nearest kMaxEnvBoxes to the camera, in their outermost-first order.
+	envPick_.clear();
+	for (size_t i = 0; i < envBoxes_.size(); ++i) envPick_.push_back(i);
+	if (envPick_.size() > size_t(kMaxEnvBoxes)) {
+		auto dist2 = [&](size_t i) {
+			const EntityLighting::DirBox& b = envBoxes_[i];
+			float d2 = 0.f;
+			for (int a = 0; a < 3; ++a) {
+				const float v = camera.pos[a] < b.lo[a] ? b.lo[a] - camera.pos[a]
+						: (camera.pos[a] > b.hi[a] ? camera.pos[a] - b.hi[a] : 0.f);
+				d2 += v * v;
+			}
+			return d2;
+		};
+		std::partial_sort(envPick_.begin(), envPick_.begin() + kMaxEnvBoxes, envPick_.end(),
+				[&](size_t a, size_t b) { return dist2(a) < dist2(b); });
+		envPick_.resize(kMaxEnvBoxes);
+		std::sort(envPick_.begin(), envPick_.end());
+	}
+	envLoPacked_.assign(size_t(kMaxEnvBoxes) * 4, 0.f);
+	envHiPacked_.assign(size_t(kMaxEnvBoxes) * 4, 0.f);
+	for (size_t n = 0; n < envPick_.size(); ++n) {
+		const EntityLighting::DirBox& b = envBoxes_[envPick_[n]];
+		for (int a = 0; a < 3; ++a) {
+			envLoPacked_[n * 4 + a] = b.lo[a];
+			envHiPacked_[n * 4 + a] = b.hi[a];
+		}
+		envLoPacked_[n * 4 + 3] = b.margin;
+		envHiPacked_[n * 4 + 3] = b.factor;
+	}
+	const float envCount[4] = {float(envPick_.size()), envLevelFactor_, 0.f, 0.f};
 
 	for (const Chunk& c : chunks_) {
 		if (c.hidden) continue;
@@ -555,6 +672,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 			if (!chunkLights_.empty()) ++litChunks_;
 		}
 		PackShadow(lights, shadow_);
+		PackDirShadow(lights, modelShadow_, worldOcclusion_);
 
 		for (const Batch& b : c.batches) {
 			const float params[4] = {b.hasLightmap ? 1.f : 0.f,
@@ -567,7 +685,11 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 			bgfx::setUniform(uUv0_, b.uvDiffuse);
 			bgfx::setUniform(uUv1_, b.uvBlend);
 			bgfx::setUniform(uTile_, tile);
-			lightUniforms_.Submit(lights, 5, 6, projTex, projFall, 7, shadowTex);
+			lightUniforms_.Submit(lights, 5, 6, projTex, projFall, 7, shadowTex,
+					8, modelShadowTex, worldOcclusionTex);
+			bgfx::setUniform(uEnvCount_, envCount);
+			bgfx::setUniform(uEnvLo_, envLoPacked_.data(), uint16_t(kMaxEnvBoxes));
+			bgfx::setUniform(uEnvHi_, envHiPacked_.data(), uint16_t(kMaxEnvBoxes));
 			bgfx::setTexture(2, sDetail_, detailOn_ ? detailTex_ : b.diffuse,
 					BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC);
 			bgfx::setTexture(3, sBlend2_, b.blended ? b.blend2 : b.diffuse);
@@ -588,11 +710,11 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 	}
 }
 
-void WorldRenderer::DrawShadow(bgfx::ViewId view, float timeSeconds) {
-	shadowDrawCalls_ = 0;
-	if (!shadow_ || !shadow_->active() || !bgfx::isValid(shadow_->program())) return;
-	const Frustum& frustum = shadow_->frustum();
-	const bgfx::ProgramHandle program = shadow_->program();
+void WorldRenderer::DrawShadow(bgfx::ViewId view, const ShadowMap& map, float timeSeconds) {
+	if (!map.active() || !bgfx::isValid(map.program())) return;
+	const Frustum& frustum = map.frustum();
+	const bgfx::ProgramHandle program = map.program();
+	const bool byZones = &map == shadow_ && visCulling_;
 
 	for (const Chunk& c : chunks_) {
 		if (c.hidden || c.isWater) continue;
@@ -601,7 +723,7 @@ void WorldRenderer::DrawShadow(bgfx::ViewId view, float timeSeconds) {
 		if ((c.material.state & BGFX_STATE_BLEND_MASK) ||
 				!(c.material.state & BGFX_STATE_WRITE_Z))
 			continue;
-		if (visCulling_ && !c.zones.empty() && !zoneVisible_.empty()) {
+		if (byZones && !c.zones.empty() && !zoneVisible_.empty()) {
 			bool anyVisible = false;
 			for (uint16_t z : c.zones)
 				if (z < zoneVisible_.size() && zoneVisible_[z]) { anyVisible = true; break; }

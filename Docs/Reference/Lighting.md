@@ -184,6 +184,16 @@ ground.
 
 ## Which lights reach the world mesh
 
+First, what the world mesh has to offer them: a normal. A 2-UV `.mpk` object
+(the lightmapped kind) carries no inline normal, and the slot `MapObject::normal`
+falls back to holds a packed colour, whose bits read as `NaN`. Nothing noticed
+until the dynamic lights - the only thing that reads a world normal - reached
+such a chunk, at which point `N.L` was `NaN`, the sum was `NaN`, and the whole
+chunk drew black the moment the flashlight came on (City on Water's quays).
+`WorldRenderer::Upload` now rebuilds those normals from the faces
+(`RepairNormals`), area-weighted, with the winding's sign taken from the
+objects that do carry normals (`WindingSign`); the log says how many.
+
 `WorldMesh::Draw` keeps a per-mesh light list (`this+0x528`, count at `+0x608`)
 and, after the base pass, issues one `RenderLightPass` per light on it — spots
 individually, points batched through `RenderUberLightPass` on shader model 6 and
@@ -260,6 +270,17 @@ tests the bounding sphere against the cone; the per-pixel shader then decides
 what is actually lit. `Light::GetAttIntensity` is a point function and is
 kept as one - radius `0` reproduces it exactly. The world's chunks are scored
 the same way, for the same reason at a larger scale.
+
+**The environment boxes blend in space, not in time.** `Entity::GetEnvironment-
+DirLight` snaps to the tightest box the entity is in and lerps toward it over
+`DirLight.FadeTime`, so a doorway is a timed fade - and a model standing still
+on the line still fades. Here every box is applied outermost first, weighted by
+how far inside its faces the point is (`kEnvBlendMargin`, 1 unit - 2 read as
+too wide - capped at the box's half-extent so a thin corridor still reaches
+full weight), and the
+timed fade is gone. `FadeTime` is read and unused. The same blend runs in
+`fs_world` for the model shadows' strength, so a shadow and the light it
+belongs to cross a box edge together.
 
 **The environment directional does not compete for a slot.** `Entity::ResetLights`
 (`0x101D2C70`) `AddLight`s it, so in the original it can be crowded out by four
@@ -341,9 +362,12 @@ off its surface by `1.5` texels along the normal and `1.0` texel toward the
 light, **in world units at that depth** - a shadow texel is
 `2 * zAxial * tan(outer) / size` wide, so the bias grows with the beam and
 stays the same fraction of a texel near and far, where a constant depth bias
-would be far too large at the lens and useless at range. Four hardware-compared
-taps a texel out give a 3x3-texel edge. Outside the map, or past its far plane,
-reads as lit; the cookie is black there and the ramp is zero.
+would be far too large at the lens and useless at range. Nine hardware-compared
+taps a texel apart (`Pcf3x3`) give a continuous edge: each tap is bilinear and
+ramps over one texel, so a texel apart the ramps overlap. Four taps two texels
+apart read as four visible steps, on this map and the models' alike. Outside
+the map, or past its far plane, reads as lit; the cookie is black there and the
+ramp is zero.
 
 `u_shadowMtx` carries world -> shadow uv/depth with the backend's crop already
 applied (y flipped unless `originBottomLeft`, z remapped when
@@ -353,8 +377,74 @@ disagree.
 
 Off (Type 0, `R3D.EnableShadows(0)`, `PAINFUL_SHADOWMAP=0`, or no flashlight in
 the level) costs nothing: the view is not touched and the receivers read
-`on = 0`. The directional light and the volume lights are untouched by any of
-this and are still shadowless.
+`on = 0`.
+
+### Model shadows
+
+The models also cast from the environment directional - the `DirLight` every
+`CEnvironment` box carries, which is what lights them. A second `ShadowMap`
+(`Renderer::kModelShadowView`, `ShadowMap::BeginOrtho`) is an orthographic box
+48 units wide and deep, pushed half its width ahead of the camera, aimed down
+the directional the camera's own box gives (`EntityRenderer::DirectionalAt`),
+and snapped to its texel grid so it does not shimmer as the camera moves.
+**Only the models cast into it.** The world's shadows are baked into its
+lightmaps; putting the world in the map would double every one of them and
+darken everything under a ceiling.
+
+**Only the static world receives it.** The models cast and are never darkened
+by each other or by themselves: the original lit a model from its box alone.
+Receiving was tried twice, the second time gated by the world's depth below,
+and judged not worth its artefacts. The world is darkened by
+`ModelShadowStrength` percent of its baked light - a synthetic darkening, since
+the world is not lit by that directional at all, kept because a figure that
+casts nothing floats on the lightmap. That is what the original's
+`MDL.CreateShadowMap` blob was reaching for. The shadows fade out over the last
+`kEdgeFade` (15 percent) of the box at every edge, so they do not stop on a
+line where the box ends in view.
+
+**Where the light reaches the world, and nowhere else.** A third map
+(`Renderer::kWorldShadowView`) holds the WORLD's depth from the same light, in
+the same window - `BeginOrtho` with the same centre and extent snaps both to
+the same texel grid, so they line up in xy - but reaching 256 units up the
+light instead of 24 (`kWorldOcclusionReach`): the roof that shades the foot of
+a tall building sits 30-40 units up a 66-degree ray, and a box as shallow as
+the models' missed it, so the gate read "open" in exactly the shade it was for.
+Same size in texels as the model map. `fs_world`'s `ModelShadow` lays a
+figure's shadow only
+where that map says the world is open to the light:
+`1 - (1 - models) * open`. Under a balcony, indoors, on the far side of a wall
+the lightmap already holds that shadow and nothing is put on top of it - which
+is also what stops a figure's shadow showing through a floor onto the wall
+beneath, the world not being among the model map's casters. The world map is
+culled by its frustum alone, not the camera's zones: the light comes from
+outside the level and the roof that blocks it may belong to a room the camera
+cannot see.
+
+**The shadow is as strong as the boxes say the directional is.** The levels
+already carry lit-versus-shade outdoors: a `CEnvironment` in a building's
+shadow gives the models a weaker or absent `DirLight`. The world has no
+directional term, so `fs_world` blends the same box list the models are lit by
+(`DirectionalFactor`, outermost first, the same edge ramp) and scales
+`ModelShadowStrength` by the directional's strength there relative to the
+level's brightest (`EntityLighting::DirectionalBoxes`). Two earlier answers to
+a shadow inside a building's shade - fading with the caster-to-receiver gap,
+and gating on the lightmap's own brightness - were tried and dropped, the
+second because it varied wildly from map to map; the world's own depth map
+above is what settled it. The box list reaches the shader as
+`PAINFUL_MAX_ENV_BOXES` (64, top-level CMakeLists, the same one-number rule as
+the lights); a level with more hands the nearest to the camera.
+
+The shipped directions are slanted - `(0.05,-0.05,0.1)` is 66 degrees off
+vertical - so the shadows are long.
+
+`painful_config.ini`: `ModelShadows` (1/0), `ModelShadowMapSize` (1024 over 48
+units, a texel of about 5 cm), `ModelShadowStrength` (60). `PAINFUL_SHADOWMAP=0`
+turns this map off with the flashlight's. `PAINFUL_SHADOWVIEW=1` draws the term
+alone - white lit, black shadowed, models at 0.8 - which is how a sign error
+in the direction or the depth shows up at a glance; the Cemetery spawn's cart,
+bench and cross all throw slanted shadows in it.
+
+The volume lights are untouched by any of this and are still shadowless.
 
 ## What the scripts do with them
 
@@ -411,6 +501,6 @@ dynamic ones, had nothing at all to draw. See
 - `WORLD.SetDirLight` is still a stub, so the level's directional comes from the
   file rather than from the script that sets it.
 - The original's per-actor blobs (`WorldMesh::RenderShadowPass`,
-  `MDL.CreateShadowMap`) - replaced by the flashlight's shadow map above.
-  Every OTHER dynamic light still lights through walls within its range, and
-  the environment directional casts nothing.
+  `MDL.CreateShadowMap`) - replaced by the flashlight's shadow map and the
+  model shadows above. Every OTHER dynamic light still lights through walls
+  within its range.
