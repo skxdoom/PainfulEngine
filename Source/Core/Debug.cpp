@@ -41,6 +41,7 @@ Row g_rows[] = {
 	// Render
 	{"PAINFUL_ECULL", Kind::kInt, "entity cull mode: 1 normal, 2 off (tells winding from missing geometry)"},
 	{"PAINFUL_NOATEST", Kind::kFlag, "drop the alpha test on entities"},
+	{"PAINFUL_SHADOWMAP", Kind::kInt, "flashlight shadow map size in texels; 0 turns the shadows off"},
 	{"PAINFUL_SPECULAR", Kind::kText, "specular colour override, \"r,g,b\""},
 	{"PAINFUL_SKYLAYER", Kind::kInt, "draw only this sky layer"},
 	{"PAINFUL_NEAR", Kind::kFloat, "camera near plane"},

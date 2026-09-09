@@ -21,6 +21,8 @@ struct LightNatives : ScriptNativesBase {
 	static int L_LIGHT_SetProjector(lua_State* L);
 	static int L_ENVIRONMENT_RemoveLight(lua_State* L);
 	static int L_ENVIRONMENT_RemoveLights(lua_State* L);
+	static int L_R3D_EnableShadows(lua_State* L);
+	static int L_MDL_CreateShadowMap(lua_State* L);
 	// The light an entity IS. Every LIGHT.* native but Setup acts on one that
 	// already exists, and Setup is what makes it: CLight:Apply calls Setup
 	// first and the rest in a row after it, and CreateLight does the same.
@@ -117,6 +119,23 @@ int LightNatives::L_LIGHT_SetImportant(lua_State* L) {
 	return 0;
 }
 
+// R3D.EnableShadows(on) - the menu's Shadows option. PainMenu:SetShadowsQuality
+// passes Cfg.Shadows, a 0/1 NUMBER, so a number is read as one. Here it gates
+// the flashlight's shadow map. Docs/Reference/Lighting.md, "Shadows"
+int LightNatives::L_R3D_EnableShadows(lua_State* L) {
+	bool on = true;
+	if (lua_isnumber(L, 1)) on = lua_tonumber(L, 1) != 0;
+	else if (!lua_isnone(L, 1)) on = lua_toboolean(L, 1) != 0;
+	From(L)->shadowsEnabled_ = on;
+	return 0;
+}
+
+// MDL.CreateShadowMap(e, size) - the original's per-actor blob: a size x size
+// map under each actor whose template sets `shadow` (128 where it is set, 0
+// by default). Every model already casts into the flashlight's map, so there
+// is nothing to build. Recorded and not acted on.
+int LightNatives::L_MDL_CreateShadowMap(lua_State*) { return 0; }
+
 // LIGHT.SetLitParentFlag - bit 0x80 at Entity+0x1a (0x10137a20). Whether the
 // entity this light hangs off is lit by it; nothing here reads it yet, so it
 // is recorded and not acted on.
@@ -176,6 +195,8 @@ void BindLight(ScriptEngine& engine, LuaHost& host) {
 		{"LIGHT", "SetProjector", LightNatives::L_LIGHT_SetProjector},
 		{"ENVIRONMENT", "RemoveLight", LightNatives::L_ENVIRONMENT_RemoveLight},
 		{"ENVIRONMENT", "RemoveLights", LightNatives::L_ENVIRONMENT_RemoveLights},
+		{"R3D", "EnableShadows", LightNatives::L_R3D_EnableShadows},
+		{"MDL", "CreateShadowMap", LightNatives::L_MDL_CreateShadowMap},
 	};
 	RegisterFamily(engine, host, natives);
 }

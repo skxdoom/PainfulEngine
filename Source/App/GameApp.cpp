@@ -29,6 +29,7 @@
 #include "Render/HudRenderer.h"
 #include "Render/ParticleRenderer.h"
 #include "Render/Renderer.h"
+#include "Render/ShadowMap.h"
 #include "Render/SkyRenderer.h"
 #include "Render/TextureCache.h"
 #include "Render/Window.h"
@@ -132,6 +133,17 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	// Models take their material from the same scripts the world does. Set
 	// before the level loads, since the scripts create entities as they go.
 	entities.SetShaders(&shaderScripts);
+	// The flashlight's shadow map, from painful_config.ini: FlashlightShadows
+	// switches it, ShadowMapSize sizes it (512 by the user's eye - 2048 read
+	// as too crisp for a torch). PAINFUL_SHADOWMAP overrides both; 0 is off.
+	// Docs/Reference/Lighting.md, "Shadows"
+	ShadowMap shadow;
+	{
+		const bool on = Settings().GetBool("FlashlightShadows", true);
+		const int size = on ? Settings().GetInt("ShadowMapSize", 512) : 0;
+		shadow.Init(shaderDir, DebugInt("PAINFUL_SHADOWMAP", size));
+	}
+	entities.SetShadowMap(&shadow);
 
 	ParticleRenderer particles;
 	const bool particlesReady = particles.Init(shaderDir);
@@ -331,6 +343,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	LevelInfo info;
 	WorldRenderer world;
 	const bool worldInit = world.Init(shaderDir);
+	world.SetShadowMap(&shadow);
 	bool worldReady = false;
 	SkyRenderer sky;
 	const bool skyInit = sky.Init(shaderDir);
@@ -976,6 +989,18 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		engine.CollectLights(scriptLights);
 		world.SetDynamicLights(scriptLights);
 		entities.SetDynamicLights(scriptLights);
+		// The flashlight is the one light with a projector. Its shadow pass is
+		// aimed before the world and the models draw, and only while it is
+		// on: at Type 0 it does not collect at all.
+		const LightSource* flashlight = nullptr;
+		if (shadow.ready() && engine.shadowsEnabled())
+			for (const LightSource& l : scriptLights)
+				if (!l.projector.empty() && l.type == LightSource::kSpot && l.dynamic) {
+					flashlight = &l;
+					break;
+				}
+		if (flashlight) shadow.Begin(Renderer::kShadowView, *flashlight);
+		else shadow.End();
 
 		// Cfg.FOV is a horizontal angle; the projection wants the vertical
 		// one for this window's aspect.
@@ -993,6 +1018,12 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 					info, elapsed);
 		entities.Draw(Renderer::kWorldView, camera, window.width(), window.height(),
 				info, elapsed);
+		// The casters, after the passes that cull the zones and pose the
+		// models; bgfx orders the views, not the calls.
+		if (shadow.active()) {
+			if (worldReady) world.DrawShadow(Renderer::kShadowView, elapsed);
+			entities.DrawShadow(Renderer::kShadowView, elapsed);
+		}
 		// Decals over the world and the props, before anything blended.
 		if (decalsReady) {
 			decals.SetFog(info.fogMode, info.fogStart, info.fogEnd, info.fogDensity, info.fogColor);
@@ -1161,10 +1192,11 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		renderer.DebugText(7, "hud: %s, %zu quads in %zu draws, %zu fonts baked",
 				hudReady ? "on" : "OFF", hud.quadsThisFrame(), hud.drawCalls(),
 				hud.fonts().baked());
-		renderer.DebugText(3, "%zu world draws, %zu entity draws (%zu skinned), zones %zu/%zu, "
-				"%zu script lights",
+		renderer.DebugText(3, "%zu world draws, %zu entity draws (%zu skinned), "
+				"%zu shadow draws, zones %zu/%zu, %zu script lights",
 				worldReady ? world.drawCalls() : 0, entities.drawCalls(),
 				entities.posedInstances(),
+				world.shadowDrawCalls() + entities.shadowDrawCalls(),
 				worldReady ? world.zonesVisible() : 0,
 				worldReady ? world.zoneCount() : 0, scriptLights.size());
 		renderer.DebugText(4, "pos %.1f %.1f %.1f   rot %.2f %.2f   %s", camera.pos[0],
@@ -1219,6 +1251,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 						hud.fonts().baked());
 				LogInfo("  particles: %zu live in %zu emitters", particles.liveParticles(),
 						particles.emitters());
+				LogInfo("  shadow map: %s, %zu world draws, %zu entity draws",
+						shadow.active() ? "on" : (shadow.ready() ? "idle" : "OFF"),
+						world.shadowDrawCalls(), entities.shadowDrawCalls());
 				LogInfo("  lights: %zu placed, %zu from scripts (%zu of them dynamic), "
 						"%zu environment boxes", entities.lightCount(), scriptLights.size(),
 						size_t(std::count_if(scriptLights.begin(), scriptLights.end(),

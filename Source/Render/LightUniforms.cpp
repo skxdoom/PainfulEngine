@@ -1,7 +1,9 @@
 #include "LightUniforms.h"
+#include "ShadowMap.h"
 #include "TextureCache.h"
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace painful {
 
@@ -43,6 +45,15 @@ void PackLight(LightBlock& block, int slot, const LightSource& l,
 	realUp.Store(block.projY);
 }
 
+void PackShadow(LightBlock& block, const ShadowMap* shadow) {
+	if (!shadow || !shadow->active()) return;
+	std::memcpy(block.shadowMtx, shadow->matrix(), sizeof(block.shadowMtx));
+	block.shadowParams[0] = 1.f;
+	block.shadowParams[1] = ShadowMap::kNormalOffset;
+	block.shadowParams[2] = ShadowMap::kLightOffset;
+	block.shadowParams[3] = 1.f / float(shadow->size());
+}
+
 void LightUniforms::Init() {
 	if (bgfx::isValid(count_)) return;
 	count_ = bgfx::createUniform("u_dynCount", bgfx::UniformType::Vec4);
@@ -54,6 +65,9 @@ void LightUniforms::Init() {
 	projY_ = bgfx::createUniform("u_dynProjY", bgfx::UniformType::Vec4);
 	sProj_ = bgfx::createUniform("s_proj", bgfx::UniformType::Sampler);
 	sProjFall_ = bgfx::createUniform("s_projfall", bgfx::UniformType::Sampler);
+	shadowMtx_ = bgfx::createUniform("u_shadowMtx", bgfx::UniformType::Mat4);
+	shadowParams_ = bgfx::createUniform("u_shadowParams", bgfx::UniformType::Vec4);
+	sShadow_ = bgfx::createUniform("s_shadow", bgfx::UniformType::Sampler);
 }
 
 void LightUniforms::Shutdown() {
@@ -70,10 +84,14 @@ void LightUniforms::Shutdown() {
 	drop(projY_);
 	drop(sProj_);
 	drop(sProjFall_);
+	drop(shadowMtx_);
+	drop(shadowParams_);
+	drop(sShadow_);
 }
 
 void LightUniforms::Submit(const LightBlock& block, int projStage, int projFallStage,
-		bgfx::TextureHandle proj, bgfx::TextureHandle projFall) const {
+		bgfx::TextureHandle proj, bgfx::TextureHandle projFall,
+		int shadowStage, bgfx::TextureHandle shadow) const {
 	if (!bgfx::isValid(count_)) return;
 	bgfx::setUniform(count_, block.count);
 	bgfx::setUniform(pos_, block.pos, kMaxDynamicLights);
@@ -84,6 +102,10 @@ void LightUniforms::Submit(const LightBlock& block, int projStage, int projFallS
 	bgfx::setUniform(projY_, block.projY);
 	bgfx::setTexture(uint8_t(projStage), sProj_, proj, BGFX_SAMPLER_UVW_CLAMP);
 	bgfx::setTexture(uint8_t(projFallStage), sProjFall_, projFall, BGFX_SAMPLER_UVW_CLAMP);
+	bgfx::setUniform(shadowMtx_, block.shadowMtx);
+	bgfx::setUniform(shadowParams_, block.shadowParams);
+	// Default flags: the compare mode is baked into the depth texture.
+	bgfx::setTexture(uint8_t(shadowStage), sShadow_, shadow);
 }
 
 bool ProjectorMaps::Resolve(const std::string& name, TextureCache& textures,

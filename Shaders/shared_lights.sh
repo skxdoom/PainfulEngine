@@ -6,6 +6,7 @@
 //
 //     #define PAINFUL_PROJ_STAGE     5
 //     #define PAINFUL_PROJFALL_STAGE 6
+//     #define PAINFUL_SHADOW_STAGE   7
 //     #include "shared_lights.sh"
 //
 // The original ran two entirely different paths - a projected cookie on the
@@ -31,6 +32,30 @@ uniform vec4 u_dynProjY; // xyz: projector's up vector
 
 SAMPLER2D(s_proj, PAINFUL_PROJ_STAGE);
 SAMPLER2D(s_projfall, PAINFUL_PROJFALL_STAGE);
+
+// The flashlight's shadow map: world -> shadow uv and depth, crop included,
+// and (on, normal offset, light offset, 1/size) with the offsets in texels.
+// Render/ShadowMap.h builds both. Docs/Reference/Lighting.md, "Shadows"
+uniform mat4 u_shadowMtx;
+uniform vec4 u_shadowParams;
+SAMPLER2DSHADOW(s_shadow, PAINFUL_SHADOW_STAGE);
+
+// Four hardware-compared taps a texel out from the point, so the edge is a
+// 3x3-texel ramp rather than a stair. Outside the map is lit: the cookie is
+// black past the cone rim anyway, and the ramp is zero past range.
+float ShadowTerm(vec3 p)
+{
+	vec4 sc = mul(u_shadowMtx, vec4(p, 1.0));
+	if (sc.w <= 0.0) return 1.0;
+	vec3 c = sc.xyz / sc.w;
+	if (c.x < 0.0 || c.x > 1.0 || c.y < 0.0 || c.y > 1.0 || c.z > 1.0) return 1.0;
+	float t = u_shadowParams.w;
+	float s = shadow2D(s_shadow, vec3(c.xy + vec2(-t, -t), c.z));
+	s += shadow2D(s_shadow, vec3(c.xy + vec2(t, -t), c.z));
+	s += shadow2D(s_shadow, vec3(c.xy + vec2(-t, t), c.z));
+	s += shadow2D(s_shadow, vec3(c.xy + vec2(t, t), c.z));
+	return s * 0.25;
+}
 
 // diffuse and spec accumulate; multiply DIFFUSE by the albedo afterwards, the
 // way `mul_x2 r0.rgb, r0, t3` closes both shipped light shaders. specular is
@@ -103,6 +128,18 @@ void DynamicLights(vec3 wpos, vec3 n, vec3 eye, vec3 specular,
 				tint = texture2D(s_proj, uv).rgb;
 				att = texture2D(s_projfall, vec2(zAxial / range, 0.5)).r;
 				gain = 4.0;
+				// The shadow rides the same beam. The receiver is lifted off
+				// its surface along the normal and toward the light by a
+				// texel or so IN WORLD UNITS: a shadow texel grows with the
+				// distance down the beam, so the bias follows it and stays
+				// the same fraction of a texel near and far.
+				if (u_shadowParams.x > 0.5)
+				{
+					float texel = 2.0 * zAxial * u_dynCone[i].y * u_shadowParams.w;
+					vec3 p = wpos + n * (texel * u_shadowParams.y) +
+							l * (texel * u_shadowParams.z);
+					att *= ShadowTerm(p);
+				}
 			}
 			else if (u_dynAxis[i].w > -1.0)
 			{

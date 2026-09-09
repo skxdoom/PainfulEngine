@@ -11,11 +11,14 @@ class Window;
 // above it needs to know which graphics API is in use.
 class Renderer {
 public:
-	// Sky is drawn first and owns the clear; the world paints over it.
-	static constexpr bgfx::ViewId kSkyView = 0;
-	static constexpr bgfx::ViewId kWorldView = 1;
+	// The flashlight's depth pass goes first, into its own target, so the
+	// world and the models can sample it. Render/ShadowMap.h owns the view.
+	static constexpr bgfx::ViewId kShadowView = 0;
+	// Sky is drawn next and owns the clear; the world paints over it.
+	static constexpr bgfx::ViewId kSkyView = 1;
+	static constexpr bgfx::ViewId kWorldView = 2;
 	// The 2D layer, drawn over everything: no depth, in submission order.
-	static constexpr bgfx::ViewId kHudView = 2;
+	static constexpr bgfx::ViewId kHudView = 3;
 
 	~Renderer() { Shutdown(); }
 	// Owns GPU handles that Shutdown destroys, so it is not copyable: a copy

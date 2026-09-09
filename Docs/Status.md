@@ -442,9 +442,11 @@ The ordered work queue, with the evidence behind each item, is
   gains recovered from the shipped `proj.pso` / `ps_atten_dst2.pso`. That last
   part is deliberately better than the original, whose model path was four
   per-entity constants on a different falloff curve; the reasons are listed
-  under "Deviations". Left: `ENTITY.AddLight`, `WORLD.SetDirLight`,
-  `LIGHT.SetLitParentFlag`, and shadows - a dynamic light lights through a wall
-  within its range.
+  under "Deviations". The flashlight casts real shadows - world and models
+  into one depth map, tested per pixel ("Shadows" there); `R3D.EnableShadows`
+  gates it. Left: `ENTITY.AddLight`, `WORLD.SetDirLight`,
+  `LIGHT.SetLitParentFlag`, and shadows from every other light - a torch still
+  lights through a wall within its range.
 - Model material extras: `MESH.SetDetailMap` / `SetNormalMap` / `SetCubeMap` /
   `SetSpecular`, `MDL.SetMaterial` / `SetTexture`, `MATERIAL.Replace`.
 - `R3D.SetCameraFOV` / `GetCameraFOV` carry `Cfg.FOV`, and every shipped call
@@ -463,7 +465,7 @@ The ordered work queue, with the evidence behind each item, is
   original shows crisp ridges, and too bright. Several causes ruled out; the
   remaining suspect is its lightmap atlas region. Details in
   [`TextureTransforms.md`](Reference/TextureTransforms.md).
-- Post-processing: no bloom (`Bloom.fxo`), no shadow maps, no motion blur.
+- Post-processing: no bloom (`Bloom.fxo`), no motion blur.
   Sprites are already pre-dimmed by the level's `BloomFX.DimScale` the way the
   original does before its bloom pass ([`Particles.md`](Reference/Particles.md),
   "Bloom dims the sprites"), so they read slightly darker than the original's

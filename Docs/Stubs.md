@@ -285,8 +285,11 @@ Ranked by calls per 900 combat frames:
   `ResetReflectList`, `ENTITY.AddLight`.
 - **Model and mesh materials** — `MESH.SetDetailMap` / `SetNormalMap` /
   `SetCubeMap` (245 each), `SetSpecular` / `AddSpecularLight` /
-  `ResetSpecularLights` (~110), `MDL.CreateShadowMap` (38), `MATERIAL.Replace`
-  (44 sites), `MDL.SetTexture` (32), `MDL.EnableNormalMaps` (7).
+  `ResetSpecularLights` (~110), `MATERIAL.Replace` (44 sites), `MDL.SetTexture`
+  (32), `MDL.EnableNormalMaps` (7). `MDL.CreateShadowMap` (38) is answered:
+  the flashlight's shadow map covers every model, so the per-actor blob it
+  asked for is recorded and not built ([`Lighting.md`](Reference/Lighting.md),
+  "Shadows").
 - **Acoustics** — `WORLD.FindEnvironmentAtPoint` (450), `SOUND3D.SetObstructed`
   / `SetIntensity` (135 each), `SOUND.PreloadFile` (214), `SOUND.SetRoomType`
   (31).

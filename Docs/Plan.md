@@ -330,7 +330,7 @@ wrong:
 | | |
 |---|---|
 | Decals | LANDED — `ENTITY.SpawnDecal` (35), `SpawnOrientedDecal`, `ReloadDecalSystem`, `R3D.KeepDecals` ([`Decals.md`](Reference/Decals.md)). Left: decals on models and pack meshes; trails. |
-| Dynamic lights | LANDED — the whole `LIGHT.*` family and `ENVIRONMENT.RemoveLight(s)`; the flashlight with its projected cookie, carried torches and scripted flashes, on models and on the world mesh ([`Lighting.md`](Reference/Lighting.md)). Left: `ENTITY.AddLight`, `WORLD.SetDirLight`, `ENVIRONMENT.SetFog`, shadows. |
+| Dynamic lights | LANDED — the whole `LIGHT.*` family and `ENVIRONMENT.RemoveLight(s)`; the flashlight with its projected cookie, carried torches and scripted flashes, on models and on the world mesh, and the flashlight's shadow map over both ([`Lighting.md`](Reference/Lighting.md)). Left: `ENTITY.AddLight`, `WORLD.SetDirLight`, `ENVIRONMENT.SetFog`, shadows from the other lights. |
 | Model materials | `MESH.SetDetailMap` / `SetNormalMap` / `SetCubeMap` / `SetSpecular` / `AddSpecularLight` (648); `MDL.SetMaterial`, `SetTexture`, `EnableNormalMaps`, `MATERIAL.Replace` (44). |
 | Camera | `R3D.SetCameraFOV` (401) — FOV is fixed, so no zoom and no FX. |
 | Acoustics | `WORLD.FindEnvironmentAtPoint` (200), `SOUND.SetRoomType`, `SOUND3D.SetObstructed` / `SetIntensity`. `SOUND.SetSoundProperties` is done ([`Sound.md`](Reference/Sound.md)). |

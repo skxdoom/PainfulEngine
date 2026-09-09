@@ -21,6 +21,8 @@
 
 namespace painful {
 
+class ShadowMap;
+
 // Draws the models placed in a level.
 //
 // Instances name a template (BaseObj); the template chain supplies the mesh and
@@ -65,6 +67,18 @@ public:
 
 	void Draw(bgfx::ViewId view, const Camera& camera, int width, int height,
 			const LevelInfo& info, float timeSeconds);
+
+	// The flashlight's shadow map, read by Draw and written by DrawShadow.
+	// Set BEFORE Draw: an instance inside the beam is posed even when the
+	// camera cannot see it, so its shadow is not in last frame's pose.
+	void SetShadowMap(const ShadowMap* shadow) { shadow_ = shadow; }
+	// The depth pass: every opaque part of every caster inside the beam,
+	// from the buffers Draw posed. Called after Draw.
+	void DrawShadow(bgfx::ViewId view, float timeSeconds);
+	// Whether an instance casts into the shadow map. Off for the view model:
+	// it sits in front of the flashlight and would black out the beam.
+	void SetScriptCastsShadow(int slot, bool casts);
+	size_t shadowDrawCalls() const { return shadowDrawCalls_; }
 
 	// Disables frustum culling (the --novis flag).
 	void SetVisibilityCulling(bool on) { visCulling_ = on; }
@@ -223,6 +237,7 @@ private:
 		// hidden.
 		bool alive = true;
 		bool visible = true;
+		bool castsShadow = true;
 		// MDL.SetMeshVisibility: which of the model's parts this instance hides.
 		// Per instance, not per model - the viewmodel hides its blades while
 		// another copy of the same model keeps them. Empty means all shown.
@@ -279,6 +294,8 @@ private:
 	bgfx::UniformHandle uSpecular_ = BGFX_INVALID_HANDLE;
 	LightUniforms lightUniforms_;
 	ProjectorMaps projector_;
+	const ShadowMap* shadow_ = nullptr;
+	size_t shadowDrawCalls_ = 0;
 	TextureCache* textures_ = nullptr; // for the projector maps only
 	std::string levelHint_;
 	bgfx::UniformHandle sStage1_ = BGFX_INVALID_HANDLE;

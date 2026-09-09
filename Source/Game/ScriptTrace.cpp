@@ -487,6 +487,11 @@ int TraceNatives::L_SetPosAndRotRelativeToCamera(lua_State* L) {
 	if (!e) return 0;
 
 	e->viewAttached = true;
+	// A view model sits in front of the flashlight; as a caster it would
+	// black out the whole beam.
+	e->castsShadow = false;
+	if (self->renderer_ && e->rendererInstance >= 0)
+		self->renderer_->SetScriptCastsShadow(e->rendererInstance, false);
 	for (int c = 0; c < 3; ++c) {
 		e->viewOffset[c] = float(luaL_optnumber(L, c + 2, 0));
 		e->viewAngles[c] = float(luaL_optnumber(L, c + 5, 0));

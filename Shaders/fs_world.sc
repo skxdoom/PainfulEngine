@@ -15,9 +15,11 @@ SAMPLER2D(s_lightmap, 1);
 SAMPLER2D(s_detail, 2);
 SAMPLER2D(s_blend2, 3);
 SAMPLER2D(s_mask2, 4);
-// The dynamic lights, and the flashlight's two maps at stages 5 and 6.
+// The dynamic lights, the flashlight's two maps at stages 5 and 6, and its
+// shadow map at 7.
 #define PAINFUL_PROJ_STAGE 5
 #define PAINFUL_PROJFALL_STAGE 6
+#define PAINFUL_SHADOW_STAGE 7
 #include "shared_lights.sh"
 
 uniform vec4 u_params; // x: has lightmap, y: alpha-test ref (<0 off), z: terrain blend, w: unused

@@ -1,5 +1,6 @@
 #include "EntityRenderer.h"
 #include "ShaderLoad.h"
+#include "ShadowMap.h"
 #include "../Core/Vectors.h"
 #include "../Core/Check.h"
 #include "../Core/Debug.h"
@@ -665,6 +666,59 @@ void EntityRenderer::SetScriptVisible(int slot, bool visible) {
 	instances_[slot].visible = visible;
 }
 
+void EntityRenderer::SetScriptCastsShadow(int slot, bool casts) {
+	if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
+			"EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
+		return;
+	instances_[slot].castsShadow = casts;
+}
+
+void EntityRenderer::DrawShadow(bgfx::ViewId view, float timeSeconds) {
+	shadowDrawCalls_ = 0;
+	if (!shadow_ || !shadow_->active() || !bgfx::isValid(shadow_->program())) return;
+	const Frustum& frustum = shadow_->frustum();
+	const bgfx::ProgramHandle program = shadow_->program();
+	const float identityUv[4] = {1.f, 1.f, 0.f, 0.f};
+	static const bool kNoATest = DebugFlag("PAINFUL_NOATEST");
+
+	for (Instance& instance : instances_) {
+		if (!instance.alive || !instance.visible || !instance.castsShadow) continue;
+		if (!frustum.VisibleAabb(instance.aabbLo, instance.aabbHi)) continue;
+		const GpuModel& model = models_[instance.model];
+		const bool posing = model.skinned && !instance.skin.empty();
+
+		for (size_t partIndex = 0; partIndex < model.parts.size(); ++partIndex) {
+			const Part& part = model.parts[partIndex];
+			if (partIndex < instance.hiddenParts.size() && instance.hiddenParts[partIndex])
+				continue;
+			const MaterialState& mat =
+				instance.materialOverride ? instance.material : part.material;
+			// Only what writes depth casts, as in the world pass.
+			if ((mat.state & BGFX_STATE_BLEND_MASK) || !(mat.state & BGFX_STATE_WRITE_Z))
+				continue;
+			const float params[4] = {0.f, kNoATest ? -1.f : mat.alphaRef, 0.f, 0.f};
+			const float uvAnim[4] = {mat.pan0[0] * timeSeconds, mat.pan0[1] * timeSeconds,
+					0.f, 0.f};
+			const float tile[4] = {mat.tile0[0], mat.tile0[1], 1.f, 1.f};
+			bgfx::setUniform(uParams_, params);
+			bgfx::setUniform(uUvAnim_, uvAnim);
+			bgfx::setUniform(uUv0_, identityUv);
+			bgfx::setUniform(uTile_, tile);
+			bgfx::setTransform(instance.transform.m);
+			const uint32_t owner = part.vboOwner;
+			const bool usePosed = posing && owner < instance.posed.size() &&
+					bgfx::isValid(instance.posed[owner]);
+			if (usePosed) bgfx::setVertexBuffer(0, instance.posed[owner]);
+			else bgfx::setVertexBuffer(0, part.vbo);
+			bgfx::setIndexBuffer(part.ibo, part.firstIndex, part.indexCount);
+			bgfx::setTexture(0, sDiffuse_, part.diffuse, mat.sampler[0]);
+			bgfx::setState(ShadowMap::kState);
+			bgfx::submit(view, program);
+			++shadowDrawCalls_;
+		}
+	}
+}
+
 // One named mesh of one instance. A model mesh split across material slots is
 // several parts under the SAME name, so every match is set - hiding "blades"
 // must take all of it, not just its first material run.
@@ -814,9 +868,18 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 	if (dt < 0.f || dt > 0.5f) dt = 0.f;
 	lastTime_ = timeSeconds;
 
+	const bool beam = shadow_ && shadow_->active();
+	bgfx::TextureHandle shadowTex = BGFX_INVALID_HANDLE;
+	if (shadow_ && shadow_->ready()) shadowTex = shadow_->texture();
+
 	for (Instance& instance : instances_) {
 		if (!instance.alive || !instance.visible) continue;
-		if (visCulling_ && !frustum.VisibleAabb(instance.aabbLo, instance.aabbHi)) continue;
+		// In view, or in the flashlight's beam: the beam reaches past the
+		// screen edge, and a caster there still has to be posed this frame.
+		const bool inView = !visCulling_ || frustum.VisibleAabb(instance.aabbLo, instance.aabbHi);
+		const bool inBeam = beam && instance.castsShadow &&
+				shadow_->frustum().VisibleAabb(instance.aabbLo, instance.aabbHi);
+		if (!inView && !inBeam) continue;
 		const GpuModel& model = models_[instance.model];
 
 		// Pose it, if it is playing something. This is CPU skinning: the
@@ -876,6 +939,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 						bgfx::copy(posedVerts_.data(), bytes));
 			}
 		}
+		if (!inView) continue;
 		// This model's lighting. The SELECTION is still made at the origin -
 		// which of the level's lights are worth a slot is a per-model question,
 		// as it is in Entity::AddLight - but the lights themselves are handed
@@ -898,6 +962,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 		LightBlock lights;
 		for (int s = 0; s < lit.lightCount; ++s)
 			PackLight(lights, s, *lit.lights[s], projector_.name());
+		PackShadow(lights, shadow_);
 
 
 		const float detail[4] = {1.f, 1.f, 0.f, 0.f};
@@ -966,11 +1031,12 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			bgfx::setTexture(1, sStage1_,
 					bgfx::isValid(stage1Tex) ? stage1Tex : white_,
 					mat.sampler[1]);
-			// Stages 2 and 3 are the projector pair; models sample no detail
-			// map, so nothing else wants them.
+			// Stages 2 and 3 are the projector pair and 4 the shadow map;
+			// models sample no detail map, so nothing else wants them.
 			lightUniforms_.Submit(lights, 2, 3,
 					bgfx::isValid(projector_.cookie()) ? projector_.cookie() : white_,
-					bgfx::isValid(projector_.falloff()) ? projector_.falloff() : white_);
+					bgfx::isValid(projector_.falloff()) ? projector_.falloff() : white_,
+					4, shadowTex);
 			bgfx::setState(state);
 			bgfx::submit(view, program_);
 			++drawCalls_;

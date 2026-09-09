@@ -40,6 +40,12 @@ const Known kKnown[] = {
 			"#   1 - always a window, at the chosen resolution\n"
 			"#   2 - always borderless: fills the desktop at its own size; the resolution\n"
 			"#       setting is not used"},
+	{"FlashlightShadows", "1",
+			"Whether the flashlight casts shadows: the world and every model into one\n"
+			"# shadow map. 1 on, 0 off. The video options' Shadows setting toggles it too."},
+	{"ShadowMapSize", "512",
+			"The shadow map's size in texels. Larger is sharper and dearer; 512 reads as\n"
+			"# a torch beam, 2048 as a spotlight."},
 };
 
 } // namespace
@@ -54,13 +60,21 @@ bool EngineConfig::Load(const std::string& dir) {
 		return true;
 	}
 	std::string line;
+	std::map<std::string, bool> seen;
 	while (std::getline(in, line)) {
 		const std::string t = Trim(line);
 		if (t.empty() || t[0] == '#' || t[0] == ';' || t[0] == '[') continue;
 		const size_t eq = t.find('=');
 		if (eq == std::string::npos) continue;
-		values_[Trim(t.substr(0, eq))] = Trim(t.substr(eq + 1));
+		const std::string key = Trim(t.substr(0, eq));
+		values_[key] = Trim(t.substr(eq + 1));
+		seen[key] = true;
 	}
+	in.close();
+	// A key this build knows and the file does not: an older file. Rewritten
+	// so the new key appears with its comment, everything else kept.
+	for (const Known& k : kKnown)
+		if (!seen.count(k.key)) { Save(); break; }
 	return true;
 }
 

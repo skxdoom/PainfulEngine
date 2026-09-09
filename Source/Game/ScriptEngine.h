@@ -249,6 +249,9 @@ public:
 		bool viewAttached = false;
 		Vec3 viewOffset;
 		Vec3 viewAngles;
+		// Whether the model casts into the flashlight's shadow map. Off for
+		// the view model, which sits in front of the light.
+		bool castsShadow = true;
 		// ENTITY.SetTimeToDie countdown in seconds; negative means no timer.
 		float timeToDie = -1.f;
 		// ENTITY.EnableDeathZoneTest: the byte at Entity+0x11b (0x101361D0).
@@ -501,6 +504,9 @@ public:
 	// Whether the simulation is frozen. The game loop skips the actor tick and
 	// the physics step while this holds, and keeps drawing.
 	bool gamePaused() const { return gamePaused_; }
+	// R3D.EnableShadows - the menu's Shadows option. Gates the flashlight's
+	// shadow map. Docs/Reference/Lighting.md, "Shadows"
+	bool shadowsEnabled() const { return shadowsEnabled_; }
 	// Developer mode: the two switches the shipped scripts gate their own debug
 	// tooling on. IsFinalBuild answers false while this is set, and the game
 	// loop sets the global debugMarek alongside it.
@@ -912,6 +918,7 @@ private:
 	WorldState world_;
 
 	EntityRenderer* renderer_ = nullptr;
+	bool shadowsEnabled_ = true;
 	TextureCache* textures_ = nullptr;
 	PhysicsWorld* physics_ = nullptr;
 	ParticleRenderer* particles_ = nullptr;

@@ -1,5 +1,6 @@
 #include "WorldRenderer.h"
 #include "ShaderLoad.h"
+#include "ShadowMap.h"
 #include "../Core/Vectors.h"
 #include "../Core/Log.h"
 #include "GpuBuffers.h"
@@ -284,6 +285,7 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
 		chunk.vbo = MakeVertexBuffer(verts.data(),
 				uint32_t(verts.size() * sizeof(MeshVertex)), layout_);
 		chunk.ibo = MakeIndexBuffer(o.indices.data(), uint32_t(o.indices.size()));
+		chunk.indexCount = uint32_t(o.indices.size());
 
 		if (o.materials.empty()) {
 			Batch b;
@@ -440,6 +442,8 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 			bgfx::isValid(projector_.cookie()) ? projector_.cookie() : fallback;
 	const bgfx::TextureHandle projFall =
 			bgfx::isValid(projector_.falloff()) ? projector_.falloff() : fallback;
+	bgfx::TextureHandle shadowTex = BGFX_INVALID_HANDLE;
+	if (shadow_ && shadow_->ready()) shadowTex = shadow_->texture();
 
 	for (const Chunk& c : chunks_) {
 		if (c.hidden) continue;
@@ -550,6 +554,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 				PackLight(lights, int(s), dynamicLights_[chunkLights_[s]], projector_.name());
 			if (!chunkLights_.empty()) ++litChunks_;
 		}
+		PackShadow(lights, shadow_);
 
 		for (const Batch& b : c.batches) {
 			const float params[4] = {b.hasLightmap ? 1.f : 0.f,
@@ -562,7 +567,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 			bgfx::setUniform(uUv0_, b.uvDiffuse);
 			bgfx::setUniform(uUv1_, b.uvBlend);
 			bgfx::setUniform(uTile_, tile);
-			lightUniforms_.Submit(lights, 5, 6, projTex, projFall);
+			lightUniforms_.Submit(lights, 5, 6, projTex, projFall, 7, shadowTex);
 			bgfx::setTexture(2, sDetail_, detailOn_ ? detailTex_ : b.diffuse,
 					BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC);
 			bgfx::setTexture(3, sBlend2_, b.blended ? b.blend2 : b.diffuse);
@@ -579,6 +584,61 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 			bgfx::setState(state);
 			bgfx::submit(view, program_);
 			++drawCalls_;
+		}
+	}
+}
+
+void WorldRenderer::DrawShadow(bgfx::ViewId view, float timeSeconds) {
+	shadowDrawCalls_ = 0;
+	if (!shadow_ || !shadow_->active() || !bgfx::isValid(shadow_->program())) return;
+	const Frustum& frustum = shadow_->frustum();
+	const bgfx::ProgramHandle program = shadow_->program();
+
+	for (const Chunk& c : chunks_) {
+		if (c.hidden || c.isWater) continue;
+		// Only what writes depth casts: a blended or depth-off material is
+		// glass, glow or smoke.
+		if ((c.material.state & BGFX_STATE_BLEND_MASK) ||
+				!(c.material.state & BGFX_STATE_WRITE_Z))
+			continue;
+		if (visCulling_ && !c.zones.empty() && !zoneVisible_.empty()) {
+			bool anyVisible = false;
+			for (uint16_t z : c.zones)
+				if (z < zoneVisible_.size() && zoneVisible_[z]) { anyVisible = true; break; }
+			if (!anyVisible) continue;
+		}
+		if (!frustum.VisibleAabb(c.aabbLo, c.aabbHi)) continue;
+
+		// Without an alpha test the materials do not matter, so the whole
+		// object goes in one draw.
+		if (c.material.alphaRef < 0.f) {
+			const float params[4] = {0.f, -1.f, 0.f, 0.f};
+			bgfx::setUniform(uParams_, params);
+			bgfx::setTransform(c.transform.m);
+			bgfx::setVertexBuffer(0, c.vbo);
+			bgfx::setIndexBuffer(c.ibo, 0, c.indexCount);
+			bgfx::setState(ShadowMap::kState);
+			bgfx::submit(view, program);
+			++shadowDrawCalls_;
+			continue;
+		}
+		// Alpha-tested: per batch, with the same UV chain as the colour pass.
+		const float params[4] = {0.f, c.material.alphaRef, 0.f, 0.f};
+		const float uvAnim[4] = {c.material.pan0[0] * timeSeconds,
+				c.material.pan0[1] * timeSeconds, 0.f, 0.f};
+		const float tile[4] = {c.material.tile0[0], c.material.tile0[1], 1.f, 1.f};
+		for (const Batch& b : c.batches) {
+			bgfx::setUniform(uParams_, params);
+			bgfx::setUniform(uUvAnim_, uvAnim);
+			bgfx::setUniform(uUv0_, b.uvDiffuse);
+			bgfx::setUniform(uTile_, tile);
+			bgfx::setTexture(0, sDiffuse_, b.diffuse, c.material.sampler[0]);
+			bgfx::setTransform(c.transform.m);
+			bgfx::setVertexBuffer(0, c.vbo);
+			bgfx::setIndexBuffer(c.ibo, b.firstIndex, b.indexCount);
+			bgfx::setState(ShadowMap::kState);
+			bgfx::submit(view, program);
+			++shadowDrawCalls_;
 		}
 	}
 }

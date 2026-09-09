@@ -115,13 +115,13 @@ bool Renderer::Init(Window& window) {
 	initialised_ = true;
 
 	bgfx::setDebug(BGFX_DEBUG_TEXT);
-	// View 0 draws the sky and owns the clear; view 1 draws the world on top.
+	// The sky view owns the screen clear and the world view draws on top of
+	// it. (SetClearColor overrides the colour per level.)
 	bgfx::setViewClear(kSkyView, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x1a1a20ff, 1.0f, 0);
-	// (SetClearColor overrides this per level.)| BGFX_CLEAR_DEPTH, 0x1a1a20ff, 1.0f, 0);
 	bgfx::setViewClear(kWorldView, BGFX_CLEAR_NONE);
 	// Sky layers must composite in order, so stop bgfx sorting that view.
 	bgfx::setViewMode(kSkyView, bgfx::ViewMode::Sequential);
-	bgfx::setViewRect(0, 0, 0, uint16_t(width_), uint16_t(height_));
+	bgfx::setViewRect(kSkyView, 0, 0, uint16_t(width_), uint16_t(height_));
 	return true;
 }
 

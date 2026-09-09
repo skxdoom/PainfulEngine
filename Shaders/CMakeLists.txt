@@ -37,6 +37,7 @@ endif()
 set(SHADER_NAMES
 		vs_world fs_world
 		vs_entity fs_entity
+		vs_shadow fs_shadow
 		fs_sky
 		vs_particle fs_particle
 		vs_debug fs_debug

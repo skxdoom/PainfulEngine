@@ -17,6 +17,8 @@
 
 namespace painful {
 
+class ShadowMap;
+
 // Draws a level's static world mesh.
 //
 // One vertex/index buffer per MPK object, and one draw call per material, since
@@ -59,7 +61,16 @@ public:
 	void Draw(bgfx::ViewId view, const Camera& camera, int width, int height,
 			const LevelInfo& info, float timeSeconds);
 
+	// The flashlight's shadow map, read by Draw and written by DrawShadow.
+	// Null for the viewer, which has no flashlight.
+	void SetShadowMap(const ShadowMap* shadow) { shadow_ = shadow; }
+	// The depth pass: every opaque chunk inside the beam. Called AFTER Draw,
+	// whose zone set it reuses - the light sits at the camera, so the
+	// camera's rooms are the beam's rooms.
+	void DrawShadow(bgfx::ViewId view, float timeSeconds);
+
 	size_t drawCalls() const { return drawCalls_; }
+	size_t shadowDrawCalls() const { return shadowDrawCalls_; }
 	// Chunks that took at least one dynamic light this frame. Zero while
 	// lights exist means the per-chunk reach test is rejecting them, which is
 	// a bounds problem, not a shading one.
@@ -96,6 +107,7 @@ private:
 	struct Chunk { // one MPK object
 		bgfx::VertexBufferHandle vbo = BGFX_INVALID_HANDLE;
 		bgfx::IndexBufferHandle ibo = BGFX_INVALID_HANDLE;
+		uint32_t indexCount = 0; // the whole buffer, for the depth pass
 		std::vector<Batch> batches;
 		Mat4 transform;
 		MaterialState material; // from the game's .shader scripts
@@ -145,6 +157,8 @@ private:
 	std::string levelHint_;
 	std::vector<LightSource> dynamicLights_;
 	std::vector<int> chunkLights_; // scratch: the picked slots, reused per chunk
+	const ShadowMap* shadow_ = nullptr;
+	size_t shadowDrawCalls_ = 0;
 	bgfx::TextureHandle detailTex_ = BGFX_INVALID_HANDLE;
 	float detailTile_[2] = {8.2f, 7.1f};
 	bool detailOn_ = false;

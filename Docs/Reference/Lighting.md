@@ -295,6 +295,67 @@ The original has the same artefact, and the user's judgement is that it is
 harder to see there than here. It is still an artefact, so it is fixed rather
 than reproduced.
 
+## Shadows
+
+The flashlight casts real shadows: the world mesh and every model, into one
+depth map, tested per pixel by both. This is a deviation with nothing to
+recover behind it. The original's shadows are `MDL.CreateShadowMap(e, size)`,
+a `size x size` blob projected under an actor whose template sets `shadow`
+(128 where it is set, 0 in `CActor`'s default), and `WorldMesh::RenderShadowPass`
+draws those; its dynamic lights shine through walls. Both natives are kept as
+switches only: `R3D.EnableShadows` (the menu's Shadows option, called with
+`Cfg.Shadows`, a 0/1 number) gates the map, and `CreateShadowMap` is recorded
+and not acted on because every model already casts.
+
+**The pass.** `Render/ShadowMap.h`. One view (`Renderer::kShadowView`, ordered
+before the sky) renders into a depth-only target through `vs_shadow` /
+`fs_shadow`, from the flashlight's own projection - `Light::UpdateProj`'s
+half-fov `acos(coneAngleCos)`, aspect 1, near `0.1`, far `Range`, the same
+frustum the cookie already covers, so the map and the cookie are bounded alike.
+`painful_config.ini` owns it: `FlashlightShadows` (1/0) switches it and
+`ShadowMapSize` sizes it (512 by default - 2048 read as too crisp for a torch
+beam); `PAINFUL_SHADOWMAP=<size>` overrides both for a run, 0 being off. The
+format is
+the first of `D24S8`, `D32F`, `D16` the backend can both render and compare
+against, and a backend without hardware depth compare logs and runs without.
+
+Casters are whatever writes depth: a chunk or a part whose material blends or
+has `depthwrite false` is glass, glow or smoke and is skipped, water is skipped,
+and the alpha test is replayed per batch so a grate or a bush casts its holes.
+The world pass runs after `WorldRenderer::Draw` and reuses its zone set - the
+light sits at the camera, so the camera's rooms are the beam's rooms - with the
+light frustum on top. Models are posed for the camera OR the beam, because the
+beam reaches past the screen edge (a 30-35 degree half-angle against a
+~29 degree vertical half-fov), and a caster just off-screen has to be in this
+frame's pose. The view model does not cast: it sits in front of the light and
+would black out the beam. `ENTITY.SetPosAndRotRelativeToCamera` clears its
+flag.
+
+**Both faces cast.** The level meshes are one-sided, so the usual trick of
+rendering back faces alone into the map leaks light through every wall. The
+acne that trick avoids is handled on the receiver instead.
+
+**The receiver.** `shared_lights.sh`, in the projector branch, so the shadow
+rides exactly the beam: `att *= ShadowTerm(p)` where `p` is the pixel lifted
+off its surface by `1.5` texels along the normal and `1.0` texel toward the
+light, **in world units at that depth** - a shadow texel is
+`2 * zAxial * tan(outer) / size` wide, so the bias grows with the beam and
+stays the same fraction of a texel near and far, where a constant depth bias
+would be far too large at the lens and useless at range. Four hardware-compared
+taps a texel out give a 3x3-texel edge. Outside the map, or past its far plane,
+reads as lit; the cookie is black there and the ramp is zero.
+
+`u_shadowMtx` carries world -> shadow uv/depth with the backend's crop already
+applied (y flipped unless `originBottomLeft`, z remapped when
+`homogeneousDepth`), and `u_shadowParams` is `(on, normal offset, light offset,
+1/size)`. Both go through `LightUniforms` so the world and the models cannot
+disagree.
+
+Off (Type 0, `R3D.EnableShadows(0)`, `PAINFUL_SHADOWMAP=0`, or no flashlight in
+the level) costs nothing: the view is not touched and the receivers read
+`on = 0`. The directional light and the volume lights are untouched by any of
+this and are still shadowless.
+
 ## What the scripts do with them
 
 | Who | What |
@@ -349,5 +410,7 @@ dynamic ones, had nothing at all to draw. See
   competition, is still a stub. `PainMenu` is its only caller.
 - `WORLD.SetDirLight` is still a stub, so the level's directional comes from the
   file rather than from the script that sets it.
-- Shadows (`WorldMesh::RenderShadowPass`, `MDL.CreateShadowMap`). A dynamic
-  light lights through walls within its range.
+- The original's per-actor blobs (`WorldMesh::RenderShadowPass`,
+  `MDL.CreateShadowMap`) - replaced by the flashlight's shadow map above.
+  Every OTHER dynamic light still lights through walls within its range, and
+  the environment directional casts nothing.

@@ -177,6 +177,7 @@ void ScriptEngine::CreateRendererInstance(Entity& e) {
 	if (e.rendererInstance >= 0 && renderer_) {
 		for (const auto& kv : e.hiddenMeshes)
 			renderer_->SetScriptMeshVisibility(e.rendererInstance, kv.first, kv.second);
+		renderer_->SetScriptCastsShadow(e.rendererInstance, e.castsShadow);
 	}
 	if (e.rendererInstance >= 0) SyncPose(e);
 }

@@ -6,6 +6,7 @@
 namespace painful {
 
 class TextureCache;
+class ShadowMap;
 
 // The dynamic lights as both shaders read them.
 //
@@ -29,12 +30,20 @@ struct LightBlock {
 	float cone[kMaxDynamicLights][4] = {}; // x cos(inner), y tan(outer half-angle)
 	float projX[4] = {1.f, 0.f, 0.f, 0.f}; // the projector's right vector
 	float projY[4] = {0.f, 1.f, 0.f, 0.f}; // and its up vector
+	// The projector's shadow map: world -> shadow uv/depth, and (on, normal
+	// offset, light offset, 1/size) with the offsets in texels. Off by default.
+	float shadowMtx[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f,
+			0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
+	float shadowParams[4] = {0.f, 0.f, 0.f, 0.f};
 };
 
 // Writes one light into a slot. projName is the projector texture the renderer
 // has actually loaded; a light asking for a different one gets no cookie.
 void PackLight(LightBlock& block, int slot, const LightSource& light,
 		const std::string& projName);
+// Writes the shadow map's matrix and offsets; null or inactive leaves the
+// block reading "no shadow".
+void PackShadow(LightBlock& block, const ShadowMap* shadow);
 
 // The bgfx handles behind LightBlock. Both renderers own one; bgfx refcounts
 // uniforms by name, so creating the same names twice is a share, not a clash -
@@ -49,11 +58,13 @@ public:
 
 	void Init();
 	void Shutdown();
-	// Sets the uniforms and binds the two projector maps. Both samplers are
-	// declared in the shader, so both are bound whether a projector light
-	// exists or not; `fallback` stands in when it does not.
+	// Sets the uniforms and binds the two projector maps and the shadow map.
+	// Every sampler is declared in the shader, so each is bound whether a
+	// projector light exists or not; an invalid shadow handle binds nothing,
+	// which the shader never reads while the block says off.
 	void Submit(const LightBlock& block, int projStage, int projFallStage,
-			bgfx::TextureHandle proj, bgfx::TextureHandle projFall) const;
+			bgfx::TextureHandle proj, bgfx::TextureHandle projFall,
+			int shadowStage, bgfx::TextureHandle shadow) const;
 
 private:
 	bgfx::UniformHandle count_ = BGFX_INVALID_HANDLE;
@@ -65,6 +76,9 @@ private:
 	bgfx::UniformHandle projY_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle sProj_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle sProjFall_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle shadowMtx_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle shadowParams_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle sShadow_ = BGFX_INVALID_HANDLE;
 };
 
 // The projector maps, loaded once for whichever light asks for one. Only
