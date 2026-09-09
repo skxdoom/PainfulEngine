@@ -32,7 +32,10 @@ struct SaveNatives : ScriptNativesBase {
 namespace {
 
 constexpr char kMagic[4] = {'P', 'K', 'S', 'V'};
-constexpr uint32_t kVersion = 1;
+// 2 added the LIGHT.* block. A version 1 save still loads - it simply has no
+// light state, which is the behaviour it was written with.
+constexpr uint32_t kVersion = 2;
+constexpr uint32_t kMinVersion = 1;
 
 // One class reads and writes, so a field is listed once. `ok` goes false on a
 // short read and stays false.
@@ -128,7 +131,7 @@ private:
 // The derived slots (renderer, body, emitters, sprite, voice, ragdoll, the
 // pose caches, the anim pointers) are NOT here: RebuildEntity makes them.
 void ArchiveEntity(Archive& ar, ScriptEngine::Entity& e, bool& hadBody, bool& hadRagdoll,
-		Vec3& bodyVel) {
+		Vec3& bodyVel, uint32_t version) {
 	ar.F(e.type); ar.F(e.source); ar.F(e.mesh); ar.F(e.name);
 	ar.F(e.scale); ar.F(e.pos); ar.F(e.rot);
 	ar.F(e.visible); ar.F(e.inWorld); ar.F(e.worldObject);
@@ -143,6 +146,21 @@ void ArchiveEntity(Archive& ar, ScriptEngine::Entity& e, bool& hadBody, bool& ha
 	}
 	ar.F(e.hasCorona); ar.F(e.coronaArgs); ar.F(e.coronaTex); ar.F(e.coronaColor);
 	ar.F(e.coronaBlend); ar.F(e.coronaSpriteOnly);
+
+	// The light this entity IS. It has to be carried: the shipped CLight has no
+	// RestoreFromSave, so nothing re-runs LIGHT.Setup on the restored entity -
+	// CEnvironment, which does have one, re-Applies itself instead. The
+	// original does not need the script's help because Light::SaveEntity /
+	// LoadEntity put the light in the save's own world data.
+	// Docs/Reference/Lighting.md
+	if (version >= 2) {
+		ar.F(e.hasLight);
+		ar.F(e.light.type); ar.F(e.light.dir); ar.F(e.light.color);
+		ar.F(e.light.intensity); ar.F(e.light.range); ar.F(e.light.startFalloff);
+		ar.F(e.light.coneCos); ar.F(e.light.coneOuterCos);
+		ar.F(e.light.fakeSpecular); ar.F(e.light.dynamic); ar.F(e.light.important);
+		ar.F(e.light.projector);
+	}
 
 	ar.F(e.isRegion); ar.F(e.playerInside); ar.F(e.regionMin); ar.F(e.regionMax);
 	ar.F(e.velocity); ar.F(e.children); ar.F(e.dieWithParent);
@@ -211,7 +229,7 @@ bool ScriptEngine::SaveWorld(const std::string& enginePath) {
 		Vec3 bodyVel;
 		if (physics_ && hadBody) physics_->GetScriptBodyVelocity(e.physicsBody, bodyVel);
 		ar.F(h);
-		ArchiveEntity(ar, e, hadBody, hadRagdoll, bodyVel);
+		ArchiveEntity(ar, e, hadBody, hadRagdoll, bodyVel, version);
 	}
 
 	const std::string path = host_ ? host_->ResolvePath(enginePath) : enginePath;
@@ -358,11 +376,14 @@ bool ScriptEngine::LoadWorld(const std::string& enginePath) {
 	ar.Raw(magic, 4);
 	uint32_t version = 0;
 	ar.F(version);
-	if (std::memcmp(magic, kMagic, 4) != 0 || version != kVersion) {
+	if (std::memcmp(magic, kMagic, 4) != 0 || version < kMinVersion || version > kVersion) {
 		LogWarn("WORLD.LoadGame: %s is not a PainfulEngine save (version %u)", path.c_str(),
 				version);
 		return false;
 	}
+	if (version < kVersion)
+		LogInfo("WORLD.LoadGame: %s is a version %u save; it carries no light state, so the "
+				"level's CLights stay dark until it is saved again", path.c_str(), version);
 
 	// Everything the level load made goes: LoadMap's active meshes and water
 	// took handles the save owns.
@@ -385,7 +406,7 @@ bool ScriptEngine::LoadWorld(const std::string& enginePath) {
 		Entity e;
 		bool hadBody = false, hadRagdoll = false;
 		Vec3 bodyVel;
-		ArchiveEntity(ar, e, hadBody, hadRagdoll, bodyVel);
+		ArchiveEntity(ar, e, hadBody, hadRagdoll, bodyVel, version);
 		if (!ar.ok()) break;
 		// RebuildEntity reads these three through the slot fields.
 		e.physicsBody = hadBody ? 0 : -1;

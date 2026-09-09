@@ -768,9 +768,18 @@ the solver's own spin is not read back), the particle systems' live
 particles (emitters restart), 2D sounds and music streams (script-side, and
 the scripts restart the level's music), the decals on the walls (engine
 entities the scripts never see; [`Decals.md`](Decals.md)), and anything in
-the stub natives (dynamic lights). `SOUND.SaveGame_ResumeSounds` and the bookkeeping
+the stub natives. `SOUND.SaveGame_ResumeSounds` and the bookkeeping
 `WORLD.SwitchToState` / `LateVBsBegin` / `LateVBsEnd` / `UpdateAllEntities` /
 `Release` are no-ops here.
+
+**Lights ARE carried, and have to be.** The world file's version went to 2 to
+add them (a version 1 save still loads, without them). The shipped `CLight` has
+no `RestoreFromSave`, so nothing re-runs `LIGHT.Setup` on a restored entity -
+`CEnvironment`, which does have one, re-`Apply`s itself instead. The original
+gets away with it because `Light::SaveEntity` / `Light::LoadEntity` put the
+light in the save's own world data. Without this a loaded level came back with
+exactly ONE light, the flashlight `Game:OnPlay` makes fresh, and every placed
+`CLight` was gone. [`Lighting.md`](Lighting.md)
 
 ## Next stages
 2. Damage: the shot lands but nothing takes it yet. `ENTITY.ExplodeItem`,

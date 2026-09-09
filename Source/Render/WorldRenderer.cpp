@@ -379,6 +379,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 		const LevelInfo& info, float timeSeconds) {
 	const float* ambient = info.ambient;
 	drawCalls_ = 0;
+	litChunks_ = 0;
 	if (!bgfx::isValid(program_)) return;
 
 	const Vec3 forward = camera.Forward();
@@ -547,6 +548,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 				chunkLights_.resize(kMaxDynamicLights);
 			for (size_t s = 0; s < chunkLights_.size(); ++s)
 				PackLight(lights, int(s), dynamicLights_[chunkLights_[s]], projector_.name());
+			if (!chunkLights_.empty()) ++litChunks_;
 		}
 
 		for (const Batch& b : c.batches) {

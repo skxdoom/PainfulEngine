@@ -60,6 +60,10 @@ public:
 			const LevelInfo& info, float timeSeconds);
 
 	size_t drawCalls() const { return drawCalls_; }
+	// Chunks that took at least one dynamic light this frame. Zero while
+	// lights exist means the per-chunk reach test is rejecting them, which is
+	// a bounds problem, not a shading one.
+	size_t litChunks() const { return litChunks_; }
 	size_t zonesVisible() const { return zonesVisible_; }
 	size_t zoneCount() const { return zoneGraph_.zoneCount(); }
 	// Disables zone and frustum culling (the --novis flag).
@@ -144,7 +148,7 @@ private:
 	bgfx::TextureHandle detailTex_ = BGFX_INVALID_HANDLE;
 	float detailTile_[2] = {8.2f, 7.1f};
 	bool detailOn_ = false;
-	size_t drawCalls_ = 0, triangles_ = 0, zonesVisible_ = 0;
+	size_t drawCalls_ = 0, triangles_ = 0, zonesVisible_ = 0, litChunks_ = 0;
 	ZoneGraph zoneGraph_;
 	float worldScale_ = 1.f;
 	bool visCulling_ = true;

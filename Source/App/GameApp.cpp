@@ -1224,6 +1224,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 						size_t(std::count_if(scriptLights.begin(), scriptLights.end(),
 								[](const LightSource& l) { return l.dynamic; })),
 						entities.environmentCount());
+				LogInfo("    world took them on %zu of %zu chunks",
+						worldReady ? world.litChunks() : 0,
+						worldReady ? world.drawCalls() : 0);
 				for (const LightSource& l : scriptLights) {
 					if (!l.dynamic) continue;
 					LogInfo("    dynamic light: type %d at %.2f %.2f %.2f, dir %.2f %.2f %.2f, "

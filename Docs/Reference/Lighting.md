@@ -326,6 +326,21 @@ rather than special-cased: making `RegisterChild` adopt the current position as
 a local offset would also catch `BindSoundToEntity`, which sets a WORLD position
 before binding.
 
+## Lights and saves
+
+A save has to carry the light state itself. `CLight` has no `RestoreFromSave`
+in the shipped scripts, so a restored light's Lua table comes back but nothing
+re-runs `LIGHT.Setup` and the engine-side light never exists; `CEnvironment`,
+which does have one, re-`Apply`s itself. The original does not need the
+script's help - `Light::SaveEntity` / `Light::LoadEntity` are its own.
+
+The symptom, before the world file learned to carry them: a level loaded from a
+save had exactly ONE light, the flashlight `Game:OnPlay` creates fresh, and
+every placed `CLight` was missing. Models still looked lit because the
+flashlight is the light you notice; the world mesh, which only takes the
+dynamic ones, had nothing at all to draw. See
+[`LuaHost.md`](LuaHost.md), "Saving".
+
 ## Not carried
 
 - `LIGHT.SetLitParentFlag` is recorded and not acted on: nothing here asks
