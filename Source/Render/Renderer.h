@@ -20,11 +20,13 @@ public:
 	// lights (Render/LightShadowAtlas.h).
 	static constexpr bgfx::ViewId kLightShadowViewBase = 2;
 	static constexpr bgfx::ViewId kLightShadowViewCount = 48;
+	// The view model's own map (Render/ViewModelShadows.h).
+	static constexpr bgfx::ViewId kViewModelShadowView = 50;
 	// Sky is drawn next and owns the clear; the world paints over it.
-	static constexpr bgfx::ViewId kSkyView = 50;
-	static constexpr bgfx::ViewId kWorldView = 51;
+	static constexpr bgfx::ViewId kSkyView = 51;
+	static constexpr bgfx::ViewId kWorldView = 52;
 	// The 2D layer, drawn over everything: no depth, in submission order.
-	static constexpr bgfx::ViewId kHudView = 52;
+	static constexpr bgfx::ViewId kHudView = 53;
 
 	~Renderer() { Shutdown(); }
 	// Owns GPU handles that Shutdown destroys, so it is not copyable: a copy

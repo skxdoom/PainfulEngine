@@ -87,6 +87,9 @@ public:
 	// AFTER Draw. The flashlight's map also reuses Draw's zone set - the
 	// light sits at the camera, so the camera's rooms are the beam's rooms.
 	void DrawShadow(bgfx::ViewId view, const ShadowMap& map, float timeSeconds);
+	// The same into any depth view: every opaque chunk inside `frustum`.
+	void DrawShadowInto(bgfx::ViewId view, const Frustum& frustum, bgfx::ProgramHandle program,
+			float timeSeconds, bool byZones);
 
 	size_t drawCalls() const { return drawCalls_; }
 	size_t shadowDrawCalls() const { return shadowDrawCalls_; }

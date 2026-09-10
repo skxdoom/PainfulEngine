@@ -742,10 +742,12 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 
 void WorldRenderer::DrawShadow(bgfx::ViewId view, const ShadowMap& map, float timeSeconds) {
 	if (!map.active() || !bgfx::isValid(map.program())) return;
-	const Frustum& frustum = map.frustum();
-	const bgfx::ProgramHandle program = map.program();
-	const bool byZones = &map == shadow_ && visCulling_;
+	DrawShadowInto(view, map.frustum(), map.program(), timeSeconds, &map == shadow_ && visCulling_);
+}
 
+void WorldRenderer::DrawShadowInto(bgfx::ViewId view, const Frustum& frustum,
+		bgfx::ProgramHandle program, float timeSeconds, bool byZones) {
+	if (!bgfx::isValid(program)) return;
 	for (const Chunk& c : chunks_) {
 		if (c.hidden || c.isWater) continue;
 		// Only what writes depth casts: a blended or depth-off material is

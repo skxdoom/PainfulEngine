@@ -2,6 +2,7 @@
 #include "ShaderLoad.h"
 #include "ShadowMap.h"
 #include "LightShadowAtlas.h"
+#include "ViewModelShadows.h"
 #include "../Core/Vectors.h"
 #include "../Core/Check.h"
 #include "../Core/Debug.h"
@@ -131,6 +132,10 @@ bool EntityRenderer::Init(const std::string& shaderDir) {
 	uSpecular_ = bgfx::createUniform("u_specular", bgfx::UniformType::Vec4);
 	sStage1_ = bgfx::createUniform("s_stage1", bgfx::UniformType::Sampler);
 	uStage1_ = bgfx::createUniform("u_stage1", bgfx::UniformType::Vec4);
+	uVmParams_ = bgfx::createUniform("u_vmParams", bgfx::UniformType::Vec4);
+	uVmMtx_ = bgfx::createUniform("u_vmMtx", bgfx::UniformType::Mat4);
+	uVmLight_ = bgfx::createUniform("u_vmLight", bgfx::UniformType::Vec4);
+	sVmShadow_ = bgfx::createUniform("s_vmShadow", bgfx::UniformType::Sampler);
 	uDirColor_ = bgfx::createUniform("u_dirColor", bgfx::UniformType::Vec4);
 	uDirDir_ = bgfx::createUniform("u_dirDir", bgfx::UniformType::Vec4);
 	uEye_ = bgfx::createUniform("u_eye", bgfx::UniformType::Vec4);
@@ -159,6 +164,10 @@ void EntityRenderer::Shutdown() {
 	if (bgfx::isValid(sDetail_)) { bgfx::destroy(sDetail_); sDetail_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(sStage1_)) { bgfx::destroy(sStage1_); sStage1_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uStage1_)) { bgfx::destroy(uStage1_); uStage1_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uVmParams_)) { bgfx::destroy(uVmParams_); uVmParams_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uVmMtx_)) { bgfx::destroy(uVmMtx_); uVmMtx_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uVmLight_)) { bgfx::destroy(uVmLight_); uVmLight_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(sVmShadow_)) { bgfx::destroy(sVmShadow_); sVmShadow_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uUv0_)) { bgfx::destroy(uUv0_); uUv0_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uUv1_)) { bgfx::destroy(uUv1_); uUv1_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uTile_)) { bgfx::destroy(uTile_); uTile_ = BGFX_INVALID_HANDLE; }
@@ -674,6 +683,49 @@ void EntityRenderer::SetScriptCastsShadow(int slot, bool casts) {
 	instances_[slot].castsShadow = casts;
 }
 
+void EntityRenderer::SetScriptViewModel(int slot, bool viewModel) {
+	if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
+			"EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
+		return;
+	instances_[slot].viewModel = viewModel;
+}
+
+bool EntityRenderer::ViewModelBounds(Vec3& centre, float& radius) const {
+	Vec3 lo, hi;
+	bool any = false;
+	for (const Instance& instance : instances_) {
+		if (!instance.alive || !instance.visible || !instance.viewModel) continue;
+		if (!any) { lo = instance.aabbLo; hi = instance.aabbHi; any = true; }
+		else { lo = Min(lo, instance.aabbLo); hi = Max(hi, instance.aabbHi); }
+	}
+	if (!any) return false;
+	centre = (lo + hi) * 0.5f;
+	radius = (hi - lo).Length() * 0.5f;
+	return radius > 1e-3f;
+}
+
+void EntityRenderer::BindViewModel(bool isViewModel) {
+	const ViewModelShadows* vm = viewModelShadows_;
+	const bool on = isViewModel && vm && vm->ready();
+	const float params[4] = {on ? 1.f : 0.f, on && vm->active() ? 1.f : 0.f, 0.f,
+			on ? vm->texel() : 0.f};
+	bgfx::setUniform(uVmParams_, params);
+	if (!on) return;
+	bgfx::setUniform(uVmMtx_, vm->matrix());
+	bgfx::setUniform(uVmLight_, vm->light());
+	bgfx::setTexture(7, sVmShadow_, vm->texture());
+}
+
+void EntityRenderer::DrawViewModelShadows(const ViewModelShadows& vm, float timeSeconds) {
+	if (!vm.ready() || !vm.active() || !bgfx::isValid(vm.program())) return;
+	// The weapon on itself, and nothing else: the world and the other models
+	// were tried as casters and read as wrong on a thing held at the eye.
+	for (Instance& instance : instances_) {
+		if (!instance.alive || !instance.visible || !instance.viewModel) continue;
+		DrawCaster(vm.viewId(), vm.program(), instance, models_[instance.model], timeSeconds);
+	}
+}
+
 void EntityRenderer::DirectionalAt(const Vec3& pos, Vec3& toLight, Vec3& color) const {
 	EntityLightFade snap;
 	EntityLightState lit;
@@ -1131,6 +1183,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 					bgfx::isValid(projector_.cookie()) ? projector_.cookie() : white_,
 					bgfx::isValid(projector_.falloff()) ? projector_.falloff() : white_,
 					4, shadowTex, 5, modelShadowTex, 6, lightShadowTex);
+			BindViewModel(instance.viewModel);
 			bgfx::setState(state);
 			bgfx::submit(view, program_);
 			++drawCalls_;

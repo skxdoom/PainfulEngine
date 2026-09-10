@@ -23,6 +23,7 @@
 namespace painful {
 
 class ShadowMap;
+class ViewModelShadows;
 
 // Draws the models placed in a level.
 //
@@ -109,6 +110,16 @@ public:
 	// Whether an instance casts into the shadow map. Off for the view model:
 	// it sits in front of the flashlight and would black out the beam.
 	void SetScriptCastsShadow(int slot, bool casts);
+	// The view model: reads its own fitted maps, and casts into those alone.
+	void SetScriptViewModel(int slot, bool viewModel);
+
+	// --- the view model's shadows ---
+	void SetViewModelShadows(const ViewModelShadows* vm) { viewModelShadows_ = vm; }
+	// The sphere about the view model's instances; false when none is up.
+	bool ViewModelBounds(Vec3& centre, float& radius) const;
+	// The weapon into its map - itself alone, so the map holds its
+	// self-shadowing and nothing else. After Draw.
+	void DrawViewModelShadows(const ViewModelShadows& vm, float timeSeconds);
 	size_t shadowDrawCalls() const { return shadowDrawCalls_; }
 
 	// Disables frustum culling (the --novis flag).
@@ -269,6 +280,7 @@ private:
 		bool alive = true;
 		bool visible = true;
 		bool castsShadow = true;
+		bool viewModel = false;
 		// MDL.SetMeshVisibility: which of the model's parts this instance hides.
 		// Per instance, not per model - the viewmodel hides its blades while
 		// another copy of the same model keeps them. Empty means all shown.
@@ -281,6 +293,9 @@ private:
 
 	// Recomputes the instance's world-space bounds from its model's bbox.
 	void UpdateBounds(Instance& instance, const GpuModel& model) const;
+	// The view-model uniforms for one draw: on with the map's matrix for the
+	// weapon, off for everything else.
+	void BindViewModel(bool isViewModel);
 	// One instance's opaque parts into a depth view, from the buffers Draw
 	// posed. Shared by every shadow pass.
 	void DrawCaster(bgfx::ViewId view, bgfx::ProgramHandle program, const Instance& instance,
@@ -333,6 +348,11 @@ private:
 	const ShadowMap* modelShadow_ = nullptr;
 	const LightShadowAtlas* lightShadows_ = nullptr;
 	std::vector<ShadowedLight> shadowPicks_;
+	const ViewModelShadows* viewModelShadows_ = nullptr;
+	bgfx::UniformHandle uVmParams_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uVmMtx_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uVmLight_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle sVmShadow_ = BGFX_INVALID_HANDLE;
 	float ambientScale_ = 1.f, directionalScale_ = 1.f, lightScale_ = 1.f;
 	size_t shadowDrawCalls_ = 0;
 	TextureCache* textures_ = nullptr; // for the projector maps only

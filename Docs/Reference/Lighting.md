@@ -518,6 +518,29 @@ black, and lowering it is the fix.
 the share of its lightmap the subtraction keeps. Cost: up to six depth views per shadowed light with the
 models in reach, and nine compares per shadowed light per model pixel.
 
+## Shadows on the view model
+
+The weapon in hand shadows itself from the environment box's directional,
+through a map of its own (`Render/ViewModelShadows.h`): orthographic down
+that directional, fitted to the weapon's bounding sphere, so
+`ViewModelShadowMapSize` (512) texels span about a unit and the map is
+densest where the eye is closest. It exists only where the box gives a
+directional at all - the level designers' volumes decide whether there is sun
+to shadow.
+
+The weapon is the only caster - this is the one place it casts, and on
+itself - and the directional the only light. Both were wider once: the world
+and the nearby models cast into it, and the flashlight and the three
+strongest placed lights had fitted maps of their own, each read by the
+weapon in place of the coarser world maps. All of it was taken out again:
+surroundings shading a thing held at the eye read as wrong, and the point
+lights' self-shadow on a gun was not worth the maps. The receiver is the
+view-model draw alone: `u_vmParams.x` marks it and the directional term takes
+the map, with the bias in texels as everywhere else.
+
+`painful_config.ini`: `ViewModelShadows` (1/0), `ViewModelShadowMapSize`
+(512). `PAINFUL_SHADOWVIEW` darkens the weapon by these terms.
+
 ## What the scripts do with them
 
 | Who | What |

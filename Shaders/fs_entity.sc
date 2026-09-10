@@ -29,6 +29,8 @@ SAMPLER2D(s_stage1, 1);
 #define PAINFUL_DIRSHADOW_STAGE 5
 // The placed lights' shadow atlas: models only, so only this shader has it.
 #define PAINFUL_LIGHTSHADOW_STAGE 6
+// The view model's own maps.
+#define PAINFUL_VM_STAGE 7
 #include "shared_lights.sh"
 
 uniform vec4 u_params; // y: alpha-test ref (<0 off)
@@ -67,8 +69,12 @@ void main()
 	// Models cast the directional shadows and never receive them: the
 	// original lit a model from its box alone, and receiving was tried and
 	// judged not worth its artefacts. The placed lights' shadows they DO
-	// receive, inside DynamicLights.
-	vec3 diffuse = u_ambient.rgb + u_dirColor.rgb * ndotl;
+	// receive, inside DynamicLights. The VIEW MODEL receives everything,
+	// from its own fitted maps - the directional here, the box having
+	// already said whether there is sun to shadow.
+	float dirShadow = 1.0;
+	if (u_vmParams.x > 0.5 && u_vmParams.y > 0.5) dirShadow = VmShadow(v_wpos, n, u_dirDir.xyz);
+	vec3 diffuse = u_ambient.rgb + u_dirColor.rgb * ndotl * dirShadow;
 
 	// The directional's specular, still `lit`-gated on N.L > 0 - a step in the
 	// original, ramped here over u_specular.z, because per pixel the step
@@ -76,15 +82,17 @@ void main()
 	vec3 eyeDir = normalize(u_eye.xyz - v_wpos);
 	vec3 specular = u_dirColor.rgb *
 			pow(max(dot(n, normalize(u_dirDir.xyz + eyeDir)), 0.0), u_specular.x) *
-			u_specular.y * smoothstep(0.0, u_specular.z, ndotl);
+			u_specular.y * smoothstep(0.0, u_specular.z, ndotl) * dirShadow;
 
 	// Everything positional, exactly as the world mesh gets it.
 	float lightShadow = 1.0;
 	vec3 unusedOccluded = vec3_splat(0.0);
 	DynamicLights(v_wpos, n, u_eye.xyz, u_specular.xyz, diffuse, specular, lightShadow,
 			unusedOccluded);
-	// PAINFUL_SHADOWVIEW: models grey, darkened by the placed lights' term.
-	if (u_dirShadowDir.w > 0.5) { gl_FragColor = vec4(vec3_splat(0.8 * lightShadow), 1.0); return; }
+	// PAINFUL_SHADOWVIEW: models grey, darkened by the shadows they take;
+	// 2 shows the placed lights' term alone.
+	if (u_dirShadowDir.w > 1.5) { gl_FragColor = vec4(vec3_splat(0.8 * lightShadow), 1.0); return; }
+	if (u_dirShadowDir.w > 0.5) { gl_FragColor = vec4(vec3_splat(0.8 * lightShadow * dirShadow), 1.0); return; }
 
 	// `texture modulate diffuse`, then `specular true` adds on top - the
 	// specular is NOT modulated by the texture, which is what makes it read as

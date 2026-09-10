@@ -77,9 +77,10 @@ void PackDirShadow(LightBlock& block, const ShadowMap* shadow) {
 	block.dirShadowParams[2] = ShadowMap::kLightOffset * texel;
 	block.dirShadowParams[3] = 1.f / float(shadow->size());
 	shadow->toLight().Store(block.dirShadowDir);
-	// PAINFUL_SHADOWVIEW: the receivers draw the term alone.
-	static const bool kView = DebugFlag("PAINFUL_SHADOWVIEW");
-	block.dirShadowDir[3] = kView ? 1.f : 0.f;
+	// PAINFUL_SHADOWVIEW: the receivers draw the terms alone; 2 leaves the
+	// directional out on the models, so a placed light's shadow stands alone.
+	static const int kView = DebugInt("PAINFUL_SHADOWVIEW", 0);
+	block.dirShadowDir[3] = float(kView);
 }
 
 void LightUniforms::Init() {

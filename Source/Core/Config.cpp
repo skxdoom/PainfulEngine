@@ -42,6 +42,8 @@ const EngineConfig::Known kKnown[] = {
 	{"LightShadowRadius", "40", false, "how far from the camera a placed light gets a map, units"},
 	{"LightShadowMapSize", "256", false, "placed light shadow map, texels per face"},
 	{"LightShadowWorldStrength", "100", false, "how much of a placed light a model's shadow takes off the world, percent"},
+	{"ViewModelShadows", "true", true, "the weapon in hand takes shadows from maps fitted to it"},
+	{"ViewModelShadowMapSize", "512", false, "view model shadow map, texels per light"},
 	{"ModelLighting", "0", false, "0 as the original, 1 led by the lights (the three scales below)"},
 	{"ModelAmbientScale", "50", false, "mode 1: percent of the box ambient a model keeps"},
 	{"ModelDirectionalScale", "50", false, "mode 1: percent of the box directional a model keeps"},

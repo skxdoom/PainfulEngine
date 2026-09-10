@@ -32,6 +32,7 @@
 #include "Render/LightShadowAtlas.h"
 #include "Render/Renderer.h"
 #include "Render/ShadowMap.h"
+#include "Render/ViewModelShadows.h"
 #include "Render/SkyRenderer.h"
 #include "Render/TextureCache.h"
 #include "Render/Window.h"
@@ -216,6 +217,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	lightShadows.SetBaseView(Renderer::kLightShadowViewBase);
 	entities.SetLightShadowAtlas(&lightShadows);
 	float lightShadowRadius = 40.f;
+	// The view model's own maps, fitted to the weapon in hand.
+	ViewModelShadows vmShadows;
+	vmShadows.SetView(Renderer::kViewModelShadowView);
+	entities.SetViewModelShadows(&vmShadows);
 	constexpr float kModelShadowExtent = 24.f; // half-width of the box, world units
 	constexpr float kModelShadowDepth = 24.f; // half-depth along the light
 	entities.SetShadowMap(&shadow);
@@ -406,7 +411,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	// console's `pf` changed a value. Maps are rebuilt only when their size
 	// changed; everything else is a setter. PAINFUL_SHADOWMAP still overrides
 	// the flashlight's size, 0 turning every map off.
-	int shadowSize = -1, modelSize = -1, atlasSize = -1, atlasCount = -1;
+	int shadowSize = -1, modelSize = -1, atlasSize = -1, atlasCount = -1, vmSize = -1;
 	unsigned appliedSettings = 0;
 	auto applySettings = [&]() {
 		appliedSettings = Settings().generation();
@@ -444,6 +449,13 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			atlasCount = count;
 		}
 		lightShadowRadius = float(cfg.GetInt("LightShadowRadius", 40));
+
+		size = anyMaps && cfg.GetBool("ViewModelShadows", true) ? cfg.GetInt("ViewModelShadowMapSize", 512) : 0;
+		if (size != vmSize) {
+			vmShadows.Shutdown();
+			vmShadows.Init(shaderDir, size);
+			vmSize = size;
+		}
 		world.SetLightShadowStrength(float(cfg.GetInt("LightShadowWorldStrength", 100)) / 100.f);
 
 		// ModelLighting: 0 the original's mix, 1 led by the lights.
@@ -1138,6 +1150,19 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		// The world takes the same picks: it subtracts what a model occludes
 		// of a light its lightmap already holds.
 		world.SetShadowedLights(entities.shadowLights(), &lightShadows);
+		// The view model's map, fitted to the weapon, down the box
+		// directional - only where the box gives one.
+		vmShadows.BeginFrame();
+		{
+			Vec3 vmCentre;
+			float vmRadius = 0.f;
+			if (vmShadows.ready() && entities.ViewModelBounds(vmCentre, vmRadius)) {
+				Vec3 toLight, dirColor;
+				entities.DirectionalAt(camera.pos, toLight, dirColor);
+				if (dirColor[0] + dirColor[1] + dirColor[2] > 0.003f)
+					vmShadows.Begin(toLight, vmCentre, vmRadius);
+			}
+		}
 		if (modelShadow.ready()) {
 			Vec3 toLight, dirColor;
 			entities.DirectionalAt(camera.pos, toLight, dirColor);
@@ -1174,6 +1199,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		if (modelShadow.active())
 			entities.DrawShadow(Renderer::kModelShadowView, modelShadow, elapsed);
 		entities.DrawLightShadows(elapsed);
+		if (vmShadows.ready()) entities.DrawViewModelShadows(vmShadows, elapsed);
 		// Decals over the world and the props, before anything blended.
 		if (decalsReady) {
 			decals.SetFog(info.fogMode, info.fogStart, info.fogEnd, info.fogDensity, info.fogColor);
@@ -1402,11 +1428,12 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 				LogInfo("  particles: %zu live in %zu emitters", particles.liveParticles(),
 						particles.emitters());
 				LogInfo("  shadow maps: flashlight %s, models %s, %zu placed lights "
-						"(%zu baked chunk slots); %zu world draws, %zu entity draws in all",
+						"(%zu baked chunk slots), view model %s; %zu world draws, "
+						"%zu entity draws in all",
 						shadow.active() ? "on" : (shadow.ready() ? "idle" : "OFF"),
 						modelShadow.active() ? "on" : "OFF", entities.shadowLights().size(),
-						world.bakedShadowSlots(), world.shadowDrawCalls(),
-						entities.shadowDrawCalls());
+						world.bakedShadowSlots(), vmShadows.active() ? "on" : "off",
+						world.shadowDrawCalls(), entities.shadowDrawCalls());
 				LogInfo("  lights: %zu placed, %zu from scripts (%zu of them dynamic), "
 						"%zu environment boxes", entities.lightCount(), scriptLights.size(),
 						size_t(std::count_if(scriptLights.begin(), scriptLights.end(),

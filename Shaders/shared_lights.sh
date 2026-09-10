@@ -171,6 +171,25 @@ float LightShadow(int i, vec3 toPoint, vec3 n, vec3 l)
 }
 #endif
 
+#ifdef PAINFUL_VM_STAGE
+// The view model's own map (Render/ViewModelShadows.h): orthographic down
+// the environment directional, fitted to the weapon. Only a view-model draw
+// sets u_vmParams.x, and only with a directional to shadow sets y.
+uniform vec4 u_vmParams; // x: this is the view model, y: the map is on, w: one texel in uv
+uniform mat4 u_vmMtx;
+uniform vec4 u_vmLight; // w: one texel in world units
+SAMPLER2DSHADOW(s_vmShadow, PAINFUL_VM_STAGE);
+
+float VmShadow(vec3 wpos, vec3 n, vec3 l)
+{
+	float texel = u_vmLight.w;
+	vec3 p = wpos + n * (texel * 1.5) + l * (texel * 1.0);
+	vec3 c = mul(u_vmMtx, vec4(p, 1.0)).xyz;
+	if (c.x < 0.0 || c.x > 1.0 || c.y < 0.0 || c.y > 1.0 || c.z > 1.0) return 1.0;
+	return Pcf3x3(s_vmShadow, c.xy, c.z, u_vmParams.w);
+}
+#endif
+
 float ModelShadow(vec3 wpos, vec3 n)
 {
 	if (u_dirShadowParams.x <= 0.0) return 1.0;

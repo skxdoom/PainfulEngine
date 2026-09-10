@@ -491,7 +491,10 @@ int TraceNatives::L_SetPosAndRotRelativeToCamera(lua_State* L) {
 	// black out the whole beam.
 	e->castsShadow = false;
 	if (self->renderer_ && e->rendererInstance >= 0)
+	{
 		self->renderer_->SetScriptCastsShadow(e->rendererInstance, false);
+		self->renderer_->SetScriptViewModel(e->rendererInstance, true);
+	}
 	for (int c = 0; c < 3; ++c) {
 		e->viewOffset[c] = float(luaL_optnumber(L, c + 2, 0));
 		e->viewAngles[c] = float(luaL_optnumber(L, c + 5, 0));
