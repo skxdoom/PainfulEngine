@@ -393,8 +393,8 @@ darken everything under a ceiling.
 
 **Only the static world receives it.** The models cast and are never darkened
 by each other or by themselves: the original lit a model from its box alone.
-Receiving was tried twice, the second time gated by the world's depth below,
-and judged not worth its artefacts. The world is darkened by
+Receiving was tried twice and judged not worth its artefacts. The world is
+darkened by
 `ModelShadowStrength` percent of its baked light - a synthetic darkening, since
 the world is not lit by that directional at all, kept because a figure that
 casts nothing floats on the lightmap. That is what the original's
@@ -402,23 +402,16 @@ casts nothing floats on the lightmap. That is what the original's
 `kEdgeFade` (15 percent) of the box at every edge, so they do not stop on a
 line where the box ends in view.
 
-**Where the light reaches the world, and nowhere else.** A third map
-(`Renderer::kWorldShadowView`) holds the WORLD's depth from the same light, in
-the same window - `BeginOrtho` with the same centre and extent snaps both to
-the same texel grid, so they line up in xy - but reaching 256 units up the
-light instead of 24 (`kWorldOcclusionReach`): the roof that shades the foot of
-a tall building sits 30-40 units up a 66-degree ray, and a box as shallow as
-the models' missed it, so the gate read "open" in exactly the shade it was for.
-Same size in texels as the model map. `fs_world`'s `ModelShadow` lays a
-figure's shadow only
-where that map says the world is open to the light:
-`1 - (1 - models) * open`. Under a balcony, indoors, on the far side of a wall
-the lightmap already holds that shadow and nothing is put on top of it - which
-is also what stops a figure's shadow showing through a floor onto the wall
-beneath, the world not being among the model map's casters. The world map is
-culled by its frustum alone, not the camera's zones: the light comes from
-outside the level and the roof that blocks it may belong to a room the camera
-cannot see.
+**The world's own occlusion is not consulted.** A figure standing in a
+building's baked shade still throws a shadow, and one on a balcony throws it
+through the floor onto the wall beneath, the world not being among the
+casters. That is how the original's blobs and Half-Life 2's dynamic shadows
+behaved, and it is accepted. A third depth map holding the world's own depth
+from the light - a gate saying where the light reaches at all - was built and
+worked, and was taken out again as a pass too many for what it bought; the
+lightmap has no separate shadow term (no shadowmask) that could gate it for
+free. The `CEnvironment` factor below is what remains of "is this place in
+the sun".
 
 **The shadow is as strong as the boxes say the directional is.** The levels
 already carry lit-versus-shade outdoors: a `CEnvironment` in a building's
@@ -429,8 +422,8 @@ directional term, so `fs_world` blends the same box list the models are lit by
 level's brightest (`EntityLighting::DirectionalBoxes`). Two earlier answers to
 a shadow inside a building's shade - fading with the caster-to-receiver gap,
 and gating on the lightmap's own brightness - were tried and dropped, the
-second because it varied wildly from map to map; the world's own depth map
-above is what settled it. The box list reaches the shader as
+second because it varied wildly from map to map, and so was the world-depth
+gate above. The box list reaches the shader as
 `PAINFUL_MAX_ENV_BOXES` (64, top-level CMakeLists, the same one-number rule as
 the lights); a level with more hands the nearest to the camera.
 

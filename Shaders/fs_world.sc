@@ -21,7 +21,6 @@ SAMPLER2D(s_mask2, 4);
 #define PAINFUL_PROJFALL_STAGE 6
 #define PAINFUL_SHADOW_STAGE 7
 #define PAINFUL_DIRSHADOW_STAGE 8
-#define PAINFUL_DIRWORLD_STAGE 9
 #include "shared_lights.sh"
 
 // The CEnvironment boxes that overwrite the directional, outermost first, as

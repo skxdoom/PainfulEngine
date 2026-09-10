@@ -526,8 +526,6 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 	if (shadow_ && shadow_->ready()) shadowTex = shadow_->texture();
 	bgfx::TextureHandle modelShadowTex = BGFX_INVALID_HANDLE;
 	if (modelShadow_ && modelShadow_->ready()) modelShadowTex = modelShadow_->texture();
-	bgfx::TextureHandle worldOcclusionTex = BGFX_INVALID_HANDLE;
-	if (worldOcclusion_ && worldOcclusion_->ready()) worldOcclusionTex = worldOcclusion_->texture();
 
 	// The environment boxes for the model shadows' strength: all of them, or
 	// the nearest kMaxEnvBoxes to the camera, in their outermost-first order.
@@ -672,7 +670,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 			if (!chunkLights_.empty()) ++litChunks_;
 		}
 		PackShadow(lights, shadow_);
-		PackDirShadow(lights, modelShadow_, worldOcclusion_);
+		PackDirShadow(lights, modelShadow_);
 
 		for (const Batch& b : c.batches) {
 			const float params[4] = {b.hasLightmap ? 1.f : 0.f,
@@ -686,7 +684,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 			bgfx::setUniform(uUv1_, b.uvBlend);
 			bgfx::setUniform(uTile_, tile);
 			lightUniforms_.Submit(lights, 5, 6, projTex, projFall, 7, shadowTex,
-					8, modelShadowTex, worldOcclusionTex);
+					8, modelShadowTex);
 			bgfx::setUniform(uEnvCount_, envCount);
 			bgfx::setUniform(uEnvLo_, envLoPacked_.data(), uint16_t(kMaxEnvBoxes));
 			bgfx::setUniform(uEnvHi_, envHiPacked_.data(), uint16_t(kMaxEnvBoxes));

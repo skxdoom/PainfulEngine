@@ -72,14 +72,9 @@ public:
 	// world. Docs/Reference/Lighting.md, "Shadows"
 	void SetEnvironmentBoxes(const std::vector<EntityLighting::DirBox>& boxes,
 			float levelFactor);
-	// The world's own depth from the directional, in the model shadow map's
-	// box: where that light reaches at all. Read by Draw beside the model
-	// map; written by DrawShadow with it.
-	void SetWorldOcclusionMap(const ShadowMap* shadow) { worldOcclusion_ = shadow; }
 	// A depth pass into `map`: every opaque chunk inside its frustum. Called
 	// AFTER Draw. The flashlight's map also reuses Draw's zone set - the
-	// light sits at the camera, so the camera's rooms are the beam's rooms;
-	// the directional's box is culled by its frustum alone.
+	// light sits at the camera, so the camera's rooms are the beam's rooms.
 	void DrawShadow(bgfx::ViewId view, const ShadowMap& map, float timeSeconds);
 
 	size_t drawCalls() const { return drawCalls_; }
@@ -172,7 +167,6 @@ private:
 	std::vector<int> chunkLights_; // scratch: the picked slots, reused per chunk
 	const ShadowMap* shadow_ = nullptr;
 	const ShadowMap* modelShadow_ = nullptr;
-	const ShadowMap* worldOcclusion_ = nullptr;
 	size_t shadowDrawCalls_ = 0;
 	std::vector<EntityLighting::DirBox> envBoxes_;
 	float envLevelFactor_ = 1.f;

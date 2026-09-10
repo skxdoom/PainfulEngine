@@ -154,17 +154,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		modelShadow.SetStrength(float(Settings().GetInt("ModelShadowStrength", 60)) / 100.f);
 	}
 	entities.SetModelShadowMap(&modelShadow);
-	// The world's own depth in the same box, so a model's shadow lands only
-	// where the light reaches the world. The model map's size, so the gate's
-	// edges sit where the shadows' do.
-	ShadowMap worldOcclusion;
-	if (modelShadow.ready()) worldOcclusion.Init(shaderDir, modelShadow.size());
-	entities.SetWorldOcclusionMap(&worldOcclusion);
 	constexpr float kModelShadowExtent = 24.f; // half-width of the box, world units
 	constexpr float kModelShadowDepth = 24.f; // half-depth along the light
-	// The world's depth reaches much further toward the light: the roof that
-	// shades the foot of a tall building sits 30-40 units up a 66-degree ray.
-	constexpr float kWorldOcclusionReach = 256.f;
 	entities.SetShadowMap(&shadow);
 
 	ParticleRenderer particles;
@@ -367,7 +358,6 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	const bool worldInit = world.Init(shaderDir);
 	world.SetShadowMap(&shadow);
 	world.SetModelShadowMap(&modelShadow);
-	world.SetWorldOcclusionMap(&worldOcclusion);
 	bool worldReady = false;
 	SkyRenderer sky;
 	const bool skyInit = sky.Init(shaderDir);
@@ -1036,20 +1026,15 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		// The model shadows follow the directional the camera's own
 		// environment box gives, over a box pushed half its width ahead -
 		// nothing behind the eye can be seen casting.
-		if (modelShadow.ready() && worldOcclusion.ready()) {
+		if (modelShadow.ready()) {
 			Vec3 toLight, dirColor;
 			entities.DirectionalAt(camera.pos, toLight, dirColor);
 			const Vec3 forward = camera.Forward();
 			const Vec3 centre = camera.pos + forward * (kModelShadowExtent * 0.5f);
-			// The same window for both, so they line up in xy; the world's
-			// reaches further up the light.
 			modelShadow.BeginOrtho(Renderer::kModelShadowView, toLight, centre,
 					kModelShadowExtent, kModelShadowDepth, kModelShadowDepth);
-			worldOcclusion.BeginOrtho(Renderer::kWorldShadowView, toLight, centre,
-					kModelShadowExtent, kWorldOcclusionReach, kModelShadowDepth);
 		} else {
 			modelShadow.End();
-			worldOcclusion.End();
 		}
 
 		// Cfg.FOV is a horizontal angle; the projection wants the vertical
@@ -1074,10 +1059,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			if (worldReady) world.DrawShadow(Renderer::kShadowView, shadow, elapsed);
 			entities.DrawShadow(Renderer::kShadowView, shadow, elapsed);
 		}
-		if (modelShadow.active()) {
+		if (modelShadow.active())
 			entities.DrawShadow(Renderer::kModelShadowView, modelShadow, elapsed);
-			if (worldReady) world.DrawShadow(Renderer::kWorldShadowView, worldOcclusion, elapsed);
-		}
 		// Decals over the world and the props, before anything blended.
 		if (decalsReady) {
 			decals.SetFog(info.fogMode, info.fogStart, info.fogEnd, info.fogDensity, info.fogColor);

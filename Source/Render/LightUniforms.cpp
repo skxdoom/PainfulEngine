@@ -55,12 +55,9 @@ void PackShadow(LightBlock& block, const ShadowMap* shadow) {
 	block.shadowParams[3] = 1.f / float(shadow->size());
 }
 
-void PackDirShadow(LightBlock& block, const ShadowMap* shadow, const ShadowMap* world) {
+void PackDirShadow(LightBlock& block, const ShadowMap* shadow) {
 	if (!shadow || !shadow->active() || shadow->strength() <= 0.f) return;
-	if (!world || !world->active()) return;
-	block.dirShadowWorld[0] = 1.f / float(world->size());
-	block.dirShadowWorld[1] = ShadowMap::kEdgeFade;
-	std::memcpy(block.dirWorldMtx, world->matrix(), sizeof(block.dirWorldMtx));
+	block.dirShadowFade[0] = ShadowMap::kEdgeFade;
 	std::memcpy(block.dirShadowMtx, shadow->matrix(), sizeof(block.dirShadowMtx));
 	// Orthographic: a texel is the same size everywhere, so the offsets are
 	// resolved to world units here rather than per pixel.
@@ -92,10 +89,8 @@ void LightUniforms::Init() {
 	dirShadowMtx_ = bgfx::createUniform("u_dirShadowMtx", bgfx::UniformType::Mat4);
 	dirShadowParams_ = bgfx::createUniform("u_dirShadowParams", bgfx::UniformType::Vec4);
 	dirShadowDir_ = bgfx::createUniform("u_dirShadowDir", bgfx::UniformType::Vec4);
-	dirShadowWorld_ = bgfx::createUniform("u_dirShadowWorld", bgfx::UniformType::Vec4);
-	dirWorldMtx_ = bgfx::createUniform("u_dirWorldMtx", bgfx::UniformType::Mat4);
+	dirShadowFade_ = bgfx::createUniform("u_dirShadowFade", bgfx::UniformType::Vec4);
 	sDirShadow_ = bgfx::createUniform("s_dirShadow", bgfx::UniformType::Sampler);
-	sDirWorld_ = bgfx::createUniform("s_dirWorld", bgfx::UniformType::Sampler);
 }
 
 void LightUniforms::Shutdown() {
@@ -118,17 +113,14 @@ void LightUniforms::Shutdown() {
 	drop(dirShadowMtx_);
 	drop(dirShadowParams_);
 	drop(dirShadowDir_);
-	drop(dirShadowWorld_);
-	drop(dirWorldMtx_);
+	drop(dirShadowFade_);
 	drop(sDirShadow_);
-	drop(sDirWorld_);
 }
 
 void LightUniforms::Submit(const LightBlock& block, int projStage, int projFallStage,
 		bgfx::TextureHandle proj, bgfx::TextureHandle projFall,
 		int shadowStage, bgfx::TextureHandle shadow,
-		int dirShadowStage, bgfx::TextureHandle dirShadow,
-		bgfx::TextureHandle dirWorld) const {
+		int dirShadowStage, bgfx::TextureHandle dirShadow) const {
 	if (!bgfx::isValid(count_)) return;
 	bgfx::setUniform(count_, block.count);
 	bgfx::setUniform(pos_, block.pos, kMaxDynamicLights);
@@ -146,10 +138,8 @@ void LightUniforms::Submit(const LightBlock& block, int projStage, int projFallS
 	bgfx::setUniform(dirShadowMtx_, block.dirShadowMtx);
 	bgfx::setUniform(dirShadowParams_, block.dirShadowParams);
 	bgfx::setUniform(dirShadowDir_, block.dirShadowDir);
-	bgfx::setUniform(dirShadowWorld_, block.dirShadowWorld);
-	bgfx::setUniform(dirWorldMtx_, block.dirWorldMtx);
+	bgfx::setUniform(dirShadowFade_, block.dirShadowFade);
 	bgfx::setTexture(uint8_t(dirShadowStage), sDirShadow_, dirShadow);
-	bgfx::setTexture(uint8_t(dirShadowStage + 1), sDirWorld_, dirWorld);
 }
 
 bool ProjectorMaps::Resolve(const std::string& name, TextureCache& textures,

@@ -27,7 +27,6 @@ SAMPLER2D(s_stage1, 1);
 #define PAINFUL_PROJFALL_STAGE 3
 #define PAINFUL_SHADOW_STAGE 4
 #define PAINFUL_DIRSHADOW_STAGE 5
-#define PAINFUL_DIRWORLD_STAGE 6
 #include "shared_lights.sh"
 
 uniform vec4 u_params; // y: alpha-test ref (<0 off)

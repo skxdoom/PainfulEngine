@@ -883,8 +883,6 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 	if (shadow_ && shadow_->ready()) shadowTex = shadow_->texture();
 	bgfx::TextureHandle modelShadowTex = BGFX_INVALID_HANDLE;
 	if (modelShadow_ && modelShadow_->ready()) modelShadowTex = modelShadow_->texture();
-	bgfx::TextureHandle worldOcclusionTex = BGFX_INVALID_HANDLE;
-	if (worldOcclusion_ && worldOcclusion_->ready()) worldOcclusionTex = worldOcclusion_->texture();
 
 	for (Instance& instance : instances_) {
 		if (!instance.alive || !instance.visible) continue;
@@ -978,7 +976,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 		for (int s = 0; s < lit.lightCount; ++s)
 			PackLight(lights, s, *lit.lights[s], projector_.name());
 		PackShadow(lights, shadow_);
-		PackDirShadow(lights, modelShadow_, worldOcclusion_);
+		PackDirShadow(lights, modelShadow_);
 
 
 		const float detail[4] = {1.f, 1.f, 0.f, 0.f};
@@ -1048,13 +1046,12 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 					bgfx::isValid(stage1Tex) ? stage1Tex : white_,
 					mat.sampler[1]);
 			// Stages 2 and 3 are the projector pair, 4 the flashlight's
-			// shadow map, 5 and 6 the model shadow map and the world's depth
-			// beside it; models sample no detail map, so nothing else wants
-			// them.
+			// shadow map, 5 the model shadow map; models sample no detail
+			// map, so nothing else wants them.
 			lightUniforms_.Submit(lights, 2, 3,
 					bgfx::isValid(projector_.cookie()) ? projector_.cookie() : white_,
 					bgfx::isValid(projector_.falloff()) ? projector_.falloff() : white_,
-					4, shadowTex, 5, modelShadowTex, worldOcclusionTex);
+					4, shadowTex, 5, modelShadowTex);
 			bgfx::setState(state);
 			bgfx::submit(view, program_);
 			++drawCalls_;

@@ -8,7 +8,6 @@
 //     #define PAINFUL_PROJFALL_STAGE 6
 //     #define PAINFUL_SHADOW_STAGE   7
 //     #define PAINFUL_DIRSHADOW_STAGE 8
-//     #define PAINFUL_DIRWORLD_STAGE  9
 //     #include "shared_lights.sh"
 //
 // The original ran two entirely different paths - a projected cookie on the
@@ -66,21 +65,15 @@ float ShadowTerm(vec3 p)
 }
 
 // The models' shadows from the environment directional: an orthographic map
-// about the camera with ONLY the models in it, and beside it the WORLD's own
-// depth from the same light in the same box - where that light reaches at
-// all. Docs/Reference/Lighting.md, "Shadows"
+// about the camera with ONLY the models in it. Laid wherever the map says,
+// baked shade included - the original's blobs and HL2's did the same, and
+// the world's own occlusion is not consulted. Docs/Reference/Lighting.md
 uniform mat4 u_dirShadowMtx;
 uniform vec4 u_dirShadowParams; // x: strength (0 off), y: normal offset, z: light offset (world), w: 1/size
 uniform vec4 u_dirShadowDir; // xyz: to the light, w: PAINFUL_SHADOWVIEW
-uniform vec4 u_dirShadowWorld; // x: 1/size of the world's depth map, y: edge fade width (uv)
-uniform mat4 u_dirWorldMtx; // the world map's own matrix: same window, deeper reach
+uniform vec4 u_dirShadowFade; // x: edge fade width (uv)
 SAMPLER2DSHADOW(s_dirShadow, PAINFUL_DIRSHADOW_STAGE);
-SAMPLER2DSHADOW(s_dirWorld, PAINFUL_DIRWORLD_STAGE);
 
-// A model's shadow, laid only where the light reaches the world: under a
-// balcony or indoors the lightmap already holds that shadow, and a figure's is
-// not put on top of it - which is also what stops a shadow showing through a
-// floor onto the wall beneath, the world not being among the casters.
 float ModelShadow(vec3 wpos, vec3 n)
 {
 	if (u_dirShadowParams.x <= 0.0) return 1.0;
@@ -89,14 +82,11 @@ float ModelShadow(vec3 wpos, vec3 n)
 	if (c.x < 0.0 || c.x > 1.0 || c.y < 0.0 || c.y > 1.0 || c.z < 0.0 || c.z > 1.0)
 		return 1.0;
 	float models = Pcf3x3(s_dirShadow, c.xy, c.z, u_dirShadowParams.w);
-	vec3 cw = mul(u_dirWorldMtx, vec4(p, 1.0)).xyz;
-	float open = (cw.z < 0.0 || cw.z > 1.0) ? 1.0
-			: Pcf3x3(s_dirWorld, cw.xy, cw.z, u_dirShadowWorld.x);
 	// The box ends somewhere in view, so the shadows fade out over its last
 	// stretch rather than stopping on a line.
 	float edge = min(min(c.x, 1.0 - c.x), min(c.y, 1.0 - c.y));
-	float keep = clamp(edge / max(u_dirShadowWorld.y, 0.0001), 0.0, 1.0);
-	return 1.0 - (1.0 - models) * open * keep;
+	float keep = clamp(edge / max(u_dirShadowFade.x, 0.0001), 0.0, 1.0);
+	return 1.0 - (1.0 - models) * keep;
 }
 
 // diffuse and spec accumulate; multiply DIFFUSE by the albedo afterwards, the

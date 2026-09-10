@@ -76,9 +76,6 @@ public:
 	// The models' own shadows from the environment directional: an
 	// orthographic map about the camera that only the models cast into.
 	void SetModelShadowMap(const ShadowMap* shadow) { modelShadow_ = shadow; }
-	// The world's depth from the same light: a model takes a shadow only
-	// where the light reaches the world around it.
-	void SetWorldOcclusionMap(const ShadowMap* shadow) { worldOcclusion_ = shadow; }
 	// A depth pass into `map`: every opaque part of every caster inside its
 	// frustum, from the buffers Draw posed. Called after Draw, once per map.
 	void DrawShadow(bgfx::ViewId view, const ShadowMap& map, float timeSeconds);
@@ -307,7 +304,6 @@ private:
 	ProjectorMaps projector_;
 	const ShadowMap* shadow_ = nullptr;
 	const ShadowMap* modelShadow_ = nullptr;
-	const ShadowMap* worldOcclusion_ = nullptr;
 	size_t shadowDrawCalls_ = 0;
 	TextureCache* textures_ = nullptr; // for the projector maps only
 	std::string levelHint_;

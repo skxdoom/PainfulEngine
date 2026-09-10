@@ -14,15 +14,13 @@ public:
 	// The flashlight's depth pass goes first, into its own target, so the
 	// world and the models can sample it. Render/ShadowMap.h owns the view.
 	static constexpr bgfx::ViewId kShadowView = 0;
-	// The models' shadows from the environment directional, and the world's
-	// own depth from the same light, which says where that light reaches.
+	// The models' shadows from the environment directional, likewise.
 	static constexpr bgfx::ViewId kModelShadowView = 1;
-	static constexpr bgfx::ViewId kWorldShadowView = 2;
 	// Sky is drawn next and owns the clear; the world paints over it.
-	static constexpr bgfx::ViewId kSkyView = 3;
-	static constexpr bgfx::ViewId kWorldView = 4;
+	static constexpr bgfx::ViewId kSkyView = 2;
+	static constexpr bgfx::ViewId kWorldView = 3;
 	// The 2D layer, drawn over everything: no depth, in submission order.
-	static constexpr bgfx::ViewId kHudView = 5;
+	static constexpr bgfx::ViewId kHudView = 4;
 
 	~Renderer() { Shutdown(); }
 	// Owns GPU handles that Shutdown destroys, so it is not copyable: a copy
