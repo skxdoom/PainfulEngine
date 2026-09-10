@@ -20,7 +20,10 @@ public:
 	Window(const Window&) = delete;
 	Window& operator=(const Window&) = delete;
 
+	// Opens HIDDEN, so the mode can be set before anything is on screen;
+	// Show puts it up (PAINFUL_HIDDEN keeps it down).
 	bool Open(const std::string& title, int width, int height);
+	void Show();
 	void Close();
 
 	// Processes pending events. Returns false once the user asks to quit.

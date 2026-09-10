@@ -94,14 +94,9 @@ bool Window::Open(const std::string& title, int width, int height) {
 		LogWarn("SDL_Init failed: %s", SDL_GetError());
 		return false;
 	}
-	// PAINFUL_HIDDEN keeps the window off the screen. Automated runs still
-	// need a real window - bgfx wants a native handle and the frame has to be
-	// rendered for a screenshot to mean anything - but a scripted test popping
-	// a window onto the desktop, stealing focus and vanishing is noise when a
-	// batch of them runs back to back.
-	SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE;
-	if (DebugFlag("PAINFUL_HIDDEN")) flags |= SDL_WINDOW_HIDDEN;
-
+	// Hidden until Show: the caller sets the mode first, so the window never
+	// appears at one size and jumps to another.
+	const SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN;
 	window_ = SDL_CreateWindow(title.c_str(), width, height, flags);
 	if (!window_) {
 		LogWarn("SDL_CreateWindow failed: %s", SDL_GetError());
@@ -112,30 +107,56 @@ bool Window::Open(const std::string& title, int width, int height) {
 	return true;
 }
 
+void Window::Show() {
+	// PAINFUL_HIDDEN keeps the window off the screen. Automated runs still
+	// need a real window - bgfx wants a native handle and the frame has to be
+	// rendered for a screenshot to mean anything - but a scripted test popping
+	// a window onto the desktop, stealing focus and vanishing is noise when a
+	// batch of them runs back to back.
+	if (window_ && !DebugFlag("PAINFUL_HIDDEN")) SDL_ShowWindow(window_);
+}
+
 void Window::SetMode(int width, int height, Mode mode) {
 	if (!window_ || width <= 0 || height <= 0) return;
+	// The size is kept current here as well as from the resize event, so a
+	// renderer started right after this sees the mode's size, not the
+	// window's opening one.
 	switch (mode) {
 	case Mode::kFullscreen: {
 		SDL_DisplayMode found;
 		const SDL_DisplayID display = SDL_GetDisplayForWindow(window_);
 		if (SDL_GetClosestFullscreenDisplayMode(display, width, height, 0.f, false, &found)) {
 			SDL_SetWindowFullscreenMode(window_, &found);
+			width_ = found.w;
+			height_ = found.h;
 		} else {
 			LogWarn("window: no fullscreen mode near %dx%d, using the desktop", width, height);
 			SDL_SetWindowFullscreenMode(window_, nullptr);
+			if (const SDL_DisplayMode* desktop = SDL_GetDesktopDisplayMode(display)) {
+				width_ = desktop->w;
+				height_ = desktop->h;
+			}
 		}
 		SDL_SetWindowFullscreen(window_, true);
 		break;
 	}
-	case Mode::kBorderless:
+	case Mode::kBorderless: {
 		// SDL's desktop fullscreen: no mode switch, the window fills the
 		// display at the desktop's size. The requested size is not used.
 		SDL_SetWindowFullscreenMode(window_, nullptr);
 		SDL_SetWindowFullscreen(window_, true);
+		const SDL_DisplayID display = SDL_GetDisplayForWindow(window_);
+		if (const SDL_DisplayMode* desktop = SDL_GetDesktopDisplayMode(display)) {
+			width_ = desktop->w;
+			height_ = desktop->h;
+		}
 		break;
+	}
 	case Mode::kWindowed:
 		SDL_SetWindowFullscreen(window_, false);
 		SDL_SetWindowSize(window_, width, height);
+		width_ = width;
+		height_ = height;
 		break;
 	}
 	LogInfo("window: %dx%d %s", width, height,

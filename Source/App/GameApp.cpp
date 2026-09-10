@@ -14,6 +14,7 @@
 #include "Core/AppPaths.h"
 #include "Core/Check.h"
 #include "Core/Config.h"
+#include "Game/ConfigConsole.h"
 #include "Core/Debug.h"
 #include "Core/Version.h"
 #include "Core/FileSystem.h"
@@ -52,6 +53,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <fstream>
 #include <cstdlib>
 #include <filesystem>
 #include <map>
@@ -106,16 +108,80 @@ static bool ProjectToScreen(const Vec3& world, const float viewProj[16],
 	return true;
 }
 
+// Cfg.Resolution and Cfg.Fullscreen straight out of config.ini, before the
+// scripts are up, so the window can open at that size and mode rather than
+// at a default and jump once Cfg loads. Looked for where LuaHost::ResolvePath
+// looks for a bare "config.ini": beside the executable, then the Bin/ beside
+// the data root, then the working directory. False when no file or no field
+// is found - a first run keeps the default.
+static bool ConfigIniVideo(const std::string& dataRoot, int& w, int& h, bool& fullscreen) {
+	const std::string& cfgPath = Settings().path();
+	size_t slash = cfgPath.find_last_of("/\\");
+	const std::string exeDir = slash == std::string::npos ? std::string(".") : cfgPath.substr(0, slash);
+	slash = dataRoot.find_last_of("/\\");
+	const std::string parent = slash == std::string::npos ? std::string(".") : dataRoot.substr(0, slash);
+	const std::string candidates[3] = {exeDir + "/config.ini", parent + "/Bin/config.ini",
+			"config.ini"};
+	std::ifstream in;
+	for (const std::string& c : candidates) {
+		in.open(c);
+		if (in) break;
+		in.clear();
+	}
+	if (!in) return false;
+	std::string line;
+	bool have = false;
+	while (std::getline(in, line)) {
+		int a = 0, b = 0;
+		if (std::sscanf(line.c_str(), " Cfg.Resolution = \"%d%*[xX]%d\"", &a, &b) == 2 &&
+				a > 0 && b > 0) {
+			w = a;
+			h = b;
+			have = true;
+		} else if (line.rfind("Cfg.Fullscreen", 0) == 0) {
+			fullscreen = line.find("true") != std::string::npos;
+		}
+	}
+	return have;
+}
+
 // Script-driven windowed run: the game's own Lua loads the level and creates
 // every entity through the native API; the C++ side supplies the window, the
 // renderer and a free camera. The counterpart to `run`, which drives the
 // same subsystems by hand - as natives grow real, this path takes over.
 int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		const std::string& shotPath, const char* exec, bool devUI, bool mpMove) {
+	// The window mode: PAINFUL_WINDOWED=1 keeps a diagnostic run out of
+	// fullscreen; painful_config.ini WindowMode decides every time a
+	// resolution is applied - 0 follows Cfg.Fullscreen as the original did,
+	// 1 is always a window, 2 always borderless.
+	auto windowMode = [](bool fullscreen) {
+		const char* windowed = DebugText("PAINFUL_WINDOWED");
+		if (windowed && *windowed && *windowed != '0') return Window::Mode::kWindowed;
+		switch (Settings().GetInt("WindowMode", 0)) {
+		case 1: return Window::Mode::kWindowed;
+		case 2: return Window::Mode::kBorderless;
+		default: return fullscreen ? Window::Mode::kFullscreen : Window::Mode::kWindowed;
+		}
+	};
+	// The window opens at config.ini's resolution and mode from the start.
+	// PAINFUL_RES=WxH overrides the size.
+	int bootW = 1280, bootH = 720;
+	bool bootFullscreen = false;
+	ConfigIniVideo(dataRoot, bootW, bootH, bootFullscreen);
+	if (const char* over = DebugText("PAINFUL_RES")) {
+		int a = 0, b = 0;
+		if (std::sscanf(over, "%d%*[xX]%d", &a, &b) == 2 && a > 0 && b > 0) {
+			bootW = a;
+			bootH = b;
+		}
+	}
+
 	// The window, the device, and everything keyed by name rather than by
 	// level. Shared with PainfulTools' `run` viewer; see Game/EngineBoot.h.
 	EngineBoot boot;
-	if (!boot.Init(dataRoot, exePath, kAppName)) return 3;
+	if (!boot.Init(dataRoot, exePath, kAppName, bootW, bootH, windowMode(bootFullscreen)))
+		return 3;
 	const std::string& root = boot.root();
 	const std::string& shaderDir = boot.shaderDir();
 	Window& window = boot.window();
@@ -138,41 +204,18 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	// switches it, ShadowMapSize sizes it (512 by the user's eye - 2048 read
 	// as too crisp for a torch). PAINFUL_SHADOWMAP overrides both; 0 is off.
 	// Docs/Reference/Lighting.md, "Shadows"
+	// The three are sized and switched by ApplySettings below, from
+	// painful_config.ini, and again whenever the console's `pf` changes it.
 	ShadowMap shadow;
-	{
-		const bool on = Settings().GetBool("FlashlightShadows", true);
-		const int size = on ? Settings().GetInt("ShadowMapSize", 512) : 0;
-		shadow.Init(shaderDir, DebugInt("PAINFUL_SHADOWMAP", size));
-	}
 	// The models' shadows from the environment directional: an orthographic
-	// box about the camera that only the models cast into. ModelShadows,
-	// ModelShadowMapSize and ModelShadowStrength in painful_config.ini.
+	// box about the camera that only the models cast into.
 	ShadowMap modelShadow;
-	{
-		const bool on = Settings().GetBool("ModelShadows", true);
-		const int size = on ? Settings().GetInt("ModelShadowMapSize", 1024) : 0;
-		if (DebugInt("PAINFUL_SHADOWMAP", 1) > 0) modelShadow.Init(shaderDir, size);
-		modelShadow.SetStrength(float(Settings().GetInt("ModelShadowStrength", 60)) / 100.f);
-	}
 	entities.SetModelShadowMap(&modelShadow);
-	// The placed lights' shadows, models only: LightShadows, LightShadowLights,
-	// LightShadowMapSize in painful_config.ini.
+	// The placed lights' shadows.
 	LightShadowAtlas lightShadows;
-	{
-		const bool on = Settings().GetBool("LightShadows", true);
-		const int count = Settings().GetInt("LightShadowLights", 4);
-		const int size = Settings().GetInt("LightShadowMapSize", 256);
-		lightShadows.SetBaseView(Renderer::kLightShadowViewBase);
-		if (on && DebugInt("PAINFUL_SHADOWMAP", 1) > 0)
-			lightShadows.Init(shaderDir, size, std::min(count, int(Renderer::kLightShadowViewCount / 6)));
-	}
+	lightShadows.SetBaseView(Renderer::kLightShadowViewBase);
 	entities.SetLightShadowAtlas(&lightShadows);
-	const float kLightShadowRadius = float(Settings().GetInt("LightShadowRadius", 40));
-	// ModelLighting: 0 the original's mix, 1 led by the lights.
-	if (Settings().GetInt("ModelLighting", 0) == 1)
-		entities.SetLightingMix(float(Settings().GetInt("ModelAmbientScale", 50)) / 100.f,
-				float(Settings().GetInt("ModelDirectionalScale", 50)) / 100.f,
-				float(Settings().GetInt("ModelLightScale", 100)) / 100.f);
+	float lightShadowRadius = 40.f;
 	constexpr float kModelShadowExtent = 24.f; // half-width of the box, world units
 	constexpr float kModelShadowDepth = 24.f; // half-depth along the light
 	entities.SetShadowMap(&shadow);
@@ -217,14 +260,6 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	// loading screen is itself a HUD script.
 	HudRenderer hud;
 	const bool hudReady = hud.Init(shaderDir, root + "/Fonts");
-	// painful_config.ini: HudAspect = 0 stretched (the original), 1 centred
-	// 4:3, 2 anchored by thirds.
-	{
-		const int aspect = Settings().GetInt("HudAspect", 2);
-		hud.SetAspect(aspect == 0 ? HudRenderer::Aspect::kStretch
-				: aspect == 1 ? HudRenderer::Aspect::kCentered
-				: HudRenderer::Aspect::kAnchored);
-	}
 	if (hudReady) engine.AttachHud(&hud, &textures);
 
 	// The debug overlays: F1 collision wireframe, F2 the same without the
@@ -335,22 +370,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	const bool noLevel = levelName == nullptr || levelName[0] == '\0';
 	host.CallGameInit(noLevel);
 
-	// The video mode, from config.ini once Cfg is loaded, and again whenever
-	// the Video Options screen applies. PAINFUL_WINDOWED=1 keeps a diagnostic
-	// run out of fullscreen; PAINFUL_RES=WxH overrides the size.
-	// painful_config.ini WindowMode decides the mode every time a resolution
-	// is applied: 0 follows Cfg.Fullscreen as the original did, 1 is always
-	// a window, 2 always borderless. A resolution change from the Video
-	// Options screen keeps the mode.
-	auto windowMode = [](bool fullscreen) {
-		const char* windowed = DebugText("PAINFUL_WINDOWED");
-		if (windowed && *windowed && *windowed != '0') return Window::Mode::kWindowed;
-		switch (Settings().GetInt("WindowMode", 0)) {
-		case 1: return Window::Mode::kWindowed;
-		case 2: return Window::Mode::kBorderless;
-		default: return fullscreen ? Window::Mode::kFullscreen : Window::Mode::kWindowed;
-		}
-	};
+	// The video mode again, from Cfg now that the scripts have loaded it -
+	// the same values the window opened with unless the file was edited by
+	// hand in a shape ConfigIniVideo did not read - and whenever the Video
+	// Options screen applies. A resolution change from there keeps the mode.
 	engine.SetVideoModeHandler([&window, windowMode](int w, int h, bool fullscreen) {
 			window.SetMode(w, h, windowMode(fullscreen));
 			});
@@ -377,8 +400,61 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	const bool worldInit = world.Init(shaderDir);
 	world.SetShadowMap(&shadow);
 	world.SetModelShadowMap(&modelShadow);
-	world.SetLightShadowStrength(float(Settings().GetInt("LightShadowWorldStrength", 100)) / 100.f);
 	bool worldReady = false;
+
+	// painful_config.ini, applied: at boot, and again on the frame after the
+	// console's `pf` changed a value. Maps are rebuilt only when their size
+	// changed; everything else is a setter. PAINFUL_SHADOWMAP still overrides
+	// the flashlight's size, 0 turning every map off.
+	int shadowSize = -1, modelSize = -1, atlasSize = -1, atlasCount = -1;
+	unsigned appliedSettings = 0;
+	auto applySettings = [&]() {
+		appliedSettings = Settings().generation();
+		const EngineConfig& cfg = Settings();
+		const bool anyMaps = DebugInt("PAINFUL_SHADOWMAP", 1) > 0;
+
+		const int aspect = cfg.GetInt("HudAspect", 2);
+		hud.SetAspect(aspect == 0 ? HudRenderer::Aspect::kStretch
+				: aspect == 1 ? HudRenderer::Aspect::kCentered
+				: HudRenderer::Aspect::kAnchored);
+
+		int size = cfg.GetBool("FlashlightShadows", true) ? cfg.GetInt("ShadowMapSize", 512) : 0;
+		size = DebugInt("PAINFUL_SHADOWMAP", size);
+		if (size != shadowSize) {
+			shadow.Shutdown();
+			shadow.Init(shaderDir, size);
+			shadowSize = size;
+		}
+
+		size = anyMaps && cfg.GetBool("ModelShadows", true) ? cfg.GetInt("ModelShadowMapSize", 1024) : 0;
+		if (size != modelSize) {
+			modelShadow.Shutdown();
+			modelShadow.Init(shaderDir, size);
+			modelSize = size;
+		}
+		modelShadow.SetStrength(float(cfg.GetInt("ModelShadowStrength", 60)) / 100.f);
+
+		size = anyMaps && cfg.GetBool("LightShadows", true) ? cfg.GetInt("LightShadowMapSize", 256) : 0;
+		const int count = std::min(cfg.GetInt("LightShadowLights", 8),
+				int(Renderer::kLightShadowViewCount / 6));
+		if (size != atlasSize || count != atlasCount) {
+			lightShadows.Shutdown();
+			lightShadows.Init(shaderDir, size, count);
+			atlasSize = size;
+			atlasCount = count;
+		}
+		lightShadowRadius = float(cfg.GetInt("LightShadowRadius", 40));
+		world.SetLightShadowStrength(float(cfg.GetInt("LightShadowWorldStrength", 100)) / 100.f);
+
+		// ModelLighting: 0 the original's mix, 1 led by the lights.
+		if (cfg.GetInt("ModelLighting", 0) == 1)
+			entities.SetLightingMix(float(cfg.GetInt("ModelAmbientScale", 50)) / 100.f,
+					float(cfg.GetInt("ModelDirectionalScale", 50)) / 100.f,
+					float(cfg.GetInt("ModelLightScale", 100)) / 100.f);
+		else
+			entities.SetLightingMix(1.f, 1.f, 1.f);
+	};
+	applySettings();
 	SkyRenderer sky;
 	const bool skyInit = sky.Init(shaderDir);
 	bool skyReady = false;
@@ -853,16 +929,22 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		{
 			std::string line;
 			switch (con.TakePending(line)) {
-			case Console::kPendCommand: host.CallGlobalStr("Hud_OnConsoleCommand", line); break;
+			case Console::kPendCommand:
+				// A `pf...` command is the engine's own and never reaches the scripts.
+				if (!ConfigCommand(line, con)) host.CallGlobalStr("Hud_OnConsoleCommand", line);
+				break;
 			case Console::kPendSayAll: host.CallGlobalStr("Hud_OnSayToAll", line); break;
 			case Console::kPendSayTeam: {
 				const double green[1] = {double(0xFF00FF00u)};
 				host.CallGlobalStr("Hud_OnSayToTeam", line, green, 1);
 				break;
 			}
-			case Console::kPendTab: host.CallGlobalStr("Hud_OnConsoleTab", line); break;
+			case Console::kPendTab:
+				if (!ConfigTab(line, con)) host.CallGlobalStr("Hud_OnConsoleTab", line);
+				break;
 			default: break;
 			}
+			if (Settings().generation() != appliedSettings) applySettings();
 		}
 
 		// Paused freezes the SIMULATION and nothing else: no actor tick, no
@@ -1049,7 +1131,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		// The placed lights worth a map this frame, and their faces aimed.
 		lightShadows.BeginFrame();
 		if (lightShadows.ready()) {
-			entities.PickShadowLights(camera, lightShadows.slots(), kLightShadowRadius);
+			entities.PickShadowLights(camera, lightShadows.slots(), lightShadowRadius);
 			for (const ShadowedLight& s : entities.shadowLights())
 				lightShadows.Begin(s.slot, *s.light);
 		}

@@ -145,6 +145,34 @@ auto-stub module tables, which log and return nothing. Measured: every
 `Game:OnPlay` from inside the command; the windowed loop's level-change
 hook picks that up the same way the menu's map screen does.
 
+## pf
+
+The engine's own commands, in the shape of the scripts' `pkweapons` and
+`fov`: one lowercase word, the setting's name behind a `pf`. Claimed before
+`Hud_OnConsoleCommand` sees the line (`Game/ConfigConsole.cpp`), so
+`painful_config.ini` is reachable from inside the game with no script touched.
+
+```
+pfmodellighting       as `fov` answers: the usage line, then the value
+                        pfmodellighting value  (0 as the original, 1 led by the lights ...)
+                        current pfmodellighting:  0
+pfmodellighting 1     sets it, writes painful_config.ini, applied next frame
+```
+
+Tab completes them the way `Console:OnPrompt` completes the scripts' own:
+several matches list themselves and leave the common part typed, one
+completes with a space after it - so `pf` and Tab is the list. A leading `\`,
+`/` or `.` is accepted as it is there. A boolean takes 1/0, true/false,
+on/off, yes/no and is stored as true/false; anything else must be a whole
+number, and a value that is neither is refused with the reason. A set writes
+the file at once, as the scripts' `fov` writes `Cfg` - there is no separate
+save. The loop applies a change on the frame after it: setters for the
+strengths, scales and radius, and a map rebuilt only when its size or count
+changed. The file itself is written the way the original writes
+`config.ini` - one `Pf.Key = value` a line, in a fixed order, no prose - and
+a file from an older build (`Key = value`, comment blocks) is read and
+rewritten in that style at the next start.
+
 ## Not carried
 
 - The demo recorder (`CONSOLE.Demo*`): no recording format was recovered.

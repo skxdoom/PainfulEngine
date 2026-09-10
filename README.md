@@ -58,10 +58,12 @@ patch archives are layered the same way the original engine mounts them.
 
 The original's `config.ini` keeps all of its settings. Settings that are new
 with Painful Engine live in `painful_config.ini`, written beside the
-executable on first run with comments for each key: the widescreen HUD mode,
-the window mode (fullscreen, windowed or borderless) and the shadow maps
-(the flashlight's, the models' from the level's directional, and the placed
-lights' on the models: on/off, size, strength, how many lights) so far. Logs go
+executable on first run in the same style, one `Pf.Key = value` a line: the
+widescreen HUD mode, the window mode (fullscreen, windowed or borderless) and
+the shadow maps (the flashlight's, the models' from the level's directional,
+and the placed lights': on/off, size, strength, how many lights) so far. In
+the game the console sets them the way it sets the original's: `pfhudaspect
+2`, written at once; Tab lists them and a bare `pfhudaspect` explains it. Logs go
 beside it too: `painful.log`, with each line tagged by category, and
 `painful_crash.log` after a crash. `PAINFUL_LOG=warn|info|trace` sets how much
 reaches it.

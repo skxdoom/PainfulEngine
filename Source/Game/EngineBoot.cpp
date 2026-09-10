@@ -9,11 +9,13 @@
 namespace painful {
 
 bool EngineBoot::Init(const std::string& dataRoot, const char* exePath, const std::string& title,
-		int width, int height) {
+		int width, int height, Window::Mode mode) {
 	root_ = dataRoot;
 	shaderDir_ = ShaderDirFor(exePath);
 
 	if (!window_.Open(title, width, height)) return false;
+	window_.SetMode(width, height, mode);
+	window_.Show();
 	if (!renderer_.Init(window_)) return false;
 	LogInfo("renderer: %s", renderer_.BackendName().c_str());
 	// Which diagnostic switches this run had on, so a log explains its own odd

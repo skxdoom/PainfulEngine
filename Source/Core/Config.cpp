@@ -19,80 +19,72 @@ std::string Trim(const std::string& s) {
 	return s.substr(a, b - a);
 }
 
-// The keys the engine knows, with their defaults and the comment written
-// above each in the file. Anything else in the file is kept as it was.
-struct Known {
-	const char* key;
-	const char* value;
-	const char* comment;
+std::string Lower(std::string s) {
+	for (char& c : s) c = char(std::tolower(static_cast<unsigned char>(c)));
+	return s;
+}
+
+// The prefix the file carries on every line, the way config.ini says Cfg.
+const char* kPrefix = "Pf.";
+
+// The keys the engine knows, in the order the file is written. Booleans are
+// written true/false. The help is one line, for the console's `pf help`.
+const EngineConfig::Known kKnown[] = {
+	{"HudAspect", "2", false, "4:3 interface on a wide screen: 0 stretched, 1 centred, 2 anchored by thirds"},
+	{"WindowMode", "0", false, "0 config.ini's Fullscreen decides, 1 always a window, 2 borderless"},
+	{"FlashlightShadows", "true", true, "the flashlight casts shadows"},
+	{"ShadowMapSize", "512", false, "flashlight shadow map, texels"},
+	{"ModelShadows", "true", true, "models cast shadows from the level's directional light"},
+	{"ModelShadowMapSize", "1024", false, "model shadow map, texels, over 48 units about the camera"},
+	{"ModelShadowStrength", "60", false, "how dark a model's shadow falls on the world, percent"},
+	{"LightShadows", "true", true, "the placed lights cast shadows"},
+	{"LightShadowLights", "8", false, "placed lights with a shadow map per frame, up to 8"},
+	{"LightShadowRadius", "40", false, "how far from the camera a placed light gets a map, units"},
+	{"LightShadowMapSize", "256", false, "placed light shadow map, texels per face"},
+	{"LightShadowWorldStrength", "100", false, "how much of a placed light a model's shadow takes off the world, percent"},
+	{"ModelLighting", "0", false, "0 as the original, 1 led by the lights (the three scales below)"},
+	{"ModelAmbientScale", "50", false, "mode 1: percent of the box ambient a model keeps"},
+	{"ModelDirectionalScale", "50", false, "mode 1: percent of the box directional a model keeps"},
+	{"ModelLightScale", "100", false, "mode 1: percent of the lights' strength on a model"},
 };
-const Known kKnown[] = {
-	{"HudAspect", "2",
-			"How the 4:3 interface is laid onto a wider screen.\n"
-			"#   0 - as the original: stretched to the window\n"
-			"#   1 - the whole interface centred in a 4:3 area\n"
-			"#   2 - anchored: the left third of the interface sticks to the left edge, the\n"
-			"#       right third to the right edge, the middle stays centred (health left,\n"
-			"#       ammo right, crosshair centred)"},
-	{"WindowMode", "0",
-			"The window mode, kept whenever a resolution is applied in the video options.\n"
-			"#   0 - as the original: config.ini's Fullscreen decides, fullscreen or a window\n"
-			"#   1 - always a window, at the chosen resolution\n"
-			"#   2 - always borderless: fills the desktop at its own size; the resolution\n"
-			"#       setting is not used"},
-	{"FlashlightShadows", "1",
-			"Whether the flashlight casts shadows: the world and every model into one\n"
-			"# shadow map. 1 on, 0 off. The video options' Shadows setting toggles it too."},
-	{"ShadowMapSize", "512",
-			"The shadow map's size in texels. Larger is sharper and dearer; 512 reads as\n"
-			"# a torch beam, 2048 as a spotlight."},
-	{"ModelShadows", "1",
-			"Whether the models cast shadows from the level's directional light, onto\n"
-			"# the world and each other. 1 on, 0 off. The world's own shadows are baked\n"
-			"# into its lightmaps and are not affected."},
-	{"ModelShadowMapSize", "1024",
-			"The model shadow map's size in texels. It covers 48 units about the camera."},
-	{"LightShadows", "1",
-			"Whether the placed lights - lamps, torches, candles - cast shadows on the\n"
-			"# models, each other and themselves included. The world keeps its lightmap.\n"
-			"# 1 on, 0 off."},
-	{"LightShadowLights", "8",
-			"How many placed lights get a shadow map each frame, the strongest within\n"
-			"# the radius below; the rest light without shadows. Up to 8."},
-	{"LightShadowRadius", "40",
-			"How far from the camera, in world units, a placed light can be and still\n"
-			"# get a shadow map. Its shadows fade out over the outer third of that."},
-	{"LightShadowMapSize", "256",
-			"Texels per face of a placed light's shadow map; a point light has six."},
-	{"LightShadowWorldStrength", "100",
-			"How much of a placed light a model's shadow takes off the world beneath it,\n"
-			"# in percent of that light's own contribution as the engine computes it - the\n"
-			"# lightmap already holds the light, so the shadow subtracts. 0 keeps the\n"
-			"# world untouched."},
-	{"ModelLighting", "0",
-			"How the models are lit.\n"
-			"#   0 - as the original: the environment box's ambient and directional at\n"
-			"#       full, the placed and dynamic lights on top\n"
-			"#   1 - led by the lights: the box's ambient and directional scaled by the\n"
-			"#       two values below, the lights by the third, so a model's shade side\n"
-			"#       goes as dark as the shadow it casts"},
-	{"ModelAmbientScale", "50",
-			"Mode 1: percent of the box ambient a model keeps."},
-	{"ModelDirectionalScale", "50",
-			"Mode 1: percent of the box directional a model keeps."},
-	{"ModelLightScale", "100",
-			"Mode 1: percent of the placed and dynamic lights' strength on a model."},
-	{"ModelShadowStrength", "60",
-			"How dark a model's shadow falls on the world, in percent of the baked light,\n"
-			"# where the level's environment boxes give their full directional; a box that\n"
-			"# says shade weakens the shadow with the light."},
-};
+
+const EngineConfig::Known* FindKnown(const std::string& key) {
+	const std::string want = Lower(key);
+	for (const EngineConfig::Known& k : kKnown)
+		if (Lower(k.key) == want) return &k;
+	return nullptr;
+}
+
+bool ParseBool(const std::string& v, bool& out) {
+	const std::string s = Lower(Trim(v));
+	if (s == "1" || s == "true" || s == "yes" || s == "on") { out = true; return true; }
+	if (s == "0" || s == "false" || s == "no" || s == "off") { out = false; return true; }
+	return false;
+}
 
 } // namespace
 
+const EngineConfig::Known* EngineConfig::KnownKeys(size_t& count) {
+	count = sizeof(kKnown) / sizeof(kKnown[0]);
+	return kKnown;
+}
+
+bool EngineConfig::Canonical(const std::string& key, std::string& out) const {
+	const Known* k = FindKnown(key);
+	if (!k) return false;
+	out = k->key;
+	return true;
+}
+
 bool EngineConfig::Load(const std::string& dir) {
 	path_ = dir.empty() ? std::string(FileName()) : dir + "/" + FileName();
+	return Reload();
+}
+
+bool EngineConfig::Reload() {
+	values_.clear();
 	for (const Known& k : kKnown) values_[k.key] = k.value;
+	++generation_;
 
 	std::ifstream in(path_);
 	if (!in) {
@@ -101,39 +93,41 @@ bool EngineConfig::Load(const std::string& dir) {
 	}
 	std::string line;
 	std::map<std::string, bool> seen;
+	bool oldStyle = false;
 	while (std::getline(in, line)) {
 		const std::string t = Trim(line);
 		if (t.empty() || t[0] == '#' || t[0] == ';' || t[0] == '[') continue;
 		const size_t eq = t.find('=');
 		if (eq == std::string::npos) continue;
-		const std::string key = Trim(t.substr(0, eq));
-		values_[key] = Trim(t.substr(eq + 1));
-		seen[key] = true;
+		std::string key = Trim(t.substr(0, eq));
+		// An older file said `Key = value` with no prefix.
+		if (Lower(key).rfind(Lower(kPrefix), 0) == 0) key = key.substr(3);
+		else oldStyle = true;
+		Set(key, Trim(t.substr(eq + 1)));
+		std::string canonical;
+		seen[Canonical(key, canonical) ? canonical : key] = true;
 	}
 	in.close();
-	// A key this build knows and the file does not: an older file. Rewritten
-	// so the new key appears with its comment, everything else kept.
+	// A key this build knows and the file does not, or the older style:
+	// rewritten so the file reads as this build writes it, everything kept.
+	bool missing = false;
 	for (const Known& k : kKnown)
-		if (!seen.count(k.key)) { Save(); break; }
+		if (!seen.count(k.key)) missing = true;
+	if (missing || oldStyle) Save();
 	return true;
 }
 
 bool EngineConfig::Save() const {
 	std::ofstream out(path_);
 	if (!out) return false;
-	out << "# PainfulEngine settings. The original's config.ini keeps everything it\n"
-			"# always had; only what is new with PainfulEngine lives here.\n";
 	std::map<std::string, std::string> rest = values_;
 	for (const Known& k : kKnown) {
-		out << "\n# " << k.comment << "\n";
 		const auto it = rest.find(k.key);
-		out << k.key << " = " << (it != rest.end() ? it->second : k.value) << "\n";
+		out << kPrefix << k.key << " = " << (it != rest.end() ? it->second : k.value) << "\n";
 		if (it != rest.end()) rest.erase(it);
 	}
-	if (!rest.empty()) {
-		out << "\n# Not known to this build, kept as found.\n";
-		for (const auto& kv : rest) out << kv.first << " = " << kv.second << "\n";
-	}
+	// Not known to this build, kept as found.
+	for (const auto& kv : rest) out << kPrefix << kv.first << " = " << kv.second << "\n";
 	return true;
 }
 
@@ -145,6 +139,9 @@ std::string EngineConfig::GetString(const std::string& key, const std::string& f
 int EngineConfig::GetInt(const std::string& key, int fallback) const {
 	const auto it = values_.find(key);
 	if (it == values_.end()) return fallback;
+	bool b;
+	if (ParseBool(it->second, b) && !std::isdigit(static_cast<unsigned char>(it->second[0])))
+		return b ? 1 : 0;
 	char* end = nullptr;
 	const long v = std::strtol(it->second.c_str(), &end, 10);
 	return end && *end == '\0' ? int(v) : fallback;
@@ -153,15 +150,19 @@ int EngineConfig::GetInt(const std::string& key, int fallback) const {
 bool EngineConfig::GetBool(const std::string& key, bool fallback) const {
 	const auto it = values_.find(key);
 	if (it == values_.end()) return fallback;
-	std::string v = it->second;
-	for (char& c : v) c = char(std::tolower(static_cast<unsigned char>(c)));
-	if (v == "1" || v == "true" || v == "yes" || v == "on") return true;
-	if (v == "0" || v == "false" || v == "no" || v == "off") return false;
-	return fallback;
+	bool b;
+	return ParseBool(it->second, b) ? b : fallback;
 }
 
 void EngineConfig::Set(const std::string& key, const std::string& value) {
-	values_[key] = value;
+	const Known* k = FindKnown(key);
+	std::string v = Trim(value);
+	if (k && k->boolean) {
+		bool b;
+		if (ParseBool(v, b)) v = b ? "true" : "false";
+	}
+	values_[k ? k->key : key] = v;
+	++generation_;
 }
 
 EngineConfig& Settings() {
@@ -169,7 +170,7 @@ EngineConfig& Settings() {
 	static bool defaults = false;
 	if (!defaults) {
 		defaults = true;
-		for (const Known& k : kKnown) config.Set(k.key, k.value);
+		for (const EngineConfig::Known& k : kKnown) config.Set(k.key, k.value);
 	}
 	return config;
 }

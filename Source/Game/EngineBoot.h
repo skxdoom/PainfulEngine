@@ -27,8 +27,12 @@ public:
 	// Opens the window and brings the device and the caches up. False when the
 	// window or the renderer will not start, which is the caller's cue to give
 	// up rather than draw into nothing.
+	// The window opens at width x height in `mode` and is shown only then,
+	// so it never appears at one size and jumps to another once the scripts'
+	// Cfg is read: the game reads config.ini's own fields first and passes
+	// them here.
 	bool Init(const std::string& dataRoot, const char* exePath, const std::string& title,
-			int width = 1280, int height = 720);
+			int width = 1280, int height = 720, Window::Mode mode = Window::Mode::kWindowed);
 
 	const std::string& root() const { return root_; }
 	// Where the per-backend compiled shaders live, for a subsystem that loads

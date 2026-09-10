@@ -79,6 +79,8 @@ public:
 
 	// Kept so the strip can time its lines out: the loop feeds its clock.
 	void SetClock(float now) { now_ = now; }
+	// A line into the panel from the engine's own commands (ConfigConsole).
+	void Print(const std::string& text) { AddLine(text, kMessageColor); }
 
 private:
 	struct Line {

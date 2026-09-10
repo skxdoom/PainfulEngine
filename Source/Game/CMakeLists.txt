@@ -12,6 +12,7 @@
 add_library(Game STATIC
 		MenuSystem.cpp MenuSystem.h
 		Console.cpp Console.h
+		ConfigConsole.cpp ConfigConsole.h
 		PlayerPawn.cpp PlayerPawn.h
 		EngineBoot.cpp EngineBoot.h
 		Input.cpp Input.h
