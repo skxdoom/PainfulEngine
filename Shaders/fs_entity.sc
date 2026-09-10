@@ -27,6 +27,8 @@ SAMPLER2D(s_stage1, 1);
 #define PAINFUL_PROJFALL_STAGE 3
 #define PAINFUL_SHADOW_STAGE 4
 #define PAINFUL_DIRSHADOW_STAGE 5
+// The placed lights' shadow atlas: models only, so only this shader has it.
+#define PAINFUL_LIGHTSHADOW_STAGE 6
 #include "shared_lights.sh"
 
 uniform vec4 u_params; // y: alpha-test ref (<0 off)
@@ -64,8 +66,8 @@ void main()
 	float ndotl = max(dot(n, u_dirDir.xyz), 0.0);
 	// Models cast the directional shadows and never receive them: the
 	// original lit a model from its box alone, and receiving was tried and
-	// judged not worth its artefacts. PAINFUL_SHADOWVIEW draws them grey.
-	if (u_dirShadowDir.w > 0.5) { gl_FragColor = vec4(vec3_splat(0.8), 1.0); return; }
+	// judged not worth its artefacts. The placed lights' shadows they DO
+	// receive, inside DynamicLights.
 	vec3 diffuse = u_ambient.rgb + u_dirColor.rgb * ndotl;
 
 	// The directional's specular, still `lit`-gated on N.L > 0 - a step in the
@@ -77,7 +79,12 @@ void main()
 			u_specular.y * smoothstep(0.0, u_specular.z, ndotl);
 
 	// Everything positional, exactly as the world mesh gets it.
-	DynamicLights(v_wpos, n, u_eye.xyz, u_specular.xyz, diffuse, specular);
+	float lightShadow = 1.0;
+	vec3 unusedOccluded = vec3_splat(0.0);
+	DynamicLights(v_wpos, n, u_eye.xyz, u_specular.xyz, diffuse, specular, lightShadow,
+			unusedOccluded);
+	// PAINFUL_SHADOWVIEW: models grey, darkened by the placed lights' term.
+	if (u_dirShadowDir.w > 0.5) { gl_FragColor = vec4(vec3_splat(0.8 * lightShadow), 1.0); return; }
 
 	// `texture modulate diffuse`, then `specular true` adds on top - the
 	// specular is NOT modulated by the texture, which is what makes it read as

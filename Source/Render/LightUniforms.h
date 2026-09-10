@@ -42,6 +42,11 @@ struct LightBlock {
 	float dirShadowParams[4] = {0.f, 0.f, 0.f, 0.f};
 	float dirShadowDir[4] = {0.f, 1.f, 0.f, 0.f};
 	float dirShadowFade[4] = {0.f, 0.f, 0.f, 0.f}; // x: edge fade width (uv)
+	// Per slot, the placed light's shadow in the atlas: (atlas slot or -1,
+	// A, B, fade) - LightShadowAtlas::ReceiverParams plus the pick's fade.
+	// PackLight writes -1.
+	float shadow[kMaxDynamicLights][4] = {};
+	float lightShadowInfo[4] = {0.f, -1.f, 0.f, 0.f}; // LightShadowAtlas::info
 };
 
 // Writes one light into a slot. projName is the projector texture the renderer
@@ -53,6 +58,10 @@ void PackLight(LightBlock& block, int slot, const LightSource& light,
 void PackShadow(LightBlock& block, const ShadowMap* shadow);
 // Same for the model shadows' orthographic map.
 void PackDirShadow(LightBlock& block, const ShadowMap* shadow);
+// Gives slot `slot` a placed-light shadow: params from
+// LightShadowAtlas::ReceiverParams, info from LightShadowAtlas::info.
+void PackLightShadow(LightBlock& block, int slot, const float params[4], const float info[4],
+		float fade);
 
 // The bgfx handles behind LightBlock. Both renderers own one; bgfx refcounts
 // uniforms by name, so creating the same names twice is a share, not a clash -
@@ -71,10 +80,13 @@ public:
 	// Every sampler is declared in the shader, so each is bound whether a
 	// projector light exists or not; an invalid shadow handle binds nothing,
 	// which the shader never reads while the block says off.
+	// The placed lights' atlas is bound only where the program samples it
+	// (the models); pass an invalid handle elsewhere.
 	void Submit(const LightBlock& block, int projStage, int projFallStage,
 			bgfx::TextureHandle proj, bgfx::TextureHandle projFall,
 			int shadowStage, bgfx::TextureHandle shadow,
-			int dirShadowStage, bgfx::TextureHandle dirShadow) const;
+			int dirShadowStage, bgfx::TextureHandle dirShadow,
+			int lightShadowStage, bgfx::TextureHandle lightShadow) const;
 
 private:
 	bgfx::UniformHandle count_ = BGFX_INVALID_HANDLE;
@@ -94,6 +106,9 @@ private:
 	bgfx::UniformHandle dirShadowDir_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle dirShadowFade_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle sDirShadow_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle dynShadow_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle lightShadowInfo_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle sLightShadow_ = BGFX_INVALID_HANDLE;
 };
 
 // The projector maps, loaded once for whichever light asks for one. Only

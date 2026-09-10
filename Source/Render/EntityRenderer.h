@@ -12,6 +12,7 @@
 #include "../World/Templates.h"
 #include "Camera.h"
 #include "LightUniforms.h"
+#include "LightShadowAtlas.h"
 #include "TextureCache.h"
 #include <bgfx/bgfx.h>
 #include <map>
@@ -83,6 +84,28 @@ public:
 	// and its colour - as a model standing there would be lit. What aims
 	// the model shadow map.
 	void DirectionalAt(const Vec3& pos, Vec3& toLight, Vec3& color) const;
+
+	// The lighting mix: what a model keeps of its box's ambient and
+	// directional, and of the positional lights. 1, 1, 1 is the original;
+	// ModelLighting = 1 in painful_config.ini lowers the first two so a
+	// model's shade side goes as dark as the shadow it casts.
+	void SetLightingMix(float ambient, float directional, float lights) {
+		ambientScale_ = ambient;
+		directionalScale_ = directional;
+		lightScale_ = lights;
+	}
+
+	// --- the placed lights' shadows ---
+	void SetLightShadowAtlas(const LightShadowAtlas* atlas) { lightShadows_ = atlas; }
+	// Picks the `count` lights worth a map this frame: the strongest within
+	// `radius` of the camera, important ones first, each with a fade that
+	// reaches zero at the radius so a light leaving the set fades its
+	// shadows rather than dropping them. After SetDynamicLights, before
+	// Draw. The caller aims the atlas at each pick.
+	void PickShadowLights(const Camera& camera, int count, float radius);
+	const std::vector<ShadowedLight>& shadowLights() const { return shadowPicks_; }
+	// The casters into every face of every picked light. After Draw.
+	void DrawLightShadows(float timeSeconds);
 	// Whether an instance casts into the shadow map. Off for the view model:
 	// it sits in front of the flashlight and would black out the beam.
 	void SetScriptCastsShadow(int slot, bool casts);
@@ -258,6 +281,10 @@ private:
 
 	// Recomputes the instance's world-space bounds from its model's bbox.
 	void UpdateBounds(Instance& instance, const GpuModel& model) const;
+	// One instance's opaque parts into a depth view, from the buffers Draw
+	// posed. Shared by every shadow pass.
+	void DrawCaster(bgfx::ViewId view, bgfx::ProgramHandle program, const Instance& instance,
+			const GpuModel& model, float timeSeconds);
 
 	// Returns an index into models_, loading and uploading on first use.
 	bool GetModel(const std::string& modelName, TextureCache& textures,
@@ -304,6 +331,9 @@ private:
 	ProjectorMaps projector_;
 	const ShadowMap* shadow_ = nullptr;
 	const ShadowMap* modelShadow_ = nullptr;
+	const LightShadowAtlas* lightShadows_ = nullptr;
+	std::vector<ShadowedLight> shadowPicks_;
+	float ambientScale_ = 1.f, directionalScale_ = 1.f, lightScale_ = 1.f;
 	size_t shadowDrawCalls_ = 0;
 	TextureCache* textures_ = nullptr; // for the projector maps only
 	std::string levelHint_;

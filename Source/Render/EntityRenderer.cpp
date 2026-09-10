@@ -1,6 +1,7 @@
 #include "EntityRenderer.h"
 #include "ShaderLoad.h"
 #include "ShadowMap.h"
+#include "LightShadowAtlas.h"
 #include "../Core/Vectors.h"
 #include "../Core/Check.h"
 #include "../Core/Debug.h"
@@ -681,48 +682,102 @@ void EntityRenderer::DirectionalAt(const Vec3& pos, Vec3& toLight, Vec3& color) 
 	color = lit.dirColor;
 }
 
+void EntityRenderer::DrawCaster(bgfx::ViewId view, bgfx::ProgramHandle program,
+		const Instance& instance, const GpuModel& model, float timeSeconds) {
+	const float identityUv[4] = {1.f, 1.f, 0.f, 0.f};
+	static const bool kNoATest = DebugFlag("PAINFUL_NOATEST");
+	const bool posing = model.skinned && !instance.skin.empty();
+
+	for (size_t partIndex = 0; partIndex < model.parts.size(); ++partIndex) {
+		const Part& part = model.parts[partIndex];
+		if (partIndex < instance.hiddenParts.size() && instance.hiddenParts[partIndex])
+			continue;
+		const MaterialState& mat =
+			instance.materialOverride ? instance.material : part.material;
+		// Only what writes depth casts, as in the world pass.
+		if ((mat.state & BGFX_STATE_BLEND_MASK) || !(mat.state & BGFX_STATE_WRITE_Z))
+			continue;
+		const float params[4] = {0.f, kNoATest ? -1.f : mat.alphaRef, 0.f, 0.f};
+		const float uvAnim[4] = {mat.pan0[0] * timeSeconds, mat.pan0[1] * timeSeconds,
+				0.f, 0.f};
+		const float tile[4] = {mat.tile0[0], mat.tile0[1], 1.f, 1.f};
+		bgfx::setUniform(uParams_, params);
+		bgfx::setUniform(uUvAnim_, uvAnim);
+		bgfx::setUniform(uUv0_, identityUv);
+		bgfx::setUniform(uTile_, tile);
+		bgfx::setTransform(instance.transform.m);
+		const uint32_t owner = part.vboOwner;
+		const bool usePosed = posing && owner < instance.posed.size() &&
+				bgfx::isValid(instance.posed[owner]);
+		if (usePosed) bgfx::setVertexBuffer(0, instance.posed[owner]);
+		else bgfx::setVertexBuffer(0, part.vbo);
+		bgfx::setIndexBuffer(part.ibo, part.firstIndex, part.indexCount);
+		bgfx::setTexture(0, sDiffuse_, part.diffuse, mat.sampler[0]);
+		bgfx::setState(ShadowMap::kState);
+		bgfx::submit(view, program);
+		++shadowDrawCalls_;
+	}
+}
+
 void EntityRenderer::DrawShadow(bgfx::ViewId view, const ShadowMap& map, float timeSeconds) {
 	// Counted across the maps drawn this frame; Draw resets it.
 	if (!map.active() || !bgfx::isValid(map.program())) return;
 	const Frustum& frustum = map.frustum();
-	const bgfx::ProgramHandle program = map.program();
-	const float identityUv[4] = {1.f, 1.f, 0.f, 0.f};
-	static const bool kNoATest = DebugFlag("PAINFUL_NOATEST");
-
 	for (Instance& instance : instances_) {
 		if (!instance.alive || !instance.visible || !instance.castsShadow) continue;
 		if (!frustum.VisibleAabb(instance.aabbLo, instance.aabbHi)) continue;
-		const GpuModel& model = models_[instance.model];
-		const bool posing = model.skinned && !instance.skin.empty();
+		DrawCaster(view, map.program(), instance, models_[instance.model], timeSeconds);
+	}
+}
 
-		for (size_t partIndex = 0; partIndex < model.parts.size(); ++partIndex) {
-			const Part& part = model.parts[partIndex];
-			if (partIndex < instance.hiddenParts.size() && instance.hiddenParts[partIndex])
-				continue;
-			const MaterialState& mat =
-				instance.materialOverride ? instance.material : part.material;
-			// Only what writes depth casts, as in the world pass.
-			if ((mat.state & BGFX_STATE_BLEND_MASK) || !(mat.state & BGFX_STATE_WRITE_Z))
-				continue;
-			const float params[4] = {0.f, kNoATest ? -1.f : mat.alphaRef, 0.f, 0.f};
-			const float uvAnim[4] = {mat.pan0[0] * timeSeconds, mat.pan0[1] * timeSeconds,
-					0.f, 0.f};
-			const float tile[4] = {mat.tile0[0], mat.tile0[1], 1.f, 1.f};
-			bgfx::setUniform(uParams_, params);
-			bgfx::setUniform(uUvAnim_, uvAnim);
-			bgfx::setUniform(uUv0_, identityUv);
-			bgfx::setUniform(uTile_, tile);
-			bgfx::setTransform(instance.transform.m);
-			const uint32_t owner = part.vboOwner;
-			const bool usePosed = posing && owner < instance.posed.size() &&
-					bgfx::isValid(instance.posed[owner]);
-			if (usePosed) bgfx::setVertexBuffer(0, instance.posed[owner]);
-			else bgfx::setVertexBuffer(0, part.vbo);
-			bgfx::setIndexBuffer(part.ibo, part.firstIndex, part.indexCount);
-			bgfx::setTexture(0, sDiffuse_, part.diffuse, mat.sampler[0]);
-			bgfx::setState(ShadowMap::kState);
-			bgfx::submit(view, program);
-			++shadowDrawCalls_;
+void EntityRenderer::PickShadowLights(const Camera& camera, int count, float radius) {
+	shadowPicks_.clear();
+	if (!lightShadows_ || !lightShadows_->ready() || count <= 0 || radius <= 0.f) return;
+
+	// Strength is colour x intensity, weighted by a fade over the outer
+	// third of the radius; the fade also reaches the shader, so the shadows
+	// of a light on its way out thin rather than pop. The flashlight has its
+	// own map and is left out; so is anything without a position.
+	const std::vector<LightSource>& lights = lighting_.dynamicLights();
+	struct Scored { float score; float fade; size_t index; };
+	std::vector<Scored> scored;
+	for (size_t j = 0; j < lights.size(); ++j) {
+		const LightSource& l = lights[j];
+		if (l.type == LightSource::kDirectional || !l.projector.empty()) continue;
+		if (l.range <= 0.f || l.intensity <= 0.f || l.fakeSpecular) continue;
+		const float dist = (l.pos - camera.pos).Length();
+		const float fadeFrom = radius * 0.7f;
+		float fade = 1.f;
+		if (dist >= radius) continue;
+		if (dist > fadeFrom) {
+			const float k = (dist - fadeFrom) / (radius - fadeFrom);
+			fade = 1.f - k * k * (3.f - 2.f * k);
+		}
+		const float lum = 0.299f * l.color[0] + 0.587f * l.color[1] + 0.114f * l.color[2];
+		const float strength = l.intensity * lum * fade;
+		if (strength <= 0.f) continue;
+		scored.push_back({strength + (l.important ? 1e6f : 0.f), fade, j});
+	}
+	std::sort(scored.begin(), scored.end(),
+			[](const Scored& a, const Scored& b) { return a.score > b.score; });
+	for (size_t i = 0; i < scored.size() && int(i) < count; ++i)
+		shadowPicks_.push_back({&lights[scored[i].index], int(i), scored[i].fade});
+}
+
+void EntityRenderer::DrawLightShadows(float timeSeconds) {
+	if (!lightShadows_ || !lightShadows_->ready() || !bgfx::isValid(lightShadows_->program()))
+		return;
+	const bgfx::ProgramHandle program = lightShadows_->program();
+	for (const ShadowedLight& s : shadowPicks_) {
+		const int faces = lightShadows_->faceCount(s.slot);
+		for (int f = 0; f < faces; ++f) {
+			const Frustum& frustum = lightShadows_->faceFrustum(s.slot, f);
+			const bgfx::ViewId view = lightShadows_->viewId(s.slot, f);
+			for (Instance& instance : instances_) {
+				if (!instance.alive || !instance.visible || !instance.castsShadow) continue;
+				if (!frustum.VisibleAabb(instance.aabbLo, instance.aabbHi)) continue;
+				DrawCaster(view, program, instance, models_[instance.model], timeSeconds);
+			}
 		}
 	}
 }
@@ -884,14 +939,25 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 	bgfx::TextureHandle modelShadowTex = BGFX_INVALID_HANDLE;
 	if (modelShadow_ && modelShadow_->ready()) modelShadowTex = modelShadow_->texture();
 
+	bgfx::TextureHandle lightShadowTex = BGFX_INVALID_HANDLE;
+	if (lightShadows_ && lightShadows_->ready()) lightShadowTex = lightShadows_->texture();
+
 	for (Instance& instance : instances_) {
 		if (!instance.alive || !instance.visible) continue;
-		// In view, or in a shadow map's frustum: a caster past the screen
-		// edge still has to be posed this frame.
+		// In view, or in a shadow map's frustum, or within a shadowed
+		// light's reach: a caster past the screen edge still has to be posed
+		// this frame.
 		const bool inView = !visCulling_ || frustum.VisibleAabb(instance.aabbLo, instance.aabbHi);
-		const bool inBeam = instance.castsShadow &&
+		bool inBeam = instance.castsShadow &&
 				((beam && shadow_->frustum().VisibleAabb(instance.aabbLo, instance.aabbHi)) ||
 				(box && modelShadow_->frustum().VisibleAabb(instance.aabbLo, instance.aabbHi)));
+		if (!inView && !inBeam && instance.castsShadow) {
+			const float radius = (instance.aabbHi - instance.aabbLo).Length() * 0.5f;
+			for (const ShadowedLight& s : shadowPicks_) {
+				const float reach = LightReach(*s.light) + radius;
+				if ((instance.pos - s.light->pos).LengthSq() <= reach * reach) { inBeam = true; break; }
+			}
+		}
 		if (!inView && !inBeam) continue;
 		const GpuModel& model = models_[instance.model];
 
@@ -964,6 +1030,9 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 		// a slot for the model.
 		const float lightRadius = (instance.aabbHi - instance.aabbLo).Length() * 0.5f;
 		lighting_.Evaluate(instance.pos, lightRadius, dt, instance.lightFade, lit);
+		// The lighting mix (SetLightingMix): the original keeps all three at 1.
+		lit.ambient *= ambientScale_;
+		lit.dirColor *= directionalScale_;
 		const float dirColor[4] = {lit.dirColor[0], lit.dirColor[1], lit.dirColor[2], 1.f};
 		const float dirDir[4] = {lit.dirDir[0], lit.dirDir[1], lit.dirDir[2], 0.f};
 		const float eyePos[4] = {camera.pos[0], camera.pos[1], camera.pos[2], 0.f};
@@ -973,8 +1042,18 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 		bgfx::setUniform(uSpecular_, SpecularParams());
 
 		LightBlock lights;
-		for (int s = 0; s < lit.lightCount; ++s)
+		for (int s = 0; s < lit.lightCount; ++s) {
 			PackLight(lights, s, *lit.lights[s], projector_.name());
+			for (int c = 0; c < 3; ++c) lights.color[s][c] *= lightScale_;
+			// A slot whose light has a map this frame samples it.
+			for (const ShadowedLight& sh : shadowPicks_) {
+				if (sh.light != lit.lights[s]) continue;
+				float params[4];
+				lightShadows_->ReceiverParams(sh.slot, params);
+				PackLightShadow(lights, s, params, lightShadows_->info(), sh.fade);
+				break;
+			}
+		}
 		PackShadow(lights, shadow_);
 		PackDirShadow(lights, modelShadow_);
 
@@ -1046,12 +1125,12 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 					bgfx::isValid(stage1Tex) ? stage1Tex : white_,
 					mat.sampler[1]);
 			// Stages 2 and 3 are the projector pair, 4 the flashlight's
-			// shadow map, 5 the model shadow map; models sample no detail
-			// map, so nothing else wants them.
+			// shadow map, 5 the model shadow map, 6 the placed lights'
+			// atlas; models sample no detail map, so nothing else wants them.
 			lightUniforms_.Submit(lights, 2, 3,
 					bgfx::isValid(projector_.cookie()) ? projector_.cookie() : white_,
 					bgfx::isValid(projector_.falloff()) ? projector_.falloff() : white_,
-					4, shadowTex, 5, modelShadowTex);
+					4, shadowTex, 5, modelShadowTex, 6, lightShadowTex);
 			bgfx::setState(state);
 			bgfx::submit(view, program_);
 			++drawCalls_;

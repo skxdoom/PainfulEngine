@@ -439,6 +439,85 @@ bench and cross all throw slanted shadows in it.
 
 The volume lights are untouched by any of this and are still shadowless.
 
+## Shadows from the placed lights
+
+The lamps, torches and candles - every positional light the scripts place -
+shadow the models, each other and themselves, and the world beneath them.
+`Render/LightShadowAtlas.h`.
+
+**On the world the shadow subtracts.** The lightmap already holds a placed
+light, so its shadow cannot be added and a flat darkening would be a guess.
+Instead the chunk gets the light packed as BAKED (`u_dynCone.z`): the shader
+adds nothing for it and computes what it WOULD contribute at the pixel - the
+recovered world-pass arithmetic, gain x colour x `(1 - d^2/R^2)` x `N.L` - and
+takes the occluded part of that off the lightmap, clamped at zero. Where the
+lamp dominates the texel its shadow is deep; where other light dominates it is
+faint; a texel the lamp never reached is untouched. `LightShadowWorldStrength`
+(100 percent) scales it, because how the bake's magnitude compares to the
+additive gains is not recovered - the two paths were written for different
+hardware and only the additive one is decoded. A shadowed light that is
+dynamic rather than baked (a carried torch) is already in the chunk's slots
+and simply gets its map.
+
+**A budget per frame, not per level.** Cemetery places 60 lights and only a
+handful matter to what is on screen, so each frame `EntityRenderer::
+PickShadowLights` takes the lights within `LightShadowRadius` (40 units) of
+the camera, scores them by colour x intensity weighted by a fade over the
+outer third of that radius (`Important` first), and gives the strongest
+`LightShadowLights` (8) a slot in the atlas. The rest light without shadows,
+as before. The fade also reaches the shader (`u_dynShadow.w`), so a light on
+its way out of the radius thins its shadows rather than dropping them; the
+first version scored by the slot score at the models in view, which swapped
+the set as models moved. The flashlight is left out - it has its own map -
+and so are directionals and the fake-specular lights.
+
+**One atlas, six faces a point light.** A slot is a 3x2 block of
+`LightShadowMapSize`-texel faces in one depth texture; a point light renders
+six 90-degree faces, a spot one face down its cone, each its own bgfx view
+with its own rect (`Renderer::kLightShadowViewBase`, 48 views). Casters are the
+models inside each face's frustum, opaque parts only, the view weapon excluded
+as everywhere.
+
+**The lookup is analytic.** The receiver never sees a face matrix: from the
+light-relative vector it picks the face by major axis, takes the face's
+forward and up from the same table `LightShadowAtlas.cpp` renders with (right
+is `cross(forward, up)` on both sides), and gets uv from the two off-axis
+components over the distance along the axis, and the map depth as
+`A + B / dist` - bx's right-handed projection rearranged, remapped when the
+backend's clip depth is -1..1. So a shadowed light costs the shader one
+`vec4` (`u_dynShadow[slot]` = atlas slot, A, B, fade) and the atlas one more;
+a spot's half-fov cotangent comes from its cone and a point light's from the
+guard band, both derived on both sides. The receiver is lifted off its surface
+by texels at its own distance, as the flashlight does it, and BEFORE the face
+is chosen: chosen first, a lifted point could step off its face and read as
+lit, which drew a straight seam along the face boundary. The faces themselves
+render `kGuardTexels` (2) wider than 90 degrees each side, so a lookup at a
+face's edge still has neighbours to filter over, and the 3x3 taps are kept
+inside the face's cell so a neighbour's face is never read. `Init` runs the same
+arithmetic on the CPU against the matrices the faces render with and logs
+`lookup check ok` or `FAILED` with the error, which is where a sign slip would
+show.
+
+**Two model-lighting mixes.** With the shadows in, the original's model
+lighting shows its seam: a barrel's shade side keeps the box's full ambient
+and directional while the shadow it casts on the floor loses the whole lamp,
+so the two never agree. `ModelLighting = 0` keeps the original mix;
+`ModelLighting = 1` scales the box ambient and directional on the models by
+`ModelAmbientScale` / `ModelDirectionalScale` (50 percent each) and the
+positional lights by `ModelLightScale` (100), so the lights lead and a model's
+shade side goes as dark as its shadow. The world is untouched by the mode; the
+flashlight and directional shadows work in both. The other half of that seam
+is `LightShadowWorldStrength`: where the bake stored less of a lamp than the
+analytic term says, the subtraction clamps at zero and the floor shadow goes
+black, and lowering it is the fix.
+
+`painful_config.ini`: `LightShadows` (1/0), `LightShadowLights` (8),
+`LightShadowRadius` (40), `LightShadowMapSize` (256 per face),
+`LightShadowWorldStrength` (100).
+`PAINFUL_SHADOWVIEW` darkens the grey models by this term and the world by
+the share of its lightmap the subtraction keeps. Cost: up to six depth views per shadowed light with the
+models in reach, and nine compares per shadowed light per model pixel.
+
 ## What the scripts do with them
 
 | Who | What |

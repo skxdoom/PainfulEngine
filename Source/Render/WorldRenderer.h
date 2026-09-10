@@ -10,6 +10,7 @@
 #include "MaterialState.h"
 #include "Camera.h"
 #include "LightUniforms.h"
+#include "LightShadowAtlas.h"
 #include "TextureCache.h"
 #include <bgfx/bgfx.h>
 #include <string>
@@ -72,6 +73,16 @@ public:
 	// world. Docs/Reference/Lighting.md, "Shadows"
 	void SetEnvironmentBoxes(const std::vector<EntityLighting::DirBox>& boxes,
 			float levelFactor);
+	// The placed lights with a shadow map this frame. A light the lightmap
+	// already holds adds nothing here and only takes away what a model
+	// occludes of it; a dynamic one in a chunk's slots just gets its map.
+	void SetShadowedLights(const std::vector<ShadowedLight>& lights,
+			const LightShadowAtlas* atlas) {
+		shadowedLights_ = &lights;
+		lightAtlas_ = atlas;
+	}
+	// How much of the occluded light comes off, 0..1 (LightShadowWorldStrength).
+	void SetLightShadowStrength(float k) { lightShadowStrength_ = k; }
 	// A depth pass into `map`: every opaque chunk inside its frustum. Called
 	// AFTER Draw. The flashlight's map also reuses Draw's zone set - the
 	// light sits at the camera, so the camera's rooms are the beam's rooms.
@@ -79,6 +90,8 @@ public:
 
 	size_t drawCalls() const { return drawCalls_; }
 	size_t shadowDrawCalls() const { return shadowDrawCalls_; }
+	// Chunk slots that took a baked light's shadow this frame.
+	size_t bakedShadowSlots() const { return bakedShadowSlots_; }
 	// Chunks that took at least one dynamic light this frame. Zero while
 	// lights exist means the per-chunk reach test is rejecting them, which is
 	// a bounds problem, not a shading one.
@@ -167,7 +180,11 @@ private:
 	std::vector<int> chunkLights_; // scratch: the picked slots, reused per chunk
 	const ShadowMap* shadow_ = nullptr;
 	const ShadowMap* modelShadow_ = nullptr;
+	const std::vector<ShadowedLight>* shadowedLights_ = nullptr;
+	const LightShadowAtlas* lightAtlas_ = nullptr;
+	float lightShadowStrength_ = 1.f;
 	size_t shadowDrawCalls_ = 0;
+	size_t bakedShadowSlots_ = 0;
 	std::vector<EntityLighting::DirBox> envBoxes_;
 	float envLevelFactor_ = 1.f;
 	// The boxes packed for the shader, the nearest kMaxEnvBoxes when there

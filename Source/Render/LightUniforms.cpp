@@ -24,6 +24,7 @@ void PackLight(LightBlock& block, int slot, const LightSource& l,
 	block.color[slot][3] = float(l.type);
 	block.axis[slot][3] = l.coneOuterCos;
 	block.cone[slot][0] = l.coneCos;
+	block.shadow[slot][0] = -1.f; // no atlas slot until PackLightShadow says so
 	// The cookie spans the outer cone: Light::UpdateProj's half-fov is
 	// acos(coneAngleCos), so its half-width at unit axial distance is the tan
 	// of that angle.
@@ -53,6 +54,15 @@ void PackShadow(LightBlock& block, const ShadowMap* shadow) {
 	block.shadowParams[1] = ShadowMap::kNormalOffset;
 	block.shadowParams[2] = ShadowMap::kLightOffset;
 	block.shadowParams[3] = 1.f / float(shadow->size());
+}
+
+void PackLightShadow(LightBlock& block, int slot, const float params[4], const float info[4],
+		float fade) {
+	for (int i = 0; i < 4; ++i) {
+		block.shadow[slot][i] = params[i];
+		block.lightShadowInfo[i] = info[i];
+	}
+	block.shadow[slot][3] = fade;
 }
 
 void PackDirShadow(LightBlock& block, const ShadowMap* shadow) {
@@ -91,6 +101,9 @@ void LightUniforms::Init() {
 	dirShadowDir_ = bgfx::createUniform("u_dirShadowDir", bgfx::UniformType::Vec4);
 	dirShadowFade_ = bgfx::createUniform("u_dirShadowFade", bgfx::UniformType::Vec4);
 	sDirShadow_ = bgfx::createUniform("s_dirShadow", bgfx::UniformType::Sampler);
+	dynShadow_ = bgfx::createUniform("u_dynShadow", bgfx::UniformType::Vec4, kMaxDynamicLights);
+	lightShadowInfo_ = bgfx::createUniform("u_lightShadowInfo", bgfx::UniformType::Vec4);
+	sLightShadow_ = bgfx::createUniform("s_lightShadow", bgfx::UniformType::Sampler);
 }
 
 void LightUniforms::Shutdown() {
@@ -115,12 +128,16 @@ void LightUniforms::Shutdown() {
 	drop(dirShadowDir_);
 	drop(dirShadowFade_);
 	drop(sDirShadow_);
+	drop(dynShadow_);
+	drop(lightShadowInfo_);
+	drop(sLightShadow_);
 }
 
 void LightUniforms::Submit(const LightBlock& block, int projStage, int projFallStage,
 		bgfx::TextureHandle proj, bgfx::TextureHandle projFall,
 		int shadowStage, bgfx::TextureHandle shadow,
-		int dirShadowStage, bgfx::TextureHandle dirShadow) const {
+		int dirShadowStage, bgfx::TextureHandle dirShadow,
+		int lightShadowStage, bgfx::TextureHandle lightShadow) const {
 	if (!bgfx::isValid(count_)) return;
 	bgfx::setUniform(count_, block.count);
 	bgfx::setUniform(pos_, block.pos, kMaxDynamicLights);
@@ -140,6 +157,10 @@ void LightUniforms::Submit(const LightBlock& block, int projStage, int projFallS
 	bgfx::setUniform(dirShadowDir_, block.dirShadowDir);
 	bgfx::setUniform(dirShadowFade_, block.dirShadowFade);
 	bgfx::setTexture(uint8_t(dirShadowStage), sDirShadow_, dirShadow);
+	bgfx::setUniform(dynShadow_, block.shadow, kMaxDynamicLights);
+	bgfx::setUniform(lightShadowInfo_, block.lightShadowInfo);
+	if (bgfx::isValid(lightShadow))
+		bgfx::setTexture(uint8_t(lightShadowStage), sLightShadow_, lightShadow);
 }
 
 bool ProjectorMaps::Resolve(const std::string& name, TextureCache& textures,

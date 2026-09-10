@@ -27,7 +27,7 @@ uniform vec4 u_dynCount; // x: how many, y: which one carries the projector (-1 
 uniform vec4 u_dynPos[PAINFUL_MAX_DYN]; // xyz: world position, w: range
 uniform vec4 u_dynColor[PAINFUL_MAX_DYN]; // rgb: colour x min(intensity*0.5, 1), w: type
 uniform vec4 u_dynAxis[PAINFUL_MAX_DYN]; // xyz: spot axis, w: cos(outer edge), -1 = no cone
-uniform vec4 u_dynCone[PAINFUL_MAX_DYN]; // x: cos(inner edge), y: tan(outer half-angle)
+uniform vec4 u_dynCone[PAINFUL_MAX_DYN]; // x: cos(inner edge), y: tan(outer half-angle), z: baked (world only), w: its subtract strength
 uniform vec4 u_dynProjX; // xyz: projector's right vector
 uniform vec4 u_dynProjY; // xyz: projector's up vector
 
@@ -45,6 +45,16 @@ SAMPLER2DSHADOW(s_shadow, PAINFUL_SHADOW_STAGE);
 // already ramps over one texel; a texel apart the ramps overlap and the edge
 // is continuous. Four taps two texels apart were four visible steps.
 float Pcf3x3(sampler2DShadow s, vec2 uv, float z, float t)
+{
+	float sum = 0.0;
+	for (int y = -1; y <= 1; ++y)
+		for (int x = -1; x <= 1; ++x)
+			sum += shadow2D(s, vec3(uv + vec2(float(x), float(y)) * t, z));
+	return sum / 9.0;
+}
+
+// The same, with a texel that differs per axis (an atlas that is not square).
+float Pcf3x3v(sampler2DShadow s, vec2 uv, float z, vec2 t)
 {
 	float sum = 0.0;
 	for (int y = -1; y <= 1; ++y)
@@ -74,6 +84,93 @@ uniform vec4 u_dirShadowDir; // xyz: to the light, w: PAINFUL_SHADOWVIEW
 uniform vec4 u_dirShadowFade; // x: edge fade width (uv)
 SAMPLER2DSHADOW(s_dirShadow, PAINFUL_DIRSHADOW_STAGE);
 
+// The placed lights' shadows. Per slot: (atlas slot or -1, A, B, fade), the
+// depth a point `dist` along its face has in the map being A + B / dist, and
+// fade the pick's distance term. A spot has one face down its cone, a point
+// light six, rendered a guard band wider than 90 degrees so a lookup at a
+// face's edge still has neighbours to filter over. The face table is
+// LightShadowAtlas.cpp's, and right = cross(forward, up) on both sides.
+uniform vec4 u_dynShadow[PAINFUL_MAX_DYN];
+uniform vec4 u_lightShadowInfo; // x: 1/(2 slots), y: v sign, zw: one atlas texel
+#ifdef PAINFUL_LIGHTSHADOW_STAGE
+SAMPLER2DSHADOW(s_lightShadow, PAINFUL_LIGHTSHADOW_STAGE);
+
+// toPoint is light -> receiver, l the unit vector back to the light.
+float LightShadow(int i, vec3 toPoint, vec3 n, vec3 l)
+{
+	vec4 sh = u_dynShadow[i];
+	bool spot = u_dynColor[i].w > 2.5 && u_dynAxis[i].w > -1.0;
+	// The face's half-fov cotangent: the cone's for a spot (clamped as the
+	// atlas clamps it), the guard band's for a point light - 1/faceSize is
+	// three atlas texels across.
+	float cot;
+	if (spot)
+	{
+		float c = clamp(u_dynAxis[i].w, 0.2, 0.999);
+		cot = c / sqrt(1.0 - c * c);
+	}
+	else
+	{
+		cot = 1.0 - 4.0 * (3.0 * u_lightShadowInfo.z);
+	}
+	// The receiver lifted off its surface by a texel or so at its distance,
+	// along the normal and toward the light, BEFORE the face is chosen: a
+	// lifted point that stepped off its face read as lit, a seam.
+	float texelWorld = 2.0 * length(toPoint) / cot * (3.0 * u_lightShadowInfo.z);
+	vec3 p = toPoint + n * (texelWorld * 1.5) + l * (texelWorld * 1.0);
+	vec3 F, U;
+	int face = 0;
+	if (spot)
+	{
+		F = u_dynAxis[i].xyz;
+		vec3 pick = abs(F.y) > 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+		vec3 right = normalize(cross(F, pick));
+		U = cross(right, F);
+	}
+	else
+	{
+		vec3 a = abs(p);
+		if (a.x >= a.y && a.x >= a.z)
+		{
+			float s = p.x > 0.0 ? 1.0 : -1.0;
+			face = p.x > 0.0 ? 0 : 1;
+			F = vec3(s, 0.0, 0.0);
+			U = vec3(0.0, 1.0, 0.0);
+		}
+		else if (a.y >= a.z)
+		{
+			float s = p.y > 0.0 ? 1.0 : -1.0;
+			face = p.y > 0.0 ? 2 : 3;
+			F = vec3(0.0, s, 0.0);
+			U = vec3(0.0, 0.0, -s);
+		}
+		else
+		{
+			float s = p.z > 0.0 ? 1.0 : -1.0;
+			face = p.z > 0.0 ? 4 : 5;
+			F = vec3(0.0, 0.0, s);
+			U = vec3(0.0, 1.0, 0.0);
+		}
+	}
+	vec3 R = cross(F, U);
+	float dist = dot(p, F);
+	if (dist <= 0.0001) return 1.0;
+	float u = 0.5 + 0.5 * dot(p, R) * cot / dist;
+	float v = 0.5 + 0.5 * u_lightShadowInfo.y * dot(p, U) * cot / dist;
+	if (u < 0.0 || u > 1.0 || v < 0.0 || v > 1.0) return 1.0;
+	float z = sh.y + sh.z / dist;
+	if (z > 1.0) return 1.0;
+	// Into the atlas: column face % 3, row 2 * slot + face / 3, and the taps
+	// kept inside the cell so a neighbour's face is never read.
+	vec2 t = u_lightShadowInfo.zw;
+	vec2 cellMin = vec2(float(face - (face / 3) * 3) / 3.0, (sh.x * 2.0 + float(face / 3)) * u_lightShadowInfo.x);
+	vec2 cellSize = vec2(1.0 / 3.0, u_lightShadowInfo.x);
+	vec2 uv = cellMin + vec2(u, v) * cellSize;
+	uv = clamp(uv, cellMin + t * 1.5, cellMin + cellSize - t * 1.5);
+	return mix(1.0, Pcf3x3v(s_lightShadow, uv, z, t), sh.w);
+}
+#endif
+
 float ModelShadow(vec3 wpos, vec3 n)
 {
 	if (u_dirShadowParams.x <= 0.0) return 1.0;
@@ -93,8 +190,13 @@ float ModelShadow(vec3 wpos, vec3 n)
 // way `mul_x2 r0.rgb, r0, t3` closes both shipped light shaders. specular is
 // (exponent, strength, N.L gate width); strength 0 skips it, which is what the
 // world mesh passes - its light passes have no specular term at all.
+// shadowMin collects the darkest placed-light shadow term at the pixel, for
+// PAINFUL_SHADOWVIEW, and `occluded` what a BAKED light (u_dynCone.z, the
+// world's lightmap already holds it) loses to a model's shadow - to be taken
+// off the lightmap, in the same units as `diffuse`. Both are only written
+// where the caller defined PAINFUL_LIGHTSHADOW_STAGE.
 void DynamicLights(vec3 wpos, vec3 n, vec3 eye, vec3 specular,
-		inout vec3 diffuse, inout vec3 spec)
+		inout vec3 diffuse, inout vec3 spec, inout float shadowMin, inout vec3 occluded)
 {
 	for (int i = 0; i < PAINFUL_MAX_DYN; ++i)
 	{
@@ -183,6 +285,23 @@ void DynamicLights(vec3 wpos, vec3 n, vec3 eye, vec3 specular,
 							max(u_dynCone[i].x - u_dynAxis[i].w, 0.0001);
 			}
 		}
+
+#ifdef PAINFUL_LIGHTSHADOW_STAGE
+		float shadowTerm = 1.0;
+		if (u_dynShadow[i].x >= 0.0)
+		{
+			shadowTerm = LightShadow(i, -d, n, l);
+			shadowMin = min(shadowMin, shadowTerm);
+		}
+		if (u_dynCone[i].z > 0.5)
+		{
+			// Baked: adds nothing, takes away what the model occludes.
+			occluded += u_dynColor[i].rgb * tint * (gain * att) * ndotl *
+					(1.0 - shadowTerm) * u_dynCone[i].w;
+			continue;
+		}
+		att *= shadowTerm;
+#endif
 
 		vec3 energy = u_dynColor[i].rgb * tint * (gain * att);
 		diffuse += energy * ndotl;

@@ -16,11 +16,15 @@ public:
 	static constexpr bgfx::ViewId kShadowView = 0;
 	// The models' shadows from the environment directional, likewise.
 	static constexpr bgfx::ViewId kModelShadowView = 1;
+	// The placed lights' shadow atlas: six faces per light, up to eight
+	// lights (Render/LightShadowAtlas.h).
+	static constexpr bgfx::ViewId kLightShadowViewBase = 2;
+	static constexpr bgfx::ViewId kLightShadowViewCount = 48;
 	// Sky is drawn next and owns the clear; the world paints over it.
-	static constexpr bgfx::ViewId kSkyView = 2;
-	static constexpr bgfx::ViewId kWorldView = 3;
+	static constexpr bgfx::ViewId kSkyView = 50;
+	static constexpr bgfx::ViewId kWorldView = 51;
 	// The 2D layer, drawn over everything: no depth, in submission order.
-	static constexpr bgfx::ViewId kHudView = 4;
+	static constexpr bgfx::ViewId kHudView = 52;
 
 	~Renderer() { Shutdown(); }
 	// Owns GPU handles that Shutdown destroys, so it is not copyable: a copy

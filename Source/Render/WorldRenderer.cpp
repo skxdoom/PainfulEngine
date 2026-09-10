@@ -461,6 +461,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 	const float* ambient = info.ambient;
 	drawCalls_ = 0;
 	shadowDrawCalls_ = 0; // counted across the maps DrawShadow fills after this
+	bakedShadowSlots_ = 0;
 	litChunks_ = 0;
 	if (!bgfx::isValid(program_)) return;
 
@@ -526,6 +527,8 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 	if (shadow_ && shadow_->ready()) shadowTex = shadow_->texture();
 	bgfx::TextureHandle modelShadowTex = BGFX_INVALID_HANDLE;
 	if (modelShadow_ && modelShadow_->ready()) modelShadowTex = modelShadow_->texture();
+	bgfx::TextureHandle lightAtlasTex = BGFX_INVALID_HANDLE;
+	if (lightAtlas_ && lightAtlas_->ready()) lightAtlasTex = lightAtlas_->texture();
 
 	// The environment boxes for the model shadows' strength: all of them, or
 	// the nearest kMaxEnvBoxes to the camera, in their outermost-first order.
@@ -669,6 +672,35 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 				PackLight(lights, int(s), dynamicLights_[chunkLights_[s]], projector_.name());
 			if (!chunkLights_.empty()) ++litChunks_;
 		}
+		// The placed lights with a shadow map this frame. One already in the
+		// chunk's slots (a carried torch) just gets its map; one the lightmap
+		// holds is added as BAKED - u_dynCone.z - so the shader adds nothing
+		// for it and only takes away what a model occludes, by cone.w.
+		if (shadowedLights_ && lightAtlas_ && lightAtlas_->ready() && lightShadowStrength_ > 0.f) {
+			for (const ShadowedLight& s : *shadowedLights_) {
+				if (!LightTouches(*s.light, c.aabbLo, c.aabbHi)) continue;
+				float params[4];
+				lightAtlas_->ReceiverParams(s.slot, params);
+				int existing = -1;
+				for (size_t k = 0; k < chunkLights_.size() && !dynamicLights_.empty(); ++k) {
+					const LightSource& d = dynamicLights_[chunkLights_[k]];
+					if (d.pos == s.light->pos && d.range == s.light->range && d.type == s.light->type)
+						existing = int(k);
+				}
+				if (existing >= 0) {
+					PackLightShadow(lights, existing, params, lightAtlas_->info(), s.fade);
+					continue;
+				}
+				if (s.light->dynamic) continue;
+				const int slot = int(lights.count[0]);
+				if (slot >= kMaxDynamicLights) break;
+				PackLight(lights, slot, *s.light, projector_.name());
+				PackLightShadow(lights, slot, params, lightAtlas_->info(), s.fade);
+				lights.cone[slot][2] = 1.f;
+				lights.cone[slot][3] = lightShadowStrength_;
+				++bakedShadowSlots_;
+			}
+		}
 		PackShadow(lights, shadow_);
 		PackDirShadow(lights, modelShadow_);
 
@@ -684,7 +716,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 			bgfx::setUniform(uUv1_, b.uvBlend);
 			bgfx::setUniform(uTile_, tile);
 			lightUniforms_.Submit(lights, 5, 6, projTex, projFall, 7, shadowTex,
-					8, modelShadowTex);
+					8, modelShadowTex, 9, lightAtlasTex);
 			bgfx::setUniform(uEnvCount_, envCount);
 			bgfx::setUniform(uEnvLo_, envLoPacked_.data(), uint16_t(kMaxEnvBoxes));
 			bgfx::setUniform(uEnvHi_, envHiPacked_.data(), uint16_t(kMaxEnvBoxes));

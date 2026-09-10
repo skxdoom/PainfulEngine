@@ -52,6 +52,36 @@ const Known kKnown[] = {
 			"# into its lightmaps and are not affected."},
 	{"ModelShadowMapSize", "1024",
 			"The model shadow map's size in texels. It covers 48 units about the camera."},
+	{"LightShadows", "1",
+			"Whether the placed lights - lamps, torches, candles - cast shadows on the\n"
+			"# models, each other and themselves included. The world keeps its lightmap.\n"
+			"# 1 on, 0 off."},
+	{"LightShadowLights", "8",
+			"How many placed lights get a shadow map each frame, the strongest within\n"
+			"# the radius below; the rest light without shadows. Up to 8."},
+	{"LightShadowRadius", "40",
+			"How far from the camera, in world units, a placed light can be and still\n"
+			"# get a shadow map. Its shadows fade out over the outer third of that."},
+	{"LightShadowMapSize", "256",
+			"Texels per face of a placed light's shadow map; a point light has six."},
+	{"LightShadowWorldStrength", "100",
+			"How much of a placed light a model's shadow takes off the world beneath it,\n"
+			"# in percent of that light's own contribution as the engine computes it - the\n"
+			"# lightmap already holds the light, so the shadow subtracts. 0 keeps the\n"
+			"# world untouched."},
+	{"ModelLighting", "0",
+			"How the models are lit.\n"
+			"#   0 - as the original: the environment box's ambient and directional at\n"
+			"#       full, the placed and dynamic lights on top\n"
+			"#   1 - led by the lights: the box's ambient and directional scaled by the\n"
+			"#       two values below, the lights by the third, so a model's shade side\n"
+			"#       goes as dark as the shadow it casts"},
+	{"ModelAmbientScale", "50",
+			"Mode 1: percent of the box ambient a model keeps."},
+	{"ModelDirectionalScale", "50",
+			"Mode 1: percent of the box directional a model keeps."},
+	{"ModelLightScale", "100",
+			"Mode 1: percent of the placed and dynamic lights' strength on a model."},
 	{"ModelShadowStrength", "60",
 			"How dark a model's shadow falls on the world, in percent of the baked light,\n"
 			"# where the level's environment boxes give their full directional; a box that\n"

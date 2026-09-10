@@ -21,6 +21,9 @@ SAMPLER2D(s_mask2, 4);
 #define PAINFUL_PROJFALL_STAGE 6
 #define PAINFUL_SHADOW_STAGE 7
 #define PAINFUL_DIRSHADOW_STAGE 8
+// The placed lights' atlas: what a model occludes of a baked light comes off
+// the lightmap here.
+#define PAINFUL_LIGHTSHADOW_STAGE 9
 #include "shared_lights.sh"
 
 // The CEnvironment boxes that overwrite the directional, outermost first, as
@@ -115,6 +118,18 @@ void main()
 	// below reach them.
 	// The model shadows, laid over the baked light. The world's own shadows
 	// are in the lightmap already, so this only darkens, by the strength set.
+	// The dynamic lights, added over the lightmap - the same call the models
+	// make, with no specular, because the world's light passes have none -
+	// and, from the placed lights the lightmap already holds, what a model's
+	// shadow takes away.
+	vec3 lit = vec3_splat(0.0);
+	vec3 unusedSpec = vec3_splat(0.0);
+	float unusedShadow = 1.0;
+	vec3 occluded = vec3_splat(0.0);
+	DynamicLights(v_wpos, normalize(v_normal), vec3_splat(0.0), vec3_splat(0.0),
+			lit, unusedSpec, unusedShadow, occluded);
+	vec3 lightShadowed = max(light - occluded, vec3_splat(0.0));
+
 	// The model shadows over the baked light, as strong as the boxes say the
 	// directional is here. The world's own shadows are in the lightmap
 	// already, so this only darkens.
@@ -124,17 +139,16 @@ void main()
 		modelShadow = mix(1.0, ModelShadow(v_wpos, normalize(v_normal)),
 				u_dirShadowParams.x * DirectionalFactor(v_wpos));
 	}
-	// PAINFUL_SHADOWVIEW: the term alone, as applied.
-	if (u_dirShadowDir.w > 0.5) { gl_FragColor = vec4(vec3_splat(modelShadow), 1.0); return; }
-	light *= modelShadow;
+	// PAINFUL_SHADOWVIEW: the terms alone, as applied.
+	if (u_dirShadowDir.w > 0.5)
+	{
+		float kept = dot(lightShadowed, vec3(0.299, 0.587, 0.114)) /
+				max(dot(light, vec3(0.299, 0.587, 0.114)), 0.0001);
+		gl_FragColor = vec4(vec3_splat(modelShadow * kept), 1.0);
+		return;
+	}
+	light = lightShadowed * modelShadow;
 	vec3 color = albedo * light;
-
-	// The dynamic lights, added over the lightmap - the same call the models
-	// make, with no specular, because the world's light passes have none.
-	vec3 lit = vec3_splat(0.0);
-	vec3 unusedSpec = vec3_splat(0.0);
-	DynamicLights(v_wpos, normalize(v_normal), vec3_splat(0.0), vec3_splat(0.0),
-			lit, unusedSpec);
 	color += albedo * lit;
 
 	// Fog modes match CLevel.lua: 0=none, 1=exp, 2=exp2, 3=linear. As in D3D

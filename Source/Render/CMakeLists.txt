@@ -7,6 +7,7 @@ add_library(Render STATIC
 		EntityRenderer.cpp EntityRenderer.h
 		LightUniforms.cpp LightUniforms.h
 		ShadowMap.cpp ShadowMap.h
+		LightShadowAtlas.cpp LightShadowAtlas.h
 		MaterialState.cpp MaterialState.h
 		SkyRenderer.cpp SkyRenderer.h
 		ParticleRenderer.cpp ParticleRenderer.h

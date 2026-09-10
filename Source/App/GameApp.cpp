@@ -28,6 +28,7 @@
 #include "Render/EntityRenderer.h"
 #include "Render/HudRenderer.h"
 #include "Render/ParticleRenderer.h"
+#include "Render/LightShadowAtlas.h"
 #include "Render/Renderer.h"
 #include "Render/ShadowMap.h"
 #include "Render/SkyRenderer.h"
@@ -154,6 +155,24 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		modelShadow.SetStrength(float(Settings().GetInt("ModelShadowStrength", 60)) / 100.f);
 	}
 	entities.SetModelShadowMap(&modelShadow);
+	// The placed lights' shadows, models only: LightShadows, LightShadowLights,
+	// LightShadowMapSize in painful_config.ini.
+	LightShadowAtlas lightShadows;
+	{
+		const bool on = Settings().GetBool("LightShadows", true);
+		const int count = Settings().GetInt("LightShadowLights", 4);
+		const int size = Settings().GetInt("LightShadowMapSize", 256);
+		lightShadows.SetBaseView(Renderer::kLightShadowViewBase);
+		if (on && DebugInt("PAINFUL_SHADOWMAP", 1) > 0)
+			lightShadows.Init(shaderDir, size, std::min(count, int(Renderer::kLightShadowViewCount / 6)));
+	}
+	entities.SetLightShadowAtlas(&lightShadows);
+	const float kLightShadowRadius = float(Settings().GetInt("LightShadowRadius", 40));
+	// ModelLighting: 0 the original's mix, 1 led by the lights.
+	if (Settings().GetInt("ModelLighting", 0) == 1)
+		entities.SetLightingMix(float(Settings().GetInt("ModelAmbientScale", 50)) / 100.f,
+				float(Settings().GetInt("ModelDirectionalScale", 50)) / 100.f,
+				float(Settings().GetInt("ModelLightScale", 100)) / 100.f);
 	constexpr float kModelShadowExtent = 24.f; // half-width of the box, world units
 	constexpr float kModelShadowDepth = 24.f; // half-depth along the light
 	entities.SetShadowMap(&shadow);
@@ -358,6 +377,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	const bool worldInit = world.Init(shaderDir);
 	world.SetShadowMap(&shadow);
 	world.SetModelShadowMap(&modelShadow);
+	world.SetLightShadowStrength(float(Settings().GetInt("LightShadowWorldStrength", 100)) / 100.f);
 	bool worldReady = false;
 	SkyRenderer sky;
 	const bool skyInit = sky.Init(shaderDir);
@@ -1026,6 +1046,16 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		// The model shadows follow the directional the camera's own
 		// environment box gives, over a box pushed half its width ahead -
 		// nothing behind the eye can be seen casting.
+		// The placed lights worth a map this frame, and their faces aimed.
+		lightShadows.BeginFrame();
+		if (lightShadows.ready()) {
+			entities.PickShadowLights(camera, lightShadows.slots(), kLightShadowRadius);
+			for (const ShadowedLight& s : entities.shadowLights())
+				lightShadows.Begin(s.slot, *s.light);
+		}
+		// The world takes the same picks: it subtracts what a model occludes
+		// of a light its lightmap already holds.
+		world.SetShadowedLights(entities.shadowLights(), &lightShadows);
 		if (modelShadow.ready()) {
 			Vec3 toLight, dirColor;
 			entities.DirectionalAt(camera.pos, toLight, dirColor);
@@ -1061,6 +1091,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		}
 		if (modelShadow.active())
 			entities.DrawShadow(Renderer::kModelShadowView, modelShadow, elapsed);
+		entities.DrawLightShadows(elapsed);
 		// Decals over the world and the props, before anything blended.
 		if (decalsReady) {
 			decals.SetFog(info.fogMode, info.fogStart, info.fogEnd, info.fogDensity, info.fogColor);
@@ -1288,11 +1319,12 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 						hud.fonts().baked());
 				LogInfo("  particles: %zu live in %zu emitters", particles.liveParticles(),
 						particles.emitters());
-				LogInfo("  shadow maps: flashlight %s, models %s; %zu world draws, "
-						"%zu entity draws in all",
+				LogInfo("  shadow maps: flashlight %s, models %s, %zu placed lights "
+						"(%zu baked chunk slots); %zu world draws, %zu entity draws in all",
 						shadow.active() ? "on" : (shadow.ready() ? "idle" : "OFF"),
-						modelShadow.active() ? "on" : "OFF",
-						world.shadowDrawCalls(), entities.shadowDrawCalls());
+						modelShadow.active() ? "on" : "OFF", entities.shadowLights().size(),
+						world.bakedShadowSlots(), world.shadowDrawCalls(),
+						entities.shadowDrawCalls());
 				LogInfo("  lights: %zu placed, %zu from scripts (%zu of them dynamic), "
 						"%zu environment boxes", entities.lightCount(), scriptLights.size(),
 						size_t(std::count_if(scriptLights.begin(), scriptLights.end(),
