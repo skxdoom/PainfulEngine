@@ -15,6 +15,10 @@ namespace painful {
 
 namespace {
 
+// MAXANISOTROPY only raises the cap (16 on D3D11); a sampler still has to ask
+// for the anisotropic filter, which Render/TextureFilter.h decides per bind.
+const uint32_t kResetFlags = BGFX_RESET_VSYNC | BGFX_RESET_MAXANISOTROPY;
+
 // bgfx::requestScreenShot only hands the pixels to the callback interface; with
 // no interface installed the default stub drops them, which is why --shot wrote
 // nothing. This writes an uncompressed 32-bit TGA, which Tools/shot.ps1 already
@@ -104,7 +108,7 @@ bool Renderer::Init(Window& window) {
 	init.platformData.nwh = nwh;
 	init.resolution.width = static_cast<uint32_t>(window.width());
 	init.resolution.height = static_cast<uint32_t>(window.height());
-	init.resolution.reset = BGFX_RESET_VSYNC;
+	init.resolution.reset = kResetFlags;
 	init.callback = &g_screenShotCallback;
 	if (!bgfx::init(init)) {
 		LogWarn("bgfx::init failed");
@@ -135,7 +139,7 @@ void Renderer::Resize(int width, int height) {
 	if (!initialised_ || width <= 0 || height <= 0) return;
 	width_ = width;
 	height_ = height;
-	bgfx::reset(uint32_t(width), uint32_t(height), BGFX_RESET_VSYNC);
+	bgfx::reset(uint32_t(width), uint32_t(height), kResetFlags);
 	bgfx::setViewRect(kSkyView, 0, 0, uint16_t(width), uint16_t(height));
 	bgfx::setViewRect(kWorldView, 0, 0, uint16_t(width), uint16_t(height));
 }

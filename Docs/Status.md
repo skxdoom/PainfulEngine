@@ -168,6 +168,10 @@ All parse and are cross-checked against a second implementation.
   pixel and vertex programs (`water_embm.pso`, `water_ref.vso`) are decoded.
   Eight maps carry world-geometry water. See [`Water.md`](Reference/Water.md).
 - Cube maps load through `TextureCache::GetCube`.
+- Texture filtering follows the Video Options row (`Cfg.TextureFiltering`:
+  bilinear / trilinear / anisotropic) for every scene stage that is not
+  `point`, applied live from the menu and at boot; see
+  [`Menu.md`](Reference/Menu.md), "Texture filtering".
 
 ### Visibility
 

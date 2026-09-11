@@ -1,6 +1,7 @@
 // ScriptEngine: the PMENU natives over the retained widget model.
 
 #include "ScriptEngineInternal.h"
+#include "../Render/TextureFilter.h"
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -116,6 +117,7 @@ struct MenuNatives : ScriptNativesBase {
 	static int L_R3D_SetCameraFOV(lua_State* L);
 	static int L_R3D_GetCameraFOV(lua_State* L);
 	static int L_R3D_ApplyVideoSettings(lua_State* L);
+	static int L_R3D_SetTexFiltering(lua_State* L);
 	static int L_R3D_EnableBloom(lua_State* L);
 	static int L_R3D_GetAvailableResolutions(lua_State* L);
 };
@@ -1045,8 +1047,9 @@ int MenuNatives::L_R3D_GetCameraFOV(lua_State* L) {
 // shadows, textureQuality, weatherEffects, viewWeaponModel, textureFiltering,
 // dynamicLights, projectors, coronas, decals, decalsStay) - what
 // PainMenu:ApplyVideoSettings hands over after the Video Options screen.
-// The mode is the part that reaches anything yet; the rest is recorded in
-// Cfg by the scripts and waits for the renderer features it names.
+// The mode is the part that reaches anything here; textureFiltering goes
+// through SetTexFiltering, which the script calls right after, and the rest
+// is recorded in Cfg and waits for the renderer features it names.
 int MenuNatives::L_R3D_ApplyVideoSettings(lua_State* L) {
 	ScriptEngine* self = From(L);
 	const std::string res = luaL_optstring(L, 1, "");
@@ -1070,6 +1073,24 @@ int MenuNatives::L_R3D_ApplyVideoSettings(lua_State* L) {
 		lua_pop(L, 1);
 	}
 	lua_pop(L, 1);
+	return 0;
+}
+
+// R3D.SetTexFiltering() - MaterialSystem::SetTexFiltering (0x100986d0) takes
+// no argument: it reads Cfg.TextureFiltering itself and rewrites every
+// non-point stage's filter. Menu.md, "Texture filtering".
+int MenuNatives::L_R3D_SetTexFiltering(lua_State* L) {
+	std::string name;
+	lua_pushstring(L, "Cfg");
+	lua_gettable(L, LUA_GLOBALSINDEX);
+	if (lua_istable(L, -1)) {
+		lua_pushstring(L, "TextureFiltering");
+		lua_gettable(L, -2);
+		if (lua_isstring(L, -1)) name = lua_tostring(L, -1);
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	ApplyTextureFilterName(name);
 	return 0;
 }
 
@@ -1159,6 +1180,7 @@ void BindMenu(ScriptEngine& engine, LuaHost& host) {
 		{"R3D", "SetCameraFOV", MenuNatives::L_R3D_SetCameraFOV},
 		{"R3D", "GetCameraFOV", MenuNatives::L_R3D_GetCameraFOV},
 		{"R3D", "ApplyVideoSettings", MenuNatives::L_R3D_ApplyVideoSettings},
+		{"R3D", "SetTexFiltering", MenuNatives::L_R3D_SetTexFiltering},
 		{"R3D", "EnableBloom", MenuNatives::L_R3D_EnableBloom},
 		{"PMENU", "LaunchURL", MenuNatives::L_PMENU_LaunchURL},
 		{"PMENU", "AddKeyControl", MenuNatives::L_PMENU_AddKeyControl},

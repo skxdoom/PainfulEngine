@@ -32,6 +32,7 @@
 #include "Render/LightShadowAtlas.h"
 #include "Render/Renderer.h"
 #include "Render/ShadowMap.h"
+#include "Render/TextureFilter.h"
 #include "Render/ViewModelShadows.h"
 #include "Render/SkyRenderer.h"
 #include "Render/TextureCache.h"
@@ -391,6 +392,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		if (have)
 			window.SetMode(w, h, windowMode(host.GetBoolField("Cfg", "Fullscreen", false)));
 	}
+	// Cfg.TextureFiltering likewise: the original's material loader reads it
+	// per stage; here one setting serves every bind (Render/TextureFilter.h).
+	ApplyTextureFilterName(host.GetTextField("Cfg", "TextureFiltering"));
 
 	// --- the level session ------------------------------------------------
 	//

@@ -10,6 +10,7 @@ add_library(Render STATIC
 		LightShadowAtlas.cpp LightShadowAtlas.h
 		ViewModelShadows.cpp ViewModelShadows.h
 		MaterialState.cpp MaterialState.h
+		TextureFilter.cpp TextureFilter.h
 		SkyRenderer.cpp SkyRenderer.h
 		ParticleRenderer.cpp ParticleRenderer.h
 		BillboardRenderer.cpp BillboardRenderer.h

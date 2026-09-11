@@ -6,6 +6,7 @@
 #include "../Core/Log.h"
 #include "MaterialState.h"
 #include "ShaderLoad.h"
+#include "TextureFilter.h"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -129,7 +130,7 @@ void DecalRenderer::Draw(bgfx::ViewId view, const Camera& camera, const DecalSys
 		FogColorForBlend(blend, fogColor_, fogColor);
 		bgfx::setUniform(uFog_, fog_);
 		bgfx::setUniform(uFogColor_, fogColor);
-		bgfx::setTexture(0, sDiffuse_, frames.frames[frame]);
+		bgfx::setTexture(0, sDiffuse_, frames.frames[frame], FilteredSampler(0));
 		bgfx::submit(view, program_);
 		++drawCalls_;
 		triangles_ += count / 3;

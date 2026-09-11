@@ -8,6 +8,7 @@
 #include "../Core/Log.h"
 #include "GpuBuffers.h"
 #include "MeshVertex.h"
+#include "TextureFilter.h"
 
 #include <bx/math.h>
 #include <algorithm>
@@ -246,10 +247,10 @@ void SkyRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int h
 			bgfx::setTransform(world.m);
 			bgfx::setVertexBuffer(0, p.vbo);
 			bgfx::setIndexBuffer(p.ibo, 0, p.indexCount);
-			bgfx::setTexture(0, sTex1_, layer.tex1);
-			bgfx::setTexture(1, sTex2_, layer.tex2);
-			bgfx::setTexture(2, sMask_, layer.mask);
-			bgfx::setTexture(3, sLmap_, layer.lmap);
+			bgfx::setTexture(0, sTex1_, layer.tex1, FilteredSampler(0));
+			bgfx::setTexture(1, sTex2_, layer.tex2, FilteredSampler(0));
+			bgfx::setTexture(2, sMask_, layer.mask, FilteredSampler(0));
+			bgfx::setTexture(3, sLmap_, layer.lmap, FilteredSampler(0));
 			// The mesh itself says which shells blend, via the "_trans_" prefix.
 			// Depth is never written, so world geometry always paints on top.
 			uint64_t state = BGFX_STATE_WRITE_RGB | BGFX_STATE_MSAA;

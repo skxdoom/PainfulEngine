@@ -12,6 +12,7 @@
 #include "../Core/Log.h"
 #include "GpuBuffers.h"
 #include "MeshVertex.h"
+#include "TextureFilter.h"
 
 #include <algorithm>
 #include <cctype>
@@ -1170,12 +1171,12 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			if (usePosed) bgfx::setVertexBuffer(0, instance.posed[owner]);
 			else bgfx::setVertexBuffer(0, part.vbo);
 			bgfx::setIndexBuffer(part.ibo, part.firstIndex, part.indexCount);
-			bgfx::setTexture(0, sDiffuse_, part.diffuse, mat.sampler[0]);
+			bgfx::setTexture(0, sDiffuse_, part.diffuse, FilteredSampler(mat.sampler[0]));
 			// Stage 1 when the material has one; white through the off path so
 			// the sampler is always bound.
 			bgfx::setTexture(1, sStage1_,
 					bgfx::isValid(stage1Tex) ? stage1Tex : white_,
-					mat.sampler[1]);
+					FilteredSampler(mat.sampler[1]));
 			// Stages 2 and 3 are the projector pair, 4 the flashlight's
 			// shadow map, 5 the model shadow map, 6 the placed lights'
 			// atlas; models sample no detail map, so nothing else wants them.

@@ -549,10 +549,46 @@ horizontal figure - and turned into the vertical one for the window's aspect
 each frame), `Resolution` and `Fullscreen` (`R3D.ApplyVideoSettings` and at
 boot, `Window::SetMode`; `PAINFUL_WINDOWED=1` and `PAINFUL_RES=WxH` override
 a diagnostic run), `Language`, and the HUD's own fields, which the HUD scripts
-read directly. Recorded but not yet honoured: `SmoothMouse`,
+read directly, and `TextureFiltering` (`R3D.SetTexFiltering` and at boot; below).
+Recorded but not yet honoured: `SmoothMouse`,
 `WheelSensitivity`, gamma / brightness / contrast, and the render toggles
-(shadows, texture quality and filtering, coronas, decals, dynamic lights,
+(shadows, texture quality, coronas, decals, dynamic lights,
 weather) - each waits for the feature it names.
+
+### Texture filtering (`R3D.SetTexFiltering`)
+
+`Cfg.TextureFiltering` is one of `"Bilinear"`, `"Trilinear"`, `"Anisotropic"`
+(VideoOptions and AdvancedVideoOptions offer all three; the GraphicsQuality
+presets only ever pick the first two). The engine's
+`MaterialSystem::SetTexFiltering` (0x100986d0) takes NO argument - the
+`textureFiltering` slot of `R3D.ApplyVideoSettings` is ignored - and reads
+`Cfg.TextureFiltering` back out of the script globals itself. It then walks
+every loaded material, every pass, every stage, and rewrites the stage's
+filter byte: `5` for Anisotropic, `4` for Trilinear, `3` for anything else
+(Bilinear included), **except** a stage whose byte is `2`, the `texenv`
+`point` word, which keeps it. So `bilinear_nomips` is overridden like the
+rest, and only the deliberately pixelated surfaces escape the global choice.
+`PainMenu:ApplyVideoSettings` calls it right after `R3D.ApplyVideoSettings`;
+nothing calls it at boot, because the original's material loader reads the
+same field when it builds each stage.
+
+The port keeps one process-wide setting (`Render/TextureFilter.h`) and
+applies it at bind time through `FilteredSampler(materialFlags)`, so a change
+from the menu shows on the next frame with nothing reloaded, and boot reads
+`Cfg.TextureFiltering` once the scripts have loaded the file. The mapping onto
+bgfx: Bilinear = linear min/mag with `MIP_POINT`, Trilinear = bgfx's default
+(linear on all three), Anisotropic = `MIN_ANISOTROPIC | MAG_ANISOTROPIC`.
+The anisotropy level is not a setting: bgfx exposes only the
+`BGFX_RESET_MAXANISOTROPY` cap, which the renderer always sets (16 on D3D11),
+and only samplers that ask for the anisotropic filter use it. Before this the
+world renderer asked for anisotropic filtering without the cap, which D3D11
+serves as MaxAnisotropy 1 - plain trilinear - so the "anisotropic" the port
+drew until now was not.
+
+Which stages take it: the world's diffuse, lightmap, detail, terrain blend
+and mask, the water normal map; the models' diffuse and second stage; the
+sky layers; the decals. The 2D layer (HUD, fonts, menu art) and the shadow
+depth passes keep their own flags - they are drawn at 1:1 or only alpha-tested.
 
 ### Deferred
 

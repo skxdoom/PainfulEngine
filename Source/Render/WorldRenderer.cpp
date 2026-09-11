@@ -5,6 +5,7 @@
 #include "../Core/Log.h"
 #include "GpuBuffers.h"
 #include "MeshVertex.h"
+#include "TextureFilter.h"
 
 #include <algorithm>
 #include <bx/math.h>
@@ -630,10 +631,10 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 				bgfx::setTransform(c.transform.m);
 				bgfx::setVertexBuffer(0, c.vbo);
 				bgfx::setIndexBuffer(c.ibo, b.firstIndex, b.indexCount);
-				bgfx::setTexture(0, sNormal_, waterNormal_,
-						BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC);
+				bgfx::setTexture(0, sNormal_, waterNormal_, FilteredSampler(0));
 				bgfx::setTexture(1, sCube_, waterCube_);
-				bgfx::setTexture(2, sLightmap_, b.lightmap, c.material.sampler[1]);
+				bgfx::setTexture(2, sLightmap_, b.lightmap,
+						FilteredSampler(c.material.sampler[1]));
 				bgfx::setState(state);
 				bgfx::submit(view, waterProgram_);
 				++drawCalls_;
@@ -720,19 +721,21 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 			bgfx::setUniform(uEnvCount_, envCount);
 			bgfx::setUniform(uEnvLo_, envLoPacked_.data(), uint16_t(kMaxEnvBoxes));
 			bgfx::setUniform(uEnvHi_, envHiPacked_.data(), uint16_t(kMaxEnvBoxes));
+			// Every stage takes Cfg.TextureFiltering, as the engine's
+			// MaterialSystem::SetTexFiltering applies it (Render/TextureFilter.h).
 			bgfx::setTexture(2, sDetail_, detailOn_ ? detailTex_ : b.diffuse,
-					BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC);
-			bgfx::setTexture(3, sBlend2_, b.blended ? b.blend2 : b.diffuse);
-			bgfx::setTexture(4, sMask_, b.blended ? b.mask : b.diffuse);
+					FilteredSampler(0));
+			bgfx::setTexture(3, sBlend2_, b.blended ? b.blend2 : b.diffuse,
+					FilteredSampler(0));
+			bgfx::setTexture(4, sMask_, b.blended ? b.mask : b.diffuse,
+					FilteredSampler(0));
 			bgfx::setTransform(c.transform.m);
 			bgfx::setVertexBuffer(0, c.vbo);
 			bgfx::setIndexBuffer(c.ibo, b.firstIndex, b.indexCount);
-			// Anisotropic filtering keeps the diffuse and detail grain alive
-			// at the glancing angles terrain is mostly seen at.
 			bgfx::setTexture(0, sDiffuse_, b.diffuse,
-					c.material.sampler[0] | BGFX_SAMPLER_MIN_ANISOTROPIC |
-					BGFX_SAMPLER_MAG_ANISOTROPIC);
-			bgfx::setTexture(1, sLightmap_, b.lightmap, c.material.sampler[1]);
+					FilteredSampler(c.material.sampler[0]));
+			bgfx::setTexture(1, sLightmap_, b.lightmap,
+					FilteredSampler(c.material.sampler[1]));
 			bgfx::setState(state);
 			bgfx::submit(view, program_);
 			++drawCalls_;
@@ -786,7 +789,7 @@ void WorldRenderer::DrawShadowInto(bgfx::ViewId view, const Frustum& frustum,
 			bgfx::setUniform(uUvAnim_, uvAnim);
 			bgfx::setUniform(uUv0_, b.uvDiffuse);
 			bgfx::setUniform(uTile_, tile);
-			bgfx::setTexture(0, sDiffuse_, b.diffuse, c.material.sampler[0]);
+			bgfx::setTexture(0, sDiffuse_, b.diffuse, FilteredSampler(c.material.sampler[0]));
 			bgfx::setTransform(c.transform.m);
 			bgfx::setVertexBuffer(0, c.vbo);
 			bgfx::setIndexBuffer(c.ibo, b.firstIndex, b.indexCount);
