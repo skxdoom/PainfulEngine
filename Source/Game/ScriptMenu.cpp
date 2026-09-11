@@ -56,9 +56,19 @@ struct MenuNatives : ScriptNativesBase {
 	static int L_PMENU_GetAlternateKey(lua_State* L);
 	static int L_PMENU_GetSimpleKey(lua_State* L);
 	static int L_PMENU_AddScroller(lua_State* L);
+	static int L_PMENU_SetScrollerHeight(lua_State* L);
 	static int L_PMENU_AddLoadSave(lua_State* L);
 	static int L_PMENU_AddSaveGameToList(lua_State* L);
 	static int L_PMENU_ClearList(lua_State* L);
+	static int L_PMENU_AddWeaponList(lua_State* L);
+	static int L_PMENU_AddList(lua_State* L);
+	static int L_PMENU_AddItemToList(lua_State* L);
+	static int L_PMENU_SetListSeparatorPos(lua_State* L);
+	static int L_PMENU_GetListSeparatorPos(lua_State* L);
+	static int L_PMENU_GetListItems(lua_State* L);
+	static int L_PMENU_MoveListItemUp(lua_State* L);
+	static int L_PMENU_MoveListItemDown(lua_State* L);
+	static int L_PMENU_SetListBorderWidth(lua_State* L);
 	static int L_PMENU_GetSelectedSGSlot(lua_State* L);
 	static int L_PMENU_SetAllowSave(lua_State* L);
 	static int L_PMENU_SetListMaxHeight(lua_State* L);
@@ -82,6 +92,8 @@ struct MenuNatives : ScriptNativesBase {
 	static int L_PMENU_SetItemFontsTex(lua_State* L);
 	static int L_PMENU_SetItemFonts(lua_State* L);
 	static int L_PMENU_SetItemVisibility(lua_State* L);
+	static int L_PMENU_SetItemApplyRequired(lua_State* L);
+	static int L_PMENU_SetItemsDrawShadow(lua_State* L);
 	static int L_PMENU_SetStaticTextRect(lua_State* L);
 	static int L_PMENU_SetItemAlign(lua_State* L);
 	static int L_PMENU_SetItemWidth(lua_State* L);
@@ -418,9 +430,20 @@ int MenuNatives::L_PMENU_GetSimpleKey(lua_State* L) {
 // PMENU.AddScroller(name, text, desc, min, max, value, height): the key
 // table's scroll bar. Declared so the border can be tied to it; the table
 // scrolls itself with the focus and the bar is not drawn yet.
+// PMENU.AddScroller(name, text, desc, min, max, value, height): the height
+// is what the key table's window is cut from (MenuScreen::UpdateKeyConfig).
 int MenuNatives::L_PMENU_AddScroller(lua_State* L) {
 	const std::string name = luaL_optstring(L, 1, "");
-	if (!name.empty()) From(L)->menu_.Add(name, MenuSystem::Kind::Scroller);
+	if (name.empty()) return 0;
+	MenuSystem::Item& item = From(L)->menu_.Add(name, MenuSystem::Kind::Scroller);
+	item.height = float(luaL_optnumber(L, 7, item.height));
+	return 0;
+}
+
+int MenuNatives::L_PMENU_SetScrollerHeight(lua_State* L) {
+	MenuSystem* menu = nullptr;
+	if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu))
+		item->height = float(luaL_optnumber(L, 2, item->height));
 	return 0;
 }
 
@@ -462,8 +485,98 @@ int MenuNatives::L_PMENU_ClearList(lua_State* L) {
 	MenuSystem::Item* item = From(L)->menu_.Find(luaL_optstring(L, 1, "SaveList"));
 	if (!item) return 0;
 	item->rows.clear();
+	item->entries.clear();
 	item->selected = -1;
 	item->listScroll = 0;
+	return 0;
+}
+
+// PMENU.AddWeaponList(name, useHeader) - MenuScreen::AddWeaponList
+// (0x100730f0): the ordered names with the movable line, PickupOrder and
+// the two Custom lists. AddList is the same widget without the line (the
+// multiplayer screens). Menu.md, "The weapon lists".
+namespace {
+int AddNameList(lua_State* L, int separator) {
+	const std::string name = luaL_optstring(L, 1, "");
+	if (name.empty()) return 0;
+	MenuSystem::Item& item = MenuNatives::From(L)->menu().Add(name, MenuSystem::Kind::WeaponList);
+	item.entries.clear();
+	item.listHeader = lua_toboolean(L, 2) != 0;
+	item.separator = separator;
+	item.selected = -1;
+	item.listScroll = 0;
+	return 0;
+}
+} // namespace
+
+int MenuNatives::L_PMENU_AddWeaponList(lua_State* L) { return AddNameList(L, 0); }
+int MenuNatives::L_PMENU_AddList(lua_State* L) { return AddNameList(L, -1); }
+
+// PMENU.AddItemToList(name, text) - MenuItemList::AddItem (0x10069510) keeps
+// one entry per text. The first entry is the header when the list has one.
+int MenuNatives::L_PMENU_AddItemToList(lua_State* L) {
+	MenuSystem* menu = nullptr;
+	MenuSystem::Item* item = MenuItemArg(From(L), L, &menu);
+	if (!item || item->kind != MenuSystem::Kind::WeaponList) return 0;
+	const std::string text = luaL_optstring(L, 2, "");
+	for (const std::string& e : item->entries)
+		if (e == text) return 0;
+	item->entries.push_back(text);
+	return 0;
+}
+
+// PMENU.SetListSeparatorPos(name, n) / GetListSeparatorPos(name): how many
+// entries stand above the line. PainMenu writes the count back into Cfg as
+// a 0 in the weapon order.
+int MenuNatives::L_PMENU_SetListSeparatorPos(lua_State* L) {
+	MenuSystem* menu = nullptr;
+	if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu))
+		if (item->kind == MenuSystem::Kind::WeaponList)
+			item->separator = int(luaL_optnumber(L, 2, 0));
+	return 0;
+}
+
+int MenuNatives::L_PMENU_GetListSeparatorPos(lua_State* L) {
+	MenuSystem* menu = nullptr;
+	MenuSystem::Item* item = MenuItemArg(From(L), L, &menu);
+	lua_pushnumber(L, item && item->separator >= 0 ? item->separator : 0);
+	return 1;
+}
+
+// PMENU.GetListItems(name) -> the entries, header left out, as an array.
+int MenuNatives::L_PMENU_GetListItems(lua_State* L) {
+	MenuSystem* menu = nullptr;
+	MenuSystem::Item* item = MenuItemArg(From(L), L, &menu);
+	lua_newtable(L);
+	if (!item) return 1;
+	const size_t first = item->listHeader ? 1 : 0;
+	int n = 0;
+	for (size_t i = first; i < item->entries.size(); ++i) {
+		lua_pushnumber(L, ++n);
+		lua_pushstring(L, item->entries[i].c_str());
+		lua_settable(L, -3);
+	}
+	return 1;
+}
+
+int MenuNatives::L_PMENU_MoveListItemUp(lua_State* L) {
+	MenuSystem* menu = nullptr;
+	if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu))
+		if (item->kind == MenuSystem::Kind::WeaponList) menu->MoveListItem(*item, -1);
+	return 0;
+}
+
+int MenuNatives::L_PMENU_MoveListItemDown(lua_State* L) {
+	MenuSystem* menu = nullptr;
+	if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu))
+		if (item->kind == MenuSystem::Kind::WeaponList) menu->MoveListItem(*item, 1);
+	return 0;
+}
+
+int MenuNatives::L_PMENU_SetListBorderWidth(lua_State* L) {
+	MenuSystem* menu = nullptr;
+	if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu))
+		item->listBorderWidth = float(luaL_optnumber(L, 2, item->listBorderWidth));
 	return 0;
 }
 
@@ -597,8 +710,17 @@ int MenuNatives::L_PMENU_SetItemDesc(lua_State* L) {
 //   action = "PainMenu:ActivateScreen(GameMenu)"
 int MenuNatives::L_PMENU_SetItemAction(lua_State* L) {
 	MenuSystem* menu = nullptr;
-	if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu))
+	if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu)) {
 		item->action = luaL_optstring(L, 2, "");
+		// No networking layer yet: the rows that open the multiplayer
+		// screens are greyed out, as the engine greys a disabled row, until
+		// there is something behind them. Docs/Status.md, "Everything else".
+		static const char* kMultiplayerScreens[] = {"LANGameMenu", "InternetGameMenu",
+				"FavoritesGameMenu", "CreateServerMenu", "PlayerOptions", "StartGameMenu"};
+		for (const char* screen : kMultiplayerScreens)
+			if (item->action.find(std::string("ActivateScreen(") + screen + ")") != std::string::npos)
+				item->disabled = true;
+	}
 	return 0;
 }
 
@@ -650,6 +772,21 @@ int MenuNatives::L_PMENU_SetItemFonts(lua_State* L) {
 	return 0;
 }
 
+// PMENU.SetItemsDrawShadow(on) - the screen's labels get a shadow copy.
+int MenuNatives::L_PMENU_SetItemsDrawShadow(lua_State* L) {
+	From(L)->menu().SetItemsDrawShadow(lua_toboolean(L, 1) != 0);
+	return 0;
+}
+
+// PMENU.SetItemApplyRequired(name, on): a change to the widget puts the
+// screen's Apply row up through PainMenu:EnableApplyButton().
+int MenuNatives::L_PMENU_SetItemApplyRequired(lua_State* L) {
+	MenuSystem* menu = nullptr;
+	if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu))
+		item->applyRequired = lua_toboolean(L, 2) != 0;
+	return 0;
+}
+
 int MenuNatives::L_PMENU_SetItemVisibility(lua_State* L) {
 	MenuSystem* menu = nullptr;
 	if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu))
@@ -698,8 +835,10 @@ int MenuNatives::L_PMENU_EnableItemBG(lua_State* L) {
 
 int MenuNatives::L_PMENU_SetItemSounds(lua_State* L) {
 	MenuSystem* menu = nullptr;
-	if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu))
+	if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu)) {
+		item->sndAccept = luaL_optstring(L, 2, "");
 		item->sndLightOn = luaL_optstring(L, 3, "");
+	}
 	return 0;
 }
 
@@ -1169,14 +1308,14 @@ void BindMenu(ScriptEngine& engine, LuaHost& host) {
 		{"PMENU", "SetWaitTime", MenuNatives::L_PMENU_NoOp},
 		{"PMENU", "SetItemsFadeLength", MenuNatives::L_PMENU_NoOp},
 		{"PMENU", "SetShowItemsFrame", MenuNatives::L_PMENU_NoOp},
-		{"PMENU", "SetItemsDrawShadow", MenuNatives::L_PMENU_NoOp},
+		{"PMENU", "SetItemsDrawShadow", MenuNatives::L_PMENU_SetItemsDrawShadow},
 		{"PMENU", "ResumeSounds", MenuNatives::L_PMENU_NoOp},
 		{"PMENU", "PauseSounds", MenuNatives::L_PMENU_NoOp},
 		{"PMENU", "ActivateLoadingScreen", MenuNatives::L_PMENU_NoOp},
 		{"PMENU", "LoadingProgress", MenuNatives::L_PMENU_NoOp},
 		{"PMENU", "SetLoadingScreenOverall", MenuNatives::L_PMENU_NoOp},
 		{"PMENU", "SetProgressIcon", MenuNatives::L_PMENU_NoOp},
-		{"PMENU", "SetItemApplyRequired", MenuNatives::L_PMENU_NoOp},
+		{"PMENU", "SetItemApplyRequired", MenuNatives::L_PMENU_SetItemApplyRequired},
 		{"R3D", "SetCameraFOV", MenuNatives::L_R3D_SetCameraFOV},
 		{"R3D", "GetCameraFOV", MenuNatives::L_R3D_GetCameraFOV},
 		{"R3D", "ApplyVideoSettings", MenuNatives::L_R3D_ApplyVideoSettings},
@@ -1190,7 +1329,7 @@ void BindMenu(ScriptEngine& engine, LuaHost& host) {
 		{"PMENU", "GetAlternateKey", MenuNatives::L_PMENU_GetAlternateKey},
 		{"PMENU", "GetSimpleKey", MenuNatives::L_PMENU_GetSimpleKey},
 		{"PMENU", "AddScroller", MenuNatives::L_PMENU_AddScroller},
-		{"PMENU", "SetScrollerHeight", MenuNatives::L_PMENU_NoOp},
+		{"PMENU", "SetScrollerHeight", MenuNatives::L_PMENU_SetScrollerHeight},
 		{"PMENU", "SetScrollerForBorder", MenuNatives::L_PMENU_SetScrollerForBorder},
 		{"PMENU", "SetBorderScroller", MenuNatives::L_PMENU_SetBorderScroller},
 		{"INP", "GetKeyNameByEngName", MenuNatives::L_INP_GetKeyNameByEngName},
@@ -1248,6 +1387,15 @@ void BindMenu(ScriptEngine& engine, LuaHost& host) {
 		{"PMENU", "AddLoadSave", MenuNatives::L_PMENU_AddLoadSave},
 		{"PMENU", "AddSaveGameToList", MenuNatives::L_PMENU_AddSaveGameToList},
 		{"PMENU", "ClearList", MenuNatives::L_PMENU_ClearList},
+		{"PMENU", "AddWeaponList", MenuNatives::L_PMENU_AddWeaponList},
+		{"PMENU", "AddList", MenuNatives::L_PMENU_AddList},
+		{"PMENU", "AddItemToList", MenuNatives::L_PMENU_AddItemToList},
+		{"PMENU", "SetListSeparatorPos", MenuNatives::L_PMENU_SetListSeparatorPos},
+		{"PMENU", "GetListSeparatorPos", MenuNatives::L_PMENU_GetListSeparatorPos},
+		{"PMENU", "GetListItems", MenuNatives::L_PMENU_GetListItems},
+		{"PMENU", "MoveListItemUp", MenuNatives::L_PMENU_MoveListItemUp},
+		{"PMENU", "MoveListItemDown", MenuNatives::L_PMENU_MoveListItemDown},
+		{"PMENU", "SetListBorderWidth", MenuNatives::L_PMENU_SetListBorderWidth},
 		{"PMENU", "GetSelectedSGSlot", MenuNatives::L_PMENU_GetSelectedSGSlot},
 		{"PMENU", "SetAllowSave", MenuNatives::L_PMENU_SetAllowSave},
 		{"PMENU", "SetListMaxHeight", MenuNatives::L_PMENU_SetListMaxHeight},

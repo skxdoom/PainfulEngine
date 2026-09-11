@@ -1089,7 +1089,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			// The pointer roams the whole window; the menu hit-tests in
 			// canvas pixels, so the centred canvas's left margin comes off.
 			engine.menu().Update(window.mouseX() - hud.CanvasOffsetX(), window.mouseY(),
-					window.TakeLeftClick());
+					window.TakeLeftClick(), window.TakeRightClick(),
+					window.TakeLeftRelease(), window.TakeRightRelease());
 			// Every key and mouse-button edge, for a key capture. After Update
 			// so the click that opened one is not also the key it binds.
 			{
@@ -1106,6 +1107,13 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			hud.UseAnchoring(false);
 			engine.menu().Draw(hud.canvasWidth(), hud.canvasHeight());
 			hud.UseAnchoring(true);
+		} else {
+			// Drop the edges the game consumed, or the menu's first frame
+			// would act on a click made before it opened.
+			window.TakeLeftClick();
+			window.TakeRightClick();
+			window.TakeLeftRelease();
+			window.TakeRightRelease();
 		}
 		// The console over everything, and its message strip when it is
 		// down, in window pixels. The frame is the menu's border, drawn in

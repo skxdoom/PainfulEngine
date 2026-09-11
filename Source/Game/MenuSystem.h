@@ -43,6 +43,7 @@ public:
 		Scroller, // declared by the scripts for a long list; drawn by nothing yet
 		TabGroup, // a tab box over a panel; the group's rows show with it
 		LoadSave, // the save-game table: level, playtime, saved-at, difficulty
+		WeaponList, // an ordered list of names with a movable line (AddList: no line)
 	};
 
 	// The frame is drawn from ten tiled pieces; see DrawBorder.
@@ -95,8 +96,12 @@ public:
 		std::string itemBG;
 		int itemBGMat[3] = {-1, -1, -1};
 		std::string sndLightOn; // played when focus arrives
+		std::string sndAccept; // played when the row is chosen (SetItemSounds arg 2)
 		bool visible = true;
 		bool disabled = false;
+		// PMENU.SetItemApplyRequired: a change to this widget runs
+		// PainMenu:EnableApplyButton(), which puts the Apply row up.
+		bool applyRequired = false;
 
 		// --- the value a widget carries ------------------------------------
 		// One number covers checkbox (0/1), slider and num-range, because the
@@ -135,6 +140,7 @@ public:
 		float textRect[4] = {0, 0, 0, 0};
 		// Slider: where the bar was drawn, in pixels, for the mouse.
 		float barX = 0, barY = 0, barW = 0, barH = 0;
+		float barArrowW = 0; // the arrow at each end of the bar, screen pixels
 		// LoadSave: the rows PMENU.AddSaveGameToList added. Row 0 is the
 		// header when its slot is "header"; "empty" is the new-save row.
 		// MenuItemList (Engine.dll 0x1006b310); layout in DrawLoadSave.
@@ -148,6 +154,17 @@ public:
 		int listScroll = 0; // first data row on show
 		std::vector<float> rowTop; // screen y of each row this frame (0 = not drawn)
 		float rowH = 0.f;
+		// WeaponList / List: the names PMENU.AddItemToList added (entries[0]
+		// is the header when listHeader) and the line after `separator`
+		// entries - the rows past it draw grey. -1 = a plain list, no line.
+		// MenuItemWeaponList::Render (0x10069090); Menu.md, "The weapon lists".
+		std::vector<std::string> entries;
+		bool listHeader = false;
+		int separator = -1;
+		float listBorderWidth = 300.f; // PMENU.SetListBorderWidth, authoring units
+		// The scroller beside a long list, in pixels, for the mouse.
+		float scrollX = 0.f, scrollTop = 0.f, scrollBottom = 0.f, scrollArrowH = 0.f;
+		float scrollT = 0.f; // lever position 0..1, drawn in the last pass
 		// Declaration order, so keyboard navigation walks the screen the way
 		// the script wrote it rather than the way a map happens to sort.
 		int order = 0;
@@ -202,6 +219,9 @@ public:
 	void ClearScreen(); // PMENU.ClearScreen: drop the items, stay in the menu
 	void SetBackground(const std::string& material, int type);
 	void SetMenuWidth(float w) { menuWidth_ = w; }
+	// PMENU.SetItemsDrawShadow: MenuItem::Render draws each label once more
+	// a pixel down and right in 0x50000000 black first.
+	void SetItemsDrawShadow(bool on) { drawShadow_ = on; }
 	void SetTopPosition(float y) { topPosition_ = y; }
 	void ShowMouse(bool on) { showMouse_ = on; }
 	bool mouseShown() const { return showMouse_; }
@@ -231,16 +251,16 @@ public:
 	size_t itemCount() const { return items_.size(); }
 
 	// --- per frame --------------------------------------------------------
-	// Mouse position in real pixels, and whether the button went down THIS
-	// frame. Keyboard navigation arrives through the Nav* calls.
-	void Update(float mouseX, float mouseY, bool clicked);
+	// Mouse position in real pixels, and which buttons went down THIS frame.
+	// Keyboard navigation arrives through the Nav* calls.
+	void Update(float mouseX, float mouseY, bool clicked, bool rightClicked = false,
+			bool released = false, bool rightReleased = false);
 	void NavUp();
 	void NavDown();
 	void NavActivate();
-	// Left and right adjust the focused widget. A TextButtonEx has no value of
-	// its own - the SCRIPT owns the list - so adjusting one just runs its
-	// action, which pushes the next label back through
-	// ChangeTextButtonExValue. That is how the original cycles one.
+	// Left and right adjust the focused widget the way a click on its arrows
+	// does: one unit, a toggle, or the next list entry. Menu.md, "Changing a
+	// value".
 	void NavAdjust(int direction);
 	void FocusFirst();
 	void Draw(int screenW, int screenH);
@@ -310,6 +330,10 @@ public:
 	void KeyPressed(int vk);
 	// Whether the left button is held right now, for dragging a slider.
 	void SetMouseDown(bool down) { mouseDown_ = down; }
+	// PMENU.MoveListItemUp / Down: the chosen entry swaps with its
+	// neighbour, and the line moves with it as MenuItemWeaponList's
+	// MoveItemUp / Down (0x10069330 / 0x100693e0) have it.
+	void MoveListItem(Item& item, int direction);
 	// The level the player chose on the map, once. The app loads it at the
 	// top of a frame, since the load tears down the world the menu is drawn
 	// over.
@@ -327,7 +351,9 @@ private:
 	int FontTexture(const Item& item, bool big);
 	float ValueWidth(const Item& item, int size);
 	std::string ValueString(const Item& item) const;
-	void DrawItemBG(Item& item, float x, float y, float w, float h);
+	// The plate behind a row, sized from the row's text the way
+	// MenuItem::SetBGWidth (0x1006e4d0) sizes it. Menu.md, "The row plate".
+	void DrawItemBG(Item& item, float textH);
 	void DrawValue(const Item& item, float x, float y, int size, uint32_t colour);
 	void DrawBorder(const Item& item);
 	void DrawCursor();
@@ -338,6 +364,11 @@ private:
 	TextureCache* textures_ = nullptr;
 	std::function<void(const std::string&)> runAction_;
 	std::function<void(const std::string&)> playSound_;
+	bool drawShadow_ = false;
+	// The highlight belongs to the pointer: a row lit by hovering goes dark
+	// again when the pointer leaves it (MenuItem's under-mouse byte). Only
+	// a keyboard-placed focus stays put.
+	bool focusByMouse_ = false;
 	std::function<void(bool)> setPaused_;
 	std::function<std::string(const std::string&)> readText_;
 
@@ -407,11 +438,29 @@ private:
 	bool hasPendingLevel_ = false;
 
 	// Widgets drawn from the shipped art (HUD/border, HUD/blachy_menu, HUD/Chk*).
-	void DrawTabGroup(const Item& item, int index);
+	void DrawTabGroup(const Item& item, int index, int count);
 	void DrawSlider(const Item& item, float labelX, float y, int size, uint32_t colour,
 			float menuLeft, bool explicitX);
-	void DrawCheckbox(const Item& item, float x, float y, int size);
+	void DrawCheckbox(const Item& item, float x, float y, float w, float h);
 	void DrawKeyScroller();
+	// The key table's rows: how many fit and how tall each is, from the
+	// KeyScroller's height and the rows' font (MenuScreen::UpdateKeyConfig,
+	// 0x10070b60, and the key row's CalcPosition, 0x10066b40).
+	int KeyRowsVisible(float& rowH);
+	// One scroller, as MenuItemScroller draws it: x and top in pixels, h the
+	// full height including both arrows, t the position 0..1. The optional
+	// outputs are the rectangle the mouse is tested against.
+	void DrawScroller(float x, float top, float h, float t, float* outX, float* outTop,
+			float* outBottom, float* outArrowH);
+
+	// What the engine's MenuItem*::SendEvent runs once a widget's value
+	// moved: Step for a slider or num-range arrow, Toggle for a checkbox,
+	// Swap for a list row (the SCRIPT holds the list and answers through
+	// ChangeTextButtonExValue). Menu.md, "Changing a value".
+	void Step(Item& item, int direction);
+	void Toggle(Item& item);
+	void Swap(Item& item, bool forward);
+	void ValueChanged(Item& item);
 
 	// The key table.
 	void DrawKeyRow(Item& item, bool focused);
@@ -423,8 +472,28 @@ private:
 	bool ListNav(Item& item, int delta);
 	void ListActivate(Item& item);
 	void ListButtons(const Item& item);
+	// The weapon lists: drawn from the entries, clicked to choose a row or
+	// to scroll, walked with the arrow keys.
+	void DrawWeaponList(Item& item, bool focused);
+	void WeaponListClick(Item& item, float mouseX, float mouseY);
+	bool WeaponListNav(Item& item, int delta);
 	int keyColumn_ = 1; // 1 primary, 2 alternative - where the pointer is
 	int keyScroll_ = 0; // first visible row of the table, 0-based
+	// The key table's scroller as drawn this frame, for the mouse; max 0 = none.
+	float keyScrollX_ = 0.f, keyScrollTop_ = 0.f, keyScrollBottom_ = 0.f;
+	int keyScrollMax_ = 0;
+	// The scroller whose lever the held button is dragging: a list's name,
+	// "KeyScroller", or empty.
+	std::string scrollDrag_;
+	// The row each button went down on: a row acts when the same button
+	// comes UP over it (MenuItem's pressed byte), so a press that opened a
+	// screen never fires the row the new screen puts under the pointer.
+	std::string pressed_, pressedRight_;
+	// One scroller's mouse handling: an arrow click steps a row, a press on
+	// the line drags the lever (MenuItemScroller::CalcSize, mode 3). True
+	// when the pointer is on it.
+	bool ScrollerInput(const std::string& id, float x, float top, float bottom,
+			float mouseX, float mouseY, bool clicked, int& value, int maxValue);
 	float keyColumn2X_ = 0.f; // screen x where the alternative column starts
 	std::string capture_; // the row being rebound, or empty
 	bool mouseDown_ = false;

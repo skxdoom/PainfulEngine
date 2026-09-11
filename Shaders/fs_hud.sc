@@ -47,8 +47,10 @@ void main()
 		// the pointer - which is exactly pattern times colour, undoubled.
 		// The earlier "muddy brown that vanishes into the art" was judged
 		// with no plates under the rows; on the plates it is the look.
+		// The pattern's ALPHA modulates too: font_texturka_alpha carries the
+		// holes that give the plate titles and the bottom row their torn edge.
 		vec4 pattern = texture2D(s_pattern, gl_FragCoord.xy * u_hudParams.xy);
-		gl_FragColor = vec4(pattern.rgb * v_color0.rgb, texel.a * v_color0.a);
+		gl_FragColor = vec4(pattern.rgb * v_color0.rgb, texel.a * v_color0.a * pattern.a);
 	}
 	else
 	{

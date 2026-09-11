@@ -339,9 +339,10 @@ float HudRenderer::Text(const std::string& fontName, int size, float x, float y,
 	// One anchor for the whole string, by its centre, so it never splits.
 	x += OffsetFor(x + width * 0.5f);
 
-	// y is the TOP of the line: the scripts lay out from the top edge, so the
-	// baseline sits an ascent below it.
-	const float baseline = y + font->ascent;
+	// y is the TOP of the line: the scripts lay out from the top edge, and
+	// the engine puts the tallest glyph's top there (GFont: the baseline
+	// sits the printable glyphs' reach below it, not the font's ascent).
+	const float baseline = y + font->extentTop;
 	const float iw = 1.f / float(font->atlasW);
 	const float ih = 1.f / float(font->atlasH);
 

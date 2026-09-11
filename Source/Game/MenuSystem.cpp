@@ -19,6 +19,14 @@ namespace {
 
 // The scripts build colours with R3D.RGB/RGBA, which pack D3D ARGB. The HUD
 // batcher wants bgfx's little-endian ABGR. Same conversion the HUD natives do.
+// HUD/ikonki/checkbox_pusty / _zaznaczony are 55 x 51, and the engine draws
+// them at that size in authoring units (the art has clear margins, so the
+// box itself reads about 40 wide).
+constexpr float kCheckboxW = 55.f, kCheckboxH = 51.f;
+// MenuItemTabGroup::Render (0x100639a0): a tab is 180 x 50, the inactive
+// ones start 10 lower, the panel begins under the tabs.
+constexpr float kTabW = 180.f, kTabH = 50.f, kTabDrop = 10.f;
+
 uint32_t ArgbToAbgr(uint32_t argb) {
 	const uint32_t a = (argb >> 24) & 0xFF, r = (argb >> 16) & 0xFF;
 	const uint32_t g = (argb >> 8) & 0xFF, b = argb & 0xFF;
@@ -127,7 +135,11 @@ void MenuSystem::Choose(const Item& item) {
 		captureFresh_ = true;
 		return;
 	}
-	if (item.disabled || item.action.empty()) return;
+	if (item.disabled) return;
+	// The accept sound (SetItemSounds' second argument; PainMenu's default
+	// is menu/menu/option-accept) plays on the choice, action or not.
+	if (playSound_ && !item.sndAccept.empty()) playSound_(item.sndAccept);
+	if (item.action.empty()) return;
 	// Deferred: an action commonly calls PainMenu:ActivateScreen, which clears
 	// every item - including the one we are standing in.
 	pending_.push_back(item.action);
@@ -163,29 +175,35 @@ void MenuSystem::MoveFocus(int delta) {
 		if (playSound_ && !reachable[at]->sndLightOn.empty())
 			playSound_(reachable[at]->sndLightOn);
 	}
+	focusByMouse_ = false;
 }
 
-// Called once a screen has been built, so the menu is usable from the keyboard
-// the moment it opens and the highlight has somewhere to be. The mouse takes
-// over the instant it moves over a row.
+// Seats the keyboard focus on the first row while the pointer is hidden.
+// With a pointer showing, nothing is lit until it is over a row - the
+// original highlights only under the mouse - and the arrow keys start from
+// the first row on their own.
 void MenuSystem::FocusFirst() {
-	if (mapMode_ || boardMode_) return;
+	if (mapMode_ || boardMode_ || showMouse_) return;
 	if (focused_.empty()) MoveFocus(1);
 }
 
 void MenuSystem::NavUp() {
 	if (boardMode_) return;
 	if (mapMode_) { MapMoveChapter(-1); return; }
-	if (Item* f = Find(focused_))
+	if (Item* f = Find(focused_)) {
 		if (f->kind == Kind::LoadSave && ListNav(*f, -1)) return;
+		if (f->kind == Kind::WeaponList && WeaponListNav(*f, -1)) return;
+	}
 	MoveFocus(-1);
 	EnsureKeyRowVisible();
 }
 void MenuSystem::NavDown() {
 	if (boardMode_) return;
 	if (mapMode_) { MapMoveChapter(1); return; }
-	if (Item* f = Find(focused_))
+	if (Item* f = Find(focused_)) {
 		if (f->kind == Kind::LoadSave && ListNav(*f, 1)) return;
+		if (f->kind == Kind::WeaponList && WeaponListNav(*f, 1)) return;
+	}
 	MoveFocus(1);
 	EnsureKeyRowVisible();
 }
@@ -201,53 +219,72 @@ void MenuSystem::NavAdjust(int direction) {
 		}
 	Item* item = Find(focused_);
 	if (!item || item->disabled || !HasValue(item->kind)) return;
-
 	switch (item->kind) {
-	case Kind::Checkbox:
-		// Either arrow toggles. The original lets left and right both flip a
-		// checkbox rather than making one of them a no-op.
-		item->value = (item->value != 0.0) ? 0.0 : 1.0;
-		break;
-	case Kind::Slider: {
-		// A hundredth of the range per press for a float, one unit for an
-		// integer - which is what makes a 0..100 volume move in whole
-		// percent and a 0..1 gamma move smoothly.
-		const double span = item->maxValue - item->minValue;
-		const double step = item->isFloat ? span / 100.0 : 1.0;
-		item->value += step * direction;
-		if (item->value < item->minValue) item->value = item->minValue;
-		if (item->value > item->maxValue) item->value = item->maxValue;
-		if (!item->isFloat) item->value = std::floor(item->value + 0.5);
-		break;
+	case Kind::Checkbox: Toggle(*item); break;
+	case Kind::Slider:
+	case Kind::NumRange: Step(*item, direction); break;
+	case Kind::TextButtonEx: Swap(*item, direction > 0); break;
+	default: break;
 	}
-	case Kind::NumRange:
-		item->value += direction;
-		// A maximum of -1 means unbounded, which is how the script spells
-		// "no upper limit" for things like a frag limit.
-		if (item->value < item->minValue) item->value = item->minValue;
-		if (item->maxValue != -1.0 && item->value > item->maxValue)
-			item->value = item->maxValue;
-		break;
-	case Kind::TextButtonEx:
-		// No value of ours to change: the script holds the list and pushes the
-		// next label back through ChangeTextButtonExValue when its action runs.
-		break;
-	default:
-		return;
-	}
-	Choose(*item);
 }
 
 void MenuSystem::NavActivate() {
 	if (boardMode_) { LeaveBoard(); return; }
 	if (mapMode_) { MapChoose(); return; }
 	if (Item* item = Find(focused_)) {
+		// Enter is a left click on the row.
 		if (item->kind == Kind::LoadSave) ListActivate(*item);
+		else if (item->kind == Kind::Checkbox && !item->disabled) Toggle(*item);
+		else if (item->kind == Kind::TextButtonEx && !item->disabled) Swap(*item, true);
 		else Choose(*item);
 	}
 }
 
-void MenuSystem::Update(float mouseX, float mouseY, bool clicked) {
+// MenuItemSlider::SendEvent (0x10086d30): an arrow moves the value by ONE in
+// the units the script passed (a float slider arrives x100), plays
+// scroller-move, and runs the action; at the end of the range nothing moves.
+// NumRange is taken to step the same way - its SendEvent is not exported.
+void MenuSystem::Step(Item& item, int direction) {
+	const double before = item.value;
+	double v = item.value + direction;
+	if (v < item.minValue) v = item.minValue;
+	// A maximum of -1 is a NumRange with no upper limit (a frag limit).
+	if (!(item.kind == Kind::NumRange && item.maxValue == -1.0) && v > item.maxValue)
+		v = item.maxValue;
+	item.value = v;
+	if (item.value == before) return;
+	if (playSound_) playSound_("menu/menu/scroller-move");
+	ValueChanged(item);
+}
+
+// MenuItemCheckbox::SendEvent (0x100656a0): checkbox-click, flip, the action.
+void MenuSystem::Toggle(Item& item) {
+	item.value = (item.value != 0.0) ? 0.0 : 1.0;
+	if (playSound_) playSound_("menu/menu/checkbox-click");
+	ValueChanged(item);
+}
+
+// MenuItemTextButtonEx::SendEvent (0x100876b0): the left button asks the
+// script for the next entry, the right one for the previous; every row but
+// GraphicsQuality then resets that preset through AfterControlChange.
+void MenuSystem::Swap(Item& item, bool forward) {
+	if (playSound_) playSound_("menu/menu/option-click");
+	pending_.push_back("PainMenu:SwapTextButtonEx('" + item.name + "'," +
+			(forward ? "1" : "0") + ")");
+	if (item.applyRequired) pending_.push_back("PainMenu:EnableApplyButton()");
+	if (item.name != "GraphicsQuality")
+		pending_.push_back("PainMenu:AfterControlChange('" + item.name + "')");
+}
+
+// After a slider, num-range or checkbox moved: its action, then the Apply
+// row when the screen asked for one (MenuItemSlider::CalcSize, 0x10086810).
+void MenuSystem::ValueChanged(Item& item) {
+	if (!item.action.empty()) pending_.push_back(item.action);
+	if (item.applyRequired) pending_.push_back("PainMenu:EnableApplyButton()");
+}
+
+void MenuSystem::Update(float mouseX, float mouseY, bool clicked, bool rightClicked,
+		bool released, bool rightReleased) {
 	if (!active_) return;
 	mouseX_ = mouseX;
 	mouseY_ = mouseY;
@@ -259,18 +296,44 @@ void MenuSystem::Update(float mouseX, float mouseY, bool clicked) {
 	// A slider follows a held button across its bar: press anywhere on the
 	// bar and the knob goes there, drag and it follows. Dragging keeps hold
 	// of the slider it started on even when the pointer strays off the bar.
+	// A click on the arrow past either end steps instead.
+	bool arrowClicked = false;
 	if (showMouse_ && capture_.empty()) {
 		if (!mouseDown_) dragging_.clear();
+		if (!mouseDown_) scrollDrag_.clear();
+		// The scrollers first: they stand on the frames' edges, outside any
+		// row's box, and a press on one is theirs alone.
+		for (Item* item : Ordered()) {
+			if (item->kind != Kind::WeaponList || !item->visible || item->scrollX <= 0.f) continue;
+			const int first = item->listHeader ? 1 : 0;
+			const float maxH = item->listMaxHeight > 0.f ? item->listMaxHeight : 200.f;
+			const int rowsFit = std::max(1,
+					int(std::floor(maxH * sy() / std::max(1.f, item->rowH))) - first);
+			const int maxScroll = std::max(0, int(item->entries.size()) - first - rowsFit);
+			if (ScrollerInput(item->name, item->scrollX, item->scrollTop, item->scrollBottom,
+					mouseX, mouseY, clicked, item->listScroll, maxScroll))
+				arrowClicked = true;
+		}
+		if (keyScrollMax_ > 0 && ScrollerInput("KeyScroller", keyScrollX_, keyScrollTop_,
+				keyScrollBottom_, mouseX, mouseY, clicked, keyScroll_, keyScrollMax_))
+			arrowClicked = true;
 		Item* drag = dragging_.empty() ? nullptr : Find(dragging_);
 		if (mouseDown_ && !drag) {
 			for (Item* item : Ordered()) {
 				if (item->kind != Kind::Slider || !item->visible || item->disabled) continue;
 				if (item->barW <= 0.f) continue;
-				if (mouseX < item->barX - 20.f || mouseX > item->barX + item->barW + 20.f) continue;
 				if (mouseY < item->barY || mouseY > item->barY + item->barH) continue;
-				dragging_ = item->name;
+				const float aw = item->barArrowW;
+				if (mouseX < item->barX - aw || mouseX > item->barX + item->barW + aw) continue;
 				focused_ = item->name;
-				drag = item;
+				focusByMouse_ = true;
+				if (mouseX < item->barX || mouseX > item->barX + item->barW) {
+					if (clicked) Step(*item, mouseX < item->barX ? -1 : 1);
+					arrowClicked = true;
+				} else {
+					dragging_ = item->name;
+					drag = item;
+				}
 				break;
 			}
 		}
@@ -278,13 +341,17 @@ void MenuSystem::Update(float mouseX, float mouseY, bool clicked) {
 			const double t = std::max(0.f, std::min(1.f, (mouseX - drag->barX) / drag->barW));
 			double v = drag->minValue + t * (drag->maxValue - drag->minValue);
 			if (!drag->isFloat) v = std::round(v);
-			drag->value = std::max(drag->minValue, std::min(drag->maxValue, v));
+			v = std::max(drag->minValue, std::min(drag->maxValue, v));
+			if (v != drag->value) {
+				drag->value = v;
+				ValueChanged(*drag);
+			}
 		}
 	}
 
 	// The mouse wins over the keyboard whenever it is over a row: hover moves
 	// focus, so the description text and the highlight follow the pointer.
-	if (showMouse_ && capture_.empty() && dragging_.empty()) {
+	if (showMouse_ && capture_.empty() && dragging_.empty() && !arrowClicked) {
 		// The SMALLEST box under the pointer wins, not the first declared: a
 		// centred row (the save screen's Delete, x = -1) is hit-tested as the
 		// whole menu row, and Save and Load sit on that same line at their
@@ -297,20 +364,42 @@ void MenuSystem::Update(float mouseX, float mouseY, bool clicked) {
 			if (mouseY < item->hitY || mouseY > item->hitY + item->hitH) continue;
 			if (!hit || item->hitW * item->hitH < hit->hitW * hit->hitH) hit = item;
 		}
+		if (!hit && focusByMouse_) {
+			focused_.clear();
+			focusByMouse_ = false;
+		}
 		if (Item* item = hit) {
 			if (focused_ != item->name) {
 				focused_ = item->name;
 				if (playSound_ && !item->sndLightOn.empty()) playSound_(item->sndLightOn);
 			}
+			focusByMouse_ = true;
 			// Which key cell of a row the pointer is over.
 			if (item->kind == Kind::KeyControl)
 				keyColumn_ = (keyColumn2X_ > 0.f && mouseX >= keyColumn2X_) ? 2 : 1;
-			if (clicked) {
+			// MenuItem::SendEvent (0x1006ff70) acts on the button's RELEASE
+			// over the row that took its press. A value widget answers it
+			// itself; the slider's bar and arrows were handled above, so a
+			// click on its label does nothing.
+			if (clicked) pressed_ = item->name;
+			if (rightClicked) pressedRight_ = item->name;
+			if (released && pressed_ == item->name) {
 				if (item->kind == Kind::LoadSave) ListClick(*item, mouseY);
-				else Choose(*item);
+				else if (item->kind == Kind::WeaponList) WeaponListClick(*item, mouseX, mouseY);
+				else if (item->kind == Kind::Checkbox) Toggle(*item);
+				else if (item->kind == Kind::TextButtonEx) Swap(*item, true);
+				else if (item->kind == Kind::NumRange) Step(*item, 1);
+				else if (item->kind != Kind::Slider) Choose(*item);
+			} else if (rightReleased && pressedRight_ == item->name) {
+				if (item->kind == Kind::TextButtonEx) Swap(*item, false);
+				else if (item->kind == Kind::NumRange) Step(*item, -1);
 			}
 		}
 	}
+
+	// A release ends the press wherever the pointer is.
+	if (released) pressed_.clear();
+	if (rightReleased) pressedRight_.clear();
 
 	// Run whatever was chosen, now that nothing is walking the item list.
 	if (!pending_.empty()) {
@@ -346,27 +435,53 @@ void MenuSystem::Draw(int screenW, int screenH) {
 	if (backgroundMaterial_ > 0)
 		hud_->Quad(backgroundMaterial_, 0.f, 0.f, float(screenW), float(screenH), 0xffffffffu);
 
-	// Borders first, whatever order they were declared in: they are the panels
-	// everything else sits ON, so a border added after its contents would
-	// otherwise paint over them.
-	for (Item* item : Ordered())
-		if (item->kind == Kind::Border && item->visible) DrawBorder(*item);
-	// Tab groups: every group's tab box shows, only the visible group's panel.
-	{
-		int tabIndex = 0;
-		for (Item* item : Ordered())
-			if (item->kind == Kind::TabGroup) DrawTabGroup(*item, tabIndex++);
-	}
-
+	// MenuScreen::Render (0x10071070) draws in type PASSES, each walking the
+	// items in the order they were added: tab groups; borders named
+	// "*Settings*" (the tab boxes); the other borders (the panels, which is
+	// what covers the tab boxes' overhang and puts the Controls key table
+	// over the General tab's panel); Load/Save; everything else; checkboxes
+	// last. A tab group's own tab is its ALIGN - Left the first, anything
+	// else the second (MenuItemTabGroup::Render, 0x100639a0).
 	const Item* focusedItem = nullptr;
 
-	for (Item* item : Ordered()) {
-		if (item->kind == Kind::Border || item->kind == Kind::Scroller ||
-				item->kind == Kind::TabGroup)
-			continue;
+	std::vector<Item*> passes = Ordered();
+	auto passOf = [](const Item* it) {
+		switch (it->kind) {
+		case Kind::TabGroup: return 0;
+		case Kind::Border: return it->name.find("Settings") != std::string::npos ? 1 : 2;
+		case Kind::LoadSave: return 3;
+		case Kind::Checkbox: return 5;
+		default: return 4;
+		}
+	};
+	std::stable_sort(passes.begin(), passes.end(),
+			[&](const Item* a, const Item* b) { return passOf(a) < passOf(b); });
+	for (Item* item : passes) {
+		if (item->kind == Kind::Scroller) continue;
 		if (!item->visible) {
 			item->hitW = item->hitH = 0.f;
 			continue;
+		}
+		if (item->kind == Kind::Border) {
+			DrawBorder(*item);
+			continue;
+		}
+		if (item->kind == Kind::TabGroup) {
+			DrawTabGroup(*item, item->align == kAlignLeft ? 0 : 1, 2);
+			continue;
+		}
+		// A list's frame is its own border: 20 units out, listMaxHeight + 40
+		// tall, a 40 band when it has a header (MenuItemList::CalcSize and
+		// CalcPosition, 0x10068be0 / 0x10068620).
+		if (item->kind == Kind::WeaponList) {
+			const float menuW = menuWidth_ > 0.f ? menuWidth_ : 1024.f;
+			Item frame;
+			frame.x = (item->x >= 0.f ? item->x : (1024.f - menuW) * 0.5f) - 20.f;
+			frame.y = item->y - 20.f;
+			frame.width = item->listBorderWidth;
+			frame.height = (item->listMaxHeight > 0.f ? item->listMaxHeight : 200.f) + 40.f;
+			frame.headerHeight = item->listHeader ? 40.f : 0.f;
+			DrawBorder(frame);
 		}
 		const bool isFocused = (item->name == focused_) && !item->disabled &&
 				Focusable(item->kind);
@@ -377,6 +492,10 @@ void MenuSystem::Draw(int screenW, int screenH) {
 		}
 		if (item->kind == Kind::LoadSave) {
 			DrawLoadSave(*item, isFocused);
+			continue;
+		}
+		if (item->kind == Kind::WeaponList) {
+			DrawWeaponList(*item, isFocused);
 			continue;
 		}
 		// A static text with a rectangle wraps into it, its lines centred:
@@ -418,7 +537,23 @@ void MenuSystem::Draw(int screenW, int screenH) {
 		}
 
 		const int size = int(std::lround(double(item->fontBigSize) * double(sy())));
-		const float w = hud_->TextWidth(item->fontBig, size, item->text);
+		// A list row's text carries its value ("Sky: High" -
+		// MenuItemTextButtonEx::ChangeValue, 0x10023950), and a checkbox's
+		// width takes in its box plus 4 (MenuItemCheckbox::CalcSize,
+		// 0x10065360), so alignment places the whole thing.
+		std::string label = item->text;
+		if (item->kind == Kind::TextButtonEx || item->kind == Kind::NumRange)
+			label += ": " + ValueString(*item);
+		// A text edit prints its value a space after its label
+		// (MenuItemTextEdit::Render, 0x10088a50).
+		if (item->kind == Kind::TextEdit) label += " " + item->valueText;
+		// A checkbox under 11 points draws its box at half size
+		// (MenuItemCheckbox::CalcSize) - the Messages screen's SA column.
+		const float boxScale = (item->kind == Kind::Checkbox && item->fontBigSize < 11) ? 0.5f : 1.f;
+		const float boxW = std::round(kCheckboxW * sx() * boxScale);
+		const float boxH = std::round(kCheckboxH * sy() * boxScale);
+		float w = hud_->TextWidth(item->fontBig, size, label);
+		if (item->kind == Kind::Checkbox) w += boxW + 4.f;
 		const float h = hud_->TextHeight(item->fontBig, size);
 
 		// x < 0 is "centre me", the same convention HUD.PrintXY carries. A real
@@ -441,68 +576,64 @@ void MenuSystem::Draw(int screenW, int screenH) {
 		// edge of the string sits on it.
 		const float menuW = menuWidth_ > 0.f ? menuWidth_ * sx() : float(screenW);
 		const float menuLeft = (float(screenW) - menuW) * 0.5f;
+		// MenuItem::CalcPosition (0x1006e730): an explicit x is the left edge,
+		// the right edge for Right, the middle for Center. x = -1 places the
+		// row in the menu box: Left at its left edge, Right against its right
+		// edge, otherwise centred. A checkbox (0x10065420) sits 10 units
+		// further out on either side. Menu.md, "Row placement".
+		const bool isBox = item->kind == Kind::Checkbox;
+		// A checkbox's and a slider's own CalcPosition take an explicit x as
+		// the left edge whatever the alignment says (0x10065420, 0x100864d0).
+		const bool leftEdge = isBox || item->kind == Kind::Slider;
 		float x;
-		if (item->x >= 0.f)
-			x = (item->align == kAlignRight) ? item->x * sx() - w : item->x * sx();
-		else if (item->align == kAlignLeft)
-			x = menuLeft;
-		else if (item->align == kAlignRight)
-			// The right-hand COLUMN, not right-aligned text: the label leads
-			// and its value follows a sliderWidth along, exactly as in the left
-			// half. Right-aligning the label against the menu's edge instead
-			// leaves its value nowhere to go - it lands past the screen, which
-			// is why Characters and Skies drew with no setting beside them.
-			x = menuLeft + menuW * 0.5f;
-		else
+		if (item->x >= 0.f) {
+			if (item->align == kAlignRight && !leftEdge) x = item->x * sx() - w;
+			else if (item->align == kAlignCenter && !leftEdge) x = item->x * sx() - w * 0.5f;
+			else x = item->x * sx();
+		} else if (item->align == kAlignLeft) {
+			x = menuLeft - (isBox ? 10.f * sx() : 0.f);
+		} else if (item->align == kAlignRight) {
+			x = menuLeft + menuW - w + (isBox ? 10.f * sx() : 0.f);
+		} else {
 			x = (float(screenW) - w) * 0.5f;
-		const float y = item->y * sy();
+		}
+		// MenuItemSlider::CalcPosition (0x100864d0): a slider is its label
+		// plus sliderCtrlWidth wide - Right ends 40 units in from the box's
+		// edge, an unaligned one centres that whole width.
+		if (item->kind == Kind::Slider && item->x < 0.f) {
+			const float ctrl = item->sliderCtrlWidth * sx();
+			if (item->align == kAlignRight) x = menuLeft + menuW - w - ctrl - 40.f * sx();
+			else if (item->align != kAlignLeft) x = (float(screenW) - ctrl) * 0.5f;
+		}
+		x = std::round(x);
+		const float y = std::round(item->y * sy());
 
 		uint32_t colour = item->textColor;
 		if (item->disabled) colour = item->disabledColor;
 		else if (isFocused) colour = item->underMouseColor;
 
-		// The plate goes behind the row, and only under the FOCUSED one: the
-		// art is opaque bronze, so drawing it under every row would tile the
-		// whole column over the background and lose the menu's artwork
-		// entirely. As a highlight it is what makes the selected row read as
-		// pressed.
-		// The plate goes under EVERY row that asked for one, not only the
-		// focused one - the shipped Options screen shows five plates - at the
-		// art's own proportions: 114 high with 110-wide caps, standing 67
-		// authoring units tall on an 80-unit row pitch, centred on the text,
-		// and spanning the menu box less an 84-unit margin each side (the
-		// original's plate is 553 units wide in a 720-unit box).
-		if (!item->itemBG.empty()) {
-			const float plateH = 67.f * sy();
-			const float plateX = menuLeft + 84.f * sx();
-			DrawItemBG(*item, plateX, y + h * 0.5f - plateH * 0.5f, menuW - 168.f * sx(), plateH);
-		}
+		// The plate goes under every row that asked for one, sized from the
+		// row's own text (MenuItem::SetBGWidth).
+		if (!item->itemBG.empty()) DrawItemBG(*item, h);
 
-		// A CENTRED row with a value is one string, "label: value", centred
-		// as a whole - "Speakers setup: Two Speakers" on the Sound screen -
-		// rather than a label here and a value in a column that does not
-		// exist for it. A centred checkbox centres box and label as a pair.
-		const bool centredRow =
-			item->x < 0.f && (item->align == kAlignCenter || item->align == kAlignNone);
-		std::string label = item->text;
-		bool inlineValue = false;
-		if (centredRow && (item->kind == Kind::TextButtonEx || item->kind == Kind::NumRange)) {
-			label += ": " + ValueString(*item);
-			inlineValue = true;
+		// MenuItemCheckbox::Render (0x10065110): the box at the row's top, at
+		// the art's own size; a Right row puts it at the far end, 3 in from
+		// the width, every other row at x with the label 3 past it. The label
+		// drops to centre on the box.
+		float labelX = x, labelY = y;
+		if (isBox) {
+			const bool boxRight = item->x < 0.f && item->align == kAlignRight;
+			const float bx = boxRight ? x + w - boxW - 3.f : x;
+			DrawCheckbox(*item, bx, y, boxW, boxH);
+			labelX = boxRight ? x : x + boxW + 3.f;
+			labelY = y + std::round((boxH - h) * 0.5f);
 		}
-		float labelX = x;
-		if (inlineValue)
-			labelX = (float(screenW) - hud_->TextWidth(item->fontBig, size, label)) * 0.5f;
-		// A checkbox is its box, then its label - not a label with "On"
-		// beside it.
-		if (item->kind == Kind::Checkbox) {
-			const float boxW = 36.f * sx(), gap = 12.f * sx();
-			float bx = x;
-			if (centredRow) bx = (float(screenW) - (boxW + gap + w)) * 0.5f;
-			DrawCheckbox(*item, bx, y, size);
-			labelX = bx + boxW + gap;
-		}
-		hud_->Text(item->fontBig, size, labelX, y, label, ArgbToAbgr(colour),
+		// MenuItem::Render (0x1006eac0): the shadow copy first, when the
+		// screen asked for one.
+		if (drawShadow_)
+			hud_->Text(item->fontBig, size, labelX + 1.f, labelY + 1.f, label,
+					ArgbToAbgr(0x50000000u), FontTexture(*item, true));
+		hud_->Text(item->fontBig, size, labelX, labelY, label, ArgbToAbgr(colour),
 				FontTexture(*item, true));
 
 		// The hit target is the ROW, not the word. PMENU.SetMenuWidth is what
@@ -532,31 +663,8 @@ void MenuSystem::Draw(int screenW, int screenH) {
 		if (HasValue(item->kind))
 			item->hitW = std::max(item->hitW, (item->sliderWidth + 180.f) * sx());
 
-		// A widget's VALUE is drawn to the right of its label, in the column
-		// the screen's sliderWidth reserves. The label sits at the item's x, so
-		// the value column starts a fixed distance along rather than after the
-		// text - otherwise the values in a list of options would not line up.
-		if (item->kind == Kind::Slider) {
+		if (item->kind == Kind::Slider)
 			DrawSlider(*item, x, y, size, colour, menuLeft, item->x >= 0.f);
-		} else if (HasValue(item->kind) && !inlineValue) {
-			// A full-width row puts its value a fixed sliderWidth along, so
-			// the values in a column line up. A HALF row - one side of a
-			// two-column line - has no room for that: sliderWidth is 340
-			// authoring units against a half of 360, so the value would run
-			// into the next column's label. There the value right-aligns to
-			// the half's own right edge instead.
-			const bool halfRow = item->x < 0.f && menuWidth_ > 0.f &&
-					(item->align == kAlignLeft || item->align == kAlignRight);
-			float vx = x + item->sliderWidth * sx();
-			if (halfRow) {
-				const float halfLeft =
-					menuLeft + (item->align == kAlignRight ? menuW * 0.5f : 0.f);
-				// A gutter, or the left half's value ends exactly where the right
-				// half's label begins and the two read as one word.
-				vx = halfLeft + menuW * 0.5f - ValueWidth(*item, size) - 28.f * sx();
-			}
-			DrawValue(*item, vx, y, size, colour);
-		}
 	}
 
 	// Rows are spaced further apart than a line is tall - 80 authoring units
@@ -580,6 +688,11 @@ void MenuSystem::Draw(int screenW, int screenH) {
 		}
 	}
 
+	// The last pass: every list's scroller, over the neighbouring frames.
+	for (Item* item : passes)
+		if (item->kind == Kind::WeaponList && item->visible && item->scrollX > 0.f)
+			DrawScroller(item->scrollX, item->scrollTop, item->scrollBottom - item->scrollTop,
+					item->scrollT, nullptr, nullptr, nullptr, nullptr);
 	DrawKeyScroller();
 
 	// "Version: 1.64", top right: the engine calls PainMenu_PrintGameVersion
@@ -587,11 +700,16 @@ void MenuSystem::Draw(int screenW, int screenH) {
 	// HUD.PrintXY into the batch that is open right now.
 	if (runAction_) runAction_("if PainMenu_PrintGameVersion then PainMenu_PrintGameVersion() end");
 
-	// The focused row's blurb, centred near the bottom - where the shipped
-	// menu puts it.
+	// The focused row's blurb: MenuItem::RenderDesc (0x1006f7d0) centres it
+	// at y = 700 authoring units, over a black copy one pixel down and right.
 	if (focusedItem && !focusedItem->desc.empty()) {
 		const int size = int(std::lround(double(focusedItem->fontSmallSize) * double(sy())));
-		hud_->Text(focusedItem->fontSmall, size, -1.f, float(screenH) - 80.f * sy(),
+		const float descY = std::round(700.f * sy());
+		const float descX = (float(screenW) -
+				hud_->TextWidth(focusedItem->fontSmall, size, focusedItem->desc)) * 0.5f;
+		hud_->Text(focusedItem->fontSmall, size, descX + 1.f, descY + 1.f, focusedItem->desc,
+				0xff000000u, FontTexture(*focusedItem, false));
+		hud_->Text(focusedItem->fontSmall, size, descX, descY,
 				focusedItem->desc, ArgbToAbgr(focusedItem->descColor),
 				FontTexture(*focusedItem, false));
 	}
@@ -615,7 +733,7 @@ int MenuSystem::FontTexture(const Item& item, bool big) {
 // The bevelled plate a row sits on, from the three-slice under
 // HUD/blachy_menu. The caps keep their own width and the middle tiles between
 // them, which is why the art is three pieces and not one stretched image.
-void MenuSystem::DrawItemBG(Item& item, float x, float y, float w, float h) {
+void MenuSystem::DrawItemBG(Item& item, float textH) {
 	if (!hud_ || !textures_ || item.itemBG.empty()) return;
 	if (item.itemBGMat[0] < 0) {
 		static const char* kSuffix[3] = {"_lewa", "_centrum", "_prawa"};
@@ -625,26 +743,30 @@ void MenuSystem::DrawItemBG(Item& item, float x, float y, float w, float h) {
 	}
 	if (item.itemBGMat[0] <= 0 || item.itemBGMat[2] <= 0) return;
 
-	// The caps keep the ART's proportions: blaszka_lewa and _prawa are 110 x
-	// 114, so a cap is as wide as 110/114 of the plate's height whatever the
-	// plate's width. MaterialSize can report a padded size, which is what
-	// stretched them before; the file's own numbers are used instead.
-	const float capL = h * (110.f / 114.f), capR = capL;
-	const float middle = w - capL - capR;
+	// MenuItem::SetBGWidth(400) + DrawBackground (0x1006e4d0, 0x1006eb40), in
+	// authoring units: the middle is 400 wide centred on the 1024 canvas,
+	// 42 tall plus the text's pixel height, from 23 above the text; the art
+	// (caps 110 x 114, middle 103) is scaled by (textH + 42) / 114, the
+	// middle tile also by 0.8, and ceil(400 / tile) tiles are laid in full.
+	const float SX = sx(), SY = sy();
+	const float scale = (textH / SY + 42.f) / 114.f;
+	const float capW = std::round(110.f * scale);
+	const float tileW = std::round(103.f * scale * 0.8f);
+	const int count = int(std::ceil(400.f / tileW));
+	const float midX = (1024.f - 400.f) * 0.5f;
+	const float top = std::round((item.y - 23.f) * SY);
+	const float h = std::round(42.f * SY) + textH;
 
-	hud_->Quad(item.itemBGMat[0], x, y, capL, h, 0xffffffffu);
-	// The middle REPEATS - blaszka_centrum is 103 x 114 of bevelled metal,
-	// and stretched across a plate it reads as one smeared highlight. Tiled
-	// at the plate's own scale, with the last tile cut to fit.
-	if (middle > 0.f && item.itemBGMat[1] > 0) {
-		const float tileW = h * (103.f / 114.f);
-		for (float at = 0.f; at < middle; at += tileW) {
-			const float span = std::min(tileW, middle - at);
-			hud_->Quad(item.itemBGMat[1], x + capL + at, y, span, h, 0xffffffffu, 0.f, 0.f,
-					span / tileW, 1.f);
-		}
+	hud_->Quad(item.itemBGMat[0], std::round((midX - capW + 1.f) * SX), top,
+			std::round(capW * SX), h, 0xffffffffu);
+	if (item.itemBGMat[1] > 0) {
+		const float tw = std::round(tileW * SX);
+		for (int i = 0; i < count; ++i)
+			hud_->Quad(item.itemBGMat[1], std::round(midX * SX) + float(i) * tw, top, tw, h,
+					0xffffffffu);
 	}
-	hud_->Quad(item.itemBGMat[2], x + w - capR, y, capR, h, 0xffffffffu);
+	hud_->Quad(item.itemBGMat[2], std::round((midX - 1.f + 400.f) * SX), top,
+			std::round(capW * SX), h, 0xffffffffu);
 }
 
 // The words a value shows as, for the rows that write it into their label.
@@ -836,22 +958,22 @@ void MenuSystem::DrawSlider(const Item& item, float labelX, float y, int size, u
 	if (item.isFloat) snprintf(buf, sizeof buf, "%.2f", item.value / 100.0);
 	else snprintf(buf, sizeof buf, "%d", int(item.value));
 	const float valueW = hud_->TextWidth(item.fontBig, size, buf);
-	const float valueSlot = hud_->TextWidth(item.fontBig, size, "00.00");
+	const float valueSlot = hud_->TextWidth(item.fontBig, size, "9.99");
+	(void)labelX; (void)menuLeft; (void)explicitX;
 
-	// The arrows sit OUTSIDE the line, so the label and the value clear
-	// them, not just the line.
+	// MenuItemSlider::SetSliderWidth (0x10085dd0) and CalcSize (0x10086810).
+	// The bar is sliderWidth less "9.99" in the font the item had when it
+	// was added - the engine's default, painfont 40. The left arrow stands
+	// at (x + sliderCtrlWidth - bar - two arrows) from the screen's left,
+	// less "9.99" in the final font, with x the DECLARED value (-1 included);
+	// the value centres in a "9.99" slot past the right arrow.
 	const float aw = 62.f * SX, ah = 40.f * SY;
-	float barLeft, barRight, valueX;
-	if (explicitX) {
-		barLeft = labelX + hud_->TextWidth(item.fontBig, size, item.text) + 24.f * SX + aw;
-		barRight = barLeft + item.sliderWidth * SX;
-		valueX = barRight + aw + 12.f * SX;
-	} else {
-		const float valueRight = menuLeft + item.sliderCtrlWidth * SX;
-		valueX = valueRight - valueW;
-		barRight = valueRight - valueSlot - 12.f * SX - aw;
-		barLeft = barRight - item.sliderWidth * SX;
-	}
+	const float slot40 = hud_->TextWidth("painfont", int(std::lround(40.0 * double(SY))), "9.99");
+	const float barW = std::round(item.sliderWidth * SX - slot40);
+	const float barLeft = std::floor((item.x + item.sliderCtrlWidth) * SX - barW - 2.f * aw -
+			valueSlot) + aw;
+	const float barRight = barLeft + barW;
+	const float valueX = std::round(barRight + aw + (valueSlot - valueW) * 0.5f);
 	// The bar runs through the middle of the text's line, not of its point
 	// size: the line is taller than the size and the glyphs sit low in it.
 	const float cy = y + hud_->TextHeight(item.fontBig, size) * 0.5f;
@@ -862,6 +984,7 @@ void MenuSystem::DrawSlider(const Item& item, float labelX, float y, int size, u
 	const_cast<Item&>(item).barW = barRight - barLeft;
 	const_cast<Item&>(item).barY = cy - 20.f * SY;
 	const_cast<Item&>(item).barH = 40.f * SY;
+	const_cast<Item&>(item).barArrowW = aw;
 
 	// The LARGE set is the slider's: strzalka_duza points right, kreska_duza
 	// is a stretch of horizontal line, dzwigienka_duza the upright knob. (The
@@ -869,17 +992,26 @@ void MenuSystem::DrawSlider(const Item& item, float labelX, float y, int size, u
 	const int arrow = MapMat("HUD/border/strzalka_duza");
 	const int line = MapMat("HUD/border/kreska_duza");
 	const int knob = MapMat("HUD/border/dzwigienka_duza");
-	if (line > 0) hud_->Tiles(line, barLeft, cy - 17.f * SY, barRight - barLeft, 0.f);
+	// MenuItemSlider::Render (0x10085e90): the arrows centre on the text, the
+	// knob (45 x 59) sits 6 units above them, and the line (kreska_duza,
+	// 27 x 34) starts 16 units above the text's middle at its UNSCALED height
+	// - so on any screen taller than 768 it rides above the arrows' axis. The
+	// port scales the line and centres it on the arrows instead.
+	const float arrowTop = std::round(cy - ah * 0.5f);
+	const float lineH = std::round(34.f * SY);
+	if (line > 0)
+		hud_->Tiles(line, barLeft, std::round(arrowTop + ah * 0.5f - lineH * 0.5f),
+				barRight - barLeft, lineH);
 	// The spearheads point INTO the line: the file's right-pointing arrow
 	// stands at the left end, its mirror at the right.
 	if (arrow > 0) {
-		hud_->Quad(arrow, barLeft - aw, cy - ah * 0.5f, aw, ah, 0xffffffffu);
-		hud_->Quad(arrow, barRight, cy - ah * 0.5f, aw, ah, 0xffffffffu, 1.f, 0.f, 0.f, 1.f);
+		hud_->Quad(arrow, barLeft - aw, arrowTop, aw, ah, 0xffffffffu);
+		hud_->Quad(arrow, barRight, arrowTop, aw, ah, 0xffffffffu, 1.f, 0.f, 0.f, 1.f);
 	}
 	if (knob > 0) {
 		const float kw = 45.f * SX, kh = 59.f * SY;
-		hud_->Quad(knob, barLeft + float(t) * (barRight - barLeft) - kw * 0.5f, cy - kh * 0.5f, kw,
-				kh, 0xffffffffu);
+		hud_->Quad(knob, barLeft + float(t) * (barRight - barLeft) - kw * 0.5f,
+				arrowTop - std::round(6.f * SY), kw, kh, 0xffffffffu);
 	}
 	hud_->Text(item.fontBig, size, valueX, y, buf, abgr, FontTexture(item, true));
 }
@@ -887,16 +1019,11 @@ void MenuSystem::DrawSlider(const Item& item, float labelX, float y, int size, u
 // The menu's checkbox is HUD/ikonki/checkbox_pusty (empty) and
 // checkbox_zaznaczony (ticked): the bevelled bronze box with its red tick,
 // as one piece. (HUD/ChkChecked is the HUD's own tick, not the menu's.)
-void MenuSystem::DrawCheckbox(const Item& item, float x, float y, int size) {
+void MenuSystem::DrawCheckbox(const Item& item, float x, float y, float w, float h) {
 	const int box = MapMat(item.value != 0.0 ? "HUD/ikonki/checkbox_zaznaczony"
 			: "HUD/ikonki/checkbox_pusty");
 	if (box <= 0) return;
-	// The file is 55 x 51; the original draws it about 36 x 33 authoring
-	// units, a line's height, measured off the Sound screen.
-	const float bw = 36.f * sx(), bh = 33.f * sy();
-	const float th = hud_->TextHeight(item.fontBig, size);
-	hud_->Quad(box, x, y + th * 0.5f - bh * 0.5f, bw, bh,
-			item.disabled ? 0xffa0a0a0u : 0xffffffffu);
+	hud_->Quad(box, x, y, w, h, item.disabled ? 0xffa0a0a0u : 0xffffffffu);
 }
 
 // A tab group is a tab box - 180 x 52, the first ten units in from the
@@ -906,22 +1033,26 @@ void MenuSystem::DrawCheckbox(const Item& item, float x, float y, int size) {
 // same panel as an explicit EmptyBorder at y 110). The script places the tab
 // LABELS itself, as ordinary rows, and shifts the inactive one eight units
 // down - which is why "Advanced" sits lower than "General" in the original.
-void MenuSystem::DrawTabGroup(const Item& item, int index) {
-	Item tab = item;
-	tab.kind = Kind::Border;
-	tab.x = item.x + 10.f + float(index) * 172.f;
-	tab.y = item.y + 8.f;
-	tab.width = 180.f;
-	tab.height = 52.f;
-	tab.columns.clear();
-	tab.headerHeight = 0.f;
-	tab.dark = !item.visible;
-	DrawBorder(tab);
-	if (!item.visible) return;
+void MenuSystem::DrawTabGroup(const Item& item, int index, int count) {
+	// The visible group draws the whole strip: every tab 180 apart from the
+	// group's x, its own full height in the DARK stripe (tlo_paski_ciemne,
+	// the +0x15c texture), the others 10 lower in the light one.
+	for (int i = 0; i < count; ++i) {
+		Item tab = item;
+		tab.kind = Kind::Border;
+		tab.x = item.x + float(i) * kTabW;
+		tab.y = item.y + (i == index ? 0.f : kTabDrop);
+		tab.width = kTabW;
+		tab.height = kTabH - (i == index ? 0.f : kTabDrop);
+		tab.columns.clear();
+		tab.headerHeight = 0.f;
+		tab.dark = i == index;
+		DrawBorder(tab);
+	}
 	Item panel = item;
 	panel.kind = Kind::Border;
-	panel.y = item.y + 50.f;
-	panel.height = item.height - 50.f;
+	panel.y = item.y + kTabH;
+	panel.height = item.height - kTabH;
 	panel.columns.clear();
 	panel.headerHeight = 0.f;
 	DrawBorder(panel);
@@ -948,6 +1079,25 @@ constexpr float kKeyRowH = 27.f;
 constexpr float kKeyCellPad = 20.f;
 } // namespace
 
+int MenuSystem::KeyRowsVisible(float& rowH) {
+	// The rows' font is the header row's; the window is the scroller's
+	// height less 130, or 410 with no scroller, in lines, rounded up.
+	std::string font = "timesbd";
+	int size = 26;
+	if (const Item* labels = Find("KeyLabels")) { font = labels->fontBig; size = labels->fontBigSize; }
+	rowH = hud_ ? hud_->TextHeight(font, int(std::lround(double(size) * double(sy())))) : 0.f;
+	if (rowH <= 0.f) rowH = 24.f * sy();
+	// The engine cuts its window from the scroller's height less 130, in
+	// lines of the authored size, which overruns the Advanced tab's frame on
+	// a tall screen. The port shows the rows that fit the KeyBorder: from
+	// top + 16 + one line down to the frame's bottom.
+	float bottom = 520.f;
+	if (const Item* border = Find("KeyBorder"))
+		if (border->height > 0.f) bottom = border->y + border->height;
+	const float span = (bottom - (topPosition_ + 16.f)) * sy();
+	return std::max(1, int(std::floor(span / rowH)) - 1);
+}
+
 // The list scroller beside the key table: a large arrow at each end of a
 // large line, the large lever as the thumb.
 void MenuSystem::DrawKeyScroller() {
@@ -957,31 +1107,70 @@ void MenuSystem::DrawKeyScroller() {
 	for (const auto& kv : items_)
 		if (kv.second.kind == Kind::KeyControl && !kv.second.keySingle && kv.second.visible)
 			rows = std::max(rows, kv.second.keyIndex);
-	const float header = border->headerHeight > 0.f ? border->headerHeight : 50.f;
-	const int visible = std::max(1, int((border->height - header) / kKeyRowH));
+	float rowH = 0.f;
+	const int visible = KeyRowsVisible(rowH);
+	keyScrollMax_ = 0;
 	if (rows <= visible) return;
 
-	// The SMALL set: strzalka_mala points down (flipped for the top),
-	// kreska_mala is a stretch of vertical line, dzwigienka_mala the thumb.
+	// Attached to the KeyBorder the way MenuItemBorder::AddScroller stands
+	// every scroller: on the right edge, past the frame at both ends.
+	const float SX = sx(), SY = sy();
+	keyScrollMax_ = rows - visible;
+	DrawScroller((border->x + border->width - 14.f) * SX, (border->y - 14.f) * SY,
+			(border->height + 32.f) * SY, float(keyScroll_) / float(keyScrollMax_),
+			&keyScrollX_, &keyScrollTop_, &keyScrollBottom_, nullptr);
+}
+
+bool MenuSystem::ScrollerInput(const std::string& id, float x, float top, float bottom,
+		float mouseX, float mouseY, bool clicked, int& value, int maxValue) {
+	const float aw = 35.f * sx(), ah = 42.f * sy(), lever = 29.f * sy();
+	const bool dragging = scrollDrag_ == id;
+	const bool over = mouseX >= x && mouseX <= x + aw && mouseY >= top && mouseY <= bottom;
+	if (!dragging && !over) return false;
+	if (!dragging && clicked && mouseY < top + ah) {
+		value = std::max(0, value - 1);
+	} else if (!dragging && clicked && mouseY > bottom - ah) {
+		value = std::min(maxValue, value + 1);
+	} else if (mouseDown_ && (dragging || clicked)) {
+		// The lever's centre follows the pointer along the travel.
+		scrollDrag_ = id;
+		const float travel = (bottom - top) - 14.f * sy() - 2.f * ah - lever;
+		const float t = travel > 0.f ? (mouseY - top - ah - lever * 0.5f) / travel : 0.f;
+		value = std::max(0, std::min(maxValue, int(std::lround(t * float(maxValue)))));
+	}
+	return true;
+}
+
+// MenuItemScroller::Render (0x100807c0): the SMALL set - strzalka_mala
+// flipped at the top and upright at the bottom, kreska_mala between them,
+// dzwigienka_mala the lever at top + arrow + travel * t less 2, where the
+// travel is the height less 14 and the two arrows. The original draws the
+// art at its pixel size; here it scales with the screen.
+void MenuSystem::DrawScroller(float x, float top, float h, float t, float* outX,
+		float* outTop, float* outBottom, float* outArrowH) {
 	const float SX = sx(), SY = sy();
 	const int arrow = MapMat("HUD/border/strzalka_mala");
 	const int line = MapMat("HUD/border/kreska_mala");
 	const int thumb = MapMat("HUD/border/dzwigienka_mala");
 	const float aw = 35.f * SX, ah = 42.f * SY;
-	const float x = (border->x + border->width - 30.f) * SX - aw * 0.5f;
-	const float top = (border->y + 6.f) * SY;
-	const float bottom = (border->y + border->height - 6.f) * SY;
-	if (line > 0) hud_->Tiles(line, x, top + ah, 0.f, bottom - top - 2.f * ah);
+	x = std::round(x);
+	top = std::round(top);
+	if (line > 0) hud_->Tiles(line, x, top + ah, 0.f, h - 2.f * ah);
 	if (arrow > 0) {
 		hud_->Quad(arrow, x, top, aw, ah, 0xffffffffu, 0.f, 1.f, 1.f, 0.f);
-		hud_->Quad(arrow, x, bottom - ah, aw, ah, 0xffffffffu);
+		hud_->Quad(arrow, x, top + h - ah, aw, ah, 0xffffffffu);
 	}
 	if (thumb > 0) {
 		const float tw = 40.f * SX, th = 29.f * SY;
-		const float travel = (bottom - ah) - (top + ah) - th;
-		const float t = float(keyScroll_) / float(std::max(1, rows - visible));
-		hud_->Quad(thumb, x + aw * 0.5f - tw * 0.5f, top + ah + travel * t, tw, th, 0xffffffffu);
+		const float travel = h - 14.f * SY - 2.f * ah;
+		hud_->Quad(thumb, x + aw * 0.5f - tw * 0.5f,
+				std::round(top + ah + travel * std::max(0.f, std::min(1.f, t)) - 2.f * SY),
+				tw, th, 0xffffffffu);
 	}
+	if (outX) *outX = x;
+	if (outTop) *outTop = top;
+	if (outBottom) *outBottom = top + h;
+	if (outArrowH) *outArrowH = ah;
 }
 
 void MenuSystem::DrawKeyRow(Item& item, bool focused) {
@@ -992,55 +1181,56 @@ void MenuSystem::DrawKeyRow(Item& item, bool focused) {
 	else if (focused) colour = item.underMouseColor;
 	const bool thisCapture = capture_ == item.name;
 
-	// AddSimpleKeyConf's one-key row sits where the script put it.
+	// AddSimpleKeyConf's one-key row (vtable 0x102b2138) keeps MenuItem's
+	// CalcPosition, so its key name sits where the script's x and align put
+	// a plain row - the Messages screen centres each on x = 122.
 	if (item.keySingle) {
-		const float x = item.x >= 0.f ? item.x * SX : (float(screenW_) - 300.f * SX) * 0.5f;
-		const float y = item.y * SY;
-		hud_->Text(item.fontBig, size, x, y, item.text, ArgbToAbgr(colour),
-				FontTexture(item, true));
 		const std::string shown = thisCapture ? "..." : item.keyPrimaryText;
-		hud_->Text(item.fontBig, size, x + 160.f * SX, y, shown, ArgbToAbgr(colour),
-				FontTexture(item, true));
+		const float w = hud_->TextWidth(item.fontBig, size, shown);
+		const float h = hud_->TextHeight(item.fontBig, size);
+		float x = item.x >= 0.f ? item.x * SX : (float(screenW_) - w) * 0.5f;
+		if (item.x >= 0.f && item.align == kAlignCenter) x -= w * 0.5f;
+		else if (item.x >= 0.f && item.align == kAlignRight) x -= w;
+		x = std::round(x);
+		const float y = std::round(item.y * SY);
+		hud_->Text(item.fontBig, size, x, y, shown, ArgbToAbgr(colour), FontTexture(item, true));
 		item.hitX = x;
 		item.hitY = y;
-		item.hitW = 300.f * SX;
-		item.hitH = kKeyRowH * SY;
+		item.hitW = w;
+		item.hitH = h;
 		return;
 	}
 
-	// The table's frame, from the border the script declared, or its shipped
-	// numbers when a screen has none.
-	float bx = 50.f, by = 110.f, bw = 924.f, bh = 410.f, header = 50.f;
-	float cols[3] = {328.f, 308.f, 308.f};
-	if (const Item* border = Find("KeyBorder")) {
-		bx = border->x; by = border->y;
-		if (border->width > 0.f) bw = border->width;
-		if (border->height > 0.f) bh = border->height;
-		if (border->headerHeight > 0.f) header = border->headerHeight;
-		for (size_t c = 0; c < 3 && c < border->columns.size(); ++c)
-			if (border->columns[c] > 0.f) cols[c] = border->columns[c];
-	}
-	const int visible = std::max(1, int((bh - header) / kKeyRowH));
+	// The key row's own CalcPosition (0x10066b40) and Render (0x10067280):
+	// x is the menu box's left edge, the columns are 300 wide; the header
+	// sits 10 above the screen's top position, row k at top + 16 + k lines;
+	// rows outside the scroller's window are not drawn. Menu.md, "The key
+	// table".
+	const float menuW = menuWidth_ > 0.f ? menuWidth_ : 1024.f;
+	const float x = std::round((1024.f - menuW) * 0.5f * SX);
+	const float colW = std::round(300.f * SX);
+	float rowH = 0.f;
+	const int visible = KeyRowsVisible(rowH);
 	float y;
 	if (item.keyIndex <= 0) {
-		y = (by + (header - kKeyRowH) * 0.5f) * SY;
+		y = std::round((topPosition_ - 10.f) * SY);
 	} else {
-		const int r = item.keyIndex - 1 - keyScroll_;
-		if (r < 0 || r >= visible) { item.hitW = item.hitH = 0.f; return; }
-		y = (by + header + float(r) * kKeyRowH) * SY;
+		const int r = item.keyIndex - keyScroll_;
+		if (r < 1 || r > visible) { item.hitW = item.hitH = 0.f; return; }
+		y = std::round((topPosition_ + 16.f) * SY + float(r) * rowH);
 	}
-	// The label sits left in its column; the two keys are CENTRED in theirs,
-	// and the header row centres all three.
-	const float col2W = bw - cols[0] - cols[1];
-	const float c0 = (bx + cols[0] * 0.5f) * SX;
-	const float c1 = (bx + cols[0] + cols[1] * 0.5f) * SX;
-	const float c2 = (bx + cols[0] + cols[1] + col2W * 0.5f) * SX;
-	keyColumn2X_ = (bx + cols[0] + cols[1]) * SX;
+	// The header centres its label 20 left of the first column's middle; a
+	// row's label starts at x. The keys centre in their columns, the first
+	// 20 to the right of its middle.
+	const float c0 = x + colW * 0.5f - 20.f * SX;
+	const float c1 = x + colW * 1.5f + 20.f * SX;
+	const float c2 = x + colW * 2.5f;
+	keyColumn2X_ = x + 2.f * colW;
 	const auto centred = [&](float cx, const std::string& s) {
-		return cx - hud_->TextWidth(item.fontBig, size, s) * 0.5f;
+		return std::round(cx - hud_->TextWidth(item.fontBig, size, s) * 0.5f);
 	};
 
-	const float x0 = item.keyIndex <= 0 ? centred(c0, item.text) : (bx + kKeyCellPad) * SX;
+	const float x0 = item.keyIndex <= 0 ? centred(c0, item.text) : x;
 	hud_->Text(item.fontBig, size, x0, y, item.text, ArgbToAbgr(colour), FontTexture(item, true));
 	// The cell being edited shows "..." in place of its key; the cell the
 	// next capture would edit is the one drawn in the focus colour.
@@ -1055,10 +1245,10 @@ void MenuSystem::DrawKeyRow(Item& item, bool focused) {
 	hud_->Text(item.fontBig, size, centred(c2, alt), y, alt,
 			(focused && keyColumn_ == 2) || editAlt ? hot : plain, FontTexture(item, true));
 
-	item.hitX = bx * SX;
+	item.hitX = x;
 	item.hitY = y;
-	item.hitW = bw * SX;
-	item.hitH = kKeyRowH * SY;
+	item.hitW = 3.f * colW;
+	item.hitH = rowH;
 }
 
 // ---------------------------------------------------------------- save list
@@ -1125,6 +1315,18 @@ void MenuSystem::DrawLoadSave(Item& item, bool focused) {
 	const int tex = FontTexture(item, true);
 	const bool pointerIn = showMouse_ && mouseX_ >= x && mouseX_ <= x + kListW * SX;
 
+	// The save-type prefix ("[Quick]", "[Auto]", "[Chckpt]" - TXT.Menu's
+	// three *Prefix strings) is printed once more without its brackets, at
+	// the width of "[" in, in red - grey for the automatic one (the
+	// LoadSave DrawElem, 0x1006adc0; which of the three is grey is the
+	// assumption here, the script order Quick / Auto / Chckpt).
+	const std::string prefixes[3] = {
+		readText_ ? readText_("Menu.QuickPrefix") : "",
+		readText_ ? readText_("Menu.AutoPrefix") : "",
+		readText_ ? readText_("Menu.CheckptPrefix") : ""};
+	const uint32_t prefixColour[3] = {ArgbToAbgr(0xffe51010u), ArgbToAbgr(0xffb8b8b8u),
+			ArgbToAbgr(0xffe51010u)};
+	const float bracketW = hud_->TextWidth(item.fontBig, size, "[");
 	auto drawRow = [&](const Item::SaveRow& r, float ry, bool header, uint32_t colour) {
 		const std::string* cols[4] = {&r.level, &r.time, &r.date, &r.diff};
 		for (int c = 0; c < 4; ++c) {
@@ -1136,11 +1338,21 @@ void MenuSystem::DrawLoadSave(Item& item, bool focused) {
 				cx = x + (kColX[c] + (kColW[c] - w / SX) * 0.5f) * SX;
 			}
 			hud_->Text(item.fontBig, size, cx, ry, *cols[c], colour, tex);
+			if (c == 0 && !header)
+				for (int p = 0; p < 3; ++p) {
+					const std::string& pf = prefixes[p];
+					if (pf.size() < 3 || r.level.compare(0, pf.size(), pf) != 0) continue;
+					hud_->Text(item.fontBig, size, cx + bracketW, ry,
+							pf.substr(1, pf.size() - 2), prefixColour[p], tex);
+					break;
+				}
 		}
 	};
 
 	if (hasHeader) drawRow(item.rows[0], y - 4.f * SY, true, plain);
-	float ry = y + 16.f * SY;
+	// MenuItemList::Render: the rows start at y + 16, one line further down
+	// when there is a header.
+	float ry = y + std::round(16.f * SY) + (hasHeader ? item.rowH : 0.f);
 	for (int i = first + item.listScroll; i < int(item.rows.size()) && i < first + item.listScroll + visible; ++i) {
 		const bool hover = pointerIn && mouseY_ >= ry && mouseY_ < ry + item.rowH;
 		uint32_t colour = plain;
@@ -1220,15 +1432,159 @@ void MenuSystem::ListActivate(Item& item) {
 	if (button && !button->disabled && !button->action.empty()) pending_.push_back(button->action);
 }
 
+// ---------------------------------------------------------------- weapon lists
+//
+// MenuItemList (0x100688f0) with the MenuItemWeaponList overrides: the frame
+// 20 units out, listMaxHeight + 40 tall with a 40 band when there is a
+// header; the header name 4 above y; the rows from y + 16, one text height
+// each, one further down when there is a header; past `separator` entries
+// the colours drop to 0x505050 / 0xa0a0a0 and a one-pixel line in textColor
+// sits two pixels above the first grey row. Menu.md, "The weapon lists".
+namespace {
+constexpr uint32_t kListGreyText = 0xFF505050u, kListGreyChosen = 0xFFA0A0A0u;
+}
+
+void MenuSystem::DrawWeaponList(Item& item, bool focused) {
+	(void)focused;
+	const float SX = sx(), SY = sy();
+	const int size = int(std::lround(double(item.fontBigSize) * double(SY)));
+	const float menuW = menuWidth_ > 0.f ? menuWidth_ * SX : float(screenW_);
+	const float x = std::round(item.x >= 0.f ? item.x * SX : (float(screenW_) - menuW) * 0.5f);
+	const float y = std::round(item.y * SY);
+	item.rowH = hud_->TextHeight(item.fontBig, size);
+	if (item.rowH <= 0.f) item.rowH = 22.f * SY;
+	const float maxH = item.listMaxHeight > 0.f ? item.listMaxHeight : 200.f;
+
+	const int first = item.listHeader ? 1 : 0;
+	// MenuItemList::CalcSize: floor(maxHeight / line) rows fit, and with a
+	// header the header is one of them.
+	const int visible = std::max(1, int(std::floor(maxH * SY / item.rowH)) - first);
+	const int dataRows = int(item.entries.size()) - first;
+	item.listScroll = std::max(0, std::min(item.listScroll, dataRows - visible));
+	item.rowTop.assign(item.entries.size(), 0.f);
+	const float width = (item.listBorderWidth - 40.f) * SX;
+	const int tex = FontTexture(item, true);
+	const uint32_t plain = ArgbToAbgr(item.textColor);
+	const uint32_t chosen = ArgbToAbgr(item.disabledColor);
+	const uint32_t hot = ArgbToAbgr(item.underMouseColor);
+	const bool pointerIn = showMouse_ && mouseX_ >= x && mouseX_ <= x + width;
+
+	if (item.listHeader && !item.entries.empty())
+		hud_->Text(item.fontBig, size, x, y - std::round(4.f * SY), item.entries[0], plain, tex);
+	float ry = y + std::round(16.f * SY) + (item.listHeader ? item.rowH : 0.f);
+	const int end = std::min(int(item.entries.size()), first + item.listScroll + visible);
+	for (int i = first + item.listScroll; i < end; ++i) {
+		const bool past = item.separator >= 0 && i > item.separator;
+		const bool hover = pointerIn && mouseY_ >= ry && mouseY_ < ry + item.rowH;
+		uint32_t colour = past ? ArgbToAbgr(kListGreyText) : plain;
+		if (i == item.selected) colour = past ? ArgbToAbgr(kListGreyChosen) : chosen;
+		else if (hover && !item.disabled) colour = hot;
+		hud_->Text(item.fontBig, size, x, ry, item.entries[size_t(i)], colour, tex);
+		item.rowTop[size_t(i)] = ry;
+		ry += item.rowH;
+	}
+	// The line, when the first grey row is on show.
+	if (item.separator >= 0) {
+		const int firstRow = first + item.listScroll;
+		const float lineY = y + std::round(16.f * SY) +
+				item.rowH * float(item.separator - firstRow + 2) - 2.f;
+		if (item.separator >= firstRow && lineY < y + (maxH + 14.f) * SY)
+			hud_->Quad(0, x, lineY, width + 3.f, 1.f, plain);
+	}
+
+	// The scroller on the frame's right edge when the rows overflow:
+	// MenuItemBorder::AddScroller (0x10063910) stands it at (right - 14,
+	// top - 14), border height + 32 tall, so the arrows reach past the frame.
+	// Drawn in Draw's last pass, as MenuScreen::Render draws the list
+	// scrollers after everything - the next list's frame would cover it.
+	item.scrollX = 0.f;
+	if (dataRows > visible) {
+		item.scrollX = std::round(x - 20.f * SX + (item.listBorderWidth - 14.f) * SX);
+		item.scrollTop = std::round(y - 20.f * SY - 14.f * SY);
+		item.scrollBottom = item.scrollTop + (maxH + 40.f + 32.f) * SY;
+		item.scrollArrowH = 42.f * SY;
+		item.scrollT = float(item.listScroll) / float(std::max(1, dataRows - visible));
+	}
+
+	// The body and the scroller are the hit target.
+	item.hitX = x;
+	item.hitY = y + 16.f * SY;
+	item.hitW = (item.listBorderWidth - 20.f) * SX;
+	item.hitH = maxH * SY;
+}
+
+// A click chooses the row under it (MenuItemList::SendEvent, 0x10068d50),
+// or steps the scroller by one row at its arrows.
+void MenuSystem::WeaponListClick(Item& item, float mouseX, float mouseY) {
+	if (item.scrollX > 0.f && mouseX >= item.scrollX && mouseX <= item.scrollX + 35.f * sx()) {
+		if (mouseY >= item.scrollTop && mouseY < item.scrollTop + item.scrollArrowH)
+			item.listScroll = std::max(0, item.listScroll - 1);
+		else if (mouseY > item.scrollBottom - item.scrollArrowH && mouseY <= item.scrollBottom)
+			item.listScroll += 1; // clamped at draw time
+		return;
+	}
+	for (size_t i = 0; i < item.entries.size(); ++i) {
+		if (item.rowTop[i] <= 0.f) continue;
+		if (mouseY >= item.rowTop[i] && mouseY < item.rowTop[i] + item.rowH) {
+			item.selected = int(i);
+			return;
+		}
+	}
+}
+
+bool MenuSystem::WeaponListNav(Item& item, int delta) {
+	const int first = item.listHeader ? 1 : 0;
+	const int last = int(item.entries.size()) - 1;
+	if (last < first) return false;
+	int next = item.selected < 0 ? (delta > 0 ? first : last) : item.selected + delta;
+	if (next < first || next > last) return false;
+	item.selected = next;
+	const float maxH = item.listMaxHeight > 0.f ? item.listMaxHeight : 200.f;
+	const int visible = std::max(1, int(std::floor(maxH * sy() / std::max(1.f, item.rowH))) - first);
+	const int row = next - first;
+	if (row < item.listScroll) item.listScroll = row;
+	else if (row >= item.listScroll + visible) item.listScroll = row - visible + 1;
+	return true;
+}
+
+void MenuSystem::MoveListItem(Item& item, int direction) {
+	const int n = int(item.entries.size());
+	const int i = item.selected;
+	const int first = item.listHeader ? 1 : 0;
+	if (direction < 0) {
+		// MoveItemUp: the entry just below the line takes the line down
+		// with it as it swaps upward.
+		if (i > 0 && (i != 1 || !item.listHeader)) {
+			if (item.separator >= 0 && i == item.separator + 1) item.separator = i;
+			std::swap(item.entries[size_t(i)], item.entries[size_t(i) - 1]);
+			item.selected = i - 1;
+			if (item.selected - first < item.listScroll) item.listScroll = item.selected - first;
+		}
+		if (item.separator == 0 && n > 1) item.separator = 1;
+	} else {
+		// MoveItemDown: the entry just above the line only moves the line up.
+		if (i >= first && i < n - 1 && n > 1) {
+			if (item.separator >= 0 && i == item.separator) {
+				if (item.separator > 0) item.separator -= 1;
+			} else {
+				std::swap(item.entries[size_t(i)], item.entries[size_t(i) + 1]);
+				item.selected = i + 1;
+				const float maxH = item.listMaxHeight > 0.f ? item.listMaxHeight : 200.f;
+				const int visible = std::max(1,
+						int(std::floor(maxH * sy() / std::max(1.f, item.rowH))) - first);
+				if (item.selected - first >= item.listScroll + visible)
+					item.listScroll = item.selected - first - visible + 1;
+			}
+		}
+		if (item.separator == n - 1 && item.separator > 0) item.separator -= 1;
+	}
+}
+
 void MenuSystem::EnsureKeyRowVisible() {
 	const Item* f = Find(focused_);
 	if (!f || f->kind != Kind::KeyControl || f->keySingle || f->keyIndex <= 0) return;
-	float bh = 410.f, header = 50.f;
-	if (const Item* border = Find("KeyBorder")) {
-		if (border->height > 0.f) bh = border->height;
-		if (border->headerHeight > 0.f) header = border->headerHeight;
-	}
-	const int visible = std::max(1, int((bh - header) / kKeyRowH));
+	float rowH = 0.f;
+	const int visible = KeyRowsVisible(rowH);
 	const int row = f->keyIndex - 1;
 	if (row < keyScroll_) keyScroll_ = row;
 	else if (row >= keyScroll_ + visible) keyScroll_ = row - visible + 1;

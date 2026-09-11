@@ -235,6 +235,9 @@ bool Window::PumpEvents() {
 			if (e.button.button == SDL_BUTTON_RIGHT) vkDown_[2] = down;
 			if (e.button.button == SDL_BUTTON_MIDDLE) vkDown_[4] = down;
 			if (down && e.button.button == SDL_BUTTON_LEFT) leftClicked_ = true;
+			if (down && e.button.button == SDL_BUTTON_RIGHT) rightClicked_ = true;
+			if (!down && e.button.button == SDL_BUTTON_LEFT) leftReleased_ = true;
+			if (!down && e.button.button == SDL_BUTTON_RIGHT) rightReleased_ = true;
 			// Clicking into the window captures the mouse rather than reaching
 			// the game, so a click never both aims and fires. The menu wants
 			// the opposite - it needs a visible cursor to point at rows - so

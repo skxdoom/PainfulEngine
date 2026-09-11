@@ -229,13 +229,61 @@ after  Cfg.EAXAcoustics=false          -- after SetCheckboxValue + ApplySettings
 
 **`AddTextButtonEx` holds no list.** The row whose value cycles through a set -
 resolution, texture quality, speaker setup - keeps that set in the SCRIPT. The
-engine stores only the current label; adjusting the row runs its action, and
-the action pushes the next label back through `ChangeTextButtonExValue`. So
-the widget is a caption, not a combo box.
+engine stores only the current label; adjusting the row calls
+`PainMenu:SwapTextButtonEx` back into the script (not the row's action, which
+is empty), and the script pushes the next label back through
+`ChangeTextButtonExValue`. So the widget is a caption, not a combo box. The
+click rules are under "Changing a value" below.
 
 `AddSliderImage`, `AddNumEdit` and `AddPassword` still fall through to stubs.
 
 Ends at: the Options screens work and write back to `Cfg`.
+
+### Changing a value - what a click on a widget runs
+
+Recovered from the `SendEvent` handlers (event 1 = button down, 2 = button up,
+second argument 1 = left, 2 = right; a widget acts on the UP of the button
+that went down over it):
+
+- **Checkbox** (`MenuItemCheckbox::SendEvent`, 0x100656a0): plays
+  `menu/menu/checkbox-click`, flips the value, runs the row's action, and
+  `PainMenu:EnableApplyButton()` when the row is `applyRequired`.
+- **TextButtonEx** (0x100876b0): the engine holds no list. A LEFT click plays
+  `menu/menu/option-click` and runs `PainMenu:SwapTextButtonEx('<name>',1)`;
+  a RIGHT click runs it with `0`. The script steps `currValue` through its
+  `values` and pushes the label back through `ChangeTextButtonExValue`. Then
+  `EnableApplyButton()` when `applyRequired`, and for every row except
+  `GraphicsQuality`, `PainMenu:AfterControlChange('<name>')` - which resets
+  the GraphicsQuality preset to Custom. The row's own action is NOT run (the
+  shipped rows all declare `action = ""`).
+- **Slider** (`MenuItemSlider::SendEvent`, 0x10086d30): `CheckMouse` answers
+  1 for the left arrow, 2 for the right, 3 for the bar. An arrow click moves
+  the value by ONE in the units the script passed - a float slider arrives
+  multiplied by 100, so gamma moves by 0.01 - plays `menu/menu/scroller-move`
+  and runs the action; at the end of the range it only stops the sound.
+  `EnableApplyButton()` comes from `CalcSize` (0x10086810), which compares
+  the value each frame, so a drag raises it too.
+- **NumRange**: its `SendEvent` is not exported; the port steps it like a
+  slider (left click +1, right click -1). An assumption, until a screen that
+  uses one (the multiplayer limits) is checked against the original.
+
+The port's `MenuSystem::Step` / `Toggle` / `Swap` / `ValueChanged` are these
+four rules; keyboard left/right and Enter route through the same functions.
+
+**Every row acts on the button's RELEASE, over the row that took its press**
+(`MenuItem::SendEvent`, 0x1006ff70: the press sets the item's byte at 0x8b,
+the release checks it). Two things follow, and the port lost both while it
+acted on the press: a press that opens a screen cannot fire whatever the new
+screen puts under the pointer, and Resume Game hands the game a button that
+is already up - acting on the press let the game see the still-held button
+and fire the weapon. A plain row also plays its accept sound on the choice
+(`SetItemSounds`' second argument; PainMenu's default is
+`menu/menu/option-accept`, the main menu's Quit `quit-accept`, Apply
+`apply-accept`, Back `back-accept`), with or without an action.
+Before this the mouse only ran a row's action, which every value widget
+declares empty - so checkboxes, list rows and slider arrows did nothing, and a
+click on an arrow set the slider to its end because the arrow zone was
+hit-tested as the bar.
 
 ### Stage 3 - the frame — **partly done**
 
@@ -498,6 +546,19 @@ Not drawn: the original recolours a `[Quick]` / `[Auto]` / `[Checkpoint]`
 prefix on the level name (grey and red literals in the row drawer) and can
 drop a shadow under each row; the rows here are plain.
 
+**Rows and the coloured prefix (2026-09-11).** The save table is a
+`MenuItemList`, so its rows follow the list rule: the header 4 above y, the
+first row at y + 16 plus one line (the port had it at y + 16, hard against
+the header rule). Its `DrawElem` (0x1006adc0) then prints the save-type
+prefix once more without its brackets, at the width of "[" in, over the
+first column: `0xffe51010` red, or `0xffb8b8b8` grey for one of the three
+`TXT.Menu` prefixes (`QuickPrefix` "[Quick]", `AutoPrefix` "[Auto]",
+`CheckptPrefix` "[Chckpt]"; the strings are read from the script by the
+LoadSave constructor, 0x1006b310). Which of the three is the grey one is
+not settled - the decompile loses the order - and the port takes Auto. The
+columns are the engine's: 380 / 130 / 210 / 110 wide at 0 / 380 / 506 / 716,
+the last three centred (0x102b2358..236c).
+
 ### The key table (ControlsConfig) — **done**
 
 `PMENU.AddKeyControl(name, label, primaryOption, alternativeOption,
@@ -529,6 +590,56 @@ menu - it reads as a tamper check.
 `INP.GetKeyNameByEngName` answers the engine name itself (the per-language
 table is the same strings in English); `GetShortNameByEngName` is the HUD's
 abbreviation table ("LMB", "RCtrl", "WheelFwd").
+
+### The key table's rows (recovered 2026-09-11)
+
+The key rows are their own class (type 5, vtable 0x102b2098; ctor
+0x10066e20, `CalcPosition` 0x10066b40, `Render` 0x10067280), and they are
+placed by the SCREEN, not by the KeyBorder:
+
+- x is the menu box's left edge (`(1024 - menuWidth) / 2`; ControlsConfig
+  says 880, so 72); the three columns are 300 wide (0x102b0cdc). A row's
+  label starts at x; the header's centres 20 left of the first column's
+  middle; the primary key centres 20 right of the second column's middle,
+  the alternative on the third column's middle.
+- The header row (index 0) sits 10 above the screen's `topPos` (PainMenu's
+  default 140, so 130 - centred in the KeyBorder's 50-unit band); row k sits
+  at `topPos + 16 + k` lines, the line being the rows' font height (26 point,
+  about 24 units), so the first row starts a line below the band.
+- Rows outside the scroller's window are given y = -1 and not drawn.
+  `MenuScreen::UpdateKeyConfig` (0x10070b60) cuts the window as
+  `ceil((scrollerHeight - 130) * sy / line)`, the line measured through the
+  two-argument `SetFont` at the authored size, and sets the scroller's range
+  to `rows - window - 1`. `PMENU.AddScroller`'s seventh argument and
+  `SetScrollerHeight` (440 for General, 546 for Advanced) are that height.
+
+The port keeps the placement and cuts the window differently: as many rows
+as fit between the first row and the KeyBorder's bottom. The engine's
+formula overruns the Advanced tab's frame on a 16:9 screen (21 rows drawn
+in a frame that holds 18), and its `rows - window - 1` range leaves the last
+row unreachable when the window is one short. On 1600x900 the General tab
+shows all fourteen rows without a scroller either way.
+
+### The Messages screen
+
+`MessagesConfig` declares one `MessagesKeys` item with `count = 18`, and
+`PainMenu:ActivateScreen` expands it into 54 ordinary items before the
+engine sees any of them: per row a `SimpleKeyConf` (x = 122, Center, 22
+point: the bound key's name, `Cfg.MessagesKeys[i]`), a `Checkbox` (x = 204,
+10 point, no label: `Cfg.MessagesSayAll[i]`) and a `TextEdit` (x = 242, 700
+wide, courbd 22, 48 characters: `Cfg.MessagesTexts[i]`), 24 units apart from
+y = 158. So the screen needs no widget of its own, only three rules:
+
+- `AddSimpleKeyConf(name, keyName, keyEngName, index)`'s row (vtable
+  0x102b2138) keeps `MenuItem::CalcPosition`, so the key name is placed like
+  any text with the row's x and align.
+- A checkbox whose font is under 11 points draws its box at half size
+  (`MenuItemCheckbox::CalcSize`, 0x10065360).
+- `MenuItemTextEdit::Render` (0x10088a50) prints the label at x and the
+  value a space's width after it, with a `_` after the value while editing.
+
+Typing into a text edit is not implemented in the port; the rows show and
+the key column captures a key. The messages only reach multiplayer.
 
 ### config.ini: read and written in the same place
 
@@ -595,10 +706,9 @@ depth passes keep their own flags - they are drawn at 1:1 or only alpha-tested.
 Multiplayer and the server browser (~20 natives, and there is no networking
 layer to sit under them), movies (`PlayMovie` is Bink - it answers false at
 once and the callers carry on), the CD-key and registry-bonus DRM, and the
-credits roll (`ShowCredits`). Also still stubs on the options screens: the weapon
-priority lists (`AddList` / `MoveListItemUp` / `Down` / `GetListItems`),
-`SetStaticTextRect`, `AddImageButton*`, `AddSliderImage`, `AddNumEdit`,
-`AddPassword`.
+credits roll (`ShowCredits`). Also still stubs on the options screens:
+`AddImageButton*`, `AddSliderImage`, `AddNumEdit`, `AddPassword`. The weapon
+priority lists are done ("The weapon lists" below).
 
 ## Leaving the end-of-level screen
 
@@ -760,21 +870,199 @@ zero-based. It is worth stating plainly: alignment in this menu decides
 `PMENU.EnableItemBG(name, "blaszka")` turns on the bevelled plate a row sits
 on. The art is a three-slice under `HUD/blachy_menu` - `_lewa`, `_centrum`,
 `_prawa`: left cap, tiled middle, right cap - and the script passes only the
-base name, so the engine appends the suffixes. The caps keep their own width
-and the middle tiles between them, which is why it ships as three pieces and
-not one stretched image.
+base name, so the engine appends the suffixes (`MenuItem::SetBackground`,
+0x100701b0). The caps keep their own width and the middle tiles between them,
+which is why it ships as three pieces and not one stretched image.
 
-It is drawn only under the FOCUSED row. The plates are opaque bronze; under
-every row they would tile the whole column over the background and lose the
-menu artwork entirely. As a highlight, it is what makes the selected row read
-as pressed - and it is what finally showed `underMouseColor` working, since
-`Options` came up red on the plate.
+It is drawn under every row that asked for one. Its geometry is
+`MenuItem::SetBGWidth` (0x1006e4d0) and `DrawBackground` (0x1006eb40), in
+authoring units, with `width` = 400 because no script ever calls the width
+setter (the engine applies the default on first draw):
+
+```
+scale  = (textHeight + 42) / 114        textHeight = the row's font, in units
+capW   = round(110 * scale)             blaszka_lewa / _prawa are 110 x 114
+tileW  = round(103 * scale * 0.8)       blaszka_centrum is 103 wide
+count  = ceil(400 / tileW)              full tiles, the last one overdrawn by the cap
+midX   = (1024 - 400) / 2 = 312         centred on the CANVAS, not the menu box
+top    = item.y - 23
+height = 42 + textHeight                (the 42 scales; the text height is pixels)
+left cap  at midX - capW + 1,  right cap at midX + 400 - 1
+```
+
+For the main menu's 36-point rows that is a plate 74 units tall from 242 to
+782, which is what the original's capture measures. An earlier port drew it 67
+tall over the menu box less a margin, from a measurement; the rule above
+replaces it.
+
+Two more things `MenuItem::Render` (0x1006eac0) and `RenderDesc` (0x1006f7d0)
+settle: a screen with `itemsDrawShadow` (PainMenu's default, through
+`PMENU.SetItemsDrawShadow`) draws every label first one pixel down and right in
+`0x50000000` black; and the focused row's description sits centred at
+y = 700 (`descY` is -1 in every shipped screen, and -1 means the engine's
+constant at 0x102b0cc8), over an opaque black copy one pixel down and right.
 
 Seating the highlight on open turned up a second thing. Up and down have to
 walk the screen the way it **looks** - top to bottom, then left to right - not
 the way the items were declared. Declaration order is whatever order `next()`
 happened to walk the screen's Lua table, which is arbitrary: the first attempt
 seated the highlight on `Options` rather than on `Sign the Pact`.
+
+### Row placement - what `CalcPosition` does with x and align
+
+`MenuItem::CalcPosition` (0x1006e730), `MenuItemCheckbox::CalcPosition`
+(0x10065420) and `MenuItemSlider::CalcPosition` (0x100864d0), with the
+`MenuAlign` numbers (None 1, Left 2, Right 3, Center 4):
+
+- **An explicit x** is the string's left edge; Right makes it the right edge
+  (`x - width`), Center the middle (`x - width/2`). The tab titles are the
+  case: `GeneralSettings` at x = 212 and `AdvancedSettings` at 392, Center,
+  which is each tab's middle (the group's 122 + 90, + 180).
+- **x = -1** places the row in the menu box (`SetMenuWidth`, 720 by default,
+  centred on the screen): Left at the box's left edge, Right against its
+  RIGHT edge (`menuRight - width`), None centred on the screen. There is no
+  "value column": a list row's text already carries its value.
+- **A list row's text is `label: value`** - `MenuItemTextButtonEx::ChangeValue`
+  (0x10023950) rebuilds the string from the original text and the new value,
+  so the row is one string wherever alignment puts it. Right-aligned rows
+  therefore end flush with the box's right edge ("Sky: High").
+- **A checkbox** is drawn at its art's own size, 55 x 51 for
+  `HUD/ikonki/checkbox_*` (the art has clear margins, so the box reads about
+  40 wide - an earlier measurement of "36 x 33" was the visible part). Its
+  width is the label plus the box plus 4. Left rows start 10 units LEFT of
+  the box edge, Right rows 10 units past its right edge, and a Right row
+  puts the box at the far end, 3 in; every other row puts the box at x and
+  the label 3 past it. The box sits at the row's y and the label drops to
+  centre on it (`MenuItemCheckbox::Render`, 0x10065110).
+- **A slider's** line (`kreska_duza`, 27 x 34) starts 16 units above the
+  text's middle at its own height; the arrows (62 x 40) centre on the text;
+  the knob (45 x 59) sits 6 units above the arrows' top; the value is centred
+  in a "9.99"-wide slot after the right arrow (`MenuItemSlider::Render`,
+  0x10085e90). The bar's length is `sliderWidth` LESS the width of "9.99" in
+  the font the item had when `AddSlider` ran - always the engine default,
+  painfont 40, because `SetItemFonts` comes later - which is why the 370-unit
+  default draws a bar of about 280 (`SetSliderWidth`, 0x10085dd0). The left
+  arrow stands at `(x + sliderCtrlWidth - bar - 2 x 62) - "9.99"` from the
+  screen's left edge, x being the DECLARED value, -1 included, so a slider
+  in a column is placed absolutely (`CalcSize`, 0x10086810, read from the
+  disassembly: the decompile drops the FPU operands). The label of a Right
+  slider ends 40 units in from the box's right edge after its own width plus
+  `sliderCtrlWidth`; an unaligned slider centres `sliderCtrlWidth` on the
+  screen (`MenuItemSlider::CalcPosition`, 0x100864d0).
+- **The default font** every item is created with is painfont at 40 (small
+  20): `MenuItem::MenuItem`, 0x1006ef00.
+- **A slider's or a checkbox's explicit x is its left edge whatever `align`
+  says** - their own `CalcPosition` only consults the alignment when x is -1.
+  The Controls screen's sensitivity sliders are declared x = 380, Right, and
+  the original draws the labels at 380.
+- **The slider line rides high on tall screens in the original**: `DrawTiles`
+  with height 0 draws the art at its unscaled 34 pixels from 16 units above
+  the text's middle, so above 768 lines the line sits above the arrows' axis.
+  The port scales the line and centres it on the arrows.
+- **The font fill texture modulates alpha too.** `HUD::Print` binds
+  `font_texturka_alpha` (a TGA with an alpha channel) as the second stage and
+  the fixed-function modulate takes RGBA; the alpha holes are the torn edge
+  the plate titles and the bottom row have. The port's `fs_hud` multiplied
+  RGB only, which drew them clean.
+
+The highlight (`underMouseColor`) and the description line belong to the
+row UNDER THE POINTER - MenuItem keeps an under-mouse byte that the screen
+clears when the pointer leaves - so nothing stays lit once the pointer is off
+every row. The port keeps a keyboard focus for the arrow keys, and drops it
+the moment the pointer leaves a row it lit.
+
+### The tab strip
+
+`MenuItemTabGroup::Render` (0x100639a0): every tab is 180 wide and 50 tall,
+laid from the group's x, 180 apart; the group that is visible draws the whole
+strip with its own tab full height in the DARK stripe fill (`tlo_paski_ciemne`,
+the +0x15c texture) and the others starting 10 lower in the light one, and
+the panel from y + 50 to the group's height. `MenuItemBorder::Render`
+(0x100643b0) places the frame pieces exactly as the port's `DrawBorder` does
+(top edge at y - 7, corners at y - 3 / y - 5, bottom at y + h - 11), so a
+plain `Border` beside the strip at y = 68 sits two units above a dropped tab
+at y + 10 = 70 in the original as well. **Which tab is the
+group's own is its `align`**: Left draws the first tab raised, anything else
+the second. Every group of a screen is declared at the same x and y
+(ControlsConfig: both at 50, 60), so nothing else distinguishes them - a
+port that sorted the groups by x drew the raised tab in the wrong place.
+Screens with more than two tabs (Controls, Weapons, Messages) add the extra
+tabs as plain `Border` items beside the strip, named `*SettingsBorder`.
+
+**Draw order is by type, not by item.** `MenuScreen::Render` (0x10071070)
+makes six passes over the item list, each in the order the items were added:
+tab groups; borders whose name contains "Settings" (the tab boxes); the
+other borders (the panels); Load/Save tables; everything else; checkboxes
+last (which is why the Pickup list's checkbox shows over its header band).
+Then each weapon list's border draws its scroller. The passes are what make
+the screens work: the tab boxes overhang the panel top by ten units and the
+panel, drawn in the later pass, covers it; and on the Controls screen the
+hidden Advanced group is added FIRST and creates the shared `KeyBorder`
+before the General group exists, so only the pass order puts the key table
+over the General tab's panel. The port sorts the items by that pass, stably,
+before drawing. Drawing in plain add order lost the key table's header and
+dividers under the panel. The titles are
+ordinary items the script repositions on each switch (`PainMenu:ShowTabGroup`:
+the active title at y = 88, the other at 96).
+
+### The weapon lists (`AddWeaponList`, `AddList`)
+
+The Weapons tab's three columns are `MenuItemWeaponList`, a `MenuItemList`
+(0x100688f0) with three overrides (vtable 0x102b2190: Render 0x10069090,
+MoveItemUp 0x10069330, MoveItemDown 0x100693e0). What was recovered:
+
+- The list owns a border 20 units out from (x, y), `SetListBorderWidth` wide
+  and `listMaxHeight + 40` tall, with a 40-unit header band when the list was
+  added with `useHeader` (`CalcSize` 0x10068be0, `CalcPosition` 0x10068620);
+  x = -1 centres it in the menu box. The entries are `AddItemToList` strings,
+  kept one per text (`AddItem` 0x10069510); with a header the first entry IS
+  the header, drawn 4 units above y. The rows start at y + 16, one text
+  height each, one further down when there is a header, and
+  `floor(listMaxHeight / textHeight)` rows fit - the header counted among
+  them. Past that a scroller appears (`AddItem` creates it and hands it to
+  the border): `MenuItemBorder::AddScroller` (0x10063910) stands it at the
+  border's right edge less 14, from 14 above the border's top, border height
+  + 32 tall, so its arrows reach past the frame at both ends - the same for
+  the Controls key table's scroller. `MenuItemScroller::Render` (0x100807c0)
+  draws `strzalka_mala` flipped at the top and upright at the bottom,
+  `kreska_mala` between, and the `dzwigienka_mala` lever at top + arrow +
+  travel * t less 2, the travel being the height less 14 and the two arrows
+  (`CalcSize` 0x100809f0). The scrollers are the LAST render pass, which is
+  what keeps the next list's frame from covering them. The original draws the
+  scroller art at its pixel size; the port scales it. Input: an arrow click
+  steps one row; a press on the line takes hold of the lever and its centre
+  follows the pointer along the travel until the button is released
+  (`CalcSize`'s mode 3, which reads the pointer each frame). The key table's
+  scroller and the lists' share this in the port (`ScrollerInput`).
+- The line: `separator` is how many entries stand above it. Rows past it draw
+  in `0xff505050` (chosen: `0xffa0a0a0`) and a one-pixel line in `textColor`,
+  the row width plus 3 wide, sits two pixels above the first grey row.
+  `PainMenu:SaveWeaponConfig` writes the count back as a `0` in
+  `Cfg.WeaponPriority` / `BestWeapons1` / `BestWeapons2`, which is what the
+  game's weapon pickup and best-weapon logic read.
+- A click chooses the row under the pointer (`SendEvent` 0x10068d50); the
+  chosen row draws in `disabledColor`. `MoveListItemUp` on the entry just
+  under the line takes the line down with it as it swaps up; `Down` on the
+  entry just above the line only moves the line up, and the line never
+  reaches either end (the `sep == 0 -> 1` and `sep == count - 1` fix-ups).
+- `AddList` (the multiplayer screens) is the same widget with no line.
+
+Before this the whole tab was a trap: `PainMenu:SaveWeaponConfig` runs from
+the Back action and from every tab title, and it calls `PMENU.GetListItems`,
+which was a stub answering nil - so `table.getn(nil)` killed every way out.
+
+### Text height is the glyphs' reach, and the size is the em
+
+`HUD::GetTextHeight` (0x1008b360) returns the font record's first field, and
+`GFont::CalcTextureSize` (0x1008f220) fills it with the tallest reach above
+the baseline plus the deepest below it over the printable ASCII glyphs -
+about 0.92 of the size for timesbd - not the font's ascender-to-descender
+line. `GFont::Load` (0x10090240) sizes the face with `FT_Set_Pixel_Sizes`, so
+the size IS the em in pixels. The port had baked with stb_truetype's
+pixel-height scale (ascender to descender = size), which drew every face
+about a tenth too small, and reported ascent - descent + gap as the line.
+Both now follow the engine (`FontCache`): "Sign the Pact" measures 280 units
+wide against the original's 278.
 
 ### The fade-in is not implemented, deliberately
 

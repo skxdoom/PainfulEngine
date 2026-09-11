@@ -494,8 +494,10 @@ The ordered work queue, with the evidence behind each item, is
 - Menus: the main menu, options, controls (with key capture), the campaign
   map and the save / load screens work, and a plain launch boots to the menu
   and starts a new game through it, with a runtime level switch. Still
-  missing: the weapon priority lists, credits, movies (Bink), multiplayer.
-  The map's layout is a stand-in ([`Menu.md`](Reference/Menu.md)). No
+  missing: credits, movies (Bink), multiplayer (its three rows are greyed
+  out until there is a network layer). The weapon priority lists,
+  value widgets, row placement and the font metrics follow the engine
+  ([`Menu.md`](Reference/Menu.md)); the map's layout is a stand-in. No
   netcode.
 - `.pkm` mod packages do not auto-mount yet — their internal format is still an
   open question, and the `GZipPack` exports hint the engine also reads real

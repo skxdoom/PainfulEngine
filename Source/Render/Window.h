@@ -93,10 +93,28 @@ public:
 		escapePressed_ = false;
 		return e;
 	}
-	// Left-button edge since the last call, for menu clicks.
+	// Button edges since the last call, for menu clicks: the right button
+	// cycles a list row backwards.
 	bool TakeLeftClick() {
 		const bool c = leftClicked_;
 		leftClicked_ = false;
+		return c;
+	}
+	bool TakeRightClick() {
+		const bool c = rightClicked_;
+		rightClicked_ = false;
+		return c;
+	}
+	// The matching release edges: the menu acts on a release over the row
+	// that took the press, as the original's MenuItem::SendEvent does.
+	bool TakeLeftRelease() {
+		const bool c = leftReleased_;
+		leftReleased_ = false;
+		return c;
+	}
+	bool TakeRightRelease() {
+		const bool c = rightReleased_;
+		rightReleased_ = false;
 		return c;
 	}
 
@@ -121,6 +139,9 @@ private:
 	bool mouseCaptured_ = false;
 	float mouseX_ = 0.f, mouseY_ = 0.f;
 	bool leftClicked_ = false;
+	bool rightClicked_ = false;
+	bool leftReleased_ = false;
+	bool rightReleased_ = false;
 	bool allowCapture_ = true;
 	bool escapePressed_ = false;
 	bool escapeQuits_ = true;

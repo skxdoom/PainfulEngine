@@ -12,7 +12,7 @@
 // include this too - rc.exe runs the same preprocessor but cannot read C++,
 // which is what RC_INVOKED guards below.
 #define PAINFUL_VERSION_MAJOR 0
-#define PAINFUL_VERSION_MINOR 5
+#define PAINFUL_VERSION_MINOR 6
 #define PAINFUL_VERSION_STAGE "alpha"
 
 #define PAINFUL_STRINGIFY2(x) #x

@@ -59,7 +59,11 @@ const FontCache::Font* FontCache::Get(const std::string& name, int pixelSize) {
 		return nullptr;
 	}
 
-	const float scale = stbtt_ScaleForPixelHeight(&info, float(pixelSize));
+	// The size is the EM in pixels, as GFont::Load sets it (FT_Set_Pixel_Sizes,
+	// 0x10090240), not the ascender-to-descender height stb_truetype's bake
+	// would take it for - that drew every face about a tenth too small.
+	const float scale = stbtt_ScaleForMappingEmToPixels(&info, float(pixelSize));
+	const float bakeHeight = scale / stbtt_ScaleForPixelHeight(&info, 1.f);
 	int ascent = 0, descent = 0, lineGap = 0;
 	stbtt_GetFontVMetrics(&info, &ascent, &descent, &lineGap);
 	font.ascent = float(ascent) * scale;
@@ -73,7 +77,7 @@ const FontCache::Font* FontCache::Get(const std::string& name, int pixelSize) {
 	std::vector<stbtt_bakedchar> baked(kLastChar - kFirstChar + 1);
 	for (; dim <= 4096; dim *= 2) {
 		alpha.assign(size_t(dim) * size_t(dim), 0);
-		const int rc = stbtt_BakeFontBitmap(ttf.data(), 0, float(pixelSize), alpha.data(),
+		const int rc = stbtt_BakeFontBitmap(ttf.data(), 0, bakeHeight, alpha.data(),
 				dim, dim, int(kFirstChar),
 				int(kLastChar - kFirstChar + 1), baked.data());
 		if (rc > 0) break; // every glyph fitted
@@ -96,6 +100,20 @@ const FontCache::Font* FontCache::Get(const std::string& name, int pixelSize) {
 		g.advance = b.xadvance;
 		font.glyphs[c] = g;
 	}
+	// The line height the engine reports (GFont::CalcTextureSize, 0x1008f220):
+	// the tallest reach above the baseline plus the deepest below it over the
+	// printable ASCII glyphs, and text is placed with that reach as its top.
+	font.extentTop = 0.f;
+	float below = 0.f;
+	for (uint32_t c = 32; c <= 126; ++c) {
+		const Glyph& g = font.glyphs[c];
+		font.extentTop = std::max(font.extentTop, -g.offsetY);
+		below = std::max(below, float(g.h) + g.offsetY);
+	}
+	// Unrounded: the key table cuts its window in lines, and 310 over 23.6
+	// is 14 rows where 310 over 24 is 13 (the original fits all fourteen).
+	font.extentHeight = font.extentTop + below;
+	font.extentTop = std::round(font.extentTop);
 
 	// Expanded to RGBA so one shader draws glyphs and icons alike: white with
 	// the coverage in alpha, which then modulates by the vertex colour exactly

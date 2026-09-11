@@ -43,10 +43,14 @@ public:
 		bgfx::TextureHandle atlas = BGFX_INVALID_HANDLE;
 		uint16_t atlasW = 0, atlasH = 0;
 		float ascent = 0.f, descent = 0.f, lineGap = 0.f;
+		// The engine's line: the printable glyphs' reach above the baseline
+		// and the whole extent (GFont::CalcTextureSize). Text is placed with
+		// extentTop under its y, and height() is what HUD.GetTextHeight says.
+		float extentTop = 0.f, extentHeight = 0.f;
 		std::map<uint32_t, Glyph> glyphs;
 		bool ok = false;
 
-		float height() const { return ascent - descent + lineGap; }
+		float height() const { return extentHeight > 0.f ? extentHeight : ascent - descent; }
 		const Glyph* Find(uint32_t codepoint) const {
 			auto it = glyphs.find(codepoint);
 			return it == glyphs.end() ? nullptr : &it->second;
