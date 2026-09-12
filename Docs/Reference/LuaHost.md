@@ -735,7 +735,7 @@ starting the level fresh through the map screen; `Normal`, `Quick` and
 portal state and zone state - and `SaveGame:AfterLoadEntities()` is called
 from C++ between the entities and the portals. That file is Havok state and
 cannot be read or written here, so `WORLD.SaveGame` writes OUR file in the
-same place (`PKSV`, version 1; `Source/Game/ScriptSave.cpp`) under the same
+same place (`PKSV`, version 3; `Source/Game/ScriptSave.cpp`) under the same
 contract: every entity comes back at the HANDLE it had, because the scripts
 saved those handles in `EntityToObject` and in every `_Entity` field, and
 `Cache:PrecacheLevel` is deliberately run only after `LoadGame` so the counter
@@ -793,6 +793,18 @@ gets away with it because `Light::SaveEntity` / `Light::LoadEntity` put the
 light in the save's own world data. Without this a loaded level came back with
 exactly ONE light, the flashlight `Game:OnPlay` makes fresh, and every placed
 `CLight` was gone. [`Lighting.md`](Lighting.md)
+
+**Version 3 carries the parent joint INDEX** (2026-09-12). `BindFX` hangs an
+effect on a joint by the number `MDL.GetJointIndex` returns, and
+`PARTICLE.SetParentOffset` / `ENTITY.RegisterChild` keep a number as
+`parentJointIndex` with the name field empty; the file carried only the name.
+Every restored effect therefore sat on its parent's ORIGIN: a checkpoint's
+three `checkpoint_fx1` and the end-of-level teleport's five flames collapsed
+into one spot instead of riding the joints the idle animation moves. A version
+2 save still loads that way; the next save is right. The same pass fixed the
+moved active mesh: `RebuildEntity` re-based the rebuilt world object on the
+SAVED position instead of `activeOrigin`, so a gravestone knocked over before
+the save drew displaced from its body by however far it had moved.
 
 ## Next stages
 2. Damage: the shot lands but nothing takes it yet. `ENTITY.ExplodeItem`,

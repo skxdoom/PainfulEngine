@@ -32,9 +32,11 @@ struct SaveNatives : ScriptNativesBase {
 namespace {
 
 constexpr char kMagic[4] = {'P', 'K', 'S', 'V'};
-// 2 added the LIGHT.* block. A version 1 save still loads - it simply has no
-// light state, which is the behaviour it was written with.
-constexpr uint32_t kVersion = 2;
+// 2 added the LIGHT.* block; 3 the parent joint INDEX, which BindFX binds by
+// (a number from MDL.GetJointIndex) and which the name field cannot carry.
+// An older save still loads with what it has: no light state at 1, bound
+// effects on their parent's origin at 2 - the behaviour each was written with.
+constexpr uint32_t kVersion = 3;
 constexpr uint32_t kMinVersion = 1;
 
 // One class reads and writes, so a field is listed once. `ok` goes false on a
@@ -171,6 +173,7 @@ void ArchiveEntity(Archive& ar, ScriptEngine::Entity& e, bool& hadBody, bool& ha
 	ar.F(e.hiddenMeshes);
 	ar.F(e.parent); ar.F(e.parentOffset); ar.F(e.parentJoint); ar.F(e.parentBound);
 	ar.F(e.parentRotBound); ar.F(e.parentRot);
+	if (version >= 3) ar.F(e.parentJointIndex);
 	ar.F(e.collisionGroup); ar.F(e.movedByExplosions); ar.F(e.isProjectile); ar.F(e.isGrenade);
 	ar.F(e.bodyFriction); ar.F(e.bodyRestitution);
 	ar.F(e.bodyType); ar.F(e.bodyArgScale); ar.F(e.bodyMass); ar.F(e.bodyFreedomMode);
@@ -266,7 +269,9 @@ void ScriptEngine::RebuildEntity(int handle, Entity& src) {
 	src.spriteSlot = -1;
 	src.soundVoice = 0;
 	src.emitterSlots.clear();
-	src.parentJointIndex = -2;
+	// A joint given by NAME is resolved again against the rebuilt parent; one
+	// given by index (BindFX, RegisterChild with a number) is the index itself.
+	if (!src.parentJoint.empty()) src.parentJointIndex = -2;
 	src.pose = Entity::Pose();
 	src.blendFrom = nullptr;
 	src.blendFromTracks.clear();
@@ -382,8 +387,10 @@ bool ScriptEngine::LoadWorld(const std::string& enginePath) {
 		return false;
 	}
 	if (version < kVersion)
-		LogInfo("WORLD.LoadGame: %s is a version %u save; it carries no light state, so the "
-				"level's CLights stay dark until it is saved again", path.c_str(), version);
+		LogInfo("WORLD.LoadGame: %s is a version %u save; %s until it is saved again",
+				path.c_str(), version,
+				version < 2 ? "the level's CLights stay dark"
+						: "its bound effects sit on their parents' origins");
 
 	// Everything the level load made goes: LoadMap's active meshes and water
 	// took handles the save owns.

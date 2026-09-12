@@ -149,8 +149,10 @@ void ScriptEngine::CreateRendererInstance(Entity& e) {
 	if (!renderer_ || !textures_ || e.rendererInstance >= 0) return;
 	if (e.worldObject && e.activeMesh >= 0 && size_t(e.activeMesh) < map_.objects.size()) {
 		// A world object physics owns: drawn by the entity path, at the body.
+		// Re-based on the ORIGIN the body was made at, not the pose: after a
+		// load the two differ by however far the object had moved.
 		e.rendererInstance = renderer_->CreateWorldObject(
-				map_.objects[size_t(e.activeMesh)], world_.scale, e.pos, *textures_,
+				map_.objects[size_t(e.activeMesh)], world_.scale, e.activeOrigin, *textures_,
 				MapNameWithoutExtension(world_.mapPath));
 		if (e.rendererInstance >= 0) renderer_->SetScriptPose(e.rendererInstance, e.pos, e.rot);
 	} else if (e.type == kModel) {
