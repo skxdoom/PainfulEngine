@@ -24,6 +24,7 @@
 #include "Game/PlayerPawn.h"
 #include "Game/ScriptEngine.h"
 #include "Render/BillboardRenderer.h"
+#include "Render/Bloom.h"
 #include "Render/DebugLines.h"
 #include "Render/DecalRenderer.h"
 #include "Render/EntityRenderer.h"
@@ -410,6 +411,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	world.SetShadowMap(&shadow);
 	world.SetModelShadowMap(&modelShadow);
 	bool worldReady = false;
+	// The post-process. Cfg.Bloom and the level's BloomFX gate it per frame;
+	// PAINFUL_BLOOM=0 turns it off for an A/B.
+	Bloom bloom;
+	const bool bloomInit = bloom.Init(shaderDir);
 
 	// painful_config.ini, applied: at boot, and again on the frame after the
 	// console's `pf` changed a value. Maps are rebuilt only when their size
@@ -469,6 +474,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 					float(cfg.GetInt("ModelLightScale", 100)) / 100.f);
 		else
 			entities.SetLightingMix(1.f, 1.f, 1.f);
+		bloom.SetQuality(cfg.GetInt("BloomScale", 2), cfg.GetInt("BloomKernel", 0));
 	};
 	applySettings();
 	SkyRenderer sky;
@@ -654,6 +660,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		if (loadingSketch > 0) hud.ReleaseMaterial(loadingSketch);
 		loadingSketch = sketch.empty() ? 0 : hud.CreateMaterial(sketch, textures, root + "/Textures");
 		renderer.BeginFrame();
+		bloom.BeginFrame(window.width(), window.height(), false, Renderer::kSkyView,
+				Renderer::kWorldView);
 		hud.Begin(Renderer::kHudView, window.width(), window.height());
 		// The art covers the window; the sketch and the name are laid out on
 		// the 4:3 canvas like everything the scripts draw.
@@ -1195,6 +1203,17 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		}
 
 		renderer.BeginFrame();
+		// The original's gate: render flag 8 (Cfg.Bloom) and Multiplier > 0,
+		// on a frame that draws the world. An OverlayColor of black adds
+		// nothing, so it is skipped too. Docs/Reference/Bloom.md.
+		{
+			const ScriptEngine::WorldState& ws = engine.world();
+			const bool bloomOn = bloomInit && worldReady && ws.bloom && ws.bloomMultiplier > 0.f &&
+					(ws.bloomOverlay & 0xffffff) != 0 && DebugInt("PAINFUL_BLOOM", 1) > 0;
+			bloom.SetParams(ws.bloomThreshold, ws.bloomMultiplier, ws.bloomOverlay);
+			bloom.BeginFrame(window.width(), window.height(), bloomOn, Renderer::kSkyView,
+					Renderer::kWorldView);
+		}
 		if (skyReady)
 			sky.Draw(Renderer::kSkyView, camera, window.width(), window.height(), elapsed);
 		if (worldReady)
@@ -1301,6 +1320,11 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			}
 			debugLines.Draw(Renderer::kWorldView, debugWireframe);
 		}
+
+		// The scene is complete: bloom it and land it on the backbuffer, under
+		// the 2D layer. (The original adds its bloom over the HUD as well.)
+		bloom.Draw(Renderer::kBloomBrightView, Renderer::kBloomBlurHView,
+				Renderer::kBloomBlurVView, Renderer::kCompositeView);
 
 		// Nameplates. Anything within 20m gets its handle and what it is, which
 		// is the pair you need to go from "that one is wrong" to a probe: the
@@ -1439,6 +1463,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 						hud.fonts().baked());
 				LogInfo("  particles: %zu live in %zu emitters", particles.liveParticles(),
 						particles.emitters());
+				LogInfo("  bloom: %s, %dx%d buffers, %d taps, threshold %.2f, multiplier %.2f",
+						bloom.active() ? "on" : "off", bloom.bufferWidth(), bloom.bufferHeight(),
+						bloom.taps(), bloom.threshold(), bloom.multiplier());
 				LogInfo("  shadow maps: flashlight %s, models %s, %zu placed lights "
 						"(%zu baked chunk slots), view model %s; %zu world draws, "
 						"%zu entity draws in all",

@@ -25,8 +25,14 @@ public:
 	// Sky is drawn next and owns the clear; the world paints over it.
 	static constexpr bgfx::ViewId kSkyView = 51;
 	static constexpr bgfx::ViewId kWorldView = 52;
+	// Bloom (Render/Bloom.h): the bright pass, the two blurs, then the
+	// composite that lands the scene on the backbuffer.
+	static constexpr bgfx::ViewId kBloomBrightView = 53;
+	static constexpr bgfx::ViewId kBloomBlurHView = 54;
+	static constexpr bgfx::ViewId kBloomBlurVView = 55;
+	static constexpr bgfx::ViewId kCompositeView = 56;
 	// The 2D layer, drawn over everything: no depth, in submission order.
-	static constexpr bgfx::ViewId kHudView = 53;
+	static constexpr bgfx::ViewId kHudView = 57;
 
 	~Renderer() { Shutdown(); }
 	// Owns GPU handles that Shutdown destroys, so it is not copyable: a copy

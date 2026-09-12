@@ -48,6 +48,8 @@ const EngineConfig::Known kKnown[] = {
 	{"ModelAmbientScale", "50", false, "mode 1: percent of the box ambient a model keeps"},
 	{"ModelDirectionalScale", "50", false, "mode 1: percent of the box directional a model keeps"},
 	{"ModelLightScale", "100", false, "mode 1: percent of the lights' strength on a model"},
+	{"BloomScale", "2", false, "bloom is blurred at 1/N of the screen; the original is 2"},
+	{"BloomKernel", "0", false, "bloom blur: 0 the Gaussian to three sigma, 1 the original 13 taps"},
 };
 
 const EngineConfig::Known* FindKnown(const std::string& key) {

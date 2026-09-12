@@ -107,6 +107,7 @@ caught. That record is kept on purpose.
 | [`Docs/Reference/Lighting.md`](Docs/Reference/Lighting.md) | dynamic lights: the flashlight, carried torches, scripted flashes |
 | [`Docs/Reference/TextureTransforms.md`](Docs/Reference/TextureTransforms.md) | pan, tile and the detail-map transform |
 | [`Docs/Reference/Water.md`](Docs/Reference/Water.md) | water surfaces and the material tiers |
+| [`Docs/Reference/Bloom.md`](Docs/Reference/Bloom.md) | the bloom post-process: threshold, kernel, gains, and where the port departs |
 | [`Docs/Reference/Hud.md`](Docs/Reference/Hud.md) | the 2D layer: `MATERIAL`, `HUD.PrintXY`, fonts and the colour palette |
 | [`Docs/Reference/Menu.md`](Docs/Reference/Menu.md) | the widget model behind `PMENU`, and the staging |
 | [`Docs/Reference/Console.md`](Docs/Reference/Console.md) | the `~` console: panel, keys, `CONSOLE` natives, cheats |

@@ -18,6 +18,7 @@ add_library(Render STATIC
 		DebugLines.cpp DebugLines.h
 		FontCache.cpp FontCache.h
 		HudRenderer.cpp HudRenderer.h
+		Bloom.cpp Bloom.h
 		ShaderLoad.cpp ShaderLoad.h
 		Camera.h
 		MeshVertex.h

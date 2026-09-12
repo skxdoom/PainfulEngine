@@ -186,8 +186,8 @@ no dimming at all, which is "particles and billboards are quite a bit brighter
 than the original" (2026-09-05). `ParticleRenderer::SetColorScale` and
 `BillboardRenderer::SetColorScale` now take the factor, from `WorldState`
 (`bloom`, `bloomMultiplier`, `bloomDimScale`) in the game and from `LevelInfo`
-in the viewer. The bloom post-process itself is not implemented, so a dimmed
-sprite is slightly darker here than the original's dimmed-then-bloomed one.
+in the viewer. The bloom pass that gives the glow back is in
+[`Bloom.md`](Bloom.md).
 
 ## Fog reaches the sprites
 

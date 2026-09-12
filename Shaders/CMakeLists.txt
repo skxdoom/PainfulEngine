@@ -42,6 +42,7 @@ set(SHADER_NAMES
 		vs_particle fs_particle
 		vs_debug fs_debug
 		vs_hud fs_hud
+		vs_post fs_bloom_bright fs_bloom_blur fs_bloom_composite
 		vs_water fs_water)
 
 set(SHADER_HEADERS "")

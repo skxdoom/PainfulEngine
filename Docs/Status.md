@@ -472,11 +472,9 @@ The ordered work queue, with the evidence behind each item, is
   original shows crisp ridges, and too bright. Several causes ruled out; the
   remaining suspect is its lightmap atlas region. Details in
   [`TextureTransforms.md`](Reference/TextureTransforms.md).
-- Post-processing: no bloom (`Bloom.fxo`), no motion blur.
-  Sprites are already pre-dimmed by the level's `BloomFX.DimScale` the way the
-  original does before its bloom pass ([`Particles.md`](Reference/Particles.md),
-  "Bloom dims the sprites"), so they read slightly darker than the original's
-  dimmed-then-bloomed result until the pass exists.
+- Post-processing: bloom is in ([`Bloom.md`](Reference/Bloom.md) - the
+  original's threshold, kernel and gains, at the screen's own resolution
+  instead of a 512x512 point-sampled copy). No motion blur.
 - Particle texture animation uses frame 0 only, and the `WarpTex` refraction
   pass is not implemented.
 - Antiportal occlusion is parsed but unused, portal frustum clipping is
