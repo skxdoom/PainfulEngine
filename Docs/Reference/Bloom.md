@@ -121,6 +121,12 @@ carry Multiplier in both passes as the original does.
 
 **Composite under the HUD**, see above.
 
+**Multisampling.** The scene target is created with `Cfg.Multisample`'s
+count (`Bloom::SetMsaa`, fed from `Renderer::msaaSamples` each frame) and
+bgfx resolves it before the bright pass and the composite sample it, so the
+bloom path is antialiased exactly like the backbuffer path.
+[`Menu.md`](Menu.md), "Multisample".
+
 Settings: `painful_config.ini` `BloomScale` (1 is full size, 2 the original),
 `BloomKernel`; `PAINFUL_BLOOM=0` disables the pass for a comparison. The
 on/off switch itself stays the original's `Cfg.Bloom`. The `--shot` log line

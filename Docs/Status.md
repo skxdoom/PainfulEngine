@@ -475,6 +475,9 @@ The ordered work queue, with the evidence behind each item, is
 - Post-processing: bloom is in ([`Bloom.md`](Reference/Bloom.md) - the
   original's threshold, kernel and gains, at the screen's own resolution
   instead of a 512x512 point-sampled copy). No motion blur.
+- Multisampling: `Cfg.Multisample` is honoured, on the backbuffer and on the
+  bloom scene target ([`Menu.md`](Reference/Menu.md), "Multisample"); x6 runs
+  as 8x, bgfx having no 6.
 - Particle texture animation uses frame 0 only, and the `WarpTex` refraction
   pass is not implemented.
 - Antiportal occlusion is parsed but unused, portal frustum clipping is

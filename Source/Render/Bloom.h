@@ -30,6 +30,9 @@ public:
 	// `kernel` 0 is the Gaussian carried out to three sigma, 1 the original's
 	// 13 taps cut at one and a half. Both sum to the same weight.
 	void SetQuality(int scale, int kernel);
+	// The backbuffer's sample count (Renderer::msaaSamples): the scene target
+	// takes the same, so bloom on and off are antialiased alike.
+	void SetMsaa(int samples);
 
 	// Once per frame, before the scene views are submitted: points `skyView`
 	// and `worldView` at the scene target when `enabled`, at the backbuffer
@@ -44,7 +47,7 @@ public:
 	bool active() const { return active_; }
 	int bufferWidth() const { return bufW_; }
 	int bufferHeight() const { return bufH_; }
-	int taps() const { return pairs_ * 2 - 1; }
+	int taps() const { return pairs_ > 0 ? pairs_ * 2 - 1 : 0; }
 	float threshold() const { return threshold_; }
 	float multiplier() const { return multiplier_; }
 
@@ -76,7 +79,7 @@ private:
 
 	float threshold_ = 0.25f, multiplier_ = 1.f;
 	float overlay_[4] = {0.5f, 0.5f, 0.5f, 0.f};
-	int scale_ = 2, kernelMode_ = 0;
+	int scale_ = 2, kernelMode_ = 0, msaa_ = 0;
 	float kernel_[kMaxPairs][4] = {};
 	int pairs_ = 0;
 	bool kernelDirty_ = true;

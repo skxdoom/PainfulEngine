@@ -117,7 +117,8 @@ static bool ProjectToScreen(const Vec3& world, const float viewProj[16],
 // looks for a bare "config.ini": beside the executable, then the Bin/ beside
 // the data root, then the working directory. False when no file or no field
 // is found - a first run keeps the default.
-static bool ConfigIniVideo(const std::string& dataRoot, int& w, int& h, bool& fullscreen) {
+static bool ConfigIniVideo(const std::string& dataRoot, int& w, int& h, bool& fullscreen,
+		int& msaa) {
 	const std::string& cfgPath = Settings().path();
 	size_t slash = cfgPath.find_last_of("/\\");
 	const std::string exeDir = slash == std::string::npos ? std::string(".") : cfgPath.substr(0, slash);
@@ -143,6 +144,8 @@ static bool ConfigIniVideo(const std::string& dataRoot, int& w, int& h, bool& fu
 			have = true;
 		} else if (line.rfind("Cfg.Fullscreen", 0) == 0) {
 			fullscreen = line.find("true") != std::string::npos;
+		} else if (std::sscanf(line.c_str(), " Cfg.Multisample = \"x%d\"", &a) == 1) {
+			msaa = a;
 		}
 	}
 	return have;
@@ -169,9 +172,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	};
 	// The window opens at config.ini's resolution and mode from the start.
 	// PAINFUL_RES=WxH overrides the size.
-	int bootW = 1280, bootH = 720;
+	int bootW = 1280, bootH = 720, bootMsaa = 0;
 	bool bootFullscreen = false;
-	ConfigIniVideo(dataRoot, bootW, bootH, bootFullscreen);
+	ConfigIniVideo(dataRoot, bootW, bootH, bootFullscreen, bootMsaa);
 	if (const char* over = DebugText("PAINFUL_RES")) {
 		int a = 0, b = 0;
 		if (std::sscanf(over, "%d%*[xX]%d", &a, &b) == 2 && a > 0 && b > 0) {
@@ -189,6 +192,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	const std::string& shaderDir = boot.shaderDir();
 	Window& window = boot.window();
 	Renderer& renderer = boot.renderer();
+	// Cfg.Multisample from the start too; PAINFUL_MSAA=N overrides it, 0 off.
+	renderer.SetMsaa(DebugInt("PAINFUL_MSAA", bootMsaa));
 	TextureCache& textures = boot.textures();
 	ShaderLibrary& shaderScripts = boot.shaders();
 	EmitterLibrary& emitterScripts = boot.emitters();
@@ -392,6 +397,17 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			have = std::sscanf(over, "%d%*[xX]%d", &w, &h) == 2 && w > 0 && h > 0;
 		if (have)
 			window.SetMode(w, h, windowMode(host.GetBoolField("Cfg", "Fullscreen", false)));
+	}
+	// Cfg.Multisample the same way: from Cfg now, and from the Video Options
+	// screen through R3D.ApplyVideoSettings. PAINFUL_MSAA pins it.
+	engine.SetMsaaHandler([&renderer](int samples) {
+			renderer.SetMsaa(DebugInt("PAINFUL_MSAA", samples));
+			});
+	{
+		int samples = 0;
+		const std::string ms = host.GetTextField("Cfg", "Multisample");
+		if (std::sscanf(ms.c_str(), "x%d", &samples) == 1)
+			renderer.SetMsaa(DebugInt("PAINFUL_MSAA", samples));
 	}
 	// Cfg.TextureFiltering likewise: the original's material loader reads it
 	// per stage; here one setting serves every bind (Render/TextureFilter.h).
@@ -1211,6 +1227,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			const bool bloomOn = bloomInit && worldReady && ws.bloom && ws.bloomMultiplier > 0.f &&
 					(ws.bloomOverlay & 0xffffff) != 0 && DebugInt("PAINFUL_BLOOM", 1) > 0;
 			bloom.SetParams(ws.bloomThreshold, ws.bloomMultiplier, ws.bloomOverlay);
+			bloom.SetMsaa(renderer.msaaSamples());
 			bloom.BeginFrame(window.width(), window.height(), bloomOn, Renderer::kSkyView,
 					Renderer::kWorldView);
 		}
@@ -1463,9 +1480,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 						hud.fonts().baked());
 				LogInfo("  particles: %zu live in %zu emitters", particles.liveParticles(),
 						particles.emitters());
-				LogInfo("  bloom: %s, %dx%d buffers, %d taps, threshold %.2f, multiplier %.2f",
+				LogInfo("  bloom: %s, %dx%d buffers, %d taps, threshold %.2f, multiplier %.2f; msaa x%d",
 						bloom.active() ? "on" : "off", bloom.bufferWidth(), bloom.bufferHeight(),
-						bloom.taps(), bloom.threshold(), bloom.multiplier());
+						bloom.taps(), bloom.threshold(), bloom.multiplier(), renderer.msaaSamples());
 				LogInfo("  shadow maps: flashlight %s, models %s, %zu placed lights "
 						"(%zu baked chunk slots), view model %s; %zu world draws, "
 						"%zu entity draws in all",

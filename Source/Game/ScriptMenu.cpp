@@ -1204,6 +1204,15 @@ int MenuNatives::L_R3D_ApplyVideoSettings(lua_State* L) {
 		lua_gettable(L, -2);
 		if (!lua_isnil(L, -1)) self->world_.bloom = lua_toboolean(L, -1) != 0;
 		lua_pop(L, 1);
+		// Cfg.Multisample "xN", as R3D.SetResolution (0x101429d0) reads it with
+		// sscanf("x%d") for GraphicsDevice::SetRes. Menu.md, "Multisample".
+		lua_pushstring(L, "Multisample");
+		lua_gettable(L, -2);
+		if (lua_isstring(L, -1) && self->setMsaa_) {
+			int samples = 0;
+			if (std::sscanf(lua_tostring(L, -1), "x%d", &samples) == 1) self->setMsaa_(samples);
+		}
+		lua_pop(L, 1);
 		// And Cfg.DecalsStayTime into the decal ageing rate (Renderer+0x5d6b50):
 		// 1000 = off, 2.0 = x1 ... 0.2 = x5 by the menu's own comment.
 		lua_pushstring(L, "DecalsStayTime");

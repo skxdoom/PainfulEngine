@@ -27,6 +27,15 @@ float Gauss(int i) {
 			std::sqrt(kSigma * kSigma * 2.f * 3.14159265f);
 }
 
+// The same ladder as Renderer's reset flag: no 6x in bgfx, so "x6" is 8x.
+uint64_t MsaaTextureFlag(int samples) {
+	if (samples >= 16) return BGFX_TEXTURE_RT_MSAA_X16;
+	if (samples >= 6) return BGFX_TEXTURE_RT_MSAA_X8;
+	if (samples >= 4) return BGFX_TEXTURE_RT_MSAA_X4;
+	if (samples >= 2) return BGFX_TEXTURE_RT_MSAA_X2;
+	return 0;
+}
+
 } // namespace
 
 bool Bloom::Init(const std::string& shaderDir) {
@@ -90,15 +99,20 @@ void Bloom::ReleaseTargets() {
 bool Bloom::BuildTargets(int width, int height) {
 	ReleaseTargets();
 	const uint64_t colorFlags = BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
+	// The scene target is multisampled like the backbuffer and resolved by
+	// bgfx when the composite samples it (no BGFX_TEXTURE_MSAA_SAMPLE).
+	const uint64_t msaa = MsaaTextureFlag(msaa_);
+	const uint64_t sceneFlags = BGFX_TEXTURE_RT | msaa | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
+	const uint64_t depthFlags = BGFX_TEXTURE_RT_WRITE_ONLY | msaa;
 	sceneColor_ = bgfx::createTexture2D(uint16_t(width), uint16_t(height), false, 1,
-			bgfx::TextureFormat::RGBA8, colorFlags);
+			bgfx::TextureFormat::RGBA8, sceneFlags);
 	const bgfx::TextureFormat::Enum depthFormats[] = {bgfx::TextureFormat::D24S8,
 			bgfx::TextureFormat::D32F, bgfx::TextureFormat::D16};
 	for (bgfx::TextureFormat::Enum f : depthFormats) {
 		if (bgfx::isValid(sceneDepth_)) break;
-		if (!bgfx::isTextureValid(0, false, 1, f, BGFX_TEXTURE_RT_WRITE_ONLY)) continue;
+		if (!bgfx::isTextureValid(0, false, 1, f, depthFlags)) continue;
 		sceneDepth_ = bgfx::createTexture2D(uint16_t(width), uint16_t(height), false, 1, f,
-				BGFX_TEXTURE_RT_WRITE_ONLY);
+				depthFlags);
 	}
 	if (!bgfx::isValid(sceneColor_) || !bgfx::isValid(sceneDepth_)) {
 		LogWarn("bloom: no scene target at %dx%d, off", width, height);
@@ -124,7 +138,7 @@ bool Bloom::BuildTargets(int width, int height) {
 	width_ = width;
 	height_ = height;
 	if (kernelDirty_) BuildKernel();
-	LogInfo("bloom: scene %dx%d, blur buffers %dx%d (1/%d), %d taps", width, height, bufW_, bufH_,
+	LogInfo("bloom: scene %dx%d msaa x%d, blur buffers %dx%d (1/%d), %d taps", width, height, msaa_, bufW_, bufH_,
 			scale, taps());
 	return true;
 }
@@ -136,6 +150,13 @@ void Bloom::SetParams(float threshold, float multiplier, uint32_t overlayArgb) {
 	overlay_[0] = float((overlayArgb >> 16) & 0xff) / 255.f;
 	overlay_[1] = float((overlayArgb >> 8) & 0xff) / 255.f;
 	overlay_[2] = float(overlayArgb & 0xff) / 255.f;
+}
+
+void Bloom::SetMsaa(int samples) {
+	samples = samples < 2 ? 0 : samples;
+	if (samples == msaa_) return;
+	msaa_ = samples;
+	ReleaseTargets(); // rebuilt at the next BeginFrame
 }
 
 void Bloom::SetQuality(int scale, int kernel) {

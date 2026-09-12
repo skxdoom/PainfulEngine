@@ -46,6 +46,11 @@ public:
 
 	// Called when the window size changes.
 	void Resize(int width, int height);
+	// Cfg.Multisample's sample count for the backbuffer (0, 2, 4, 6->8, 8,
+	// 16); resets the device when it changes. A scene target rendered
+	// elsewhere (Render/Bloom.h) reads it back to match.
+	void SetMsaa(int samples);
+	int msaaSamples() const { return msaa_; }
 
 	// Background colour behind the sky - the level's fog colour, so the void
 	// past the far clip reads as fog exactly like the original.
@@ -71,6 +76,7 @@ public:
 private:
 	bool initialised_ = false;
 	int width_ = 0, height_ = 0;
+	int msaa_ = 0;
 };
 
 } // namespace painful

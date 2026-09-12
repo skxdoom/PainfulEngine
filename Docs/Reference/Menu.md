@@ -701,6 +701,28 @@ and mask, the water normal map; the models' diffuse and second stage; the
 sky layers; the decals. The 2D layer (HUD, fonts, menu art) and the shadow
 depth passes keep their own flags - they are drawn at 1:1 or only alpha-tested.
 
+### Multisample (`Cfg.Multisample`)
+
+`Cfg.Multisample` is one of `"x0"`, `"x2"`, `"x4"`, `"x6"` (the menu's own
+comment). `R3D.SetResolution` (0x101429d0, the row before
+`SetContrastGammaAndBrightness` in the `R3D` table) reads it back out of the
+globals with `sscanf(s, "x%d")` and passes the count as the last argument of
+`GraphicsDevice::SetRes(1, w, h, fullscreen, samples)` - the D3D9
+multisample type of the device. Nothing in the scripts calls `SetResolution`
+directly; `R3D.ApplyVideoSettings` runs it, which is why the Video Options
+screen applies both the resolution and the sample count at once.
+
+The port: `Renderer::SetMsaa` turns the count into bgfx's backbuffer reset
+flag and resets the device when it changes; `R3D.ApplyVideoSettings` reads
+`Cfg.Multisample` the same way and hands it over, and boot reads it twice -
+from `config.ini` before the window opens, from `Cfg` once the scripts have
+loaded it. bgfx has 2, 4, 8 and 16 and no 6, so `"x6"` runs as 8x. With
+bloom on the scene is drawn to an offscreen target, which is created with the
+same sample count and resolved by bgfx before the composite reads it
+([`Bloom.md`](Bloom.md)), so the picture is antialiased alike either way.
+Every 3D draw already sets `BGFX_STATE_MSAA`. `PAINFUL_MSAA=N` pins the
+count for a comparison.
+
 ### Deferred
 
 Multiplayer and the server browser (~20 natives, and there is no networking

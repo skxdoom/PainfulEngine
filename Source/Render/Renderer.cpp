@@ -19,6 +19,16 @@ namespace {
 // for the anisotropic filter, which Render/TextureFilter.h decides per bind.
 const uint32_t kResetFlags = BGFX_RESET_VSYNC | BGFX_RESET_MAXANISOTROPY;
 
+// Cfg.Multisample's count as bgfx reset bits. bgfx has no 6x, so the
+// original's "x6" becomes 8x. Docs/Reference/Menu.md, "Multisample".
+uint32_t MsaaResetFlag(int samples) {
+	if (samples >= 16) return BGFX_RESET_MSAA_X16;
+	if (samples >= 6) return BGFX_RESET_MSAA_X8;
+	if (samples >= 4) return BGFX_RESET_MSAA_X4;
+	if (samples >= 2) return BGFX_RESET_MSAA_X2;
+	return 0;
+}
+
 // bgfx::requestScreenShot only hands the pixels to the callback interface; with
 // no interface installed the default stub drops them, which is why --shot wrote
 // nothing. This writes an uncompressed 32-bit TGA, which Tools/shot.ps1 already
@@ -139,9 +149,18 @@ void Renderer::Resize(int width, int height) {
 	if (!initialised_ || width <= 0 || height <= 0) return;
 	width_ = width;
 	height_ = height;
-	bgfx::reset(uint32_t(width), uint32_t(height), kResetFlags);
+	bgfx::reset(uint32_t(width), uint32_t(height), kResetFlags | MsaaResetFlag(msaa_));
 	bgfx::setViewRect(kSkyView, 0, 0, uint16_t(width), uint16_t(height));
 	bgfx::setViewRect(kWorldView, 0, 0, uint16_t(width), uint16_t(height));
+}
+
+void Renderer::SetMsaa(int samples) {
+	samples = samples < 2 ? 0 : samples;
+	if (samples == msaa_) return;
+	msaa_ = samples;
+	LogInfo("multisample: x%d (backbuffer reset %s)", samples,
+			MsaaResetFlag(samples) == BGFX_RESET_MSAA_X8 && samples < 8 ? "x8, bgfx has no x6" : "");
+	Resize(width_, height_);
 }
 
 void Renderer::BeginFrame() {

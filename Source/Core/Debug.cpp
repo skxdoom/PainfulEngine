@@ -44,6 +44,7 @@ Row g_rows[] = {
 	{"PAINFUL_SHADOWMAP", Kind::kInt, "flashlight shadow map size in texels; 0 turns both shadow maps off"},
 	{"PAINFUL_SHADOWVIEW", Kind::kInt, "draw the shadow terms alone: 1 all of them, 2 the placed lights' only on the models"},
 	{"PAINFUL_BLOOM", Kind::kInt, "0 turns the bloom post-process off (Render/Bloom.h)"},
+	{"PAINFUL_MSAA", Kind::kInt, "multisample count instead of Cfg.Multisample: 0 off, 2, 4, 8, 16"},
 	{"PAINFUL_SPECULAR", Kind::kText, "specular colour override, \"r,g,b\""},
 	{"PAINFUL_SKYLAYER", Kind::kInt, "draw only this sky layer"},
 	{"PAINFUL_NEAR", Kind::kFloat, "camera near plane"},

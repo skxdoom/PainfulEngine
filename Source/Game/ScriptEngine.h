@@ -536,6 +536,11 @@ public:
 	void SetVideoModeHandler(std::function<void(int, int, bool)> handler) {
 		setVideoMode_ = std::move(handler);
 	}
+	// Cfg.Multisample's count ("x4" -> 4), read by R3D.SetResolution the way
+	// the original's 0x101429d0 does; the renderer owns the device reset.
+	void SetMsaaHandler(std::function<void(int)> handler) {
+		setMsaa_ = std::move(handler);
+	}
 	// The world renderer's per-object visibility, for a destructible's intact
 	// twin: hidden when the pieces take over. Headless runs leave it unset.
 	void SetWorldObjectVisibility(std::function<void(size_t, bool)> handler) {
@@ -1022,6 +1027,7 @@ private:
 	float hudCanvasOffsetX_ = 0.f; // where canvas x 0 sits in the window
 	std::vector<std::string> resolutions_;
 	std::function<void(int, int, bool)> setVideoMode_;
+	std::function<void(int)> setMsaa_;
 	std::function<void(size_t, bool)> worldObjectVisible_;
 	// A destructible: the "statdest" object drawn by the world path with its
 	// own static body, and the "physdest" pieces (entity handles) held out
