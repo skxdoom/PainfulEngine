@@ -17,9 +17,19 @@ project(PainfulEngine LANGUAGES C CXX)
 #   Debug           unoptimised, full symbols - too slow to play, right for a
 #                   crash you need to step through
 #   RelWithDebInfo  optimised and keeps a .pdb - the day-to-day config
-#   Release         optimised, no symbols - what ships
+#   Release         optimised, a .pdb beside it for the crash log - what ships
 if(CMAKE_CONFIGURATION_TYPES)
 	set(CMAKE_CONFIGURATION_TYPES "Debug;RelWithDebInfo;Release" CACHE STRING "" FORCE)
+endif()
+
+# Release keeps a .pdb beside the executable. /Zi changes no code and the .pdb
+# is not shipped, but with it painful_crash.log names its frames; without it a
+# crash is module + offset against a binary nobody kept. /OPT:REF,ICF are the
+# non-/DEBUG defaults, restated because /DEBUG would otherwise turn them off.
+if(MSVC)
+	string(APPEND CMAKE_C_FLAGS_RELEASE " /Zi")
+	string(APPEND CMAKE_CXX_FLAGS_RELEASE " /Zi")
+	string(APPEND CMAKE_EXE_LINKER_FLAGS_RELEASE " /DEBUG /OPT:REF /OPT:ICF")
 endif()
 
 set(PAINFUL_ROOT ${CMAKE_CURRENT_SOURCE_DIR})

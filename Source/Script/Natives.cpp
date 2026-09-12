@@ -86,6 +86,11 @@ void GetOrCreateModule(lua_State* L, const char* name) {
 
 double Arg(lua_State* L, int i) { return luaL_checknumber(L, i); }
 
+// Script::GetFloat(i, 0.0f) (Engine.dll 0x10146880): the quaternion natives
+// read a nil argument as 0. Zombie_Soldier hands NormalYToQuat three unset
+// globals on every miss. Docs/Reference/LuaHost.md
+double ArgOr0(lua_State* L, int i) { return luaL_optnumber(L, i, 0); }
+
 uint32_t ArgU32(lua_State* L, int i) {
 	return static_cast<uint32_t>(static_cast<int64_t>(luaL_checknumber(L, i)));
 }
@@ -263,7 +268,7 @@ QuatD QuatFromAxisAngle(double angle, double x, double y, double z) {
 }
 
 int L_EulerToQuat(lua_State* L) {
-	const Quat q = Quat::FromEuler(float(Arg(L, 1)), float(Arg(L, 2)), float(Arg(L, 3)));
+	const Quat q = Quat::FromEuler(float(ArgOr0(L, 1)), float(ArgOr0(L, 2)), float(ArgOr0(L, 3)));
 	return PushQuat(L, {q.w, q.x, q.y, q.z});
 }
 
@@ -340,7 +345,7 @@ int L_RotateQuatByAxisAngle(lua_State* L) {
 // the weapons build their fire direction exactly that way, from the player's
 // forward vector.
 int NormalToQuat(lua_State* L, double axisX, double axisY, double axisZ) {
-	double nx = Arg(L, 1), ny = Arg(L, 2), nz = Arg(L, 3);
+	double nx = ArgOr0(L, 1), ny = ArgOr0(L, 2), nz = ArgOr0(L, 3);
 	const double len = std::sqrt(nx * nx + ny * ny + nz * nz);
 	if (len < 1e-12) return PushQuat(L, {1, 0, 0, 0});
 	nx /= len; ny /= len; nz /= len;

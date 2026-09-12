@@ -656,6 +656,19 @@ shortest arc for the round trip to come back to the forward vector. The test
 is exactly that round trip - `NormalZToQuat(n)` then `TransformVector(0,0,1)`
 must give back `n`, and its dot with the camera forward must be +1, not -1.
 
+**The quaternion natives read a missing argument as 0.** `EulerToQuat`
+(0x1011C390) and `NormalX/Y/ZToQuat` (0x1012AAB0/ABC0/ACD0) all take their
+three arguments through `Script::GetFloat(i, 0.0f)` (0x10146880), so a nil is a
+zero, not an error. The shipped scripts rely on it: `Zombie_Soldier:
+IfMissedPlaySound` builds its ground-hit puff from `nx, ny, nz`, three globals
+nothing ever sets. Under `luaL_checknumber` that raised "bad argument #1 to
+`NormalYToQuat`" out of `Game_Tick` on every miss - eleven times in one
+Cemetery fight - and each one unwound the rest of `Game:Tick` for that frame,
+so every actor after the zombie skipped its update. The natives
+use `luaL_optnumber(L, i, 0)` now; whether the original also tolerates a
+non-number string (its reader is FUN_10149F10) is not settled and does not
+matter to any shipped script.
+
 **Finding 4: the engine's ELEVATION is positive-DOWN**, the opposite of our
 pitch. Also not arbitrary - the scripts feed the elevation into the X slot of
 the engine Euler (`FromEuler(elevation, turn, 0)`), and a positive rotation

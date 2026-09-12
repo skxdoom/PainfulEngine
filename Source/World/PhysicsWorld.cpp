@@ -5,10 +5,32 @@
 
 #include "PhysicsWorldInternal.h"
 #include "../Core/Vectors.h"
+#include <cstdint>
 #include <string>
 #include <vector>
 
 namespace painful {
+
+namespace {
+
+// An active body with no broadphase entry is the one state a step cannot
+// take: Jolt's assert for it is off in Release and the fault lands a step
+// later in NotifyBodiesAABBChanged. Sleep it and say so.
+// Docs/Reference/Physics.md, "Activation and a body out of the world".
+void SleepStrays(JPH::PhysicsSystem& system) {
+	const JPH::BodyID* active = system.GetActiveBodiesUnsafe(JPH::EBodyType::RigidBody);
+	const uint32_t n = system.GetNumActiveBodies(JPH::EBodyType::RigidBody);
+	const JPH::BodyInterface& peek = system.GetBodyInterfaceNoLock();
+	std::vector<JPH::BodyID> strays;
+	for (uint32_t i = 0; i < n; ++i)
+		if (!PAINFUL_CHECK(peek.IsAdded(active[i]), "body %u active outside the world",
+				active[i].GetIndex()))
+			strays.push_back(active[i]);
+	// Deactivating edits the list being read, so it waits for the scan.
+	for (const JPH::BodyID& id : strays) system.GetBodyInterface().DeactivateBody(id);
+}
+
+} // namespace
 
 PhysicsWorld::PhysicsWorld() {
 	EnsureJolt();
@@ -454,6 +476,7 @@ void PhysicsWorld::Update(float dt) {
 		// per physics tick: the 0.5 carry-over is a per-tick decay.
 		StepCharacters();
 		StepMovers();
+		SleepStrays(impl_->system);
 		impl_->system.Update(kStep, 1, &impl_->temp, &impl_->jobs);
 		impl_->accumulator -= kStep;
 		RecordStep();

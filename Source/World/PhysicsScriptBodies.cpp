@@ -17,6 +17,18 @@ namespace painful {
 // quaternion itself. EngineQuatToJolt / JoltQuatToEngine live in
 // PhysicsWorldInternal.h so the ragdoll file uses the same pair.
 
+namespace {
+
+// The activation a setter may ask for. A body PO_Enable(false) has removed
+// keeps every other change for its return but must not wake: Jolt would list
+// it as active with no broadphase entry and fault a step later.
+// Docs/Reference/Physics.md, "Activation and a body out of the world".
+JPH::EActivation WakeIf(bool inWorld) {
+	return inWorld ? JPH::EActivation::Activate : JPH::EActivation::DontActivate;
+}
+
+} // namespace
+
 void PhysicsWorld::LoadWorldMesh(const MapMesh& map, float worldScale,
 		const std::string& dataRoot) {
 	Clear();
@@ -334,6 +346,8 @@ void PhysicsWorld::ActivateScriptBody(int slot, bool on) {
 	if (!ScriptBodyExists(slot)) return;
 	const JPH::BodyID id = impl_->scriptBodies[slot].body;
 	if (id.IsInvalid()) return;
+	// Out of the world, waking is the one thing it may not do.
+	if (on && !impl_->scriptBodies[size_t(slot)].inWorld) return;
 	JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
 	if (on) bodies.ActivateBody(id);
 	else bodies.DeactivateBody(id);
@@ -401,7 +415,8 @@ void PhysicsWorld::MakeScriptBodyNonColliding(int slot) {
 	const JPH::BodyID id = impl_->scriptBodies[slot].body;
 	bodies.SetObjectLayer(id, Layers::kNoCollide);
 	if (bodies.GetMotionType(id) != JPH::EMotionType::Kinematic)
-		bodies.SetMotionType(id, JPH::EMotionType::Kinematic, JPH::EActivation::Activate);
+		bodies.SetMotionType(id, JPH::EMotionType::Kinematic,
+				WakeIf(impl_->scriptBodies[size_t(slot)].inWorld));
 }
 
 void PhysicsWorld::SetScriptBodyPinned(int slot, bool pinned) {
@@ -414,7 +429,7 @@ void PhysicsWorld::SetScriptBodyPinned(int slot, bool pinned) {
 	const JPH::EMotionType want =
 		pinned ? JPH::EMotionType::Static : JPH::EMotionType::Dynamic;
 	if (bodies.GetMotionType(id) == want) return;
-	bodies.SetMotionType(id, want, JPH::EActivation::Activate);
+	bodies.SetMotionType(id, want, WakeIf(impl_->scriptBodies[size_t(slot)].inWorld));
 	Impl::ScriptBody& sb = impl_->scriptBodies[size_t(slot)];
 	if (sb.activeMesh) {
 		sb.activePinned = pinned;
@@ -833,7 +848,7 @@ void PhysicsWorld::MakeScriptBodyCharacter(int slot, float k, const Vec3& rootOf
 			shape = sphere.Create();
 		}
 		if (!shape.HasError()) {
-			bodies.SetShape(id, shape.Get(), true, JPH::EActivation::Activate);
+			bodies.SetShape(id, shape.Get(), true, WakeIf(sb.inWorld));
 			sb.radius = k;
 		}
 	}
@@ -853,7 +868,7 @@ void PhysicsWorld::MakeScriptBodyCharacter(int slot, float k, const Vec3& rootOf
 	// and the scripts set the yaw themselves through SetOrientation, so no
 	// rotation is left to the solver here.
 	if (bodies.GetMotionType(id) != JPH::EMotionType::Dynamic)
-		bodies.SetMotionType(id, JPH::EMotionType::Dynamic, JPH::EActivation::Activate);
+		bodies.SetMotionType(id, JPH::EMotionType::Dynamic, WakeIf(sb.inWorld));
 	{
 		JPH::BodyLockWrite lock(impl_->system.GetBodyLockInterface(), id);
 		if (lock.Succeeded()) {

@@ -58,8 +58,10 @@ const char* ExceptionName(DWORD code) {
 
 // A frame, symbolised where a .pdb is there to do it with.
 //
-// Release builds carry no symbols, so the fallback matters: module + offset is
-// still enough to place a frame against a .pdb kept from the same build.
+// Release links a .pdb too (CMakeLists.txt), and dbghelp finds it through the
+// path the linker wrote into the executable, so a copy deployed on the build
+// machine still names its frames. Elsewhere the fallback matters: module +
+// offset places a frame against the kept .pdb.
 void Frame(FILE* file, HANDLE proc, int index, DWORD64 pc) {
 	char storage[sizeof(SYMBOL_INFO) + 512] = {};
 	SYMBOL_INFO* sym = reinterpret_cast<SYMBOL_INFO*>(storage);

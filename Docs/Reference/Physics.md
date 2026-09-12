@@ -399,20 +399,36 @@ and physics quietly corrects it on load.
 ## Activation and a body out of the world
 
 **A script body that is not in the world must never be activated.** Jolt puts it
-in the active list without a broadphase entry; the next `DestroyBody` frees it
-while it is still listed, and the following step reads a dead body in
-`JobApplyGravity`. The fault lands two frames after the call that caused it, on
-a solver worker thread, with nothing left to say who did it.
+in the active list without a broadphase entry, and the next step cannot survive
+that either way. If the body is destroyed first, `JobApplyGravity` reads a dead
+body on a solver worker thread. If it is still alive, the step's
+`JobSolvePositionConstraints` ends in `CheckSleepAndUpdateBounds`, which hands
+the active bodies to `BroadPhaseQuadTree::NotifyBodiesAABBChanged(…, false)`;
+that reads the broadphase layer of a tracking entry `RemoveBodies` had already
+set to invalid and indexes `mLayers[0xff]` - an access violation at a garbage
+address (`read from 0xffffffffffffffff` in the log that found it), on whichever
+thread ran the job. Either way the fault is a step after the call that caused
+it, with nothing left to say who did.
 
-`PO_Enable(e, false)` is what takes a body out — `SetScriptBodyEnabled` calls
-`RemoveBody` and clears `inWorld`. So every setter that wakes a body has to
-check `inWorld` first: `SetScriptBodyPose`, `SetScriptBodyVelocity`,
-`AddScriptBodyImpulse`.
+`PO_Enable(e, false)` is what takes a body out - `SetScriptBodyEnabled` calls
+`RemoveBody` and clears `inWorld`. Every setter that wakes a body checks
+`inWorld` first: the pose, velocity and impulse setters return, and the ones
+that still have to change the body (`MakeScriptBodyNonColliding`,
+`SetScriptBodyPinned`, `MakeScriptBodyCharacter`, `ActivateScriptBody`) pass
+`WakeIf(sb)` - `Activate` in the world, `DontActivate` out of it - so the change
+is kept for the day the body is re-added. Jolt's own `SetMotionType`, `SetShape`
+and `SetPosition` do not check for themselves: they guard the broadphase notify
+on `IsInBroadPhase()` and then activate regardless. `PhysicsWorld::Update` also
+sweeps the active list before every step and puts any body without a broadphase
+entry back to sleep under a `PAINFUL_CHECK`, so a setter this list has missed
+reports itself in the log instead of faulting a step later.
 
-The staked grenade is the case that found it. `Stake:Tick`'s combo branch
+Two cases found it.
+
+The staked grenade was the first. `Stake:Tick`'s combo branch
 clones a `Grenade.CItem`, points its `_Entity` at the stake's own, and explodes
-it; `Grenade:Explode` disables the body first — *"bo inaczej by zglaszal msg
-'explosion' z soba samym"* — and an `ENTITY.SetVelocity` from a `GObjects:Update`
+it; `Grenade:Explode` disables the body first - *"bo inaczej by zglaszal msg
+'explosion' z soba samym"* - and an `ENTITY.SetVelocity` from a `GObjects:Update`
 pass then woke it again. Two Jolt asserts name it exactly:
 
 ```
@@ -422,9 +438,19 @@ BodyManager.cpp:353  !body->IsActive()
 
 Both are on in Debug and RelWithDebInfo (`JPH_ENABLE_ASSERTS`, set in
 `CMake/Dependencies.cmake`), routed to the log through `JPH::AssertFailed` with
-a stack from `Core/CrashReport`. That pair — the assert for the rule, the stack
-for the caller — is how this was found; reading the code was not enough,
-because the guard was already present on one of the three setters.
+a stack from `Core/CrashReport`. That pair - the assert for the rule, the stack
+for the caller - is how it was found; reading the code was not enough, because
+the guard was already present on one of the three setters.
+
+The exploded barrel was the second (2026-09-12, Cemetery). `CItem:DestroyItemFX`
+disables the item's body and then calls `ENTITY.ExplodeItem`, which spawns the
+wreckage and takes the item itself out of collision with
+`MakeScriptBodyNonColliding` - and that ended in `SetMotionType(Kinematic,
+Activate)` on the body `PO_Enable` had just removed. The crash log named only
+`PainfulEngine + offset`, because Release carried no .pdb; it does now
+(CMakeLists.txt), and these frames were placed by rebuilding the same sources
+with one and matching each frame's instruction bytes in the new image: the code
+had shifted by a constant 0x20B0, so the .pdb named every frame.
 
 ## A corpse is not a wall
 
