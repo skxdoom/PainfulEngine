@@ -19,6 +19,9 @@ add_library(Render STATIC
 		FontCache.cpp FontCache.h
 		HudRenderer.cpp HudRenderer.h
 		Bloom.cpp Bloom.h
+		DemonFx.cpp DemonFx.h
+		FullScreenPass.h
+		SceneTargets.cpp SceneTargets.h
 		ShaderLoad.cpp ShaderLoad.h
 		Camera.h
 		MeshVertex.h

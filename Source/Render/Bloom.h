@@ -5,12 +5,13 @@
 
 namespace painful {
 
-// The bloom post-process: the scene is drawn into an offscreen target, its
-// bright part is taken down to a smaller buffer, blurred in two passes and
-// added back over the scene. The threshold, the kernel and the gains are the
-// original's (View::Render -> FUN_100a9dc0, Bloom.fxo); the resolution is
-// not - the original point-copies the screen to 512x512 first. The recovered
-// chain and the deviations: Docs/Reference/Bloom.md.
+class SceneTargets;
+
+// The bloom post-process: the scene's bright part is taken from the half-size
+// copy, blurred in two passes and added back over the scene. The threshold,
+// the kernel and the gains are the original's (View::Render -> FUN_100a9dc0,
+// Bloom.fxo); the resolution is not - the original point-copies the screen to
+// 512x512 first. The recovered chain and the deviations: Docs/Reference/Bloom.md.
 class Bloom {
 public:
 	~Bloom() { Shutdown(); }
@@ -26,23 +27,19 @@ public:
 	// The level's CLevel.BloomFX block, as WORLD.BloomFXParams delivers it:
 	// LuminanceThreshold, Multiplier, OverlayColor packed A8R8G8B8.
 	void SetParams(float threshold, float multiplier, uint32_t overlayArgb);
-	// `scale` divides the screen for the blur buffers (the original's is 2);
-	// `kernel` 0 is the Gaussian carried out to three sigma, 1 the original's
-	// 13 taps cut at one and a half. Both sum to the same weight.
+	// `scale` divides the screen for the blur buffers (the original's is 2;
+	// 1 reads the full scene, 2 and up the half-size copy); `kernel` 0 is the
+	// Gaussian carried out to three sigma, 1 the original's 13 taps cut at
+	// one and a half. Both sum to the same weight.
 	void SetQuality(int scale, int kernel);
-	// The backbuffer's sample count (Renderer::msaaSamples): the scene target
-	// takes the same, so bloom on and off are antialiased alike.
-	void SetMsaa(int samples);
 
-	// Once per frame, before the scene views are submitted: points `skyView`
-	// and `worldView` at the scene target when `enabled`, at the backbuffer
-	// otherwise, and (re)builds the targets for this window size.
-	void BeginFrame(int width, int height, bool enabled, bgfx::ViewId skyView,
-			bgfx::ViewId worldView);
-	// After the scene: the bright pass, the two blurs and the composite,
-	// which lands the finished frame on the backbuffer. No-op when disabled.
-	void Draw(bgfx::ViewId brightView, bgfx::ViewId blurHView, bgfx::ViewId blurVView,
-			bgfx::ViewId compositeView);
+	// After the scene and its half-size copy: the bright pass, the two blurs
+	// and the composite, which lands the finished frame on the backbuffer.
+	// Nothing when the scene is not in its target.
+	void Draw(const SceneTargets& scene, bgfx::ViewId brightView, bgfx::ViewId blurHView,
+			bgfx::ViewId blurVView, bgfx::ViewId compositeView);
+	// Not this frame (the frame log reads active()).
+	void Skip() { active_ = false; }
 
 	bool active() const { return active_; }
 	int bufferWidth() const { return bufW_; }
@@ -54,7 +51,6 @@ public:
 	static constexpr int kMaxPairs = 16;
 
 private:
-	void FullScreenTriangle(bgfx::ViewId view, int width, int height);
 	void ReleaseTargets();
 	bool BuildTargets(int width, int height);
 	void BuildKernel();
@@ -70,16 +66,13 @@ private:
 	bgfx::UniformHandle uOverlay_ = BGFX_INVALID_HANDLE;
 	bgfx::VertexLayout layout_;
 
-	bgfx::FrameBufferHandle sceneFb_ = BGFX_INVALID_HANDLE;
-	bgfx::TextureHandle sceneColor_ = BGFX_INVALID_HANDLE;
-	bgfx::TextureHandle sceneDepth_ = BGFX_INVALID_HANDLE;
 	bgfx::FrameBufferHandle fb_[2] = {BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE};
 	bgfx::TextureHandle color_[2] = {BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE};
 	int width_ = 0, height_ = 0, bufW_ = 0, bufH_ = 0;
 
 	float threshold_ = 0.25f, multiplier_ = 1.f;
 	float overlay_[4] = {0.5f, 0.5f, 0.5f, 0.f};
-	int scale_ = 2, kernelMode_ = 0, msaa_ = 0;
+	int scale_ = 2, kernelMode_ = 0;
 	float kernel_[kMaxPairs][4] = {};
 	int pairs_ = 0;
 	bool kernelDirty_ = true;

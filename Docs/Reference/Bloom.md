@@ -121,10 +121,22 @@ carry Multiplier in both passes as the original does.
 
 **Composite under the HUD**, see above.
 
+## Targets
+
+`Render/SceneTargets.h` owns the scene as a texture: a full-size colour and
+depth pair the sky and world views draw into whenever a post-process wants the
+frame, plus a half-size copy made once per frame (`kSceneHalfView`, a bilinear
+fetch on the corner of four pixels - an exact 2x2 average). The bloom's
+bright pass reads the half-size copy (or the scene itself at `BloomScale 1`),
+the composite reads the scene; Demon Morph ([`DemonFx.md`](DemonFx.md)) reads
+the scene and shares its depth. One owner, one assignment of the views' target
+per frame - two passes each deciding where the scene goes was how a frame
+went black once.
+
 **Multisampling.** The scene target is created with `Cfg.Multisample`'s
-count (`Bloom::SetMsaa`, fed from `Renderer::msaaSamples` each frame) and
-bgfx resolves it before the bright pass and the composite sample it, so the
-bloom path is antialiased exactly like the backbuffer path.
+count (`SceneTargets::SetMsaa`, fed from `Renderer::msaaSamples` each frame)
+and bgfx resolves it before anything samples it, so the post-processed frame
+is antialiased exactly like the backbuffer path.
 [`Menu.md`](Menu.md), "Multisample".
 
 Settings: `painful_config.ini` `BloomScale` (1 is full size, 2 the original),

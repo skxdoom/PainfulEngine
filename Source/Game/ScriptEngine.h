@@ -61,6 +61,9 @@ public:
 		Vec3 pos;
 		Quat rot;
 		bool visible = true;
+		// ENTITY.EnableDemonic: drawn in the red fresnel glow while Demon
+		// Morph is on (Render/DemonFx.h).
+		bool demonic = false;
 		bool inWorld = false; // WORLD.AddEntity was called
 		bool worldObject = false; // WORLD.FindEntityByName pseudo-entity
 		int rendererInstance = -1; // EntityRenderer slot, -1 when headless/unresolved
@@ -443,6 +446,12 @@ public:
 		bool bloom = true;
 		float bloomThreshold = 0.25f, bloomMultiplier = 1.f, bloomDimScale = 0.8f;
 		uint32_t bloomOverlay = 0x808080;
+		// Demon Morph: WORLD.EnableDemonFX / EnableSuperDemonFX (World+0x6dc,
+		// +0x6dd), DemonFXParams (+0x6e0..) and DemonFXWarp (+0x6e8), the
+		// CLevel.DemonFX block. Docs/Reference/DemonFx.md.
+		bool demonFx = false, superDemonFx = false;
+		float demonScale = 1.f, demonBias = 0.f, demonKeep = 0.3f, demonMBlur = 0.7f;
+		float demonWarp = 0.f;
 		std::string detailTex;
 		float detailTileU = 8.2f, detailTileV = 7.1f;
 

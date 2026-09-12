@@ -1,4 +1,6 @@
 #include "Bloom.h"
+#include "FullScreenPass.h"
+#include "SceneTargets.h"
 #include "ShaderLoad.h"
 #include "../Core/Log.h"
 
@@ -8,11 +10,6 @@
 namespace painful {
 
 namespace {
-
-struct PostVertex {
-	float x, y, z;
-	float u, v;
-};
 
 // The original's kernel: seven Gaussian samples, sigma 4 in tap units, one
 // tap every 1.25 texels of the half-size buffer (FUN_100a8f60, FUN_100a8860).
@@ -25,15 +22,6 @@ constexpr int kFullPairs = 13;
 float Gauss(int i) {
 	return std::exp(-float(i * i) / (2.f * kSigma * kSigma)) /
 			std::sqrt(kSigma * kSigma * 2.f * 3.14159265f);
-}
-
-// The same ladder as Renderer's reset flag: no 6x in bgfx, so "x6" is 8x.
-uint64_t MsaaTextureFlag(int samples) {
-	if (samples >= 16) return BGFX_TEXTURE_RT_MSAA_X16;
-	if (samples >= 6) return BGFX_TEXTURE_RT_MSAA_X8;
-	if (samples >= 4) return BGFX_TEXTURE_RT_MSAA_X4;
-	if (samples >= 2) return BGFX_TEXTURE_RT_MSAA_X2;
-	return 0;
 }
 
 } // namespace
@@ -62,11 +50,7 @@ bool Bloom::Init(const std::string& shaderDir) {
 	uDir_ = bgfx::createUniform("u_bloomDir", bgfx::UniformType::Vec4);
 	uKernel_ = bgfx::createUniform("u_bloomKernel", bgfx::UniformType::Vec4, kMaxPairs);
 	uOverlay_ = bgfx::createUniform("u_bloomOverlay", bgfx::UniformType::Vec4);
-
-	layout_.begin()
-			.add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
-			.add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
-			.end();
+	layout_ = PostVertexLayout();
 	return true;
 }
 
@@ -85,9 +69,6 @@ void Bloom::Shutdown() {
 
 void Bloom::ReleaseTargets() {
 	// The framebuffers own their textures (createFrameBuffer's destroy flag).
-	if (bgfx::isValid(sceneFb_)) bgfx::destroy(sceneFb_);
-	sceneFb_ = BGFX_INVALID_HANDLE;
-	sceneColor_ = sceneDepth_ = BGFX_INVALID_HANDLE;
 	for (int i = 0; i < 2; ++i) {
 		if (bgfx::isValid(fb_[i])) bgfx::destroy(fb_[i]);
 		fb_[i] = BGFX_INVALID_HANDLE;
@@ -99,29 +80,6 @@ void Bloom::ReleaseTargets() {
 bool Bloom::BuildTargets(int width, int height) {
 	ReleaseTargets();
 	const uint64_t colorFlags = BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
-	// The scene target is multisampled like the backbuffer and resolved by
-	// bgfx when the composite samples it (no BGFX_TEXTURE_MSAA_SAMPLE).
-	const uint64_t msaa = MsaaTextureFlag(msaa_);
-	const uint64_t sceneFlags = BGFX_TEXTURE_RT | msaa | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
-	const uint64_t depthFlags = BGFX_TEXTURE_RT_WRITE_ONLY | msaa;
-	sceneColor_ = bgfx::createTexture2D(uint16_t(width), uint16_t(height), false, 1,
-			bgfx::TextureFormat::RGBA8, sceneFlags);
-	const bgfx::TextureFormat::Enum depthFormats[] = {bgfx::TextureFormat::D24S8,
-			bgfx::TextureFormat::D32F, bgfx::TextureFormat::D16};
-	for (bgfx::TextureFormat::Enum f : depthFormats) {
-		if (bgfx::isValid(sceneDepth_)) break;
-		if (!bgfx::isTextureValid(0, false, 1, f, depthFlags)) continue;
-		sceneDepth_ = bgfx::createTexture2D(uint16_t(width), uint16_t(height), false, 1, f,
-				depthFlags);
-	}
-	if (!bgfx::isValid(sceneColor_) || !bgfx::isValid(sceneDepth_)) {
-		LogWarn("bloom: no scene target at %dx%d, off", width, height);
-		ReleaseTargets();
-		return false;
-	}
-	const bgfx::TextureHandle scene[] = {sceneColor_, sceneDepth_};
-	sceneFb_ = bgfx::createFrameBuffer(2, scene, true);
-
 	const int scale = std::max(1, scale_);
 	bufW_ = std::max(1, width / scale);
 	bufH_ = std::max(1, height / scale);
@@ -130,7 +88,7 @@ bool Bloom::BuildTargets(int width, int height) {
 				bgfx::TextureFormat::RGBA8, colorFlags);
 		if (bgfx::isValid(color_[i])) fb_[i] = bgfx::createFrameBuffer(1, &color_[i], true);
 	}
-	if (!bgfx::isValid(sceneFb_) || !bgfx::isValid(fb_[0]) || !bgfx::isValid(fb_[1])) {
+	if (!bgfx::isValid(fb_[0]) || !bgfx::isValid(fb_[1])) {
 		LogWarn("bloom: no blur targets at %dx%d, off", bufW_, bufH_);
 		ReleaseTargets();
 		return false;
@@ -138,8 +96,7 @@ bool Bloom::BuildTargets(int width, int height) {
 	width_ = width;
 	height_ = height;
 	if (kernelDirty_) BuildKernel();
-	LogInfo("bloom: scene %dx%d msaa x%d, blur buffers %dx%d (1/%d), %d taps", width, height, msaa_, bufW_, bufH_,
-			scale, taps());
+	LogInfo("bloom: blur buffers %dx%d (1/%d), %d taps", bufW_, bufH_, scale, taps());
 	return true;
 }
 
@@ -152,17 +109,10 @@ void Bloom::SetParams(float threshold, float multiplier, uint32_t overlayArgb) {
 	overlay_[2] = float(overlayArgb & 0xff) / 255.f;
 }
 
-void Bloom::SetMsaa(int samples) {
-	samples = samples < 2 ? 0 : samples;
-	if (samples == msaa_) return;
-	msaa_ = samples;
-	ReleaseTargets(); // rebuilt at the next BeginFrame
-}
-
 void Bloom::SetQuality(int scale, int kernel) {
 	scale = std::max(1, std::min(scale, 8));
 	kernel = kernel == 1 ? 1 : 0;
-	if (scale != scale_) ReleaseTargets(); // rebuilt at the next BeginFrame
+	if (scale != scale_) ReleaseTargets(); // rebuilt at the next Draw
 	if (kernel != kernelMode_) kernelDirty_ = true;
 	scale_ = scale;
 	kernelMode_ = kernel;
@@ -185,51 +135,21 @@ void Bloom::BuildKernel() {
 	}
 }
 
-void Bloom::BeginFrame(int width, int height, bool enabled, bgfx::ViewId skyView,
-		bgfx::ViewId worldView) {
+void Bloom::Draw(const SceneTargets& scene, bgfx::ViewId brightView, bgfx::ViewId blurHView,
+		bgfx::ViewId blurVView, bgfx::ViewId compositeView) {
 	active_ = false;
-	if (enabled && ready() && width > 0 && height > 0) {
-		if (width != width_ || height != height_) {
-			if (!BuildTargets(width, height)) enabled = false;
-		}
-		active_ = enabled;
-	}
-	bgfx::FrameBufferHandle target = BGFX_INVALID_HANDLE;
-	if (active_) target = sceneFb_;
-	bgfx::setViewFrameBuffer(skyView, target);
-	bgfx::setViewFrameBuffer(worldView, target);
-}
-
-void Bloom::FullScreenTriangle(bgfx::ViewId view, int width, int height) {
-	bgfx::setViewRect(view, 0, 0, uint16_t(width), uint16_t(height));
-	bgfx::setViewClear(view, BGFX_CLEAR_NONE);
-	bgfx::setViewTransform(view, nullptr, nullptr);
-	if (bgfx::getAvailTransientVertexBuffer(3, layout_) < 3) return;
-	bgfx::TransientVertexBuffer tvb;
-	bgfx::allocTransientVertexBuffer(&tvb, 3, layout_);
-	// One triangle past the corners; v runs the way the backend stores a
-	// render target, top row first on D3D, bottom row first on GL.
-	const bool flip = bgfx::getCaps()->originBottomLeft;
-	PostVertex* v = reinterpret_cast<PostVertex*>(tvb.data);
-	v[0] = {-1.f, -1.f, 0.f, 0.f, flip ? 0.f : 1.f};
-	v[1] = {3.f, -1.f, 0.f, 2.f, flip ? 0.f : 1.f};
-	v[2] = {-1.f, 3.f, 0.f, 0.f, flip ? 2.f : -1.f};
-	bgfx::setVertexBuffer(0, &tvb);
-	bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
-}
-
-void Bloom::Draw(bgfx::ViewId brightView, bgfx::ViewId blurHView, bgfx::ViewId blurVView,
-		bgfx::ViewId compositeView) {
-	if (!active_) return;
+	if (!ready() || !scene.active()) return;
+	if (scene.width() != width_ || scene.height() != height_)
+		if (!BuildTargets(scene.width(), scene.height())) return;
 	if (kernelDirty_) BuildKernel();
+	active_ = true;
 
-	// Bright pass: the scene, 1/scale sized. At 2 the bilinear fetch sits on
-	// the corner of four scene pixels, so this is an exact 2x2 average.
+	// Bright pass, from the half-size copy (or the scene itself at scale 1).
 	const float params[4] = {threshold_, 0.f, 0.f, 0.f};
 	bgfx::setViewFrameBuffer(brightView, fb_[0]);
-	bgfx::setTexture(0, sScene_, sceneColor_);
+	bgfx::setTexture(0, sScene_, scale_ >= 2 ? scene.half() : scene.color());
 	bgfx::setUniform(uParams_, params);
-	FullScreenTriangle(brightView, bufW_, bufH_);
+	FullScreenTriangle(brightView, layout_, bufW_, bufH_);
 	bgfx::submit(brightView, bright_);
 
 	// Horizontal into the second buffer, vertical back into the first.
@@ -238,7 +158,7 @@ void Bloom::Draw(bgfx::ViewId brightView, bgfx::ViewId blurHView, bgfx::ViewId b
 	bgfx::setTexture(0, sScene_, color_[0]);
 	bgfx::setUniform(uDir_, dirH);
 	bgfx::setUniform(uKernel_, kernel_, uint16_t(kMaxPairs));
-	FullScreenTriangle(blurHView, bufW_, bufH_);
+	FullScreenTriangle(blurHView, layout_, bufW_, bufH_);
 	bgfx::submit(blurHView, blur_);
 
 	const float dirV[4] = {0.f, 1.f / float(bufH_), float(pairs_), 0.f};
@@ -246,15 +166,15 @@ void Bloom::Draw(bgfx::ViewId brightView, bgfx::ViewId blurHView, bgfx::ViewId b
 	bgfx::setTexture(0, sScene_, color_[1]);
 	bgfx::setUniform(uDir_, dirV);
 	bgfx::setUniform(uKernel_, kernel_, uint16_t(kMaxPairs));
-	FullScreenTriangle(blurVView, bufW_, bufH_);
+	FullScreenTriangle(blurVView, layout_, bufW_, bufH_);
 	bgfx::submit(blurVView, blur_);
 
 	// Composite onto the backbuffer, where the HUD then draws.
 	bgfx::setViewFrameBuffer(compositeView, BGFX_INVALID_HANDLE);
-	bgfx::setTexture(0, sScene_, sceneColor_);
+	bgfx::setTexture(0, sScene_, scene.color());
 	bgfx::setTexture(1, sBloom_, color_[0]);
 	bgfx::setUniform(uOverlay_, overlay_);
-	FullScreenTriangle(compositeView, width_, height_);
+	FullScreenTriangle(compositeView, layout_, width_, height_);
 	bgfx::submit(compositeView, composite_);
 }
 

@@ -112,6 +112,13 @@ public:
 	void SetScriptCastsShadow(int slot, bool casts);
 	// The view model: reads its own fitted maps, and casts into those alone.
 	void SetScriptViewModel(int slot, bool viewModel);
+	// ENTITY.EnableDemonic: drawn by the demon pass while it is on.
+	void SetScriptDemonic(int slot, bool demonic);
+	// Demon Morph: while `on`, demonic instances leave the main pass and are
+	// submitted to `view` with the fresnel program over `detail` x `ramp`
+	// (Render/DemonFx.h supplies all three). DemonFx.md, "The monsters".
+	void SetDemonPass(bool on, bgfx::ViewId view, bgfx::TextureHandle detail,
+			bgfx::TextureHandle ramp, float fresnelScale);
 
 	// --- the view model's shadows ---
 	void SetViewModelShadows(const ViewModelShadows* vm) { viewModelShadows_ = vm; }
@@ -281,6 +288,7 @@ private:
 		bool visible = true;
 		bool castsShadow = true;
 		bool viewModel = false;
+		bool demonic = false;
 		// MDL.SetMeshVisibility: which of the model's parts this instance hides.
 		// Per instance, not per model - the viewmodel hides its blades while
 		// another copy of the same model keeps them. Empty means all shown.
@@ -315,6 +323,14 @@ private:
 
 	bgfx::VertexLayout layout_;
 	bgfx::ProgramHandle program_ = BGFX_INVALID_HANDLE;
+	// The demon pass (SetDemonPass): vs_entity + fs_demon_entity.
+	bgfx::ProgramHandle demonProgram_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uDemonFresnel_ = BGFX_INVALID_HANDLE;
+	bool demonOn_ = false;
+	bgfx::ViewId demonView_ = 0;
+	bgfx::TextureHandle demonDetail_ = BGFX_INVALID_HANDLE;
+	bgfx::TextureHandle demonRamp_ = BGFX_INVALID_HANDLE;
+	float demonScale_ = 0.5f;
 	// Per-frame scratch for CPU skinning, kept here so posing an actor does
 	// not allocate every frame.
 	std::vector<float> vertScratch_;

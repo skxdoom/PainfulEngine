@@ -115,6 +115,16 @@ bool EntityRenderer::Init(const std::string& shaderDir) {
 	bgfx::ShaderHandle fsh = LoadShader(shaderDir, "fs_entity");
 	if (!bgfx::isValid(vs) || !bgfx::isValid(fsh)) return false;
 
+	// The demon pass shares the vertex shader, so it is linked before the
+	// main program takes ownership of it.
+	{
+		bgfx::ShaderHandle fsd = LoadShader(shaderDir, "fs_demon_entity");
+		if (bgfx::isValid(fsd)) {
+			demonProgram_ = bgfx::createProgram(vs, fsd, false);
+			bgfx::destroy(fsd);
+		}
+	}
+	uDemonFresnel_ = bgfx::createUniform("u_demonFresnel", bgfx::UniformType::Vec4);
 	program_ = bgfx::createProgram(vs, fsh, true);
 	if (!bgfx::isValid(program_)) return false;
 
@@ -154,6 +164,8 @@ void EntityRenderer::Shutdown() {
 	models_.clear();
 	instances_.clear();
 	if (bgfx::isValid(program_)) { bgfx::destroy(program_); program_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(demonProgram_)) { bgfx::destroy(demonProgram_); demonProgram_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uDemonFresnel_)) { bgfx::destroy(uDemonFresnel_); uDemonFresnel_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(sDiffuse_)) { bgfx::destroy(sDiffuse_); sDiffuse_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(sLightmap_)) { bgfx::destroy(sLightmap_); sLightmap_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uParams_)) { bgfx::destroy(uParams_); uParams_ = BGFX_INVALID_HANDLE; }
@@ -691,6 +703,22 @@ void EntityRenderer::SetScriptViewModel(int slot, bool viewModel) {
 	instances_[slot].viewModel = viewModel;
 }
 
+void EntityRenderer::SetScriptDemonic(int slot, bool demonic) {
+	if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
+			"EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
+		return;
+	instances_[slot].demonic = demonic;
+}
+
+void EntityRenderer::SetDemonPass(bool on, bgfx::ViewId view, bgfx::TextureHandle detail,
+		bgfx::TextureHandle ramp, float fresnelScale) {
+	demonOn_ = on && bgfx::isValid(demonProgram_) && bgfx::isValid(detail) && bgfx::isValid(ramp);
+	demonView_ = view;
+	demonDetail_ = detail;
+	demonRamp_ = ramp;
+	demonScale_ = fresnelScale;
+}
+
 bool EntityRenderer::ViewModelBounds(Vec3& centre, float& radius) const {
 	Vec3 lo, hi;
 	bool any = false;
@@ -967,6 +995,8 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			camera.nearPlane, camera.farPlane, bgfx::getCaps()->homogeneousDepth,
 			bx::Handedness::Right);
 	const Frustum frustum = Frustum::FromViewProj(viewMtx, projMtx);
+	// The demon pass draws into its own view, from the same camera.
+	if (demonOn_) bgfx::setViewTransform(demonView_, viewMtx, projMtx);
 
 	const float fogValue[4] = {info.fogColor[0] / 255.f, info.fogColor[1] / 255.f,
 			info.fogColor[2] / 255.f, 1.f};
@@ -1171,12 +1201,22 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			if (usePosed) bgfx::setVertexBuffer(0, instance.posed[owner]);
 			else bgfx::setVertexBuffer(0, part.vbo);
 			bgfx::setIndexBuffer(part.ibo, part.firstIndex, part.indexCount);
-			bgfx::setTexture(0, sDiffuse_, part.diffuse, FilteredSampler(mat.sampler[0]));
-			// Stage 1 when the material has one; white through the off path so
-			// the sampler is always bound.
-			bgfx::setTexture(1, sStage1_,
-					bgfx::isValid(stage1Tex) ? stage1Tex : white_,
-					FilteredSampler(mat.sampler[1]));
+			// Demon Morph: a demonic model goes to the demon pass alone, as the
+			// fresnel detail times the ramp (AnimatedMeshMatPal::RenderDemonFX).
+			const bool demonDraw = demonOn_ && instance.demonic;
+			if (demonDraw) {
+				const float fresnel[4] = {demonScale_, 0.f, 0.f, 0.f};
+				bgfx::setUniform(uDemonFresnel_, fresnel);
+				bgfx::setTexture(0, sDiffuse_, demonDetail_);
+				bgfx::setTexture(1, sStage1_, demonRamp_, BGFX_SAMPLER_UVW_CLAMP);
+			} else {
+				bgfx::setTexture(0, sDiffuse_, part.diffuse, FilteredSampler(mat.sampler[0]));
+				// Stage 1 when the material has one; white through the off path
+				// so the sampler is always bound.
+				bgfx::setTexture(1, sStage1_,
+						bgfx::isValid(stage1Tex) ? stage1Tex : white_,
+						FilteredSampler(mat.sampler[1]));
+			}
 			// Stages 2 and 3 are the projector pair, 4 the flashlight's
 			// shadow map, 5 the model shadow map, 6 the placed lights'
 			// atlas; models sample no detail map, so nothing else wants them.
@@ -1186,7 +1226,8 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 					4, shadowTex, 5, modelShadowTex, 6, lightShadowTex);
 			BindViewModel(instance.viewModel);
 			bgfx::setState(state);
-			bgfx::submit(view, program_);
+			if (demonDraw) bgfx::submit(demonView_, demonProgram_);
+			else bgfx::submit(view, program_);
 			++drawCalls_;
 		}
 	}

@@ -247,7 +247,6 @@ Left: the unidentified body field both functions filter on.
 | `CAM.SetRotationDisplacement` | 8 | camera kick on hits |
 | `CAM.LookAt` | 6 | scripted camera moves |
 | `ENTITY.PO_SetPlayerShocked` | 8 | the electrodriver stun |
-| `ENTITY.EnableDemonic`, `WORLD.EnableDemonFX` / `DemonFXParams` / `DemonFXWarp` / `EnableSuperDemonFX` | 12 | Demon Morph |
 | `PHYSICS.SetBunnyHopAcceleration` (7), `PHYSICS.SetGravity` (3) | 10 | movement knobs the scripts read out of `Tweak` |
 | `INP.GetTimeFromTimerReset`, `INP.ResetTimer` | 12 | script-side timers |
 | `ENTITY.TransformLocalPointToWorld` (7), `GetCenter` (3), `SeesPoint` | 11 | small geometry queries whose returns are consumed |

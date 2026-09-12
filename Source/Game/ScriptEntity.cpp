@@ -34,6 +34,7 @@ struct EntityNatives : ScriptNativesBase {
 	static int L_NoOpNative(lua_State* L);
 	static int L_BILLBOARD_SetupCorona(lua_State* L);
 	static int L_EnableDraw(lua_State* L);
+	static int L_EnableDemonic(lua_State* L);
 	static int L_GetVelocity(lua_State* L);
 	static int L_SetVelocity(lua_State* L);
 	static int L_SetAngularVelocity(lua_State* L);
@@ -772,6 +773,19 @@ int EntityNatives::L_EnableDraw(lua_State* L) {
 	ScriptEngine* self = From(L);
 	if (Entity* e = self->Find(HandleArg(L, 1)))
 		self->SetDrawEnabled(*e, lua_toboolean(L, 2) != 0, lua_toboolean(L, 3) != 0, 0);
+	return 0;
+}
+
+// ENTITY.EnableDemonic(e, on, alsoChildren) - the model is drawn in the red
+// fresnel glow while WORLD.EnableDemonFX is on. The scripts flag every actor
+// and, in multiplayer, the enemy players. DemonFx.md, "The monsters".
+int EntityNatives::L_EnableDemonic(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e) return 0;
+	e->demonic = lua_toboolean(L, 2) != 0;
+	if (self->renderer_ && e->rendererInstance >= 0)
+		self->renderer_->SetScriptDemonic(e->rendererInstance, e->demonic);
 	return 0;
 }
 
@@ -1535,6 +1549,7 @@ void BindEntity(ScriptEngine& engine, LuaHost& host) {
 		{"ENTITY", "GetOrientation", EntityNatives::L_GetOrientation},
 		{"ENTITY", "SetScale", EntityNatives::L_SetScale},
 		{"ENTITY", "EnableDraw", EntityNatives::L_EnableDraw},
+		{"ENTITY", "EnableDemonic", EntityNatives::L_EnableDemonic},
 		{"ENTITY", "PO_Remove", EntityNatives::L_PO_Remove},
 		{"ENTITY", "PO_GetCollisionGroup", EntityNatives::L_PO_GetCollisionGroup},
 		{"ENTITY", "PO_IsFixed", EntityNatives::L_PO_IsFixed},

@@ -26,6 +26,8 @@
 #include "Render/BillboardRenderer.h"
 #include "Render/Bloom.h"
 #include "Render/DebugLines.h"
+#include "Render/DemonFx.h"
+#include "Render/SceneTargets.h"
 #include "Render/DecalRenderer.h"
 #include "Render/EntityRenderer.h"
 #include "Render/HudRenderer.h"
@@ -427,10 +429,19 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	world.SetShadowMap(&shadow);
 	world.SetModelShadowMap(&modelShadow);
 	bool worldReady = false;
+	// The scene as a texture, whenever a post-process wants the frame, with
+	// its half-size copy (Render/SceneTargets.h).
+	SceneTargets sceneTargets;
+	const bool sceneInit = sceneTargets.Init(shaderDir);
 	// The post-process. Cfg.Bloom and the level's BloomFX gate it per frame;
 	// PAINFUL_BLOOM=0 turns it off for an A/B.
 	Bloom bloom;
-	const bool bloomInit = bloom.Init(shaderDir);
+	const bool bloomInit = sceneInit && bloom.Init(shaderDir);
+	bool bloomThisFrame = false;
+	// Demon Morph, WORLD.EnableDemonFX's frame; it replaces the bloom path
+	// while it is on, as View::Render's branches do. PAINFUL_DEMONFX=0 off.
+	DemonFx demonFx;
+	const bool demonInit = sceneInit && demonFx.Init(shaderDir, textures);
 
 	// painful_config.ini, applied: at boot, and again on the frame after the
 	// console's `pf` changed a value. Maps are rebuilt only when their size
@@ -676,8 +687,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		if (loadingSketch > 0) hud.ReleaseMaterial(loadingSketch);
 		loadingSketch = sketch.empty() ? 0 : hud.CreateMaterial(sketch, textures, root + "/Textures");
 		renderer.BeginFrame();
-		bloom.BeginFrame(window.width(), window.height(), false, Renderer::kSkyView,
+		sceneTargets.BeginFrame(window.width(), window.height(), false, Renderer::kSkyView,
 				Renderer::kWorldView);
+		demonFx.BeginFrame(sceneTargets, false, Renderer::kDemonEntityView);
+		bloom.Skip();
 		hud.Begin(Renderer::kHudView, window.width(), window.height());
 		// The art covers the window; the sketch and the name are laid out on
 		// the 4:3 canvas like everything the scripts draw.
@@ -1224,12 +1237,24 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		// nothing, so it is skipped too. Docs/Reference/Bloom.md.
 		{
 			const ScriptEngine::WorldState& ws = engine.world();
-			const bool bloomOn = bloomInit && worldReady && ws.bloom && ws.bloomMultiplier > 0.f &&
-					(ws.bloomOverlay & 0xffffff) != 0 && DebugInt("PAINFUL_BLOOM", 1) > 0;
+			// Demon Morph first: View::Render takes its branch instead of the
+			// bloom one. Docs/Reference/DemonFx.md.
+			const bool demonOn = demonInit && worldReady && ws.demonFx &&
+					DebugInt("PAINFUL_DEMONFX", 1) > 0;
+			const bool bloomOn = !demonOn && bloomInit && worldReady && ws.bloom &&
+					ws.bloomMultiplier > 0.f && (ws.bloomOverlay & 0xffffff) != 0 &&
+					DebugInt("PAINFUL_BLOOM", 1) > 0;
+			// The scene goes to its target whenever either pass wants it.
+			sceneTargets.SetMsaa(renderer.msaaSamples());
+			sceneTargets.BeginFrame(window.width(), window.height(), bloomOn || demonOn,
+					Renderer::kSkyView, Renderer::kWorldView);
 			bloom.SetParams(ws.bloomThreshold, ws.bloomMultiplier, ws.bloomOverlay);
-			bloom.SetMsaa(renderer.msaaSamples());
-			bloom.BeginFrame(window.width(), window.height(), bloomOn, Renderer::kSkyView,
-					Renderer::kWorldView);
+			bloomThisFrame = bloomOn;
+			demonFx.SetParams(ws.demonScale, ws.demonBias, ws.demonKeep, ws.demonMBlur);
+			demonFx.SetWarp(ws.demonWarp);
+			demonFx.BeginFrame(sceneTargets, demonOn, Renderer::kDemonEntityView);
+			entities.SetDemonPass(demonFx.active(), Renderer::kDemonEntityView, demonFx.detail(),
+					demonFx.ramp(), DemonFx::kFresnelScale);
 		}
 		if (skyReady)
 			sky.Draw(Renderer::kSkyView, camera, window.width(), window.height(), elapsed);
@@ -1340,8 +1365,15 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 
 		// The scene is complete: bloom it and land it on the backbuffer, under
 		// the 2D layer. (The original adds its bloom over the HUD as well.)
-		bloom.Draw(Renderer::kBloomBrightView, Renderer::kBloomBlurHView,
-				Renderer::kBloomBlurVView, Renderer::kCompositeView);
+		sceneTargets.Downsample(Renderer::kSceneHalfView);
+		if (bloomThisFrame)
+			bloom.Draw(sceneTargets, Renderer::kBloomBrightView, Renderer::kBloomBlurHView,
+					Renderer::kBloomBlurVView, Renderer::kCompositeView);
+		else
+			bloom.Skip();
+		// Or, in Demon Morph: black and white, the glow, the warp, the trail.
+		demonFx.Draw(sceneTargets, Renderer::kDemonGrayView, Renderer::kDemonWarpView,
+				Renderer::kDemonCopyView, dt);
 
 		// Nameplates. Anything within 20m gets its handle and what it is, which
 		// is the pair you need to go from "that one is wrong" to a probe: the
@@ -1480,9 +1512,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 						hud.fonts().baked());
 				LogInfo("  particles: %zu live in %zu emitters", particles.liveParticles(),
 						particles.emitters());
-				LogInfo("  bloom: %s, %dx%d buffers, %d taps, threshold %.2f, multiplier %.2f; msaa x%d",
+				LogInfo("  bloom: %s, %dx%d buffers, %d taps, threshold %.2f, multiplier %.2f; msaa x%d; demon fx %s",
 						bloom.active() ? "on" : "off", bloom.bufferWidth(), bloom.bufferHeight(),
-						bloom.taps(), bloom.threshold(), bloom.multiplier(), renderer.msaaSamples());
+						bloom.taps(), bloom.threshold(), bloom.multiplier(), renderer.msaaSamples(),
+						demonFx.active() ? "on" : "off");
 				LogInfo("  shadow maps: flashlight %s, models %s, %zu placed lights "
 						"(%zu baked chunk slots), view model %s; %zu world draws, "
 						"%zu entity draws in all",

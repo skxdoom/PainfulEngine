@@ -25,14 +25,23 @@ public:
 	// Sky is drawn next and owns the clear; the world paints over it.
 	static constexpr bgfx::ViewId kSkyView = 51;
 	static constexpr bgfx::ViewId kWorldView = 52;
+	// The scene's half-size copy (Render/SceneTargets.h), for the passes
+	// that sample the scene small.
+	static constexpr bgfx::ViewId kSceneHalfView = 53;
 	// Bloom (Render/Bloom.h): the bright pass, the two blurs, then the
 	// composite that lands the scene on the backbuffer.
-	static constexpr bgfx::ViewId kBloomBrightView = 53;
-	static constexpr bgfx::ViewId kBloomBlurHView = 54;
-	static constexpr bgfx::ViewId kBloomBlurVView = 55;
-	static constexpr bgfx::ViewId kCompositeView = 56;
+	static constexpr bgfx::ViewId kBloomBrightView = 54;
+	static constexpr bgfx::ViewId kBloomBlurHView = 55;
+	static constexpr bgfx::ViewId kBloomBlurVView = 56;
+	static constexpr bgfx::ViewId kCompositeView = 57;
+	// Demon Morph (Render/DemonFx.h): the scene to black and white, the
+	// demonic models over it, the warp with the trail, the copy out.
+	static constexpr bgfx::ViewId kDemonGrayView = 58;
+	static constexpr bgfx::ViewId kDemonEntityView = 59;
+	static constexpr bgfx::ViewId kDemonWarpView = 60;
+	static constexpr bgfx::ViewId kDemonCopyView = 61;
 	// The 2D layer, drawn over everything: no depth, in submission order.
-	static constexpr bgfx::ViewId kHudView = 57;
+	static constexpr bgfx::ViewId kHudView = 62;
 
 	~Renderer() { Shutdown(); }
 	// Owns GPU handles that Shutdown destroys, so it is not copyable: a copy

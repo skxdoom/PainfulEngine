@@ -478,6 +478,10 @@ The ordered work queue, with the evidence behind each item, is
 - Multisampling: `Cfg.Multisample` is honoured, on the backbuffer and on the
   bloom scene target ([`Menu.md`](Reference/Menu.md), "Multisample"); x6 runs
   as 8x, bgfx having no 6.
+- Demon Morph renders ([`DemonFx.md`](Reference/DemonFx.md)): the hard
+  black-and-white world, the red fresnel monsters, the strike warp and the
+  trail, at screen resolution. The fresnel scale is the one constant set by
+  eye; `SuperDemonFX` is recorded and not drawn (nothing sets it).
 - Particle texture animation uses frame 0 only, and the `WarpTex` refraction
   pass is not implemented.
 - Antiportal occlusion is parsed but unused, portal frustum clipping is

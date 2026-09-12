@@ -179,6 +179,7 @@ void ScriptEngine::CreateRendererInstance(Entity& e) {
 			renderer_->SetScriptMeshVisibility(e.rendererInstance, kv.first, kv.second);
 		renderer_->SetScriptCastsShadow(e.rendererInstance, e.castsShadow);
 		renderer_->SetScriptViewModel(e.rendererInstance, e.viewAttached);
+		renderer_->SetScriptDemonic(e.rendererInstance, e.demonic);
 	}
 	if (e.rendererInstance >= 0) SyncPose(e);
 }

@@ -20,6 +20,10 @@ struct WorldNatives : ScriptNativesBase {
 	static int L_WORLD_Init(lua_State* L);
 	static int L_WORLD_SetupFog(lua_State* L);
 	static int L_WORLD_BloomFXParams(lua_State* L);
+	static int L_WORLD_EnableDemonFX(lua_State* L);
+	static int L_WORLD_EnableSuperDemonFX(lua_State* L);
+	static int L_WORLD_DemonFXParams(lua_State* L);
+	static int L_WORLD_DemonFXWarp(lua_State* L);
 	static int L_WORLD_SetFarClipDist(lua_State* L);
 	static int L_WORLD_AmbientColor(lua_State* L);
 	static int L_WORLD_LoadSky(lua_State* L);
@@ -577,6 +581,37 @@ int WorldNatives::L_WORLD_BloomFXParams(lua_State* L) {
 	return 0;
 }
 
+// Demon Morph. WORLD.EnableDemonFX(on) is World+0x6dc (0x10120720), the
+// gate of View::RenderDemonFXWorld; EnableSuperDemonFX(on) is +0x6dd
+// (0x101207A0), which no shipped script sets. DemonFx.md.
+int WorldNatives::L_WORLD_EnableDemonFX(lua_State* L) {
+	From(L)->world_.demonFx = lua_toboolean(L, 1) != 0;
+	return 0;
+}
+
+int WorldNatives::L_WORLD_EnableSuperDemonFX(lua_State* L) {
+	From(L)->world_.superDemonFx = lua_toboolean(L, 1) != 0;
+	return 0;
+}
+
+// WORLD.DemonFXParams(Scale, Bias, 1 - MBlur, MBlur) - CLevel:ReloadFX, into
+// World+0x6e0/+0x6e4/+0x6ec/+0x6f0 (0x10120820), defaults 1, 0, 0.3, 0.7.
+int WorldNatives::L_WORLD_DemonFXParams(lua_State* L) {
+	WorldState& w = From(L)->world_;
+	w.demonScale = float(luaL_optnumber(L, 1, 1.0));
+	w.demonBias = float(luaL_optnumber(L, 2, 0.0));
+	w.demonKeep = float(luaL_optnumber(L, 3, 0.3));
+	w.demonMBlur = float(luaL_optnumber(L, 4, 0.7));
+	return 0;
+}
+
+// WORLD.DemonFXWarp(amount) - World+0x6e8 (0x101209E0), the DemonFXWarp
+// process every tick: 0..MaxWarp 0.1, in over 0.2 s, out as a damped cosine.
+int WorldNatives::L_WORLD_DemonFXWarp(lua_State* L) {
+	From(L)->world_.demonWarp = float(luaL_optnumber(L, 1, 0.0));
+	return 0;
+}
+
 int WorldNatives::L_WORLD_SetFarClipDist(lua_State* L) {
 	From(L)->world_.farClip = float(luaL_optnumber(L, 1, 1024));
 	return 0;
@@ -694,6 +729,10 @@ void BindWorld(ScriptEngine& engine, LuaHost& host) {
 		{"PHYSICS", "ActiveMeshGroupSetActivationParams", WorldNatives::L_PHYSICS_ActiveMeshGroupSetActivationParams},
 		{"WORLD", "SetupFog", WorldNatives::L_WORLD_SetupFog},
 		{"WORLD", "BloomFXParams", WorldNatives::L_WORLD_BloomFXParams},
+		{"WORLD", "EnableDemonFX", WorldNatives::L_WORLD_EnableDemonFX},
+		{"WORLD", "EnableSuperDemonFX", WorldNatives::L_WORLD_EnableSuperDemonFX},
+		{"WORLD", "DemonFXParams", WorldNatives::L_WORLD_DemonFXParams},
+		{"WORLD", "DemonFXWarp", WorldNatives::L_WORLD_DemonFXWarp},
 		{"WORLD", "SetFarClipDist", WorldNatives::L_WORLD_SetFarClipDist},
 		{"WORLD", "AmbientColor", WorldNatives::L_WORLD_AmbientColor},
 		{"WORLD", "LoadSky", WorldNatives::L_WORLD_LoadSky},
