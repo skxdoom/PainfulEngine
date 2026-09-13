@@ -66,6 +66,8 @@ Row g_rows[] = {
 	{"PAINFUL_ANIM_TRACE", Kind::kFlag, "log animation slot changes"},
 	{"PAINFUL_CONTACT_TRACE",Kind::kFlag, "log script body and ragdoll contacts"},
 	{"PAINFUL_DECAL_TRACE", Kind::kFlag, "log what each decal spawn cut"},
+	{"PAINFUL_SPRITE_TRACE",Kind::kFlag, "log every R3D.Spr_Render strip"},
+	{"PAINFUL_HKE_DUMP", Kind::kText, "write the decoded .hke text to this file"},
 	{"PAINFUL_VIEW_TRACE", Kind::kFlag, "log the view traces the weapons fire"},
 	{"PAINFUL_MONSTER_TRACE",Kind::kInt, "dump monster ground state at this frame"},
 	{"PAINFUL_ACTIVE_TRACE", Kind::kInt, "dump active-mesh drift at this frame"},

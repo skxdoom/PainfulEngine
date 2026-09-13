@@ -193,6 +193,47 @@ Two details it is easy to get wrong:
 head — the energy beam the alt fire is named for — gated on the same test that
 starts `electro_loop` and `shock_loop`.
 
+
+## Sprite lines: the electrodriver's bolt
+
+`R3D.Spr_Create(width, argb, texture, mode)` (0x1013f340) builds the same
+`Sprite1DOF` that `DrawSprite1DOF` builds, `R3D.Spr_AddPoint(h, x,y,z)`
+appends to it, and `R3D.Spr_Render(h)` (0x10142070) hands it to
+`ParticleSystem::RenderSprites` (0x100a2b50) and frees it. So a beam is a
+two-point line, and `DriverElectro:Render` draws its bolt as four lines of
+sixteen points each frame - two wide, two thin, each pair once in mode 11
+and once in mode 12 - through `DrawBezierLine`, which samples
+`VARRAY.GetBezierPoint` and jitters every sample. `ElectroDisk:RenderFX`
+does the same from the tip to whatever the disk is arcing to.
+
+What `RenderSprites` does with the points, recovered from the decompile:
+
+- Every point is pushed `width / 2` to either side (`DAT_102ae5b0` = 0.5),
+  so `width` is the whole band, and the strip is one triangle strip of
+  `2n - 2` triangles. The port's beam used the width as a half-width before
+  this; the Painkiller's beam is half as wide as it was, which is right.
+- `mode % 10` picks the side vector: **0** the segment crossed with the line
+  of sight to that point (the one degree of freedom; the last point keeps the
+  last segment's direction), **1** the camera's right vector, **2** its up
+  vector (`Camera+0x34..` and `+0x38..`, `GetRightVector` / `GetUpVector`).
+  The bolt's 11 and 12 are therefore two bands at right angles through the
+  same curve, which reads as a bolt from every side.
+- U runs `i / (n - 1)` along the strip, or **0, 1, 0, 1** per point when
+  `mode >= 10`, so the spark texture tiles once per segment; V is 0 on the
+  plus side and 1 on the minus side.
+- The colour goes on every vertex as given (`R3D.RGB` is opaque), the
+  texture's alpha does the shaping, and the state is the same alpha blend and
+  depth test the immediate sprites use.
+
+`VARRAY.Create() / AddPoint(h, x,y,z) / GetBezierPoint(h, t) / Delete(h)`
+(0x1012afd0, curve in FUN_1012ade0) is a plain Bernstein Bezier over ALL the
+points as control points; `t >= 1` answers the last point, which the bolt
+relies on since it samples `i / (parts - 1)` for `i` up to `parts`.
+
+`PAINFUL_SPRITE_TRACE=1` logs every line rendered (point count, width,
+mode, texture). Headless, holding the electrodriver's alt fire on the
+Cemetery gave the four lines a frame described above.
+
 ## What this port does not do yet
 
 - `Billboard::Draw` also validates the trace's end point against the world

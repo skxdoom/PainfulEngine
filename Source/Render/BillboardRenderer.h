@@ -62,8 +62,12 @@ public:
 	// CProcess that calls it from Render every frame it lives, so there is no
 	// slot to keep - and unlike a corona it carries a ROTATION, which is what
 	// stops four shots in a row looking like the same picture.
+	// R3D.DrawSprite1DOF: the two-point case of a strip, mode 0.
 	void DrawBeamImmediate(const Vec3& a, const Vec3& b, float width,
 			uint32_t abgr, bgfx::TextureHandle texture);
+	// R3D.Spr_Render: a textured band along a polyline, this frame only.
+	void DrawStripImmediate(std::vector<Vec3> points, float width, uint32_t abgr,
+			int mode, bgfx::TextureHandle texture);
 	void DrawImmediate(const Vec3& pos, float size, float rot, uint32_t abgr,
 			bgfx::TextureHandle texture);
 	void RemoveScriptSprite(int slot);
@@ -137,17 +141,19 @@ private:
 	};
 	std::vector<Immediate> immediate_;
 
-	// R3D.DrawSprite1DOF: a quad stretched between two world points that spins
-	// about that axis to face the viewer - one degree of freedom, hence the
-	// name. The Painkiller draws its energy beam from the gun to its stuck
-	// head this way, one per frame while the head is attached.
-	struct Beam {
-		Vec3 a, b;
+	// A Sprite1DOF (ParticleSystem::RenderSprites, 0x100a2b50): a band along
+	// the points, half the width to either side. mode % 10 picks the side
+	// vector - 0 the segment crossed with the line of sight (one degree of
+	// freedom), 1 camera right, 2 camera up - and mode >= 10 alternates U
+	// 0,1 per point instead of running it along. Billboards.md.
+	struct Strip {
+		std::vector<Vec3> points;
 		float width;
 		uint32_t abgr;
 		bgfx::TextureHandle texture;
+		int mode;
 	};
-	std::vector<Beam> beams_;
+	std::vector<Strip> strips_;
 
 	void FadeTick(Sprite& s, bool nowVisible, float dt) const;
 

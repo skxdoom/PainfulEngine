@@ -377,19 +377,25 @@ void BillboardRenderer::DrawImmediate(const Vec3& pos, float size, float rot,
 
 void BillboardRenderer::DrawBeamImmediate(const Vec3& a, const Vec3& b, float width,
 		uint32_t abgr, bgfx::TextureHandle texture) {
-	Beam beam;
-	for (int c = 0; c < 3; ++c) { beam.a[c] = a[c]; beam.b[c] = b[c]; }
-	beam.width = width;
-	beam.abgr = abgr;
-	beam.texture = texture;
-	beams_.push_back(beam);
+	DrawStripImmediate({a, b}, width, abgr, 0, texture);
+}
+
+void BillboardRenderer::DrawStripImmediate(std::vector<Vec3> points, float width,
+		uint32_t abgr, int mode, bgfx::TextureHandle texture) {
+	Strip strip;
+	strip.points = std::move(points);
+	strip.width = width;
+	strip.abgr = abgr;
+	strip.texture = texture;
+	strip.mode = mode;
+	strips_.push_back(std::move(strip));
 }
 
 void BillboardRenderer::Draw(bgfx::ViewId view, const Camera& camera) {
 	drawCalls_ = 0;
-	if (!bgfx::isValid(program_) || (sprites_.empty() && immediate_.empty() && beams_.empty())) {
+	if (!bgfx::isValid(program_) || (sprites_.empty() && immediate_.empty() && strips_.empty())) {
 		immediate_.clear();
-		beams_.clear();
+		strips_.clear();
 		return;
 	}
 
@@ -513,75 +519,83 @@ void BillboardRenderer::Draw(bgfx::ViewId view, const Camera& camera) {
 	}
 	immediate_.clear();
 
-	// The beams. One degree of freedom: the quad's long edge IS the segment,
-	// and it turns about that segment so its face is toward the eye. The side
-	// vector is therefore the axis crossed with the line of sight, not a
-	// camera axis - a beam pointing at the viewer must not flip inside out.
-	for (const Beam& beam : beams_) {
-		if (bgfx::getAvailTransientVertexBuffer(4, layout_) < 4) break;
-		if (bgfx::getAvailTransientIndexBuffer(6) < 6) break;
-
-		Vec3 axis{beam.b[0] - beam.a[0], beam.b[1] - beam.a[1], beam.b[2] - beam.a[2]};
-		const float len = std::sqrt(axis[0]*axis[0] + axis[1]*axis[1] + axis[2]*axis[2]);
-		if (len < 1e-5f) continue;
-		for (int c = 0; c < 3; ++c) axis[c] /= len;
-
-		// Toward the eye from the middle of the segment.
-		const Vec3 mid{(beam.a[0] + beam.b[0]) * 0.5f, (beam.a[1] + beam.b[1]) * 0.5f,
-				(beam.a[2] + beam.b[2]) * 0.5f};
-		Vec3 toEye = {camera.pos[0] - mid[0], camera.pos[1] - mid[1],
-				camera.pos[2] - mid[2]};
-		Vec3 side = {axis[1]*toEye[2] - axis[2]*toEye[1],
-				axis[2]*toEye[0] - axis[0]*toEye[2],
-				axis[0]*toEye[1] - axis[1]*toEye[0]};
-		float sideLen = std::sqrt(side[0]*side[0] + side[1]*side[1] + side[2]*side[2]);
-		if (sideLen < 1e-5f) {
-			// Looking straight down the beam: any perpendicular will do, and
-			// the quad is edge-on anyway.
-			const Vec3 alt{axis[1], axis[2], axis[0]};
-			side[0] = axis[1]*alt[2] - axis[2]*alt[1];
-			side[1] = axis[2]*alt[0] - axis[0]*alt[2];
-			side[2] = axis[0]*alt[1] - axis[1]*alt[0];
-			sideLen = std::sqrt(side[0]*side[0] + side[1]*side[1] + side[2]*side[2]);
-			if (sideLen < 1e-5f) continue;
-		}
-		for (int c = 0; c < 3; ++c) side[c] *= beam.width / sideLen;
+	// The strips: DrawSprite1DOF's beam and the Spr_* lines. Each point is
+	// pushed HALF the width to either side, U runs along the strip (0,1
+	// alternating for modes >= 10) and V across it, and the side vector is
+	// the mode's: the segment crossed with the line of sight, so a beam aimed
+	// at the eye never flips inside out, or a camera axis. RenderSprites,
+	// 0x100a2b50; Billboards.md, "Immediate sprites, and the one with an axis".
+	for (const Strip& strip : strips_) {
+		const size_t n = strip.points.size();
+		if (n < 2 || strip.width <= 0.f) continue;
+		const uint32_t nv = uint32_t(n * 2), ni = uint32_t((n - 1) * 6);
+		if (bgfx::getAvailTransientVertexBuffer(nv, layout_) < nv) break;
+		if (bgfx::getAvailTransientIndexBuffer(ni) < ni) break;
 
 		bgfx::TransientVertexBuffer tvb;
 		bgfx::TransientIndexBuffer tib;
-		bgfx::allocTransientVertexBuffer(&tvb, 4, layout_);
-		bgfx::allocTransientIndexBuffer(&tib, 6);
+		bgfx::allocTransientVertexBuffer(&tvb, nv, layout_);
+		bgfx::allocTransientIndexBuffer(&tib, ni);
 		BillboardVertex* v = reinterpret_cast<BillboardVertex*>(tvb.data);
 		uint16_t* idx = reinterpret_cast<uint16_t*>(tib.data);
 
-		// V runs across the beam, U along it, so a trail texture stretches from
-		// one end to the other rather than tiling.
-		v[0] = {beam.a[0] - side[0], beam.a[1] - side[1], beam.a[2] - side[2],
-				beam.abgr, 0.f, 0.f};
-		v[1] = {beam.a[0] + side[0], beam.a[1] + side[1], beam.a[2] + side[2],
-				beam.abgr, 0.f, 1.f};
-		v[2] = {beam.b[0] + side[0], beam.b[1] + side[1], beam.b[2] + side[2],
-				beam.abgr, 1.f, 1.f};
-		v[3] = {beam.b[0] - side[0], beam.b[1] - side[1], beam.b[2] - side[2],
-				beam.abgr, 1.f, 0.f};
-		idx[0] = 0; idx[1] = 1; idx[2] = 2;
-		idx[3] = 0; idx[4] = 2; idx[5] = 3;
+		const int how = strip.mode >= 10 ? strip.mode - 10 : strip.mode;
+		const float half = strip.width * 0.5f;
+		Vec3 dir{0.f, 0.f, 0.f};
+		for (size_t i = 0; i < n; ++i) {
+			const Vec3& p = strip.points[i];
+			// The last point keeps the last segment's direction.
+			if (i + 1 < n)
+				for (int c = 0; c < 3; ++c) dir[c] = strip.points[i + 1][c] - p[c];
+			Vec3 side{0.f, 0.f, 0.f};
+			if (how == 1) {
+				for (int c = 0; c < 3; ++c) side[c] = right[c] * half;
+			} else if (how == 2) {
+				for (int c = 0; c < 3; ++c) side[c] = up[c] * half;
+			} else {
+				const Vec3 toEye{camera.pos[0] - p[0], camera.pos[1] - p[1], camera.pos[2] - p[2]};
+				side[0] = dir[1]*toEye[2] - dir[2]*toEye[1];
+				side[1] = dir[2]*toEye[0] - dir[0]*toEye[2];
+				side[2] = dir[0]*toEye[1] - dir[1]*toEye[0];
+				float len = std::sqrt(side[0]*side[0] + side[1]*side[1] + side[2]*side[2]);
+				if (len < 1e-6f) {
+					// Looking straight down the segment: any perpendicular
+					// will do, the band is edge-on anyway.
+					const Vec3 alt{dir[1], dir[2], dir[0]};
+					side[0] = dir[1]*alt[2] - dir[2]*alt[1];
+					side[1] = dir[2]*alt[0] - dir[0]*alt[2];
+					side[2] = dir[0]*alt[1] - dir[1]*alt[0];
+					len = std::sqrt(side[0]*side[0] + side[1]*side[1] + side[2]*side[2]);
+				}
+				const float k = len > 1e-6f ? half / len : 0.f;
+				for (int c = 0; c < 3; ++c) side[c] *= k;
+			}
+			const float u = strip.mode >= 10 ? float(i & 1) : float(i) / float(n - 1);
+			v[i * 2] = {p[0] + side[0], p[1] + side[1], p[2] + side[2], strip.abgr, u, 0.f};
+			v[i * 2 + 1] = {p[0] - side[0], p[1] - side[1], p[2] - side[2], strip.abgr, u, 1.f};
+			if (i + 1 < n) {
+				const uint16_t a = uint16_t(i * 2);
+				uint16_t* t = idx + i * 6;
+				t[0] = a; t[1] = uint16_t(a + 1); t[2] = uint16_t(a + 2);
+				t[3] = uint16_t(a + 1); t[4] = uint16_t(a + 3); t[5] = uint16_t(a + 2);
+			}
+		}
 
-		// Same alpha-weighted additive the sprites use, and depth-tested: the
-		// beam is hidden by anything between the gun and the head.
+		// Same alpha blend the immediate sprites use, and depth-tested: the
+		// band is hidden by anything between the eye and it.
 		bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_MSAA | BGFX_STATE_DEPTH_TEST_LESS |
 				BlendModeState(kBlendAlpha));
 		bgfx::setVertexBuffer(0, &tvb);
 		bgfx::setIndexBuffer(&tib);
-		// Immediate sprites and beams draw with the alpha blend: fog to black.
+		// Immediate sprites and strips draw with the alpha blend: fog to black.
 		const float fogBlack[4] = {0.f, 0.f, 0.f, 1.f};
 		bgfx::setUniform(uFog_, fog_);
 		bgfx::setUniform(uFogColor_, fogBlack);
-		bgfx::setTexture(0, sDiffuse_, beam.texture);
+		bgfx::setTexture(0, sDiffuse_, strip.texture);
 		bgfx::submit(view, program_);
 		++drawCalls_;
 	}
-	beams_.clear();
+	strips_.clear();
 }
 
 } // namespace painful

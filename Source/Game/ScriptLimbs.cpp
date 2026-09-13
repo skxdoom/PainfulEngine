@@ -3,6 +3,8 @@
 #include "ScriptEngineInternal.h"
 #include "../Core/Vectors.h"
 #include "../Core/Matrix.h"
+#include <cmath>
+#include <string>
 #include <vector>
 
 namespace painful {
@@ -16,6 +18,13 @@ struct LimbsNatives : ScriptNativesBase {
 	static int L_ENTITY_UnregisterAllChildren(lua_State* L);
 	static int L_PO_EnableGravity(lua_State* L);
 	static int L_R3D_DrawSprite(lua_State* L);
+	static int L_R3D_Spr_Create(lua_State* L);
+	static int L_R3D_Spr_AddPoint(lua_State* L);
+	static int L_R3D_Spr_Render(lua_State* L);
+	static int L_VARRAY_Create(lua_State* L);
+	static int L_VARRAY_AddPoint(lua_State* L);
+	static int L_VARRAY_GetBezierPoint(lua_State* L);
+	static int L_VARRAY_Delete(lua_State* L);
 	static int L_R3D_DrawSprite1DOF(lua_State* L);
 	static int L_R3D_RGB(lua_State* L);
 	static int L_R3D_RGBA(lua_State* L);
@@ -511,6 +520,13 @@ int LimbsNatives::L_R3D_DrawSprite(lua_State* L) {
 // builds a Sprite1DOF and hands it to ParticleSystem::RenderSprites with the
 // camera - so it is a particle-style quad, drawn for this frame only.
 //
+// The scripts pack 0xAARRGGBB (R3D.RGBA); the vertex wants ABGR.
+uint32_t ArgbToAbgr(uint32_t argb) {
+	const uint32_t al = (argb >> 24) & 0xFF, r = (argb >> 16) & 0xFF;
+	const uint32_t g = (argb >> 8) & 0xFF, bl = argb & 0xFF;
+	return (al << 24) | (bl << 16) | (g << 8) | r;
+}
+
 // PainKiller:Render draws one of these every frame from the gun to its stuck
 // head, which is the energy beam the alt fire is named for.
 int LimbsNatives::L_R3D_DrawSprite1DOF(lua_State* L) {
@@ -525,9 +541,7 @@ int LimbsNatives::L_R3D_DrawSprite1DOF(lua_State* L) {
 	const char* texture = luaL_optstring(L, 9, "");
 	if (!texture || !*texture || width <= 0.f) return 0;
 
-	const uint32_t al = (argb >> 24) & 0xFF, r = (argb >> 16) & 0xFF;
-	const uint32_t g = (argb >> 8) & 0xFF, bl = argb & 0xFF;
-	const uint32_t abgr = (al << 24) | (bl << 16) | (g << 8) | r;
+	const uint32_t abgr = ArgbToAbgr(argb);
 
 	self->billboards_->DrawBeamImmediate(a, b, width, abgr,
 			self->hudTextures_->Get(texture, ""));
@@ -565,10 +579,110 @@ int LimbsNatives::L_R3D_RGBA(lua_State* L) {
 }
 
 
+// R3D.Spr_Create(width, argb, texture, mode) -> handle (0x1013f340): a
+// Sprite1DOF like DrawSprite1DOF's with as many points as Spr_AddPoint adds,
+// drawn and freed by Spr_Render (0x10142070). The electrodriver's bolt is
+// four of these a frame. Billboards.md, "Immediate sprites, and the one with an axis".
+int LimbsNatives::L_R3D_Spr_Create(lua_State* L) {
+	ScriptEngine* self = From(L);
+	ScriptEngine::SpriteLine line;
+	line.width = float(luaL_optnumber(L, 1, 0));
+	line.argb = uint32_t(int64_t(luaL_optnumber(L, 2, -1)));
+	line.texture = luaL_optstring(L, 3, "");
+	line.mode = int(luaL_optnumber(L, 4, 0));
+	const int h = self->nextScratch_++;
+	self->spriteLines_[h] = std::move(line);
+	lua_pushnumber(L, h);
+	return 1;
+}
+
+int LimbsNatives::L_R3D_Spr_AddPoint(lua_State* L) {
+	ScriptEngine* self = From(L);
+	auto it = self->spriteLines_.find(int(luaL_optnumber(L, 1, 0)));
+	if (it == self->spriteLines_.end()) return 0;
+	it->second.points.push_back(Vec3{float(luaL_optnumber(L, 2, 0)),
+			float(luaL_optnumber(L, 3, 0)), float(luaL_optnumber(L, 4, 0))});
+	return 0;
+}
+
+int LimbsNatives::L_R3D_Spr_Render(lua_State* L) {
+	ScriptEngine* self = From(L);
+	auto it = self->spriteLines_.find(int(luaL_optnumber(L, 1, 0)));
+	if (it == self->spriteLines_.end()) return 0;
+	ScriptEngine::SpriteLine line = std::move(it->second);
+	self->spriteLines_.erase(it);
+	static const bool kTrace = DebugFlag("PAINFUL_SPRITE_TRACE");
+	if (kTrace)
+		LogInfo("sprite line: %zu points, width %.3f, mode %d, %s", line.points.size(),
+				line.width, line.mode, line.texture.c_str());
+	if (!self->billboards_ || !self->hudTextures_ || line.texture.empty() ||
+			line.width <= 0.f || line.points.size() < 2)
+		return 0;
+	self->billboards_->DrawStripImmediate(std::move(line.points), line.width,
+			ArgbToAbgr(line.argb), line.mode, self->hudTextures_->Get(line.texture, ""));
+	return 0;
+}
+
+// VARRAY.Create() -> handle, AddPoint(h, x, y, z), GetBezierPoint(h, t) ->
+// x, y, z, Delete(h). The curve (FUN_1012ade0) is the Bernstein polynomial
+// over ALL the points as control points, and t >= 1 answers the last point.
+int LimbsNatives::L_VARRAY_Create(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const int h = self->nextScratch_++;
+	self->vertexArrays_[h];
+	lua_pushnumber(L, h);
+	return 1;
+}
+
+int LimbsNatives::L_VARRAY_AddPoint(lua_State* L) {
+	ScriptEngine* self = From(L);
+	auto it = self->vertexArrays_.find(int(luaL_optnumber(L, 1, 0)));
+	if (it == self->vertexArrays_.end()) return 0;
+	it->second.push_back(Vec3{float(luaL_optnumber(L, 2, 0)),
+			float(luaL_optnumber(L, 3, 0)), float(luaL_optnumber(L, 4, 0))});
+	return 0;
+}
+
+int LimbsNatives::L_VARRAY_GetBezierPoint(lua_State* L) {
+	ScriptEngine* self = From(L);
+	auto it = self->vertexArrays_.find(int(luaL_optnumber(L, 1, 0)));
+	const double t = luaL_optnumber(L, 2, 0);
+	double out[3] = {0, 0, 0};
+	if (it != self->vertexArrays_.end() && !it->second.empty()) {
+		const std::vector<Vec3>& p = it->second;
+		const size_t deg = p.size() - 1;
+		if (t >= 1.0) {
+			for (int c = 0; c < 3; ++c) out[c] = p.back()[c];
+		} else {
+			double binom = 1.0;
+			for (size_t i = 0; i <= deg; ++i) {
+				const double w = binom * std::pow(1.0 - t, double(deg - i)) * std::pow(t, double(i));
+				for (int c = 0; c < 3; ++c) out[c] += w * p[i][c];
+				binom = binom * double(deg - i) / double(i + 1);
+			}
+		}
+	}
+	for (int c = 0; c < 3; ++c) lua_pushnumber(L, out[c]);
+	return 3;
+}
+
+int LimbsNatives::L_VARRAY_Delete(lua_State* L) {
+	ScriptEngine* self = From(L);
+	self->vertexArrays_.erase(int(luaL_optnumber(L, 1, 0)));
+	return 0;
+}
+
 void BindLimbs(ScriptEngine& engine, LuaHost& host) {
 	const ScriptNative natives[] = {
 		{"R3D", "DrawSprite", LimbsNatives::L_R3D_DrawSprite},
 		{"R3D", "DrawSprite1DOF", LimbsNatives::L_R3D_DrawSprite1DOF},
+		{"R3D", "Spr_Create", LimbsNatives::L_R3D_Spr_Create},
+		{"R3D", "Spr_AddPoint", LimbsNatives::L_R3D_Spr_AddPoint},
+		{"R3D", "Spr_Render", LimbsNatives::L_R3D_Spr_Render},
+		{"VARRAY", "Create", LimbsNatives::L_VARRAY_Create},
+		{"VARRAY", "AddPoint", LimbsNatives::L_VARRAY_AddPoint},
+		{"VARRAY", "GetBezierPoint", LimbsNatives::L_VARRAY_GetBezierPoint},
+		{"VARRAY", "Delete", LimbsNatives::L_VARRAY_Delete},
 		{"R3D", "RGB", LimbsNatives::L_R3D_RGB},
 		{"R3D", "RGBA", LimbsNatives::L_R3D_RGBA},
 		{"ENTITY", "GetChildByName", LimbsNatives::L_ENTITY_GetChildByName},

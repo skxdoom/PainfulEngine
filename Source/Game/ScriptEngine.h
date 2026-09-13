@@ -954,6 +954,18 @@ private:
 	ParticleRenderer* particles_ = nullptr;
 	EmitterLibrary* emitterLib_ = nullptr;
 	BillboardRenderer* billboards_ = nullptr;
+	// R3D.Spr_* and VARRAY.*: script scratch objects behind numbered handles,
+	// alive from Create to Render or Delete within one script call.
+	struct SpriteLine {
+		std::vector<Vec3> points;
+		float width = 0.f;
+		uint32_t argb = 0xFFFFFFFFu;
+		std::string texture;
+		int mode = 0;
+	};
+	std::unordered_map<int, SpriteLine> spriteLines_;
+	std::unordered_map<int, std::vector<Vec3>> vertexArrays_;
+	int nextScratch_ = 1;
 	PlayerPawn* pawn_ = nullptr;
 	Input* input_ = nullptr;
 	float frameDelta_ = 1.f / 60.f;

@@ -128,6 +128,8 @@ game folder. Output goes to `Build/Bin/<Config>/` for both executables and
 embedded, so the executable is the whole deliverable. A `Shaders/` folder next
 to it still overrides them, which is how to test a shader without a rebuild.
 
+## Test
+
 To check a change without opening a window, use the reports. Every subsystem
 has one:
 
