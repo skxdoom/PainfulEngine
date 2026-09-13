@@ -565,6 +565,14 @@ public:
 	}
 	// The world renderer's per-object visibility, for a destructible's intact
 	// twin: hidden when the pieces take over. Headless runs leave it unset.
+	// MESH.SetDefaultMaterial / SetCubeMap / SetNormalMap on a world-mesh
+	// object (a MapEntities .EMesh): the water family and its textures per
+	// map, keyed by the object name; the renderer applies them after the
+	// map uploads. Water.md, "Which water a surface gets".
+	struct MeshOverride {
+		std::string material, cube, normal;
+	};
+	const std::unordered_map<std::string, MeshOverride>& meshOverrides() const { return meshOverrides_; }
 	void SetWorldObjectVisibility(std::function<void(size_t, bool)> handler) {
 		worldObjectVisible_ = std::move(handler);
 	}
@@ -964,6 +972,7 @@ private:
 		int mode = 0;
 	};
 	std::unordered_map<int, SpriteLine> spriteLines_;
+	std::unordered_map<std::string, MeshOverride> meshOverrides_;
 	std::unordered_map<int, std::vector<Vec3>> vertexArrays_;
 	int nextScratch_ = 1;
 	PlayerPawn* pawn_ = nullptr;

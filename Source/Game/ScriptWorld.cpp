@@ -30,6 +30,10 @@ struct WorldNatives : ScriptNativesBase {
 	static int L_WORLD_LoadLowQualitySky(lua_State* L);
 	static int L_WORLD_SetupSkyLayer(lua_State* L);
 	static int L_MESH_SetDefaultDetailMaps(lua_State* L);
+	static int L_MESH_SetDefaultMaterial(lua_State* L);
+	static int L_MESH_SetCubeMap(lua_State* L);
+	static int L_MESH_SetNormalMap(lua_State* L);
+	static ScriptEngine::MeshOverride* MeshOverrideFor(ScriptEngine* self, lua_State* L);
 	static int L_ENTITY_EnableDeathZoneTest(lua_State* L);
 	static int L_WORLD_EnableDeathZone(lua_State* L);
 	static int L_WORLD_CheckStartGlass(lua_State* L);
@@ -717,6 +721,35 @@ int WorldNatives::L_MESH_SetDefaultDetailMaps(lua_State* L) {
 
 
 
+// MESH.SetDefaultMaterial / SetCubeMap / SetNormalMap on a world-mesh object,
+// which is how a map's MapEntities .EMesh picks its water: Orphanage's
+// water_noclipshape is "water_ntu_refl" with special/ripples_00, Docks' keeps
+// the "water" family but swaps in skies/wenecja_sky4. Recorded by object name
+// for the renderer. Water.md, "Which water a surface gets".
+ScriptEngine::MeshOverride* WorldNatives::MeshOverrideFor(ScriptEngine* self, lua_State* L) {
+	const auto it = self->entities_.find(int(luaL_optnumber(L, 1, 0)));
+	if (it == self->entities_.end() || !it->second.worldObject) return nullptr;
+	return &self->meshOverrides_[it->second.name];
+}
+
+int WorldNatives::L_MESH_SetDefaultMaterial(lua_State* L) {
+	if (ScriptEngine::MeshOverride* o = MeshOverrideFor(From(L), L))
+		o->material = luaL_optstring(L, 2, "");
+	return 0;
+}
+
+int WorldNatives::L_MESH_SetCubeMap(lua_State* L) {
+	if (ScriptEngine::MeshOverride* o = MeshOverrideFor(From(L), L))
+		o->cube = luaL_optstring(L, 2, "");
+	return 0;
+}
+
+int WorldNatives::L_MESH_SetNormalMap(lua_State* L) {
+	if (ScriptEngine::MeshOverride* o = MeshOverrideFor(From(L), L))
+		o->normal = luaL_optstring(L, 2, "");
+	return 0;
+}
+
 void BindWorld(ScriptEngine& engine, LuaHost& host) {
 	const ScriptNative natives[] = {
 		{"WORLD", "Init", WorldNatives::L_WORLD_Init},
@@ -739,6 +772,9 @@ void BindWorld(ScriptEngine& engine, LuaHost& host) {
 		{"WORLD", "LoadLowQualitySky", WorldNatives::L_WORLD_LoadLowQualitySky},
 		{"WORLD", "SetupSkyLayer", WorldNatives::L_WORLD_SetupSkyLayer},
 		{"MESH", "SetDefaultDetailMaps", WorldNatives::L_MESH_SetDefaultDetailMaps},
+		{"MESH", "SetDefaultMaterial", WorldNatives::L_MESH_SetDefaultMaterial},
+		{"MESH", "SetCubeMap", WorldNatives::L_MESH_SetCubeMap},
+		{"MESH", "SetNormalMap", WorldNatives::L_MESH_SetNormalMap},
 		{"ENTITY", "EnableDeathZoneTest", WorldNatives::L_ENTITY_EnableDeathZoneTest},
 		{"WORLD", "EnableDeathZone", WorldNatives::L_WORLD_EnableDeathZone},
 		{"WORLD", "CheckStartGlass", WorldNatives::L_WORLD_CheckStartGlass},

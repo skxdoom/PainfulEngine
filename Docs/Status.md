@@ -162,11 +162,12 @@ All parse and are cross-checked against a second implementation.
   `tile[N]` scales the already-panned coordinate, so a stage with both scrolls
   `tile` times faster than the pan figure alone reads.
 - Water surfaces, identified the way the engine identifies them - a `strstr`
-  test for "water" on the object name - and drawn with the nv20 construction:
-  a cube-map reflection through a scrolling, tiled normal map, times the
-  lightmap. Its numbers come from the level's own `o.Water` block, and the
-  pixel and vertex programs (`water_embm.pso`, `water_ref.vso`) are decoded.
-  Eight maps carry world-geometry water. See [`Water.md`](Reference/Water.md).
+  test for "water" on the object name - drawn with the four `Water.fxo`
+  techniques decoded from the shipped effect: the lightmapped cube map,
+  the map's own cube and normal maps, and the planar reflection and
+  refraction a map asks for through its `.EMesh` (Orphanage, Lab,
+  Colosseum). The numbers come from the level's `o.Water` or the
+  CEnvironment box the surface stands in. See [`Water.md`](Reference/Water.md).
 - Cube maps load through `TextureCache::GetCube`.
 - Texture filtering follows the Video Options row (`Cfg.TextureFiltering`:
   bilinear / trilinear / anisotropic) for every scene stage that is not

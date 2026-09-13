@@ -212,14 +212,8 @@ void Renderer::SetClearColor(float r, float g, float b) {
 
 
 void Renderer::SetViewCamera(bgfx::ViewId view, const Camera& camera, int width, int height) {
-	const Vec3 forward = camera.Forward();
-	const bx::Vec3 eye = {camera.pos[0], camera.pos[1], camera.pos[2]};
-	const bx::Vec3 at = {camera.pos[0] + forward[0], camera.pos[1] + forward[1],
-			camera.pos[2] + forward[2]};
 	float viewMtx[16], projMtx[16];
-	bx::mtxLookAt(viewMtx, eye, at, {0.0f, 1.0f, 0.0f}, bx::Handedness::Right);
-	bx::mtxProj(projMtx, camera.fovDegrees, float(width) / float(height), camera.nearPlane,
-			camera.farPlane, bgfx::getCaps()->homogeneousDepth, bx::Handedness::Right);
+	camera.ViewProj(width, height, camera.farPlane, viewMtx, projMtx);
 	bgfx::setViewTransform(view, viewMtx, projMtx);
 	bgfx::setViewRect(view, 0, 0, uint16_t(width), uint16_t(height));
 	bgfx::setViewClear(view, BGFX_CLEAR_NONE);

@@ -26,6 +26,8 @@ struct PlayerNatives : ScriptNativesBase {
 	static int L_REGION_BuildFromPoint(lua_State* L);
 	static int L_CAM_GetPos(lua_State* L);
 	static int L_CAM_GetForwardVector(lua_State* L);
+	static int L_CAM_GetRightVector(lua_State* L);
+	static int L_CAM_GetUpVector(lua_State* L);
 	static int L_CAM_SetPos(lua_State* L);
 	static int L_CAM_SetAng(lua_State* L);
 	static int L_CAM_GetAng(lua_State* L);
@@ -404,6 +406,26 @@ int PlayerNatives::L_CAM_GetForwardVector(lua_State* L) {
 	return 3;
 }
 
+// CAM.GetRightVector / GetUpVector: the same basis as GetForwardVector,
+// right = (-sin yaw, 0, cos yaw) and up = right x forward. The Orphanage's
+// rain effect places itself with all three every tick.
+int PlayerNatives::L_CAM_GetRightVector(lua_State* L) {
+	ScriptEngine* self = From(L);
+	lua_pushnumber(L, -std::sin(self->camYaw_));
+	lua_pushnumber(L, 0.0);
+	lua_pushnumber(L, std::cos(self->camYaw_));
+	return 3;
+}
+
+int PlayerNatives::L_CAM_GetUpVector(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const float cp = std::cos(self->camPitch_), sp = std::sin(self->camPitch_);
+	lua_pushnumber(L, -std::cos(self->camYaw_) * sp);
+	lua_pushnumber(L, cp);
+	lua_pushnumber(L, -std::sin(self->camYaw_) * sp);
+	return 3;
+}
+
 // Our camera yaw is measured from +X turning toward +Z. The engine's turn
 // angle is not: reading the scripts' own maths back out shows their basis at
 // turn a is right = (cos a, 0, -sin a), forward = (-sin a, 0, -cos a) - it
@@ -572,6 +594,8 @@ void BindPlayer(ScriptEngine& engine, LuaHost& host) {
 		{"CAM", "SetPos", PlayerNatives::L_CAM_SetPos},
 		{"CAM", "SetAng", PlayerNatives::L_CAM_SetAng},
 		{"CAM", "GetForwardVector", PlayerNatives::L_CAM_GetForwardVector},
+		{"CAM", "GetRightVector", PlayerNatives::L_CAM_GetRightVector},
+		{"CAM", "GetUpVector", PlayerNatives::L_CAM_GetUpVector},
 		{"CAM", "GetAng", PlayerNatives::L_CAM_GetAng},
 		{"CAM", "GetAngRad", PlayerNatives::L_CAM_GetAngRad},
 		{"CAM", "GetRawRotation", PlayerNatives::L_CAM_GetRawRotation},

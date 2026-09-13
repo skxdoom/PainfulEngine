@@ -1011,15 +1011,8 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 	if (!bgfx::isValid(program_) || instances_.empty()) return;
 
 	// Same view setup as the world pass, rebuilt here for the frustum.
-	const Vec3 forward = camera.Forward();
-	const bx::Vec3 eye = {camera.pos[0], camera.pos[1], camera.pos[2]};
-	const bx::Vec3 at = {camera.pos[0] + forward[0], camera.pos[1] + forward[1],
-			camera.pos[2] + forward[2]};
 	float viewMtx[16], projMtx[16];
-	bx::mtxLookAt(viewMtx, eye, at, {0.0f, 1.0f, 0.0f}, bx::Handedness::Right);
-	bx::mtxProj(projMtx, camera.fovDegrees, float(width) / float(height),
-			camera.nearPlane, camera.farPlane, bgfx::getCaps()->homogeneousDepth,
-			bx::Handedness::Right);
+	camera.ViewProj(width, height, camera.farPlane, viewMtx, projMtx);
 	const Frustum frustum = Frustum::FromViewProj(viewMtx, projMtx);
 	// The demon pass draws into its own view, from the same camera.
 	if (demonOn_) bgfx::setViewTransform(demonView_, viewMtx, projMtx);

@@ -199,16 +199,8 @@ void SkyRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int h
 		float timeSeconds) {
 	if (parts_.empty() || !bgfx::isValid(program_)) return;
 
-	const Vec3 forward = camera.Forward();
-	const bx::Vec3 eye = {camera.pos[0], camera.pos[1], camera.pos[2]};
-	const bx::Vec3 at = {camera.pos[0] + forward[0],
-			camera.pos[1] + forward[1],
-			camera.pos[2] + forward[2]};
 	float viewMtx[16], projMtx[16];
-	bx::mtxLookAt(viewMtx, eye, at, {0.0f, 1.0f, 0.0f}, bx::Handedness::Right);
-	bx::mtxProj(projMtx, camera.fovDegrees, float(width) / float(height),
-			camera.nearPlane, 2000.f, bgfx::getCaps()->homogeneousDepth,
-			bx::Handedness::Right);
+	camera.ViewProj(width, height, 2000.f, viewMtx, projMtx);
 	bgfx::setViewTransform(view, viewMtx, projMtx);
 
 	// Centre the dome on the camera so it never gets nearer or further away.

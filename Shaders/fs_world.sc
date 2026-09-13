@@ -59,9 +59,13 @@ uniform vec4 u_uv1; // blend slot UV transform: scale xy, offset zw
 uniform vec4 u_ambient; // rgb: level ambient, w: lightmap scale (2 when Overbright)
 uniform vec4 u_fogColor; // rgb: level fog colour
 uniform vec4 u_fog; // x: mode (0 none, 1 exp, 2 exp2, 3 linear), y: start, z: end, w: density
+// The water passes clip the world at the surface: y = w, keep y * sign above.
+// (0, 0, 0, 0) is off. Water.md, "The planar reflection".
+uniform vec4 u_clip;
 
 void main()
 {
+	if (u_clip.y != 0.0 && (v_wpos.y - u_clip.w) * u_clip.y < 0.0) discard;
 	// Each material slot carries its own UV transform in the .mpk (scale in
 	// xy, offset in zw), the same job the engine's oT0 = v1 * c24/c25 texture
 	// matrix does. pan[N] then scrolls that result over time.

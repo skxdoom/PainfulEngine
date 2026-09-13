@@ -52,8 +52,32 @@ struct WaterInfo {
 	// These two are the quality bits that make SetupMaterials reach for
 	// water2_refl / water2_refr instead of plain water.
 	bool reflectScene = false, refractScene = false;
+	// Two scrolling normal-map layers. A level's o.Water names one (Pan,
+	// Tile); an environment's Water names both (Pan1/Tile1, Pan2/Tile2).
+	// TWater's constructor (Engine.dll 0x10062d80) leaves the second at
+	// pan 0, tile 1.
 	float pan[2] = {0.00172f, 0.003f};
 	float tile[2] = {17.5f, 10.f};
+	float pan2[2] = {0.f, 0.f};
+	float tile2[2] = {1.f, 1.f};
+	// The planar reflection, CEnvironment.lua's fields: how far the normal
+	// bends the reflected image, the box and distance it is drawn within,
+	// whether the sky is in it, and which meshes are (empty = all).
+	float reflectScale = 0.25f, refractScale = 0.25f;
+	float planeShift = 0.2f;
+	float reflectRadius = 1024.f, reflectDist = 256.f;
+	bool reflectSky = false;
+	std::vector<std::string> reflectList;
+};
+
+// Reads an o.Water block (level or environment) over the defaults in `out`.
+void ReadWaterInfo(const Properties& p, WaterInfo& out);
+
+// A CEnvironment box that carries its own Water: the meshes inside it draw
+// with these instead of the level's (WorldMesh::Draw, 0x101daa70).
+struct WaterZone {
+	Vec3 lo, hi;
+	WaterInfo water;
 };
 
 // Values read from <level>.CLevel. Names mirror the original property paths so

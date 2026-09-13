@@ -261,9 +261,9 @@ kill everything after `Hud:Render`). These are consumed at **every** live call
 site, so any one of them that is reached is a hard stop, not a degradation:
 
 `R3D.VectorToScreen` (25), `MDL.GetRagdollJointRotation` (8),
-`INP.GetTimeFromTimerReset` (8), `CAM.GetRightVector` (8),
+`INP.GetTimeFromTimerReset` (8),
 `ENTITY.TransformLocalPointToWorld` (7), `ENTITY.PO_GetMass` (6),
-`MDL.GetRagdollJointPos` (4), `R3D.DistToCamera` (3), `CAM.GetUpVector` (3),
+`MDL.GetRagdollJointPos` (4), `R3D.DistToCamera` (3),
 `ENTITY.GetCenter` (3), `MESH.GetRandomPoint` (2), `INP.GetTimeDelta` (2),
 `ENTITY.GetFileName` (2), `ENTITY.Exist` (2), `PHYSICS.GetHavokBodyActiveGroup`
 (2), `WORLD.GetEntityList`, `WORLD.GetAmbientColor`, `PLAYER.GetPitch`,
@@ -281,7 +281,9 @@ Ranked by calls per 900 combat frames:
   implemented ([`Lighting.md`](Reference/Lighting.md)). Still stubs in the same
   area: `WORLD.SetDirLight`, `ENVIRONMENT.SetFog` / `SetWater` /
   `ResetReflectList`, `ENTITY.AddLight`.
-- **Model and mesh materials** — `MESH.SetDetailMap` / `SetNormalMap` /
+- **Model and mesh materials** — `MESH.SetDetailMap` (245; `SetNormalMap`,
+  `SetCubeMap` and `SetDefaultMaterial` are answered for world-mesh objects,
+  where they pick the water, Water.md) /
   `SetCubeMap` (245 each), `SetSpecular` / `AddSpecularLight` /
   `ResetSpecularLights` (~110), `MATERIAL.Replace` (44 sites), `MDL.SetTexture`
   (32), `MDL.EnableNormalMaps` (7). `MDL.CreateShadowMap` (38) is answered:

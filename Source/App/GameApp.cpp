@@ -28,6 +28,7 @@
 #include "Render/DebugLines.h"
 #include "Render/DemonFx.h"
 #include "Render/SceneTargets.h"
+#include "Render/WaterReflection.h"
 #include "Render/DecalRenderer.h"
 #include "Render/EntityRenderer.h"
 #include "Render/HudRenderer.h"
@@ -78,15 +79,8 @@ namespace painful {
 // left-handed. The debug overlays have to agree with what was drawn or the
 // nameplates sit next to the things they name.
 static void BuildViewProj(const Camera& camera, int width, int height, float out[16]) {
-	const Vec3 forward = camera.Forward();
-	const bx::Vec3 eye = {camera.pos[0], camera.pos[1], camera.pos[2]};
-	const bx::Vec3 at = {camera.pos[0] + forward[0], camera.pos[1] + forward[1],
-			camera.pos[2] + forward[2]};
 	float viewMtx[16], projMtx[16];
-	bx::mtxLookAt(viewMtx, eye, at, {0.f, 1.f, 0.f}, bx::Handedness::Right);
-	bx::mtxProj(projMtx, camera.fovDegrees, float(width) / float(height),
-			camera.nearPlane, camera.farPlane, bgfx::getCaps()->homogeneousDepth,
-			bx::Handedness::Right);
+	camera.ViewProj(width, height, camera.farPlane, viewMtx, projMtx);
 	bx::mtxMul(out, viewMtx, projMtx);
 }
 
@@ -432,6 +426,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	// The scene as a texture, whenever a post-process wants the frame, with
 	// its half-size copy (Render/SceneTargets.h).
 	SceneTargets sceneTargets;
+	WaterReflection waterReflection;
+	WaterReflection waterRefraction;
 	const bool sceneInit = sceneTargets.Init(shaderDir);
 	// The post-process. Cfg.Bloom and the level's BloomFX gate it per frame;
 	// PAINFUL_BLOOM=0 turns it off for an A/B.
@@ -593,6 +589,35 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 				entities.lighting().DirectionalBoxes(boxes, levelFactor);
 				world.SetEnvironmentBoxes(boxes, levelFactor);
 			}
+			// The CEnvironment boxes with a Water block of their own: the
+			// surfaces inside them draw with it (ENVIRONMENT.SetWater), and a
+			// Reflect* key is what turns the planar reflection on. Water.md.
+			{
+				std::vector<WaterZone> zones;
+				for (const Entity& e : lightingLevel.entities()) {
+					if (e.type != "CEnvironment") continue;
+					bool hasWater = false;
+					for (const auto& kv : e.props.all())
+						if (kv.first.compare(0, 6, "Water.") == 0) { hasWater = true; break; }
+					if (!hasWater) continue;
+					WaterZone z;
+					Vec3 centre = e.pos;
+					e.props.Vector3("Pos", centre);
+					const float half[3] = {
+							float(lightingTemplates.ResolveNumber(e.props, e.baseObj, "Size.Width", 0.0)) * 0.5f,
+							float(lightingTemplates.ResolveNumber(e.props, e.baseObj, "Size.Height", 0.0)) * 0.5f,
+							float(lightingTemplates.ResolveNumber(e.props, e.baseObj, "Size.Depth", 0.0)) * 0.5f};
+					for (int a = 0; a < 3; ++a) { z.lo[a] = centre[a] - half[a]; z.hi[a] = centre[a] + half[a]; }
+					// CEnvironment.lua's class defaults: the two layers start at
+					// pan 0, tile 1, unlike CLevel.lua's single layer.
+					z.water.pan[0] = z.water.pan[1] = 0.f;
+					z.water.tile[0] = z.water.tile[1] = 1.f;
+					ReadWaterInfo(e.props, z.water);
+					zones.push_back(std::move(z));
+				}
+				if (!zones.empty()) LogInfo("water: %zu environment water blocks", zones.size());
+				world.SetWaterZones(std::move(zones));
+			}
 			LogInfo("entity lighting: %zu environment boxes, lights come from the scripts",
 					entities.environmentCount());
 		} else {
@@ -638,6 +663,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			world.Upload(*map, textures, MapNameWithoutExtension(info.mapFile), info,
 					&shaderScripts, /*skipActiveMeshes=*/true);
 			worldReady = true;
+			// The map's .EMesh overrides (MESH.SetDefaultMaterial and friends) ran
+			// while the scripts loaded; the chunks exist only now.
+			for (const auto& kv : engine.meshOverrides())
+				world.SetMeshOverride(kv.first, kv.second.material, kv.second.cube, kv.second.normal);
 			engine.SetWorldObjectVisibility(
 					[&world](size_t object, bool visible) { world.SetObjectVisible(object, visible); });
 		}
@@ -1267,6 +1296,43 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			demonFx.BeginFrame(sceneTargets, demonOn, Renderer::kDemonEntityView);
 			entities.SetDemonPass(demonFx.active(), Renderer::kDemonEntityView, demonFx.detail(),
 					demonFx.ramp(), DemonFx::kFresnelScale);
+		}
+		// The water's planar reflection first, into its own half-size target:
+		// the scene mirrored about the surface, or a cleared target when the
+		// camera is past the environment's ReflectDist. Water.md.
+		{
+			WorldRenderer::Reflection refl;
+			bgfx::TextureHandle reflTex = BGFX_INVALID_HANDLE;
+			if (worldReady && DebugInt("PAINFUL_WATER_REFLECT", 1) > 0 &&
+					world.WaterReflection(camera, refl) &&
+					waterReflection.Begin(window.width(), window.height(),
+					Renderer::kReflectSkyView, Renderer::kReflectWorldView)) {
+				if (!refl.fake) {
+					const Camera mirrored = camera.Mirrored(refl.planeY);
+					const int rw = std::max(1, window.width() / 2), rh = std::max(1, window.height() / 2);
+					if (refl.sky && skyReady)
+						sky.Draw(Renderer::kReflectSkyView, mirrored, rw, rh, elapsed);
+					world.DrawReflection(Renderer::kReflectWorldView, mirrored, rw, rh, info, elapsed, refl, true);
+				}
+				reflTex = waterReflection.texture();
+			}
+			// water_ntu_rr: the scene under the plane too (View::RenderRefraction),
+			// from the camera itself with the near plane on the water.
+			bgfx::TextureHandle refrTex = BGFX_INVALID_HANDLE;
+			if (bgfx::isValid(reflTex) && refl.refraction &&
+					waterRefraction.Begin(window.width(), window.height(),
+					Renderer::kRefractWorldView, Renderer::kRefractWorldView)) {
+				if (!refl.fake) {
+					const Camera below = camera.Clipped(refl.planeY, false);
+					const int rw = std::max(1, window.width() / 2), rh = std::max(1, window.height() / 2);
+					WorldRenderer::Reflection all = refl;
+					all.onlyMeshes = nullptr;
+					world.DrawReflection(Renderer::kRefractWorldView, below, rw, rh, info, elapsed, all, false);
+				}
+				refrTex = waterRefraction.texture();
+			}
+			world.SetRefractionTexture(refrTex);
+			world.SetReflectionTexture(reflTex);
 		}
 		if (skyReady)
 			sky.Draw(Renderer::kSkyView, camera, window.width(), window.height(), elapsed);

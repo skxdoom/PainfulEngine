@@ -560,14 +560,8 @@ void ParticleRenderer::DrawWarp(bgfx::ViewId view, const Camera& camera, int wid
 		bgfx::TextureHandle scene) {
 	if (!bgfx::isValid(warpProgram_) || !bgfx::isValid(scene)) return;
 	// Its own view, so the same camera as the world view (WorldRenderer::Draw).
-	const Vec3 forward = camera.Forward();
-	const bx::Vec3 eye = {camera.pos[0], camera.pos[1], camera.pos[2]};
-	const bx::Vec3 at = {camera.pos[0] + forward[0], camera.pos[1] + forward[1],
-			camera.pos[2] + forward[2]};
 	float viewMtx[16], projMtx[16];
-	bx::mtxLookAt(viewMtx, eye, at, {0.0f, 1.0f, 0.0f}, bx::Handedness::Right);
-	bx::mtxProj(projMtx, camera.fovDegrees, float(width) / float(height), camera.nearPlane,
-			camera.farPlane, bgfx::getCaps()->homogeneousDepth, bx::Handedness::Right);
+	camera.ViewProj(width, height, camera.farPlane, viewMtx, projMtx);
 	bgfx::setViewTransform(view, viewMtx, projMtx);
 	bgfx::setViewRect(view, 0, 0, uint16_t(width), uint16_t(height));
 	bgfx::setViewClear(view, BGFX_CLEAR_NONE);

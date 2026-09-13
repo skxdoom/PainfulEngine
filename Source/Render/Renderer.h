@@ -24,6 +24,11 @@ public:
 	static constexpr bgfx::ViewId kLightShadowViewCount = 48;
 	// The view model's own map (Render/ViewModelShadows.h).
 	static constexpr bgfx::ViewId kViewModelShadowView = 50;
+	// The water's planar reflection, sky then world, into its own half-size
+	// target before the frame proper (Render/WaterReflection.h).
+	static constexpr bgfx::ViewId kRefractWorldView = 47;
+	static constexpr bgfx::ViewId kReflectSkyView = 48;
+	static constexpr bgfx::ViewId kReflectWorldView = 49;
 	// Sky is drawn next and owns the clear; the world paints over it.
 	static constexpr bgfx::ViewId kSkyView = 51;
 	static constexpr bgfx::ViewId kWorldView = 52;

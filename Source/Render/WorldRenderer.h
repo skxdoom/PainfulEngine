@@ -104,6 +104,33 @@ public:
 	// Disables zone and frustum culling (the --novis flag).
 	void SetVisibilityCulling(bool on) { visCulling_ = on; }
 
+	// The CEnvironment boxes carrying their own Water (Level.h, WaterZone):
+	// a water surface inside one draws with that block, not the level's.
+	void SetWaterZones(std::vector<WaterZone> zones);
+	void AssignWaterZones(); // each water chunk to the tightest box around it
+	// What this frame's planar reflection needs, from the nearest water
+	// surface whose environment authored one. False when none does.
+	struct Reflection {
+		float planeY = 0.f;
+		bool sky = false;
+		bool refraction = false; // water_ntu_rr: the scene under the plane too
+		bool fake = false; // beyond ReflectDist: the target is cleared, nothing drawn
+		const std::vector<std::string>* onlyMeshes = nullptr; // ReflectList; empty = all
+	};
+	bool WaterReflection(const Camera& camera, Reflection& out);
+	// The mirrored pass into the reflection target: the world without its
+	// water, winding flipped, the ReflectList alone when there is one.
+	void DrawReflection(bgfx::ViewId view, const Camera& clipped, int width, int height,
+			const LevelInfo& info, float timeSeconds, const Reflection& refl, bool mirrored);
+	// What DrawReflection filled, for this frame's water; invalid = none.
+	void SetReflectionTexture(bgfx::TextureHandle t) { reflectionTex_ = t; }
+	void SetRefractionTexture(bgfx::TextureHandle t) { refractionTex_ = t; }
+	// A MapEntities .EMesh on a water object: its water family by material
+	// name (water, water_ntu, water_ntu_refl, water_ntu_rr) and its own
+	// cube and normal maps; empty keeps the level's.
+	void SetMeshOverride(const std::string& object, const std::string& material,
+			const std::string& cube, const std::string& normal);
+
 	// Diagnostic: 0 = CCW, 1 = CW, 2 = none.
 	void SetCullMode(int mode) { cullMode_ = mode; }
 	size_t trianglesUploaded() const { return triangles_; }
@@ -138,6 +165,12 @@ private:
 		// Water surfaces take a separate program: a reflection sampled from a
 		// cube map through a scrolling normal map. See Docs/Reference/Water.md.
 		bool isWater = false;
+		std::string name; // the MPK object, for an environment ReflectList
+		int waterZone = -1; // index into waterZones_, or the level o.Water
+		// 0 water (FXWater_20), 1 water_ntu, 2 water_ntu_refl, 3 water_ntu_rr.
+		int waterFamily = 0;
+		bgfx::TextureHandle waterCube = BGFX_INVALID_HANDLE; // this object's, else the level's
+		bgfx::TextureHandle waterNormal = BGFX_INVALID_HANDLE;
 		Vec3 aabbLo, aabbHi; // world-space bounds, for culling
 		std::vector<uint16_t> zones; // every zone the chunk overlaps; empty = always drawn
 		size_t object = 0; // index into MapMesh::objects
@@ -153,6 +186,7 @@ private:
 	bgfx::UniformHandle uAmbient_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uFogColor_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uFog_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uClip_ = BGFX_INVALID_HANDLE; // the water passes' surface clip
 	bgfx::UniformHandle uUvAnim_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uDetail_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle sDetail_ = BGFX_INVALID_HANDLE;
@@ -170,9 +204,18 @@ private:
 	bgfx::UniformHandle uWater_ = BGFX_INVALID_HANDLE; // bump, fresnel, reflection
 	bgfx::UniformHandle uWaterDeep_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uWaterShallow_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uWaterFres_ = BGFX_INVALID_HANDLE; // 1-bias, bias, exponent, amount
+	bgfx::UniformHandle uWaterMode_ = BGFX_INVALID_HANDLE; // planar, ReflectScale, flip
+	bgfx::UniformHandle sRefl_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle sRefr_ = BGFX_INVALID_HANDLE;
 	bgfx::TextureHandle waterNormal_ = BGFX_INVALID_HANDLE;
 	bgfx::TextureHandle waterCube_ = BGFX_INVALID_HANDLE;
 	size_t waterChunks_ = 0;
+	std::vector<WaterZone> waterZones_;
+	bgfx::TextureHandle reflectionTex_ = BGFX_INVALID_HANDLE;
+	bgfx::TextureHandle refractionTex_ = BGFX_INVALID_HANDLE;
+	const Reflection* reflPass_ = nullptr; // set while DrawReflection runs Draw
+	int reflectChunk_ = -1; // the water chunk this frame reflection belongs to
 	// Dynamic lights: the same uniforms and the same packing the models use,
 	// plus the list each chunk picks its own from.
 	LightUniforms lightUniforms_;

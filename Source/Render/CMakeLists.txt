@@ -22,8 +22,9 @@ add_library(Render STATIC
 		DemonFx.cpp DemonFx.h
 		FullScreenPass.h
 		SceneTargets.cpp SceneTargets.h
+		WaterReflection.cpp WaterReflection.h
 		ShaderLoad.cpp ShaderLoad.h
-		Camera.h
+		Camera.cpp Camera.h
 		MeshVertex.h
 		)
 

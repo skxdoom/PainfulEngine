@@ -98,6 +98,10 @@ bool WorldRenderer::Init(const std::string& shaderDir) {
 		uWater_ = bgfx::createUniform("u_water", bgfx::UniformType::Vec4);
 		uWaterDeep_ = bgfx::createUniform("u_waterDeep", bgfx::UniformType::Vec4);
 		uWaterShallow_ = bgfx::createUniform("u_waterShallow", bgfx::UniformType::Vec4);
+		uWaterFres_ = bgfx::createUniform("u_waterFres", bgfx::UniformType::Vec4);
+		uWaterMode_ = bgfx::createUniform("u_waterMode", bgfx::UniformType::Vec4);
+		sRefl_ = bgfx::createUniform("s_refl", bgfx::UniformType::Sampler);
+		sRefr_ = bgfx::createUniform("s_refr", bgfx::UniformType::Sampler);
 	} else {
 		LogWarn("water: vs_water/fs_water missing, water draws as ordinary geometry");
 	}
@@ -109,6 +113,7 @@ bool WorldRenderer::Init(const std::string& shaderDir) {
 	uAmbient_ = bgfx::createUniform("u_ambient", bgfx::UniformType::Vec4);
 	uFogColor_ = bgfx::createUniform("u_fogColor", bgfx::UniformType::Vec4);
 	uFog_ = bgfx::createUniform("u_fog", bgfx::UniformType::Vec4);
+	uClip_ = bgfx::createUniform("u_clip", bgfx::UniformType::Vec4);
 	uUvAnim_ = bgfx::createUniform("u_uvanim", bgfx::UniformType::Vec4);
 	uDetail_ = bgfx::createUniform("u_detail", bgfx::UniformType::Vec4);
 	sDetail_ = bgfx::createUniform("s_detail", bgfx::UniformType::Sampler);
@@ -145,6 +150,10 @@ void WorldRenderer::Clear() {
 	chunks_.clear();
 	zoneGraph_ = ZoneGraph();
 	waterChunks_ = 0;
+	waterZones_.clear();
+	reflectionTex_ = BGFX_INVALID_HANDLE;
+	refractionTex_ = BGFX_INVALID_HANDLE;
+	reflectChunk_ = -1;
 	detailOn_ = false;
 	// The texture cache owns these, and a level switch may re-Init it, so the
 	// handles are dropped rather than destroyed.
@@ -164,6 +173,7 @@ void WorldRenderer::Shutdown() {
 	if (bgfx::isValid(uAmbient_)) { bgfx::destroy(uAmbient_); uAmbient_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uFogColor_)) { bgfx::destroy(uFogColor_); uFogColor_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uFog_)) { bgfx::destroy(uFog_); uFog_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uClip_)) { bgfx::destroy(uClip_); uClip_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uUvAnim_)) { bgfx::destroy(uUvAnim_); uUvAnim_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uDetail_)) { bgfx::destroy(uDetail_); uDetail_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(sDetail_)) { bgfx::destroy(sDetail_); sDetail_ = BGFX_INVALID_HANDLE; }
@@ -183,6 +193,10 @@ void WorldRenderer::Shutdown() {
 	if (bgfx::isValid(uWater_)) { bgfx::destroy(uWater_); uWater_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uWaterDeep_)) { bgfx::destroy(uWaterDeep_); uWaterDeep_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uWaterShallow_)) { bgfx::destroy(uWaterShallow_); uWaterShallow_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uWaterFres_)) { bgfx::destroy(uWaterFres_); uWaterFres_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uWaterMode_)) { bgfx::destroy(uWaterMode_); uWaterMode_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(sRefl_)) { bgfx::destroy(sRefl_); sRefl_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(sRefr_)) { bgfx::destroy(sRefr_); sRefr_ = BGFX_INVALID_HANDLE; }
 }
 
 void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
@@ -358,6 +372,7 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
 			m.lightScale = overbright ? 2.f : 1.f;
 		}
 		chunk.isWater = isWater && bgfx::isValid(waterProgram_);
+		chunk.name = o.name;
 		if (chunk.isWater) ++waterChunks_;
 		chunk.vbo = MakeVertexBuffer(verts.data(),
 				uint32_t(verts.size() * sizeof(MeshVertex)), layout_);
@@ -425,11 +440,106 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
 	if (normalsRebuilt)
 		LogInfo("world normals: rebuilt %zu vertices in %zu objects (winding %+.0f)",
 				normalsRebuilt, normalObjects, normalSign);
+	AssignWaterZones();
 }
 
 // Only the dynamic ones. A placed CLight is in the lightmap already, and
 // WorldMesh::Draw agrees: the legacy branch of its light loop tests flag
 // 0x400000 - Light::EnableDynamic's - before issuing a pass.
+void WorldRenderer::SetWaterZones(std::vector<WaterZone> zones) {
+	waterZones_ = std::move(zones);
+	AssignWaterZones();
+}
+
+void WorldRenderer::AssignWaterZones() {
+	// A water chunk belongs to the tightest box around its centre, the way a
+	// mesh belongs to the zone it sits in.
+	for (Chunk& c : chunks_) {
+		c.waterZone = -1;
+		if (!c.isWater) continue;
+		float best = 0.f;
+		for (size_t z = 0; z < waterZones_.size(); ++z) {
+			const WaterZone& zone = waterZones_[z];
+			bool inside = true;
+			float volume = 1.f;
+			for (int a = 0; a < 3; ++a) {
+				const float mid = (c.aabbLo[a] + c.aabbHi[a]) * 0.5f;
+				if (mid < zone.lo[a] || mid > zone.hi[a]) inside = false;
+				volume *= std::max(zone.hi[a] - zone.lo[a], 1e-3f);
+			}
+			if (inside && (c.waterZone < 0 || volume < best)) {
+				c.waterZone = int(z);
+				best = volume;
+			}
+		}
+		if (c.waterZone >= 0)
+			LogInfo("water surface %s: environment water %d", c.name.c_str(), c.waterZone);
+	}
+}
+
+// The water family a material name means. SetupShaders (0x101d6850) keys the
+// fx off the same names; anything else keeps the level's "water" family.
+static int WaterFamilyOf(const std::string& material) {
+	if (material == "water_ntu_rr") return 3;
+	if (material == "water_ntu_refl") return 2;
+	if (material == "water_ntu") return 1;
+	return 0;
+}
+
+void WorldRenderer::SetMeshOverride(const std::string& object, const std::string& material,
+		const std::string& cube, const std::string& normal) {
+	for (Chunk& c : chunks_) {
+		if (c.name != object) continue;
+		if (!material.empty()) c.waterFamily = WaterFamilyOf(material);
+		if (textures_ && !cube.empty()) c.waterCube = textures_->GetCube(cube, levelHint_);
+		if (textures_ && !normal.empty()) c.waterNormal = textures_->Get(normal, levelHint_);
+		if (c.isWater)
+			LogInfo("water surface %s: material %s (family %d), cube %s, normal %s", c.name.c_str(),
+					material.empty() ? "-" : material.c_str(), c.waterFamily,
+					cube.empty() ? "-" : cube.c_str(), normal.empty() ? "-" : normal.c_str());
+	}
+}
+
+bool WorldRenderer::WaterReflection(const Camera& camera, Reflection& out) {
+	reflectChunk_ = -1;
+	float bestDist = 0.f;
+	for (size_t i = 0; i < chunks_.size(); ++i) {
+		const Chunk& c = chunks_[i];
+		if (!c.isWater || c.hidden || c.waterFamily < 2) continue;
+		// Distance from the eye to the surface's box, against the environment's
+		// ReflectDist (TWater's default 256 without one).
+		float d2 = 0.f;
+		for (int a = 0; a < 3; ++a) {
+			const float v = camera.pos[a] < c.aabbLo[a] ? c.aabbLo[a] - camera.pos[a]
+					: (camera.pos[a] > c.aabbHi[a] ? camera.pos[a] - c.aabbHi[a] : 0.f);
+			d2 += v * v;
+		}
+		if (reflectChunk_ >= 0 && d2 >= bestDist) continue;
+		reflectChunk_ = int(i);
+		bestDist = d2;
+		static const WaterInfo kDefaults;
+		const WaterInfo& w = c.waterZone >= 0 ? waterZones_[size_t(c.waterZone)].water : kDefaults;
+		out.planeY = (c.aabbLo[1] + c.aabbHi[1]) * 0.5f;
+		out.sky = w.reflectSky;
+		out.fake = std::sqrt(d2) > w.reflectDist;
+		out.onlyMeshes = &w.reflectList;
+		out.refraction = c.waterFamily == 3;
+	}
+	return reflectChunk_ >= 0;
+}
+
+void WorldRenderer::DrawReflection(bgfx::ViewId view, const Camera& clipped, int width,
+		int height, const LevelInfo& info, float timeSeconds, const Reflection& refl,
+		bool mirrored) {
+	// The mirror flips the winding, so the cull mode swaps for that pass.
+	const int cull = cullMode_;
+	if (mirrored) cullMode_ = cull == 0 ? 1 : (cull == 1 ? 0 : 2);
+	reflPass_ = &refl;
+	Draw(view, clipped, width, height, info, timeSeconds);
+	reflPass_ = nullptr;
+	cullMode_ = cull;
+}
+
 void WorldRenderer::SetDynamicLights(const std::vector<LightSource>& lights) {
 	dynamicLights_.clear();
 	for (const LightSource& l : lights)
@@ -466,19 +576,8 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 	litChunks_ = 0;
 	if (!bgfx::isValid(program_)) return;
 
-	const Vec3 forward = camera.Forward();
-	const bx::Vec3 eye = {camera.pos[0], camera.pos[1], camera.pos[2]};
-	const bx::Vec3 at = {camera.pos[0] + forward[0],
-			camera.pos[1] + forward[1],
-			camera.pos[2] + forward[2]};
-
 	float viewMtx[16], projMtx[16];
-	// PainEngine data is right-handed (Maya export). bx defaults to left-handed,
-	// which renders the whole world mirrored.
-	bx::mtxLookAt(viewMtx, eye, at, {0.0f, 1.0f, 0.0f}, bx::Handedness::Right);
-	bx::mtxProj(projMtx, camera.fovDegrees, float(width) / float(height),
-			camera.nearPlane, camera.farPlane, bgfx::getCaps()->homogeneousDepth,
-			bx::Handedness::Right);
+	camera.ViewProj(width, height, camera.farPlane, viewMtx, projMtx);
 	bgfx::setViewTransform(view, viewMtx, projMtx);
 
 	const float fogValue[4] = {info.fogColor[0] / 255.f, info.fogColor[1] / 255.f,
@@ -488,6 +587,10 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 	const float fogParams[4] = {float(info.fogMode), info.fogStart, info.fogEnd,
 								info.fogDensity};
 	bgfx::setUniform(uFog_, fogParams);
+	// The water passes clip the world at the surface (Camera::clipped).
+	const float clip[4] = {0.f, camera.clipped ? (camera.keepAbove ? 1.f : -1.f) : 0.f, 0.f,
+			camera.mirrorY};
+	bgfx::setUniform(uClip_, clip);
 
 	// Visibility: frustum-cull every chunk, and walk the zone graph so only
 	// rooms reachable through in-view portals draw at all.
@@ -566,6 +669,17 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 
 	for (const Chunk& c : chunks_) {
 		if (c.hidden) continue;
+		// The reflection pass: no water in the water, and only the environment
+		// ReflectList when it names meshes (SceneRender::OccludeReflection).
+		if (reflPass_) {
+			if (c.isWater) continue;
+			if (reflPass_->onlyMeshes && !reflPass_->onlyMeshes->empty()) {
+				bool listed = false;
+				for (const std::string& n : *reflPass_->onlyMeshes)
+					if (n == c.name) { listed = true; break; }
+				if (!listed) continue;
+			}
+		}
 		if (visCulling_) {
 			// A chunk is culled by the graph only when it overlaps at least
 			// one zone and none of them are visible.
@@ -604,37 +718,59 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 		// the lightmap alone, then "blend modulate" over it - multiply out to
 		// one expression, so they fold into a single draw here.
 		if (c.isWater) {
-			// o.Water in the level's .CLevel is the authority for these, not
-			// water.shader: the script's tile[0]/pan[0] only restate CLevel.lua's
-			// class defaults, and 21 levels override them.
-			const WaterInfo& w = info.water;
+			// Its environment's Water when a CEnvironment box around it carries
+			// one (WorldMesh::Draw hands RenderWater the zone's TWater), else
+			// the level's o.Water; its family and textures from the map's
+			// .EMesh. Water.md, "Which water a surface gets".
+			const WaterInfo& w = c.waterZone >= 0 ? waterZones_[size_t(c.waterZone)].water
+					: info.water;
+			const bool thisFrame = reflPass_ == nullptr && int(&c - chunks_.data()) == reflectChunk_;
+			const bool haveRefl = thisFrame && bgfx::isValid(reflectionTex_);
+			const bool haveRefr = thisFrame && bgfx::isValid(refractionTex_);
+			// Without its target a reflecting family draws as the cube one.
+			int family = c.waterFamily;
+			if (family == 3 && !haveRefr) family = 2;
+			if (family == 2 && !haveRefl) family = 1;
 			const float eye[4] = {camera.pos[0], camera.pos[1], camera.pos[2], 0.f};
-			const float waterTile[4] = {w.tile[0], w.tile[1], w.tile[0], w.tile[1]};
+			const float waterTile[4] = {w.tile[0], w.tile[1], w.tile2[0], w.tile2[1]};
 			const float waterPan[4] = {w.pan[0] * timeSeconds, w.pan[1] * timeSeconds,
-					w.pan[0] * timeSeconds, w.pan[1] * timeSeconds};
-			const float waterParams[4] = {w.bumpHeight, w.fresnelBias, w.fresnelExponent,
+					w.pan2[0] * timeSeconds, w.pan2[1] * timeSeconds};
+			// RenderWater's constants (0x101d8bb0): GBumpSpace's diagonal, GFreq /
+			// GAmpli / GPhase for the wave, GFresBias = (1 - bias, bias),
+			// GRefParams.zw = (ReflectionAmount, FresnelExponent), GRefScales and
+			// the two tints as WaterAmount * colour.
+			const float waterParams[4] = {w.bumpHeight, w.waveFrequency, w.waveAmplitude,
+					w.waveSpeed * timeSeconds};
+			const float fres[4] = {1.f - w.fresnelBias, w.fresnelBias, w.fresnelExponent,
 					w.reflectionAmount};
-			const float deep[4] = {w.deepColor[0] / 255.f, w.deepColor[1] / 255.f,
-					w.deepColor[2] / 255.f, w.waterAmount};
-			const float shallow[4] = {w.shallowColor[0] / 255.f, w.shallowColor[1] / 255.f,
-					w.shallowColor[2] / 255.f, 1.f};
+			const float k = w.waterAmount / 255.f;
+			const float deep[4] = {w.deepColor[0] * k, w.deepColor[1] * k, w.deepColor[2] * k, 0.f};
+			const float shallow[4] = {w.shallowColor[0] * k, w.shallowColor[1] * k,
+					w.shallowColor[2] * k, 0.f};
+			const float mode[4] = {float(family), w.reflectScale,
+					bgfx::getCaps()->originBottomLeft ? 1.f : 0.f, w.refractScale};
+			const bgfx::TextureHandle cube = bgfx::isValid(c.waterCube) ? c.waterCube : waterCube_;
+			const bgfx::TextureHandle normal = bgfx::isValid(c.waterNormal) ? c.waterNormal : waterNormal_;
 			for (const Batch& b : c.batches) {
-				bgfx::setUniform(uAmbient_, ambientValue);
 				bgfx::setUniform(uUvAnim_, waterPan);
 				bgfx::setUniform(uTile_, waterTile);
 				bgfx::setUniform(uWater_, waterParams);
+				bgfx::setUniform(uWaterFres_, fres);
 				bgfx::setUniform(uWaterDeep_, deep);
 				bgfx::setUniform(uWaterShallow_, shallow);
+				bgfx::setUniform(uWaterMode_, mode);
 				bgfx::setUniform(uEye_, eye);
 				bgfx::setUniform(uFogColor_, fogValue);
 				bgfx::setUniform(uFog_, fogParams);
 				bgfx::setTransform(c.transform.m);
 				bgfx::setVertexBuffer(0, c.vbo);
 				bgfx::setIndexBuffer(c.ibo, b.firstIndex, b.indexCount);
-				bgfx::setTexture(0, sNormal_, waterNormal_, FilteredSampler(0));
-				bgfx::setTexture(1, sCube_, waterCube_);
+				bgfx::setTexture(0, sNormal_, normal, FilteredSampler(0));
+				bgfx::setTexture(1, sCube_, cube);
 				bgfx::setTexture(2, sLightmap_, b.lightmap,
 						FilteredSampler(c.material.sampler[1]));
+				bgfx::setTexture(3, sRefl_, family >= 2 ? reflectionTex_ : fallback);
+				bgfx::setTexture(4, sRefr_, family == 3 ? refractionTex_ : fallback);
 				bgfx::setState(state);
 				bgfx::submit(view, waterProgram_);
 				++drawCalls_;

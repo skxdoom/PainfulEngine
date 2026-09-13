@@ -53,7 +53,9 @@ bits at `World+0x730`:
 | bit 1 | `water2_refl` |
 | bit 4 | `water2_refr` |
 
-It also **hardcodes** the two textures the higher tiers need, rather than taking
+A map can still swap the family and both textures per object through its
+`.EMesh` - "Which water a surface gets", below. Without one, it
+**hardcodes** the two textures the higher tiers need, rather than taking
 them from the map: `special/ripples_00` as `$normalmap` and
 `special/cube_wenecja` as `$cubemap` (*wenecja* — Venice).
 
@@ -152,51 +154,147 @@ the Taylor series for sin, and `c13`/`c14` are two wave directions,
 `(-1,0,0)` and `(-0.7,0,0.7)`. That is the vertex wave motion, driven by
 `WaveAmplitude` / `WaveFrequency` / `WaveSpeed`.
 
+## Which water a surface gets
+
+Three layers decide what a water object draws with, and the level's `o.Water`
+is only the bottom one.
+
+**The map's `.EMesh`.** `Levels/<name>/MapEntities/<object>.EMesh` is a script
+object bound to a named `.mpk` object (`WORLD.FindEntityByName`), and
+`CItem:Apply` hands its fields to the mesh natives: `MESH.SetDefaultMaterial`
+(the `DefaultMaterial` key), `MESH.SetCubeMap`, `MESH.SetNormalMap`,
+`MESH.SetDetailMap`. This is the per-map switch. Every water level with an
+`.EMesh` on its water, from the shipped data:
+
+| level | object | DefaultMaterial | CubeMap.Tex | NormalMap.Tex |
+|---|---|---|---|---|
+| Orphanage | water_noclipshape | `water_ntu_refl` | dm_fragenstein1_cubemap | ripples_00 |
+| Lab | woda_noclipshape | `water_ntu_rr` | - | ripples_00 |
+| Colosseum | wodashape | `water_ntu_rr` | - | ripples_00 |
+| Colosseum | woda2shape | `water_ntu` | dm_mine_cubemap | ripples_00 |
+| Docks | watershape | - | skies/wenecja_sky4 | special/ripples |
+| City on Water, Monastery, LoonyPark, Fallen1/2, Mine | water_* | - | - | - |
+
+`SetupShaders` (0x101d6850) keys the effect off the material name -
+`water_ntu` is `SimpleWaterNTU`, `water_ntu_refl` is `FXWaterNTU_Refl` with
+`$fbtex1`, `water_ntu_rr` is `FXWaterNTU_RR` with `$fbtex1` and `$fbtex2` -
+and a material that samples a frame-buffer texture carries the flags (8 and
+0x10) that `View::Render` reads back as "render a reflection", "render a
+refraction". With `Cfg.WaterFX` off (`R3D.SetWaterQuality` to `World+0x1900`)
+the two reflecting names fall back to `water_ntu`. A water object with no
+`.EMesh` keeps the level-wide family of the section above.
+
+**The environment's Water block.** `CEnvironment.lua` carries the same
+`Water` table as `CLevel.lua` plus the reflection fields, and
+`ENVIRONMENT.SetWater` (FUN_1013aeb0) stores it per zone at `Zone+0xfb4`;
+`WorldMesh::Draw` (0x101daa70) hands `RenderWater` the zone's block instead of
+the world's when the mesh sits in one. Three levels author one - Orphanage
+(`ReflectDist 275`, `ReflectSky true`, a 70-entry `ReflectList` of islands and
+trees, `Tile1 28x7`, `Tile2 22x5`, both pans 0.001), Lab, Colosseum. The
+class defaults differ from the level's: both layers start at pan 0, tile 1.
+
+**`ReflectScene` is never set.** Not in any of the 57 `.CLevel` files, not in
+any `.CEnvironment`, and the class defaults are `false`, so `World+0x730`
+stays 0 and the `water2_refl` branch of `SetupMaterials` is dead in the
+shipped game. Every planar reflection you can see comes through an `.EMesh`.
+
+## The four techniques, decoded
+
+`Water.fxo` disassembles (d3dcompiler_47 on the size-prefixed blobs). The
+names ARE the effect parameter names, and `RenderWater` (0x101d8bb0) uploads
+them by register (`SetVertexShaderConstant`, vtable +0x8c), so the constants
+were read from the disassembly of that function:
+
+| register | name | value |
+|---|---|---|
+| c4..c6 | GBumpSpace | rows of Scale(BumpHeight, 1, BumpHeight) + 1; the shader takes the diagonal - 1 |
+| c10 | GEye | the eye in object space, w 0.05 |
+| c11 | GRefParams | (1, 1, ReflectionAmount, FresnelExponent) |
+| c12 | GFresBias | (1 - FresnelBias, FresnelBias, 1, 1) |
+| c13, c14 | GDirs | (-1, 0, 0), (-0.7, 0, 0.7) |
+| c15 | GPhase | phase * (0.5, 1.3), phase = WaveSpeed * time |
+| c16 | GFreq | (WaveFrequency, 2 WaveFrequency) |
+| c17 | GAmpli | (WaveAmplitude, 0.5 WaveAmplitude) |
+| c21 | GReflTint | WaterAmount * (Deep - Shallow), w 1 |
+| c22 | GRefrTint | WaterAmount * Shallow, w 0 |
+| c24.., c27.. | GTexForm0/1 | Scale(Tile) x Translate(Pan * time), per layer |
+| c45 | GAspect | the half-texel-corrected 0.5 for the projective coordinates |
+| ps c1 | GRefScales | (ReflectScale, RefractScale) |
+
+The colours arrive as `oD0 = Shallow tint`, `oD1 = Deep tint` (c22 + c21).
+Every vertex program lifts the vertex in object space before the transform:
+
+```
+y += sin(dot(p, dir0) f - 0.5 phase) a + sin(dot(p, dir1) 2f - 1.3 phase) 0.5 a
+```
+
+and the pixel programs all start the same way - two samples of the same
+world-space normal map at `(uv + pan t) * tile` per layer, `n = n0 + n1 - 1`,
+NOT normalised, scaled by `(BumpHeight, 1, BumpHeight)`, and a fresnel
+`f = (1 - bias) (1 - n.e)^exp + bias` against the normalised eye vector. Then:
+
+- **FXWater_20** (`water`, ps @23096): `R = 2 (n.E) n - E`, cube map at R,
+  `lerp(Shallow, cube * amount + (1 - amount) * Deep, f)`, times the lightmap
+  times 2.
+- **SimpleWaterNTU** (`water_ntu`, ps @8436): the same without the lightmap.
+- **FXWaterNTU_Refl** (`water_ntu_refl`, ps @13292): the reflection target
+  sampled projectively at the vertex's own clip position, bent by `n.xz *
+  ReflectScale / w`; `glint = sat((f - 0.75) 4 refl)`;
+  `f * Deep * (refl * amount + (1 - amount) * Deep + glint) + (1 - f) * Shallow`.
+  No lightmap.
+- **FXWaterNTU_RR** (`water_ntu_rr`, ps @10720): the same, with the refraction
+  target bent by `RefractScale` multiplying the `(1 - f) * Shallow` term.
+
+The `FXWater2_*` techniques (the dead `water2_refl` family) add the reflection
+to the cube-map construction and are not ported.
+
+## The planar reflection
+
+`View::Render` (0x100b6720) picks the nearest water mesh, takes its plane
+(`GetReflectionPlane`: the mesh's first triangle) and, when a mesh's material
+asked for one, renders `RenderReflection` into `World+0x18d0` and
+`RenderRefraction` into `+0x18d4` - both created at half the back buffer
+(`World::Init`). Past the zone's `ReflectDist` it calls `RenderFakeReflection`
+instead, which clears the target and draws nothing. `RenderReflection`
+mirrors the view with `Scale(1, -1, 1)`, keeps the zone's `ReflectList`
+alone when it has one (`SceneRender::OccludeReflection`) and draws the sky
+only with `ReflectSky`; `RenderRefraction` negates the six clip planes and
+draws the world under the water from the camera itself.
+
+The port does the same with the tools it has: `Camera::Mirrored` reflects the
+eye and the pitch and keeps +Y as the up hint (so the image comes out
+mirrored top to bottom and the cull mode swaps for the pass); the world
+shader discards the wrong side of the surface (`u_clip`), which is what the
+original's user clip planes amount to. An oblique near plane was tried
+first and its skewed far plane cut the distant, grazing part of the
+reflection off in a ring around the camera. `Camera::Clipped` keeps the
+other side for the refraction. `WaterReflection` owns the half-size
+targets, views 47-49 draw them before the frame, and the water shader
+samples with `v = 0.5 + 0.5 ndc.y` for the mirrored target - the effect's
+unflipped `oT5`, not its `oT6` - and the usual `0.5 - 0.5 ndc.y` for the
+refraction. The bend uses the RAW normal sum, before BumpHeight (ps @13292
+keeps r0 for it and scales a copy for the fresnel); scaling first gave
+Orphanage a fifth of its wobble. `PAINFUL_WATER_REFLECT=0` turns the passes
+off.
+
 ## What this port does
 
-Water surfaces take the **`nv20`** construction, folded into one draw. Its two
-passes multiply out — the lightmap, then `blend modulate` over it — so one
-shader gives the same result:
+Each water object draws with the technique its `.EMesh` names, its own cube
+and normal maps when it names them, and the Water block of the CEnvironment
+box it stands in when one carries it - all four techniques above, in one
+shader keyed by `u_waterMode`. A reflecting family without its target this
+frame degrades one step (rr to refl to ntu).
 
-- `special/ripples_00` sampled at `(uv + Pan * t) * Tile`, one scrolling layer
-  (the nv20 pass declares `tile[0]`/`pan[0]` only; the two-layer sampling is an
-  nv30 thing), with `BumpHeight` scaling how hard the normal bends the reflection
-- the bumped normal taken to world space through the constant flat-plane basis,
-  the eye vector reflected about it, and `special/cube_wenecja` sampled
-- multiplied by the lightmap, which is what pass 1 draws
+Still open, and said so:
 
-`TextureCache::GetCube` loads the cube; `bimg` already handled cube DDS, there
-was simply no call for it.
-
-**Where it deliberately stops.** `mad r0, t3, v0, v1` scales the cube by a
-diffuse term and adds a specular one, and `water_ref.vso` builds both from a
-`lit()` chain over engine constants. `o.Water` plainly supplies the ingredients,
-but *which property feeds which term* is not recoverable:
-`WorldMesh::RenderWater` computes those registers from a `TWater` struct and the
-decompiler loses the register numbers across that run of setter calls. Guessing
-the mapping was tried and produced water that was confidently wrong — too dark,
-then a flat tint with the reflection swamped — so the combine stays at what is
-decoded. The values are parsed and handed to the shader (`u_water`,
-`u_waterDeep`, `u_waterShallow`) ready for whoever pins the mapping down.
-
-Against the reference capture the surface is right in structure — reflective,
-correctly tiled, correctly scrolling — but reads darker, because at a grazing
-view the reflection samples the cube's side faces rather than its bright top.
-Whether the original closes that gap through the missing diffuse/specular terms
-or through scene reflection is exactly the open question above.
-
-Everything else is still open:
-
-- **`FXWater_20` / `FXWater2`** live in `Shaders/effects/Water.fxo`, compiled
-  D3D effect bytecode — a format not yet decoded.
-- **The vertex wave.** The sine chain is decoded but its amplitude and phase
-  constants are uploaded per frame from the `TWater` struct; `o.Water` carries
-  `WaveAmplitude`, `WaveFrequency` and `WaveSpeed` for it. The surface is flat
-  here.
-- **Reflection and refraction** (`water2_refl`, `_refr`) need render targets and
-  `$fbtex1`, a framebuffer copy. `WorldMesh::GetReflectionPlane` exists, which
-  supports the planar-reflection reading of the Swamp reference shot rather than
-  a purely cube-mapped one — worth settling before building either.
+- `PlaneShift`, `ReflectRadius` (the clip box around the eye) and the
+  half-texel term in `GAspect` are read but not applied.
+- The refraction target is the world only; the flags `RenderWorld` gets there
+  (0x10000f) are not decoded, so what else it includes is not known.
+- Models with water materials (`palskinned_water`, the Swamp) are the section
+  below, still.
+- `Cfg.WaterFX` off (`water_ntu` for everything) is not honoured; the port has
+  no video option for it.
 
 ## Water the scripts can hit: `ENTITY.IsWater`
 

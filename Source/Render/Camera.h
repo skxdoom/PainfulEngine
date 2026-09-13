@@ -29,6 +29,40 @@ struct Camera {
 	// it by four for crossing a level.
 	float moveSpeed = 30.f;
 
+	// A planar reflection's camera: pos and pitch already mirrored about the
+	// horizontal plane y = mirrorY, and the world clips itself at that plane
+	// so nothing under the water reaches the reflection. The up
+	// hint stays +Y, so the image comes out mirrored top to bottom and the
+	// winding flips: the pass draws with the cull mode swapped. Water.md.
+	bool mirrored = false; // the mirrored reflection camera
+	bool clipped = false; // the world clips at y = mirrorY (fs_world u_clip)
+	bool keepAbove = true; // which side of that plane survives
+	float mirrorY = 0.f;
+
+	// The view and projection every renderer uses (right-handed, the far
+	// plane per caller).
+	void ViewProj(int width, int height, float far, float* view, float* proj) const;
+	// The same camera reflected about y = planeY.
+	Camera Mirrored(float planeY) const {
+		Camera m = *this;
+		m.pos[1] = 2.f * planeY - pos[1];
+		m.pitch = -pitch;
+		m.mirrored = true;
+		m.clipped = true;
+		m.keepAbove = true;
+		m.mirrorY = planeY;
+		return m;
+	}
+	// The same camera clipping at y = planeY: the
+	// refraction pass keeps what is under the water.
+	Camera Clipped(float planeY, bool above) const {
+		Camera c = *this;
+		c.clipped = true;
+		c.keepAbove = above;
+		c.mirrorY = planeY;
+		return c;
+	}
+
 	// The view axes. Returned rather than written through an out-parameter -
 	// every caller wants the value.
 	Vec3 Forward() const {
