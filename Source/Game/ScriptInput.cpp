@@ -167,7 +167,7 @@ int InputNatives::L_PLAYER_ExecAction(lua_State* L) {
 							float(luaL_optnumber(L, 7, 0)),
 							float(luaL_optnumber(L, 8, 0))};
 	self->pawn_->Move(*self->physics_, self->physics_->tweaks(), e->action, right,
-			self->frameDelta_);
+			self->frameDelta_, self->frameDelta_ * self->timeMultiplier_);
 	e->jumpedLastAction = self->pawn_->jumpedLastMove();
 	self->SyncPlayerFromPawn();
 	return 0;

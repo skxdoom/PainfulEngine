@@ -53,7 +53,7 @@ int PlayerPawn::StepCheck(const PhysicsWorld& physics, const Vec3& centre,
 }
 
 void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
-		uint32_t action, const Vec3& right, float dt) {
+		uint32_t action, const Vec3& right, float dt, float simDt) {
 	if (dt <= 0.f) return;
 	jumpedThisMove_ = false;
 	dt = std::min(dt, 0.05f); // a hitch must not become a teleport
@@ -480,7 +480,7 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
 		if (floorHit && hit.bodySlot >= 0) {
 			Vec3 carry;
 			if (physics.CarriedBy(hit.bodySlot, carry))
-				for (int c = 0; c < 3; ++c) centre[c] += carry[c] * dt;
+				for (int c = 0; c < 3; ++c) centre[c] += carry[c] * simDt;
 		}
 		const bool grounded = floorHit || stepping_;
 		if (grounded && !onGround_) {

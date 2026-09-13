@@ -618,6 +618,36 @@ One lead worth recording: play-testing settled on **1.16**, and
 on a shipped constant to two decimal places is a strange coincidence, and the
 next attempt should start by asking where else 1.16 could reach the campaign.
 
+## Slow motion: the player stays on real time
+
+`PlayerAction` reads the world speed `s` (the double at `GEngine+0x100`,
+[`LuaHost.md`](LuaHost.md) "The time multiplier") in eight places, and
+together they keep the player moving in REAL time while everything else runs
+on scaled time:
+
+- the target speed handed to Havok is `speed / s` (0x10192260, the divide at
+  the StepCheck call), and the stored speed is the body's horizontal velocity
+  `* s` - so speed is kept in real units and converted at the boundary;
+- the jump is `JumpStrength * PlayerSpeed * 0.7 / s`;
+- at `s != 1` a Havok action (type 0x30, made once, dropped when `s` returns
+  to exactly 1) applies the world gravity times `1 - 1/s^2` to the body, so
+  its gravity is `g / s^2` - the trajectory a `/ s` velocity needs to land in
+  the same real time;
+- when `s` changes the body's velocity is rescaled by `old / new`
+  (`this+0x74` remembers the last), so entering bullet time does not stall a
+  jump in progress;
+- the landing message tests `fallSpeed * s > 20`: the real speed.
+
+At quarter-speed bullet time the world moves at a quarter while the player
+walks, jumps and falls exactly as before.
+
+Here the pawn integrates its own velocity, gravity and jump, so the same thing
+is one rule: `PlayerPawn::Move` takes the REAL frame time (`SetFrameDelta` is
+the unscaled delta) and the world's for what it borrows from the simulation -
+a moving platform's carry, which is the platform's own scaled motion. The fall
+threshold compares the pawn's real speed directly. Verified headless: walking
+forward at world speed 0.25 covers the same distance per frame as at 1.
+
 ## What the player collides with
 
 `Tweak.PlayerMove.MaximalItemPushMass` (2500) is the line between what can be

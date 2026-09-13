@@ -964,7 +964,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		// PlayerAction (0x101925BF) NEGATES the speed before queueing, and
 		// CPlayer:OnHitGround tests `speed < -collisionMinSpeed`; a positive
 		// number was a landing the script never saw.
-		const float impact = pawn.TakeGroundHit(engine.timeMultiplier());
+		const float impact = pawn.TakeGroundHit();
 		if (impact > 0.f && engine.playerHandle()) {
 			const double hitArgs[2] = {double(engine.playerHandle()), double(-impact)};
 			host.PostMsg("PLAYER_HIT_GROUND", hitArgs, 2);
@@ -980,7 +980,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		// LuaHost.md, "The time multiplier".
 		const float sim = std::min(dt * engine.timeMultiplier(), 1.f);
 		const double d[1] = {sim};
-		engine.SetFrameDelta(sim);
+		// The player mover keeps REAL time: PlayerAction divides its target speed
+		// and jump by the world speed and puts g/s^2 on the body, so slow motion
+		// slows everything but the player. PlayerMovement.md, "Slow motion".
+		engine.SetFrameDelta(dt);
 
 		// What Enter or Tab queued in the console goes to the scripts here,
 		// paused or not - the original's tick dispatches it the same way

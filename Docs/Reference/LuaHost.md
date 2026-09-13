@@ -835,9 +835,11 @@ scripts' quarter-speed bullet time the audio plays at 0.625 with a cut-off of
 the bullet-time loop itself slows with the rest.
 
 Here the field is `ScriptEngine::timeMultiplier_` and `GameApp` scales what
-the original's game tick covers: the script deltas, `SetFrameDelta` (the
-player mover), animations, monsters, projectiles, the physics accumulator,
-lifetimes, bound-sound timers, collisions, particles and billboards.
+the original's game tick covers: the script deltas, animations, monsters,
+projectiles, the physics accumulator,
+lifetimes, bound-sound timers, collisions, particles and billboards. NOT the
+player: the mover keeps real time, as PlayerAction does with its `/ s` terms
+([`PlayerMovement.md`](PlayerMovement.md), "Slow motion").
 `AudioEngine::SetWorldSpeed` is the Miles half: every voice not flagged
 `sameSpeed` advances at the rate, and a one-pole low-pass at `cut` of Nyquist
 sits on the voice mix (not the streams - the scripts pause the music for the

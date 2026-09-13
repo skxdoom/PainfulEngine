@@ -77,7 +77,7 @@ int LuaCmd(const char* dataRoot, int frames, const char* level,
 			input.BeginFrame();
 			// The game tick runs on world-speed time, as in GameApp.
 			const float sim = (1.f / 60.f) * engine.timeMultiplier();
-			engine.SetFrameDelta(sim);
+			engine.SetFrameDelta(1.f / 60.f); // the mover keeps real time
 
 			engine.TickAnimations(sim);
 			engine.TickMonsters(sim);

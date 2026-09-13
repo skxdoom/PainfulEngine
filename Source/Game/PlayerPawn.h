@@ -56,9 +56,12 @@ public:
 	// neither slows walking nor drives the player into the floor - the
 	// forward vector it is also handed carries a Y component and is not used
 	// for this. Of the mask it consumes only Act::MoveMask.
+	// dt is the REAL frame time - the mover keeps real time in slow motion -
+	// and simDt the world's, for what it borrows from the simulation (a
+	// platform's carry). PlayerMovement.md, "Slow motion".
 	// Not const: a blocked pawn shoves the character in its way.
 	void Move(PhysicsWorld& physics, const Tweaks& tweaks, uint32_t action,
-			const Vec3& right, float dt);
+			const Vec3& right, float dt, float simDt);
 
 	const float* headPos() const { return head_; }
 	void SetHeadPos(const Vec3& p);
@@ -136,22 +139,18 @@ public:
 	}
 
 	// The engine's own landing test, and the only authority for it.
-	// PlayerAction queues PLAYER_HIT_GROUND when the touchdown speed scaled
-	// by the world time multiplier passes kHitGroundSpeed; fall damage
-	// itself is script-side, in OnHitGround.
-	//
-	// worldTimeScale is the double at GEngine+0x100 - the world speed the
-	// engine multiplies frame time by, 1.0 normally (PlayerAction has a fast
-	// path testing it against exactly 1.0) and retuned for slow motion.
-	// GameApp passes ScriptEngine::timeMultiplier(), which WORLD.SetWorldSpeed
-	// and INP.SetTimeMultiplier both write.
+	// PlayerAction queues PLAYER_HIT_GROUND when the touchdown speed times the
+	// world speed passes kHitGroundSpeed; fall damage itself is script-side,
+	// in OnHitGround. Its velocities are in simulation units (real / s), so
+	// that product is the REAL speed; the pawn's are real already.
+	// PlayerMovement.md, "Slow motion".
 	//
 	// Returns the fall speed to report, or 0 for a soft landing. Clears the
 	// recorded impact either way, so call it once per frame.
-	float TakeGroundHit(float worldTimeScale = 1.f) {
+	float TakeGroundHit() {
 		const float impact = landingImpact_;
 		landingImpact_ = 0.f;
-		return impact * worldTimeScale > kHitGroundSpeed ? impact : 0.f;
+		return impact > kHitGroundSpeed ? impact : 0.f;
 	}
 
 	// 0x102c8690, the constant PlayerAction compares the scaled fall speed
