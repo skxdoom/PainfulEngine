@@ -425,7 +425,8 @@ The ordered work queue, with the evidence behind each item, is
   `Dashpot` actions in the
   `.hke` are parsed but not simulated ([`Physics.md`](Reference/Physics.md),
   "The binary .hke").
-- **Lifetime and world state.** `WORLD.SetWorldSpeed` (slow motion),
+- **Lifetime and world state.** `WORLD.SetWorldSpeed` is done (slow motion:
+  [`LuaHost.md`](Reference/LuaHost.md), "The time multiplier").
   `WORLD.RemoveEntity` / `DeleteDyingEntities`, `PHYSICS.SetGravity`.
   `PARTICLE.Restart` and `SetImmortal` are still stubs.
 - No glass, buoyancy, ladders or ice. See [`Physics.md`](Reference/Physics.md).

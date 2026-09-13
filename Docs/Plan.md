@@ -313,8 +313,8 @@ nothing to react to until explosions exist.
 
 - `PARTICLE.Die` is done ([`Particles.md`](Reference/Particles.md)).
   `PARTICLE.Restart` and `SetImmortal` sit with it and are still stubs.
-- `WORLD.SetWorldSpeed` — slow motion; already flagged as an assumption in
-  `Game/PlayerPawn.h`. `PHYSICS.SetBunnyHopAcceleration` and `PHYSICS.SetGravity`
+- `WORLD.SetWorldSpeed` is done ([`LuaHost.md`](Reference/LuaHost.md), "The time
+  multiplier"). `PHYSICS.SetBunnyHopAcceleration` and `PHYSICS.SetGravity`
   belong here too.
 - `WORLD.RemoveEntity`, `DeleteDyingEntities`, `DeleteDelayedEntities`,
   `UpdateAllEntities`, `GetEntityList`, `AdvanceFrameCounter` / `GetFrameCounter`.

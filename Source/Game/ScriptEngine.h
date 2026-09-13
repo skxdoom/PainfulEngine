@@ -578,6 +578,9 @@ public:
 	// takes the engine's own frame time inside PlayerAction rather than the
 	// delta the script was called with; set this before the tick chain.
 	void SetFrameDelta(float dt) { frameDelta_ = dt; }
+	// The world speed: what the frame delta is multiplied by before the game
+	// tick (PCFSystem::TickEngine 0x10051110). LuaHost.md, "The time multiplier".
+	float timeMultiplier() const { return timeMultiplier_; }
 	// ENTITY.PO_Enable on the player: whether the pawn walks. NOT a test for
 	// who owns the camera - a dead player and one standing in the end-of-level
 	// teleport both have it false, and neither flies. Game:Tick2 gates the

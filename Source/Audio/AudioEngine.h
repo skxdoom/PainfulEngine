@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <cstdint>
 #include "../Core/Vectors.h"
 #include <memory>
@@ -64,6 +65,10 @@ public:
 	// translates. See L_SND_SetLoopCount.
 	void SetLoopCount(Voice v, int count);
 	void SetSpeed(Voice v, float speed);
+	// WORLD.SetWorldSpeed's audio: every voice not marked sameSpeed plays at
+	// this rate, and the mix is low-passed at sqrt(rate) of Nyquist (0.2..1).
+	// MilesEngine::SetSpeed / SetLowPass, 0x101F2090 / 0x101F13C0. Sound.md
+	void SetWorldSpeed(float rate);
 
 	// Release the handle. The voice keeps playing to its end if `letFinish`,
 	// which is what SOUND*.Forget means - fire it and stop caring.
@@ -151,6 +156,7 @@ private:
 		Sample* sample = nullptr;
 		double cursor = 0.0; // in frames; fractional for pitch/speed
 		double speed = 1.0;
+		bool sameSpeed = false; // keeps its rate under SetWorldSpeed
 		float volume = 1.f;
 		float gain[2] = {1.f, 1.f};
 		Vec3 pos;
@@ -232,6 +238,12 @@ private:
 	float sampleGain_ = 1.f; // master * master * effects
 	float streamGain_ = 1.f; // master * streaming
 	float rolloff_ = 1.f;
+	std::atomic<float> worldRate_{1.f};
+	std::atomic<float> lowPassCut_{1.f};
+	float lowPass_[2] = {0.f, 0.f}; // one-pole state, mixer thread only
+	double Rate(const Playing& p) const {
+		return p.speed * (p.sameSpeed ? 1.0 : double(worldRate_.load()));
+	}
 	void RecomputeBusGains() {
 		sampleGain_ = masterVolume_ * masterVolume_ * effectsVolume_;
 		streamGain_ = masterVolume_ * streamingVolume_;

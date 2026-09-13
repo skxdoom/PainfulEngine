@@ -251,7 +251,6 @@ Left: the unidentified body field both functions filter on.
 | `INP.GetTimeFromTimerReset`, `INP.ResetTimer` | 12 | script-side timers |
 | `ENTITY.TransformLocalPointToWorld` (7), `GetCenter` (3), `SeesPoint` | 11 | small geometry queries whose returns are consumed |
 | `ENTITY.PO_SetMissile` | 10 sites, 23 calls | **check first**: `Physics.md` records it as netcode-only |
-| `WORLD.SetWorldSpeed` | 3 | slow motion. Almost every call site is commented-out debug, so this is not the mechanic it appears to be |
 
 ## The stubs that RAISE rather than fail quietly
 

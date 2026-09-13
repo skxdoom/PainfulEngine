@@ -143,8 +143,8 @@ public:
 	// worldTimeScale is the double at GEngine+0x100 - the world speed the
 	// engine multiplies frame time by, 1.0 normally (PlayerAction has a fast
 	// path testing it against exactly 1.0) and retuned for slow motion.
-	// WORLD.SetWorldSpeed is still a stub here, so the default stands in for
-	// it; pass the real value once that native lands.
+	// GameApp passes ScriptEngine::timeMultiplier(), which WORLD.SetWorldSpeed
+	// and INP.SetTimeMultiplier both write.
 	//
 	// Returns the fall speed to report, or 0 for a soft landing. Clears the
 	// recorded impact either way, so call it once per frame.

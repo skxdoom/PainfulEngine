@@ -100,9 +100,10 @@ fault.
 A looping 2D sound is not this call at all: it is `SOUND2D.Create(name, loop)`
 plus `SOUND2D.Play`, which is how `_sndRotor` and `_sndElectro` are held.
 
-`sameSpeedInBulletTime` is not modelled — nothing scales voice speed with the
-game clock yet, so the flag is recorded and ignored. When bullet-time reaches
-the mixer it says which voices keep their own rate.
+`sameSpeedInBulletTime` is the one per-voice exception to `WORLD.SetWorldSpeed`:
+under slow motion every other voice advances at the world rate and the voice
+mix is low-passed, this one keeps its own rate. The rule and the numbers are in
+[`LuaHost.md`](LuaHost.md), "The time multiplier".
 
 ## The lifetime bug worth remembering
 

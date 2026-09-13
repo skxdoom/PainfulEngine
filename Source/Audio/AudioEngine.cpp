@@ -298,8 +298,21 @@ void AudioEngine::Mix(float* out, int frames) {
 			const float r = s.channels > 1 ? src[1] : l;
 			out[f * kChannels + 0] += l * p.gain[0] * sampleGain_;
 			out[f * kChannels + 1] += r * p.gain[1] * sampleGain_;
-			p.cursor += p.speed;
+			p.cursor += Rate(p);
 		}
+	}
+
+	// The bullet-time low-pass, one pole per channel on the voice mix. The
+	// streams are left alone: the scripts pause them for the duration.
+	const float cut = lowPassCut_.load();
+	if (cut < 1.f) {
+		const float a = 1.f - std::exp(-3.14159265f * cut);
+		for (int f = 0; f < frames; ++f)
+			for (int c = 0; c < kChannels; ++c) {
+				float& v = out[f * kChannels + c];
+				lowPass_[c] += (v - lowPass_[c]) * a;
+				v = lowPass_[c];
+			}
 	}
 
 	// The music streams, already converted to the device format by their
@@ -385,14 +398,12 @@ AudioEngine::Voice AudioEngine::Create(const std::string& name, bool positional)
 // callers are asking IsPlaying about.
 AudioEngine::Voice AudioEngine::Play2D(const std::string& name, float volume,
 		bool sameSpeedInBulletTime, bool noPitch) {
-	// Recorded, not modelled: nothing scales voice speed with the game clock
-	// yet. Docs/Reference/Sound.md
-	(void)sameSpeedInBulletTime;
 	const Voice v = Open(name, false, false);
 	if (!v) return 0;
 	std::lock_guard<std::mutex> guard(lock_);
 	Playing* p = Resolve(v);
 	if (!p) return 0;
+	p->sameSpeed = sameSpeedInBulletTime;
 	p->volume = volume > 0.f ? volume : 1.f;
 	p->gain[0] = p->gain[1] = p->volume;
 	// Never loops. A held 2D loop is SOUND2D.Create + Play, not this call.
@@ -490,7 +501,7 @@ bool AudioEngine::Remaining(const Playing& p, uint32_t nowMs, double& cursor,
 	const size_t total = p.sample->pcm.size() / size_t(p.sample->channels);
 	if (total == 0) return false;
 	const double elapsed =
-		double(nowMs - p.startedMs) / 1000.0 * double(rate_) * std::max(p.speed, 1e-3);
+		double(nowMs - p.startedMs) / 1000.0 * double(rate_) * std::max(Rate(p), 1e-3);
 	const double passes = std::floor(elapsed / double(total));
 	loopsLeft = p.loopsLeft;
 	if (p.loopsLeft >= 0) {
@@ -669,6 +680,17 @@ void AudioEngine::SetSpeed(Voice v, float speed) {
 	if (speed > 0.f) p.speed = double(speed);
 }
 
+// WORLD.SetWorldSpeed's audio half. The cut-off follows MilesEngine::SetLowPass:
+// sqrt of the rate, 1 and above unfiltered, below 0.2 held at 0.2.
+void AudioEngine::SetWorldSpeed(float rate) {
+	if (rate <= 0.f) rate = 1e-3f;
+	worldRate_.store(rate);
+	float cut = std::sqrt(rate);
+	if (cut > 1.f) cut = 1.f;
+	else if (cut < 0.2f) cut = 0.2f;
+	lowPassCut_.store(cut);
+}
+
 void AudioEngine::Release(Voice v, bool letFinish) {
 	PAINFUL_VOICE(v)
 	p.held = false;
@@ -727,7 +749,7 @@ void AudioEngine::Update() {
 		if (p.loopsLeft >= 0) {
 			const size_t frames = p.sample->pcm.size() / size_t(p.sample->channels);
 			const uint32_t lengthMs =
-				uint32_t(double(frames) * 1000.0 / (double(rate_) * std::max(p.speed, 1e-3)) *
+				uint32_t(double(frames) * 1000.0 / (double(rate_) * std::max(Rate(p), 1e-3)) *
 						double(p.loopsLeft > 1 ? p.loopsLeft : 1));
 			if (now - p.startedMs > lengthMs) {
 				p.playing = false;

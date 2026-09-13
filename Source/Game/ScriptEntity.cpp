@@ -20,6 +20,7 @@ struct EntityNatives : ScriptNativesBase {
 	static int L_PO_ScaleInertiaTensor(lua_State* L);
 	static int L_WORLD_HitPhysicObject(lua_State* L);
 	static int L_WORLD_GetLastExplodedEntities(lua_State* L);
+	static int L_WORLD_SetWorldSpeed(lua_State* L);
 	static int L_ENTITY_ExplodeItem(lua_State* L);
 	static int L_SetTimeToDie(lua_State* L);
 	static int L_SetPosition(lua_State* L);
@@ -365,6 +366,17 @@ int EntityNatives::L_WORLD_GetLastExplodedEntities(lua_State* L) {
 		lua_settable(L, -3);
 	}
 	return 1;
+}
+
+// WORLD.SetWorldSpeed(x = 1) - 0x10120470. The same field INP.SetTimeMultiplier
+// writes (GEngine+0x100), plus the audio: Miles is set to 1 + (x - 1) * 0.5
+// with a low-pass of its square root. LuaHost.md, "The time multiplier".
+int EntityNatives::L_WORLD_SetWorldSpeed(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const float x = float(luaL_optnumber(L, 1, 1.0));
+	self->timeMultiplier_ = x;
+	if (self->audio_) self->audio_->SetWorldSpeed(1.f + (x - 1.f) * 0.5f);
+	return 0;
 }
 
 // ENTITY.ExplodeItem(item, pack, strength, radius, lifetime, _, bindTo, noSelf)
@@ -1568,6 +1580,7 @@ void BindEntity(ScriptEngine& engine, LuaHost& host) {
 		{"ENTITY", "PO_Hit", EntityNatives::L_PO_Hit},
 		{"WORLD", "HitPhysicObject", EntityNatives::L_WORLD_HitPhysicObject},
 		{"WORLD", "GetLastExplodedEntities", EntityNatives::L_WORLD_GetLastExplodedEntities},
+		{"WORLD", "SetWorldSpeed", EntityNatives::L_WORLD_SetWorldSpeed},
 		{"ENTITY", "PO_Create", EntityNatives::L_PO_Create},
 		{"ENTITY", "PO_Move", EntityNatives::L_PO_Move},
 		{"ENTITY", "PO_SetMonsterType", EntityNatives::L_PO_SetMonsterType},

@@ -963,7 +963,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		// PlayerAction (0x101925BF) NEGATES the speed before queueing, and
 		// CPlayer:OnHitGround tests `speed < -collisionMinSpeed`; a positive
 		// number was a landing the script never saw.
-		const float impact = pawn.TakeGroundHit();
+		const float impact = pawn.TakeGroundHit(engine.timeMultiplier());
 		if (impact > 0.f && engine.playerHandle()) {
 			const double hitArgs[2] = {double(engine.playerHandle()), double(-impact)};
 			host.PostMsg("PLAYER_HIT_GROUND", hitArgs, 2);
@@ -973,8 +973,13 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		// physics, Tick2 after physics, Tick3 after the world tick. The
 		// player moves inside Game_Tick, when CPlayer:Tick reaches
 		// PLAYER.ExecAction, so the mover needs this frame's delta first.
-		const double d[1] = {dt};
-		engine.SetFrameDelta(dt);
+		// The world speed: PCFSystem::TickEngine (0x10051110) hands
+		// EngineGame::Tick the frame delta times the multiplier, capped at one
+		// second; the audio clock and the interface keep real time.
+		// LuaHost.md, "The time multiplier".
+		const float sim = std::min(dt * engine.timeMultiplier(), 1.f);
+		const double d[1] = {sim};
+		engine.SetFrameDelta(sim);
 
 		// What Enter or Tab queued in the console goes to the scripts here,
 		// paused or not - the original's tick dispatches it the same way
@@ -1010,11 +1015,11 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		audio.Advance(dt);
 		audio.Update();
 		if (!engine.gamePaused()) {
-			engine.TickAnimations(dt);
-			engine.TickMonsters(dt);
-			engine.TickProjectiles(dt);
+			engine.TickAnimations(sim);
+			engine.TickMonsters(sim);
+			engine.TickProjectiles(sim);
 			host.CallGlobal("Game_Tick", d, 1);
-			physics.Update(dt);
+			physics.Update(sim);
 			engine.TickGrenades();
 			engine.SyncFromPhysics();
 			engine.TickRagdolls();
@@ -1037,13 +1042,13 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			// Region transitions feed the message pump the way the engine's
 			// phantoms do.
 			engine.TickTriggers();
-			engine.TickLifetimes(dt);
+			engine.TickLifetimes(sim);
 			// Bound effects follow their parents here, after the actors have
 			// finished moving and their joints are posed for the frame. Placed
 			// any earlier and every effect trails its owner by a frame.
 			engine.UpdateAttached();
-			engine.TickSounds(dt);
-			engine.TickCollisions(dt);
+			engine.TickSounds(sim);
+			engine.TickCollisions(sim);
 			// Last, once the camera has settled: a view-attached weapon is
 			// re-placed from the eye that will actually be rendered. Baked
 			// during the tick it lags the shake by a frame, and the weapon
@@ -1285,7 +1290,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		// vanishing behind the menu, but they stop advancing. Ticking these
 		// from the render section is what let them keep running when the rest
 		// of the world had already stopped.
-		const float simDt = engine.gamePaused() ? 0.f : dt;
+		const float simDt = engine.gamePaused() ? 0.f : sim;
 		// Bloom on: sprites are packed at the level's BloomFX.DimScale, the
 		// way FUN_101e4080 and Billboard::Draw do. Particles.md, "Bloom dims".
 		{

@@ -75,13 +75,15 @@ int LuaCmd(const char* dataRoot, int frames, const char* level,
 		if (exec && exec[0]) host.RunString(exec);
 		for (int i = 0; i < frames && !host.quitRequested(); ++i) {
 			input.BeginFrame();
-			engine.SetFrameDelta(1.f / 60.f);
+			// The game tick runs on world-speed time, as in GameApp.
+			const float sim = (1.f / 60.f) * engine.timeMultiplier();
+			engine.SetFrameDelta(sim);
 
-			engine.TickAnimations(1.f / 60.f);
-			engine.TickMonsters(1.f / 60.f);
-			engine.TickProjectiles(1.f / 60.f);
-			host.FrameTick(1.0 / 60.0);
-			physics.Update(1.f / 60.f);
+			engine.TickAnimations(sim);
+			engine.TickMonsters(sim);
+			engine.TickProjectiles(sim);
+			host.FrameTick(double(sim));
+			physics.Update(sim);
 			engine.TickGrenades();
 			engine.SyncFromPhysics();
 			engine.TickRagdolls();
@@ -105,14 +107,14 @@ int LuaCmd(const char* dataRoot, int frames, const char* level,
 				}
 			}
 			engine.TickTriggers();
-			engine.TickLifetimes(1.f / 60.f);
+			engine.TickLifetimes(sim);
 			// The same tail the game loop runs. Without these the headless path
 			// is not the game minus a window: bound entities never follow what
 			// they hang off, and CONTACTS ARE NEVER REPORTED - so a destructible
 			// could not break here even though the physics under it is real.
 			engine.UpdateAttached();
-			engine.TickSounds(1.f / 60.f);
-			engine.TickCollisions(1.f / 60.f);
+			engine.TickSounds(sim);
+			engine.TickCollisions(sim);
 			// The mixer's own tick, on the simulated clock: the voice policy
 			// promotes and expires by it, and a headless run outpaces the
 			// wall clock a hundredfold.

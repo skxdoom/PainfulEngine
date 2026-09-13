@@ -806,6 +806,46 @@ moved active mesh: `RebuildEntity` re-based the rebuilt world object on the
 SAVED position instead of `activeOrigin`, so a gravestone knocked over before
 the save drew displaced from its body by however far it had moved.
 
+## The time multiplier
+
+Sources: `PCFSystem::TickEngine` 0x10051110, `PCFSystem::SetTimeMultiplier`
+0x10001760, the natives `WORLD.SetWorldSpeed` 0x10120470, `INP.SetTimeMultiplier`
+0x1011CD90, `INP.GetTime` 0x1011CBE0; `MilesEngine::SetSpeed` 0x101F2090 and
+`SetLowPass` 0x101F13C0; `Templates/Processes/PBulletTimeControler.CProcess`.
+
+One double, at `GEngine+0x100`, is the world speed. `TickEngine` multiplies the
+frame delta by it, caps the product at one second, and hands that to
+`EngineGame::Tick` - so everything inside the game tick, the scripts' `delta`
+included, runs on scaled time, and the bullet-time controller recovers real
+time as `delta / INP.GetTimeMultiplier()`. `INP.GetTime` is
+`SystemDriver::GetTickCount`, real time: a checkpoint's launch delay and every
+other `INP.GetTime` timer keeps its wall-clock length in slow motion.
+
+Two natives write the field. `INP.SetTimeMultiplier(x)` writes it and nothing
+else (F3/F4 halve and double it in Game.lua's debug keys). `WORLD.SetWorldSpeed(x)`
+writes it AND drives the audio: Miles is set to a speed of `1 + (x - 1) * 0.5`
+(both constants read from the binary: 1.0 at 0x102AEA58, 0.5 at 0x102C5530),
+every sample's low-pass cut-off to the square root of that speed (clamped to
+0.2..1 by `SetLowPass`), and when the speed returns to exactly 1 from anything
+else the engine pauses and resumes every sound to reseat the rates. At the
+scripts' quarter-speed bullet time the audio plays at 0.625 with a cut-off of
+0.79 - a drop of a few semitones and a light muffle, not half speed. Only a
+`SOUND.Play2D` voice started with `sameSpeedInBulletTime` keeps its own rate
+(`Sound2D_SetAlwaysSameSpeed`); `SOUND2D.Play` ignores its second argument, so
+the bullet-time loop itself slows with the rest.
+
+Here the field is `ScriptEngine::timeMultiplier_` and `GameApp` scales what
+the original's game tick covers: the script deltas, `SetFrameDelta` (the
+player mover), animations, monsters, projectiles, the physics accumulator,
+lifetimes, bound-sound timers, collisions, particles and billboards.
+`AudioEngine::SetWorldSpeed` is the Miles half: every voice not flagged
+`sameSpeed` advances at the rate, and a one-pole low-pass at `cut` of Nyquist
+sits on the voice mix (not the streams - the scripts pause the music for the
+duration). The mix reseat on return to 1 is not needed with a per-frame rate.
+The audio clock (`Advance`), the console, the menus and the post-process
+effects keep real time, as they do in the original's frame outside
+`EngineGame::Tick`.
+
 ## Next stages
 2. Damage: the shot lands but nothing takes it yet. `ENTITY.ExplodeItem`,
    `ENTITY.EnableGunPass`, `ENTITY.SetRotationCAM`, and whatever the hit
