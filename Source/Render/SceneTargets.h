@@ -30,6 +30,13 @@ public:
 			bgfx::ViewId worldView);
 	// After the scene: the half-size copy, a bilinear 2x2 average.
 	void Downsample(bgfx::ViewId halfView);
+	// A plain copy of the scene so far, for a pass that reads the frame it
+	// draws into (the particle_warp sprites). Made on first use.
+	void CopyScene(bgfx::ViewId copyView);
+	bgfx::TextureHandle sceneCopy() const { return sceneCopy_; }
+	// The scene onto the backbuffer, for a frame that used the targets
+	// without bloom or the demon effect to land it there.
+	void Present(bgfx::ViewId view);
 
 	bool active() const { return active_; }
 	int width() const { return width_; }
@@ -61,6 +68,8 @@ private:
 	bgfx::TextureHandle depth_ = BGFX_INVALID_HANDLE;
 	bgfx::FrameBufferHandle halfFb_ = BGFX_INVALID_HANDLE;
 	bgfx::TextureHandle half_ = BGFX_INVALID_HANDLE;
+	bgfx::FrameBufferHandle sceneCopyFb_ = BGFX_INVALID_HANDLE;
+	bgfx::TextureHandle sceneCopy_ = BGFX_INVALID_HANDLE;
 	int width_ = 0, height_ = 0, halfW_ = 0, halfH_ = 0, msaa_ = 0;
 	bool active_ = false;
 };

@@ -57,6 +57,12 @@ public:
 	// PARTICLE.SetEvolve: level-placed effects force continuous emission,
 	// overriding a one-shot .ini. Applies to every emitter of the entity.
 	void SetScriptEmitterEvolve(int slot, bool evolve);
+	// The particle_warp sprites, after everything else: each reads `scene` (a
+	// copy of the frame so far) at its own screen position through its warp
+	// texture. Particles.md, "The warp sprites".
+	void DrawWarp(bgfx::ViewId view, const Camera& camera, int width, int height,
+			bgfx::TextureHandle scene);
+	bool HasWarp() const;
 	// PARTICLE.Die: no more spawning, ever; what is alive plays out and then
 	// ScriptEmitterFinished answers true.
 	void StopScriptEmitter(int slot);
@@ -139,6 +145,8 @@ private:
 
 		bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
 		uint64_t blendState = 0;
+		bool warp = false; // Material = particle_warp: drawn by DrawWarp
+		bgfx::TextureHandle warpTexture = BGFX_INVALID_HANDLE;
 
 		// Script-driven emitters keep their .pfx entry and owner state so
 		// either side can change and the pose recomposes; slots stay put so
@@ -185,6 +193,11 @@ private:
 
 	bgfx::VertexLayout layout_;
 	bgfx::ProgramHandle program_ = BGFX_INVALID_HANDLE;
+	bgfx::ProgramHandle warpProgram_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle sScene_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle sWarp_ = BGFX_INVALID_HANDLE;
+	void DrawEmitters(bgfx::ViewId view, const Camera& camera, bool warp,
+			bgfx::TextureHandle scene);
 	bgfx::UniformHandle sDiffuse_ = BGFX_INVALID_HANDLE;
 };
 

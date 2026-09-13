@@ -1027,6 +1027,8 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 
 	for (Instance& instance : instances_) {
 		if (!instance.alive || !instance.visible) continue;
+		if (drawSet_ == kSceneOnly ? instance.viewModel : (drawSet_ == kViewModelOnly && !instance.viewModel))
+			continue;
 		// In view, or in a shadow map's frustum, or within a shadowed
 		// light's reach: a caster past the screen edge still has to be posed
 		// this frame.

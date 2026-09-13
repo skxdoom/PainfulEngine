@@ -5,6 +5,8 @@
 
 namespace painful {
 
+struct Camera;
+
 class Window;
 
 // bgfx front end. The renderer owns backend setup and the frame loop; nothing
@@ -27,21 +29,33 @@ public:
 	static constexpr bgfx::ViewId kWorldView = 52;
 	// The scene's half-size copy (Render/SceneTargets.h), for the passes
 	// that sample the scene small.
-	static constexpr bgfx::ViewId kSceneHalfView = 53;
+	// The particle_warp sprites: a copy of the scene so far, then the sprites
+	// drawn over the scene reading it (Render/ParticleRenderer.h, DrawWarp).
+	static constexpr bgfx::ViewId kSceneCopyView = 53;
+	static constexpr bgfx::ViewId kParticleWarpView = 54;
+	// What goes on after the haze so it is not refracted: the view model, the
+	// particles, the coronas. Only used on a frame with haze; otherwise they
+	// draw in the world view as before.
+	static constexpr bgfx::ViewId kAfterWarpView = 55;
+	static constexpr bgfx::ViewId kSceneHalfView = 56;
 	// Bloom (Render/Bloom.h): the bright pass, the two blurs, then the
 	// composite that lands the scene on the backbuffer.
-	static constexpr bgfx::ViewId kBloomBrightView = 54;
-	static constexpr bgfx::ViewId kBloomBlurHView = 55;
-	static constexpr bgfx::ViewId kBloomBlurVView = 56;
-	static constexpr bgfx::ViewId kCompositeView = 57;
+	static constexpr bgfx::ViewId kBloomBrightView = 57;
+	static constexpr bgfx::ViewId kBloomBlurHView = 58;
+	static constexpr bgfx::ViewId kBloomBlurVView = 59;
+	static constexpr bgfx::ViewId kCompositeView = 60;
 	// Demon Morph (Render/DemonFx.h): the scene to black and white, the
 	// demonic models over it, the warp with the trail, the copy out.
-	static constexpr bgfx::ViewId kDemonGrayView = 58;
-	static constexpr bgfx::ViewId kDemonEntityView = 59;
-	static constexpr bgfx::ViewId kDemonWarpView = 60;
-	static constexpr bgfx::ViewId kDemonCopyView = 61;
+	static constexpr bgfx::ViewId kDemonGrayView = 61;
+	static constexpr bgfx::ViewId kDemonEntityView = 62;
+	static constexpr bgfx::ViewId kDemonWarpView = 63;
+	static constexpr bgfx::ViewId kDemonCopyView = 64;
 	// The 2D layer, drawn over everything: no depth, in submission order.
-	static constexpr bgfx::ViewId kHudView = 62;
+	static constexpr bgfx::ViewId kHudView = 65;
+
+	// A view's transform and rect from the camera, the way WorldRenderer::Draw
+	// sets the world view's - for a view that draws with the same eye later.
+	static void SetViewCamera(bgfx::ViewId view, const Camera& camera, int width, int height);
 
 	~Renderer() { Shutdown(); }
 	// Owns GPU handles that Shutdown destroys, so it is not copyable: a copy

@@ -112,6 +112,10 @@ public:
 	void SetScriptCastsShadow(int slot, bool casts);
 	// The view model: reads its own fitted maps, and casts into those alone.
 	void SetScriptViewModel(int slot, bool viewModel);
+	// Which instances Draw takes: the view model is drawn in a later pass on a
+	// frame with heat-haze sprites, so the haze reads a frame without it.
+	enum DrawSet { kAll, kSceneOnly, kViewModelOnly };
+	void SetDrawSet(DrawSet s) { drawSet_ = s; }
 	// ENTITY.EnableDemonic: drawn by the demon pass while it is on.
 	void SetScriptDemonic(int slot, bool demonic);
 	// Demon Morph: while `on`, demonic instances leave the main pass and are
@@ -327,6 +331,7 @@ private:
 	bgfx::ProgramHandle demonProgram_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uDemonFresnel_ = BGFX_INVALID_HANDLE;
 	bool demonOn_ = false;
+	DrawSet drawSet_ = kAll;
 	bgfx::ViewId demonView_ = 0;
 	bgfx::TextureHandle demonDetail_ = BGFX_INVALID_HANDLE;
 	bgfx::TextureHandle demonRamp_ = BGFX_INVALID_HANDLE;

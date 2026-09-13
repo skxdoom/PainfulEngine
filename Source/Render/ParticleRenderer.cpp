@@ -5,6 +5,7 @@
 #include "../Core/Vectors.h"
 #include "MaterialState.h"
 
+#include <cctype>
 #include <algorithm>
 #include <bx/math.h>
 #include <cmath>
@@ -53,6 +54,15 @@ void MatMul3(const float a[9], const float b[9], float out[9]) {
 					a[r * 3 + 2] * b[6 + c];
 }
 
+
+// Material = particle_warp, the way the material script names it (case as the
+// .ini author wrote it).
+bool IsWarpMaterial(const EmitterParams& p) {
+	if (p.material.size() != 13) return false;
+	for (size_t i = 0; i < 13; ++i)
+		if (std::tolower(static_cast<unsigned char>(p.material[i])) != "particle_warp"[i]) return false;
+	return true;
+}
 uint32_t PackAbgr(const Vec3& rgb, float alpha) {
 	auto byteOf = [](float v) {
 		const int i = static_cast<int>(v * 255.f + 0.5f);
@@ -91,6 +101,12 @@ bool ParticleRenderer::Init(const std::string& shaderDir) {
 	sDiffuse_ = bgfx::createUniform("s_diffuse", bgfx::UniformType::Sampler);
 	uFog_ = bgfx::createUniform("u_fog", bgfx::UniformType::Vec4);
 	uFogColor_ = bgfx::createUniform("u_fogColor", bgfx::UniformType::Vec4);
+	// The particle_warp technique. Particles.md, "The warp sprites".
+	bgfx::ShaderHandle wvs = LoadShader(shaderDir, "vs_particle_warp");
+	bgfx::ShaderHandle wfs = LoadShader(shaderDir, "fs_particle_warp");
+	if (bgfx::isValid(wvs) && bgfx::isValid(wfs)) warpProgram_ = bgfx::createProgram(wvs, wfs, true);
+	sScene_ = bgfx::createUniform("s_scene", bgfx::UniformType::Sampler);
+	sWarp_ = bgfx::createUniform("s_warp", bgfx::UniformType::Sampler);
 
 	layout_.begin()
 		.add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
@@ -103,6 +119,9 @@ bool ParticleRenderer::Init(const std::string& shaderDir) {
 void ParticleRenderer::Shutdown() {
 	if (bgfx::isValid(program_)) bgfx::destroy(program_);
 	if (bgfx::isValid(sDiffuse_)) bgfx::destroy(sDiffuse_);
+	if (bgfx::isValid(warpProgram_)) { bgfx::destroy(warpProgram_); warpProgram_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(sScene_)) { bgfx::destroy(sScene_); sScene_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(sWarp_)) { bgfx::destroy(sWarp_); sWarp_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uFog_)) { bgfx::destroy(uFog_); uFog_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uFogColor_)) { bgfx::destroy(uFogColor_); uFogColor_ = BGFX_INVALID_HANDLE; }
 	program_ = BGFX_INVALID_HANDLE;
@@ -204,6 +223,9 @@ void ParticleRenderer::Build(const Level& level, TemplateCache& templates,
 
 			e.texture = textures.Get(params->texture, level.name());
 			e.blendState = BlendModeState(params->blendMode);
+			e.warp = IsWarpMaterial(*params);
+			if (e.warp && !params->warpTex.empty())
+				e.warpTexture = textures.Get(params->warpTex, level.name());
 			e.particles.reserve(std::min(params->maxParticles, 4096));
 			emitters_.push_back(std::move(e));
 		}
@@ -435,6 +457,8 @@ int ParticleRenderer::AddScriptEmitter(const std::string& emitterFile,
 	e.evolve = params->evolve;
 	e.texture = textures.Get(params->texture, levelHint);
 	e.blendState = BlendModeState(params->blendMode);
+	e.warp = IsWarpMaterial(*params);
+	if (e.warp && !params->warpTex.empty()) e.warpTexture = textures.Get(params->warpTex, levelHint);
 	e.particles.reserve(std::min(params->maxParticles, 4096));
 	ApplyScale(e, scaleMultiplier_);
 	emitters_.push_back(std::move(e));
@@ -520,17 +544,46 @@ void ParticleRenderer::RecomposeScript(Emitter& e) {
 }
 
 void ParticleRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int height) {
-	drawCalls_ = 0;
-	if (!bgfx::isValid(program_) || emitters_.empty()) return;
 	(void)width;
 	(void)height;
+	drawCalls_ = 0;
+	DrawEmitters(view, camera, false, BGFX_INVALID_HANDLE);
+}
+
+bool ParticleRenderer::HasWarp() const {
+	for (const Emitter& e : emitters_)
+		if (e.warp && e.alive && e.visible && !e.particles.empty()) return true;
+	return false;
+}
+
+void ParticleRenderer::DrawWarp(bgfx::ViewId view, const Camera& camera, int width, int height,
+		bgfx::TextureHandle scene) {
+	if (!bgfx::isValid(warpProgram_) || !bgfx::isValid(scene)) return;
+	// Its own view, so the same camera as the world view (WorldRenderer::Draw).
+	const Vec3 forward = camera.Forward();
+	const bx::Vec3 eye = {camera.pos[0], camera.pos[1], camera.pos[2]};
+	const bx::Vec3 at = {camera.pos[0] + forward[0], camera.pos[1] + forward[1],
+			camera.pos[2] + forward[2]};
+	float viewMtx[16], projMtx[16];
+	bx::mtxLookAt(viewMtx, eye, at, {0.0f, 1.0f, 0.0f}, bx::Handedness::Right);
+	bx::mtxProj(projMtx, camera.fovDegrees, float(width) / float(height), camera.nearPlane,
+			camera.farPlane, bgfx::getCaps()->homogeneousDepth, bx::Handedness::Right);
+	bgfx::setViewTransform(view, viewMtx, projMtx);
+	bgfx::setViewRect(view, 0, 0, uint16_t(width), uint16_t(height));
+	bgfx::setViewClear(view, BGFX_CLEAR_NONE);
+	DrawEmitters(view, camera, true, scene);
+}
+
+void ParticleRenderer::DrawEmitters(bgfx::ViewId view, const Camera& camera, bool warp,
+		bgfx::TextureHandle scene) {
+	if (!bgfx::isValid(warp ? warpProgram_ : program_) || emitters_.empty()) return;
 
 	const Vec3 forward = camera.Forward();
 	const Vec3 right = camera.Right();
 	const Vec3 up = Cross(right, forward);
 
 	for (Emitter& e : emitters_) {
-		if (!e.alive || !e.visible) continue;
+		if (!e.alive || !e.visible || e.warp != warp) continue;
 		const size_t n = e.particles.size();
 		if (n == 0) continue;
 
@@ -613,7 +666,8 @@ void ParticleRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, 
 		// translucent path inherits a particle material that does not write
 		// depth either. DepthTest is the emitter's own flag.
 		uint64_t state = BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_MSAA |
-				e.blendState;
+				(warp ? BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_INV_SRC_ALPHA)
+						: e.blendState);
 		if (e.params->depthTest) state |= BGFX_STATE_DEPTH_TEST_LESS;
 
 		bgfx::setState(state);
@@ -624,7 +678,11 @@ void ParticleRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, 
 		bgfx::setUniform(uFog_, fog_);
 		bgfx::setUniform(uFogColor_, fogColor);
 		bgfx::setTexture(0, sDiffuse_, e.texture);
-		bgfx::submit(view, program_);
+		if (warp) {
+			bgfx::setTexture(1, sScene_, scene);
+			bgfx::setTexture(2, sWarp_, bgfx::isValid(e.warpTexture) ? e.warpTexture : e.texture);
+		}
+		bgfx::submit(view, warp ? warpProgram_ : program_);
 		++drawCalls_;
 	}
 }

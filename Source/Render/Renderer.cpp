@@ -1,5 +1,8 @@
 #include "Renderer.h"
 #include "Window.h"
+#include "Camera.h"
+#include "../Core/Vectors.h"
+#include <bx/math.h>
 #include "../Core/Debug.h"
 #include "../Core/Log.h"
 
@@ -205,6 +208,21 @@ void Renderer::SetClearColor(float r, float g, float b) {
 	const uint32_t rgba = (uint32_t(r * 255.f) << 24) | (uint32_t(g * 255.f) << 16) |
 			(uint32_t(b * 255.f) << 8) | 0xff;
 	bgfx::setViewClear(kSkyView, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, rgba, 1.0f, 0);
+}
+
+
+void Renderer::SetViewCamera(bgfx::ViewId view, const Camera& camera, int width, int height) {
+	const Vec3 forward = camera.Forward();
+	const bx::Vec3 eye = {camera.pos[0], camera.pos[1], camera.pos[2]};
+	const bx::Vec3 at = {camera.pos[0] + forward[0], camera.pos[1] + forward[1],
+			camera.pos[2] + forward[2]};
+	float viewMtx[16], projMtx[16];
+	bx::mtxLookAt(viewMtx, eye, at, {0.0f, 1.0f, 0.0f}, bx::Handedness::Right);
+	bx::mtxProj(projMtx, camera.fovDegrees, float(width) / float(height), camera.nearPlane,
+			camera.farPlane, bgfx::getCaps()->homogeneousDepth, bx::Handedness::Right);
+	bgfx::setViewTransform(view, viewMtx, projMtx);
+	bgfx::setViewRect(view, 0, 0, uint16_t(width), uint16_t(height));
+	bgfx::setViewClear(view, BGFX_CLEAR_NONE);
 }
 
 } // namespace painful

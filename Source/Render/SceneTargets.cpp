@@ -41,6 +41,9 @@ void SceneTargets::ReleaseTargets() {
 	// The framebuffers own their textures (createFrameBuffer's destroy flag).
 	if (bgfx::isValid(fb_)) bgfx::destroy(fb_);
 	if (bgfx::isValid(halfFb_)) bgfx::destroy(halfFb_);
+	if (bgfx::isValid(sceneCopyFb_)) bgfx::destroy(sceneCopyFb_);
+	sceneCopyFb_ = BGFX_INVALID_HANDLE;
+	sceneCopy_ = BGFX_INVALID_HANDLE;
 	fb_ = halfFb_ = BGFX_INVALID_HANDLE;
 	color_ = depth_ = half_ = BGFX_INVALID_HANDLE;
 	width_ = height_ = halfW_ = halfH_ = 0;
@@ -115,6 +118,33 @@ void SceneTargets::Downsample(bgfx::ViewId halfView) {
 	bgfx::setTexture(0, sScene_, color_);
 	FullScreenTriangle(halfView, layout_, halfW_, halfH_);
 	bgfx::submit(halfView, copy_);
+}
+
+void SceneTargets::CopyScene(bgfx::ViewId copyView) {
+	if (!active_) return;
+	if (!bgfx::isValid(sceneCopy_)) {
+		const uint64_t clamp = BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
+		sceneCopy_ = bgfx::createTexture2D(uint16_t(width_), uint16_t(height_), false, 1,
+				bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT | clamp);
+		if (bgfx::isValid(sceneCopy_)) sceneCopyFb_ = bgfx::createFrameBuffer(1, &sceneCopy_, true);
+		if (!bgfx::isValid(sceneCopyFb_)) {
+			if (bgfx::isValid(sceneCopy_)) bgfx::destroy(sceneCopy_);
+			sceneCopy_ = BGFX_INVALID_HANDLE;
+			return;
+		}
+	}
+	bgfx::setViewFrameBuffer(copyView, sceneCopyFb_);
+	bgfx::setTexture(0, sScene_, color_);
+	FullScreenTriangle(copyView, layout_, width_, height_);
+	bgfx::submit(copyView, copy_);
+}
+
+void SceneTargets::Present(bgfx::ViewId view) {
+	if (!active_) return;
+	bgfx::setViewFrameBuffer(view, BGFX_INVALID_HANDLE);
+	bgfx::setTexture(0, sScene_, color_);
+	FullScreenTriangle(view, layout_, width_, height_);
+	bgfx::submit(view, copy_);
 }
 
 } // namespace painful

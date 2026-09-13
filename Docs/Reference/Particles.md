@@ -250,8 +250,8 @@ argument of `ENTITY.Create` - which is what `ENTITY.KillAllChildrenByName(se,
 
 | bound to | position | rotation |
 |---|---|---|
-| a joint | offset through the joint's world transform | joint rotation × bound Euler, **or the parent entity's rotation when no Euler was given** |
-| the entity | parent position + offset rotated by the parent | parent rotation × bound Euler, or left alone |
+| a joint | offset through the joint's world transform | bound Euler, then the joint (`euler * joint`), **or the parent entity's rotation when no Euler was given** |
+| the entity | parent position + offset rotated by the parent | bound Euler, then the parent (`euler * parent`), or left alone |
 
 The Euler is `SetParentOffset`'s 9th..11th arguments, taken only when the
 11th exists (`0x10139e30`), converted by the same qz·qy·qx routine as
@@ -263,10 +263,19 @@ This is the whole of "which way does the flame go". Emitter velocities are in
 the effect's frame — `FTHR1.ini` fires along +X at 57..144 — and
 `RifleFlameThrower:EnableFX` binds `RFT_flame` to `joint17` with
 `(0, 1.57, 0)`, which is the quarter turn that puts +X down the barrel.
-Without the Euler the flame took the weapon's own rotation and pointed
-sideways; without any rotation it pointed along world X. Measured after the
-port: the flame's local +X comes out as (1.00, 0.08, -0.06) against a forward
-of (1.00, 0.00, 0.02).
+
+**The order matters, and it is Euler first.** `Quat a * b` applies `a` first,
+and the Euler is in the JOINT's frame, so the effect's rotation is
+`euler * (bone * entity)` - the bone likewise before the entity, the order
+`JointToWorld` already applied to a point. The port had both the other way
+round (`(entity * bone) * euler`), which is a yaw about WORLD Y after the
+joint: at eye level it happened to agree, because joint17's own +X is the
+weapon's pitch axis and a world yaw turns it forward whatever the pitch - so
+the flame went forward when looking level and stayed level when looking up or
+down. Measured headless with the flamethrower as the current weapon (its
+placement follows the camera only then): `euler * (bone * entity)` puts the
+flame's +X on the camera forward with a dot of 1.00 at elevations 0 and 50;
+the old order gives 0.99 and 0.55.
 
 ### `PARTICLE.Die`
 
@@ -342,13 +351,57 @@ scaled by the particle size, rotated about the view axis when the particle spins
 turns its width towards the camera. The velocity is used **unnormalised**, so
 faster sparks are longer.
 
+
+## The warp sprites
+
+An emitter with `Material = particle_warp` (`RFT_flameWarp2.ini`: `Texture =
+atten.dds`, `WarpTex = ogien.dds`, sizes to 15) is the flamethrower's heat
+haze, and drawn as an ordinary sprite it is a bright fifteen-metre square. The
+technique is in `Shaders/effects/Particle.fxo` (`particle_warp`, ps_2_0 at 1832
+and vs_1_1 at 2344, read with `D3DDisassemble`), and it reads the FRAME
+BUFFER:
+
+```
+vs: oT1 = clip position (for the projective screen lookup)
+    oT2.x = saturate((z/w - 0.96) * 32)         -- strength: 0 near the eye, 1 by ~10 m
+ps: warp = WarpTex(uv) * 2 - 1
+    scene = FBTex((screenH + warp * oT2.x * 0.1) / w)     -- pushed before the divide
+    out.rgb = scene,  out.a = (1 - Diffuse(uv).a) * vertexAlpha
+blend translucent
+```
+
+So the sprite shows the scene displaced by the dudv texture, blended in where
+the attenuation texture is CLEAR (its rim is opaque, so the square's edge
+never shows), fading with the particle's own alpha and suppressed within a
+couple of metres of the eye - the muzzle end of the flame does not shimmer,
+the far end does. `vs/fs_particle_warp.sc` are that pair; the strength uses
+this port's own clip depth, which matches the original only if the near and
+far planes do (an assumption; theirs were not recovered).
+
+The pass needs the frame: `ParticleRenderer::DrawWarp` runs in its own view
+over a copy the scene targets take just before it (`SceneTargets::CopyScene`),
+so a warp sprite reads the frame and writes into it. What must NOT be
+refracted goes on afterwards: the copy is taken after the world, the props
+and the decals, and the view model, the particles and the coronas are drawn
+in a view after the haze (`kAfterWarpView`; the weapon through
+`EntityRenderer::SetDrawSet`). Drawn before it, the weapon and the flame
+itself rippled, which the original does not show. The targets are switched on
+for a frame that has a live warp emitter even with bloom and the demon effect
+off, and `SceneTargets::Present` then lands the scene on the backbuffer where
+bloom or the demon pass would.
+
+Two things settled by looking again: the push is added BEFORE the divide by w
+(`mad` into oT1, then `texldp`), so it shrinks with distance - a tenth of the
+screen at one metre, a hundredth at ten - and the first port applied it after
+the divide, ten times too strong at the flame's range.
+
 ## What this port does not do yet
 
 - **Texture animation.** `TexAnimFPS` is parsed and stored; the original steps a
   frame index into a multi-frame texture object and rewrites the UVs. Frame 0 is
   always used here.
-- **`Warp` / `WarpTex` screen distortion.** The wrap-in-box half of `Warp` is
-  implemented; the refraction pass is not.
+- **`Warp` wrap-in-box** is implemented; the `WarpTex` refraction sprites are
+  their own pass now ("The warp sprites" below).
 - **`UseRandomNormal`** is parsed but unused — its effect was not traced.
 - **`KillDist`** is parsed (and squared) but nothing culls on it yet.
 - **Mesh emitters.** One emitter file carries `Mesh`/`Skin_*`/`FPS` keys and

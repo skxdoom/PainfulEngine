@@ -663,7 +663,9 @@ bool ScriptEngine::JointWorldRotation(Entity& e, int joint, Quat& out) {
 		for (int c = 0; c < 3; ++c) rot9[r * 3 + c] = m.m[r * 4 + c];
 	Normalize3x3Rows(rot9);
 	const Quat boneQuat = EngineRot9ToQuat(rot9);
-	out = e.rot * boneQuat;
+	// Bone-local first, then the entity - the order JointToWorld applies to a
+	// point, and a * b applies a first.
+	out = boneQuat * e.rot;
 	return true;
 }
 

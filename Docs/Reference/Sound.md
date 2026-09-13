@@ -105,6 +105,17 @@ under slow motion every other voice advances at the world rate and the voice
 mix is low-passed, this one keeps its own rate. The rule and the numbers are in
 [`LuaHost.md`](LuaHost.md), "The time multiplier".
 
+## A script volume is 0..100 and no more
+
+`CObject:Snd2D(id, v)` takes an optional volume, and `RifleFlameThrower:
+FinishAltFireFX` calls it as `cw:Snd2D("flame_stop", pe)` - the second
+argument is the player ENTITY, so the stop sound arrived asking for volume
+1278. The original's `SOUND.Play2D` (0x10124510) reads `GetFloat(2, 80) * 0.01`
+with no clamp of its own and hands the result to Miles, which holds a sample at
+1.0; the port's `SoundVolume` multiplied it straight into the gain, and the
+flamethrower's release was the loudest thing in the game. `SoundVolume` clamps
+at full scale now.
+
 ## The lifetime bug worth remembering
 
 The first version gave every sound a held slot. Ninety-six one-shots later

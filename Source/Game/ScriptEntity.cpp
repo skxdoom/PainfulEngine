@@ -1310,7 +1310,8 @@ void ScriptEngine::PlaceAttached(Entity& e) {
 
 	// ParticleEffect::Tick (0x101e59a0): with a joint, the position is the
 	// offset through the joint's transform and the rotation is the joint's
-	// composed with the bound Euler - or the PARENT's rotation when no Euler
+	// composed with the bound Euler (a * b applies a first, and the Euler is in
+	// the joint's own frame, so it goes first) - or the PARENT's rotation when no Euler
 	// was given. Without a joint, the offset is rotated by the parent and the
 	// rotation is the parent's composed with the Euler, if any.
 	Vec3 world;
@@ -1321,7 +1322,7 @@ void ScriptEngine::PlaceAttached(Entity& e) {
 		if (e.parentRotBound) {
 			Quat joint;
 			if (JointWorldRotation(*parent, e.parentJointIndex, joint)) {
-				rot = joint * e.parentRot;
+				rot = e.parentRot * joint;
 				haveRot = true;
 			}
 		} else {
@@ -1331,7 +1332,7 @@ void ScriptEngine::PlaceAttached(Entity& e) {
 	} else {
 		world = parent->pos + parent->rot.Rotate(e.parentOffset);
 		if (e.parentRotBound) {
-			rot = parent->rot * e.parentRot;
+			rot = e.parentRot * parent->rot;
 			haveRot = true;
 		}
 	}

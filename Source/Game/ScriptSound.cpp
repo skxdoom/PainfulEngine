@@ -2,6 +2,7 @@
 
 #include "ScriptEngineInternal.h"
 #include "../Core/Vectors.h"
+#include <algorithm>
 #include <string>
 
 namespace painful {
@@ -96,9 +97,11 @@ static std::string SoundName(lua_State* L, int index) {
 }
 
 static float SoundVolume(lua_State* L, int index, double fallback = 100.0) {
-	// 0..100 from the scripts.
+	// 0..100 from the scripts, and no further: CObject:Snd2D(id, v) passes the
+	// player ENTITY as v, so flame_stop arrives as volume 1278. The original
+	// scales by 0.01 (0x10124510) and Miles holds the sample at 1.0.
 	const double v = luaL_optnumber(L, index, fallback);
-	return float(v) * 0.01f;
+	return std::min(float(v) * 0.01f, 1.f);
 }
 
 // SOUND.Play2D(name, volume = 80, sameSpeedInBulletTime, noPitch) - the 80 is

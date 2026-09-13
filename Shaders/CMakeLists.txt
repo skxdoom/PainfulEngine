@@ -39,7 +39,7 @@ set(SHADER_NAMES
 		vs_entity fs_entity
 		vs_shadow fs_shadow
 		fs_sky
-		vs_particle fs_particle
+		vs_particle fs_particle vs_particle_warp fs_particle_warp
 		vs_debug fs_debug
 		vs_hud fs_hud
 		vs_post fs_bloom_bright fs_bloom_blur fs_bloom_composite

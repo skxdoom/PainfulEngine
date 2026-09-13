@@ -438,6 +438,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	Bloom bloom;
 	const bool bloomInit = sceneInit && bloom.Init(shaderDir);
 	bool bloomThisFrame = false;
+	bool warpOn = false;
 	// Demon Morph, WORLD.EnableDemonFX's frame; it replaces the bloom path
 	// while it is on, as View::Render's branches do. PAINFUL_DEMONFX=0 off.
 	DemonFx demonFx;
@@ -1251,7 +1252,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 					DebugInt("PAINFUL_BLOOM", 1) > 0;
 			// The scene goes to its target whenever either pass wants it.
 			sceneTargets.SetMsaa(renderer.msaaSamples());
-			sceneTargets.BeginFrame(window.width(), window.height(), bloomOn || demonOn,
+			// The heat-haze sprites read the frame, so a frame with one keeps the
+			// scene in its target too. Particles.md, "The warp sprites".
+			warpOn = particlesReady && particles.HasWarp();
+			sceneTargets.BeginFrame(window.width(), window.height(), bloomOn || demonOn || warpOn,
 					Renderer::kSkyView, Renderer::kWorldView);
 			bloom.SetParams(ws.bloomThreshold, ws.bloomMultiplier, ws.bloomOverlay);
 			bloomThisFrame = bloomOn;
@@ -1266,8 +1270,11 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		if (worldReady)
 			world.Draw(Renderer::kWorldView, camera, window.width(), window.height(),
 					info, elapsed);
+		const bool warpPass = warpOn && sceneTargets.active();
+		entities.SetDrawSet(warpPass ? EntityRenderer::kSceneOnly : EntityRenderer::kAll);
 		entities.Draw(Renderer::kWorldView, camera, window.width(), window.height(),
 				info, elapsed);
+		entities.SetDrawSet(EntityRenderer::kAll);
 		// The casters, after the passes that cull the zones and pose the
 		// models; bgfx orders the views, not the calls.
 		if (shadow.active()) {
@@ -1277,12 +1284,30 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		if (modelShadow.active())
 			entities.DrawShadow(Renderer::kModelShadowView, modelShadow, elapsed);
 		entities.DrawLightShadows(elapsed);
-		if (vmShadows.ready()) entities.DrawViewModelShadows(vmShadows, elapsed);
 		// Decals over the world and the props, before anything blended.
 		if (decalsReady) {
 			decals.SetFog(info.fogMode, info.fogStart, info.fogEnd, info.fogDensity, info.fogColor);
 			decals.Draw(Renderer::kWorldView, camera, engine.decals(), textures);
 		}
+		// The heat haze reads the frame BEFORE the fire and the weapon go on:
+		// a copy of the scene, the warp sprites over it, then the view model in
+		// a view of its own after them (bgfx orders views, and within one it
+		// puts the opaque weapon before any blended sprite).
+		// Particles.md, "The warp sprites".
+		if (warpPass) {
+			sceneTargets.CopyScene(Renderer::kSceneCopyView);
+			bgfx::setViewFrameBuffer(Renderer::kParticleWarpView, sceneTargets.framebuffer());
+			particles.DrawWarp(Renderer::kParticleWarpView, camera, window.width(), window.height(),
+					sceneTargets.sceneCopy());
+			bgfx::setViewFrameBuffer(Renderer::kAfterWarpView, sceneTargets.framebuffer());
+			Renderer::SetViewCamera(Renderer::kAfterWarpView, camera, window.width(), window.height());
+			entities.SetDrawSet(EntityRenderer::kViewModelOnly);
+			entities.Draw(Renderer::kAfterWarpView, camera, window.width(), window.height(),
+					info, elapsed);
+			entities.SetDrawSet(EntityRenderer::kAll);
+		}
+		if (vmShadows.ready()) entities.DrawViewModelShadows(vmShadows, elapsed);
+		const bgfx::ViewId lateView = warpPass ? Renderer::kAfterWarpView : Renderer::kWorldView;
 		// Particles then coronas last, exactly as in the hand-driven loop:
 		// blended, no depth writes, and coronas ignore depth entirely.
 		// Paused stops the SIMULATION but not the drawing, here as everywhere
@@ -1303,11 +1328,11 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		}
 		if (particlesReady) {
 			particles.Tick(simDt);
-			particles.Draw(Renderer::kWorldView, camera, window.width(), window.height());
+			particles.Draw(lateView, camera, window.width(), window.height());
 		}
 		if (billboardsReady) {
 			billboards.Update(camera, simDt, collision);
-			billboards.Draw(Renderer::kWorldView, camera);
+			billboards.Draw(lateView, camera);
 		}
 
 		// The collision wireframe, drawn over the finished world so it reads
@@ -1376,6 +1401,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 					Renderer::kBloomBlurVView, Renderer::kCompositeView);
 		else
 			bloom.Skip();
+		// Targets on for the warp alone: the scene still has to reach the backbuffer.
+		if (sceneTargets.active() && !bloomThisFrame && !demonFx.active())
+			sceneTargets.Present(Renderer::kCompositeView);
 		// Or, in Demon Morph: black and white, the glow, the warp, the trail.
 		demonFx.Draw(sceneTargets, Renderer::kDemonGrayView, Renderer::kDemonWarpView,
 				Renderer::kDemonCopyView, dt);

@@ -115,6 +115,8 @@ int LuaCmd(const char* dataRoot, int frames, const char* level,
 			engine.UpdateAttached();
 			engine.TickSounds(sim);
 			engine.TickCollisions(sim);
+			// The view model follows the camera here too, as in GameApp.
+			engine.UpdateViewAttached();
 			// The mixer's own tick, on the simulated clock: the voice policy
 			// promotes and expires by it, and a headless run outpaces the
 			// wall clock a hundredfold.
