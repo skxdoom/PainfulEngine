@@ -3,6 +3,7 @@
 // corona and child-entity hookups that hang off one.
 
 #include "ScriptEngineInternal.h"
+#include "../Core/Debug.h"
 #include "../Core/Vectors.h"
 #include <string>
 #include <vector>
@@ -1176,25 +1177,31 @@ int EntityNatives::L_ENTITY_ComputeChildMatrix(lua_State* L) {
 	Entity* parent = self->Find(HandleArg(L, 2));
 	if (!child || !parent) return 0;
 	int joint = int(luaL_optnumber(L, 3, -1));
-	Vec3 basePos;
+	// In the units PlaceAttached consumes: a joint offset is bone-local, in
+	// model space before the entity's scale (JointToWorld); an entity offset
+	// is in world units. The rotation is what, applied FIRST and then the
+	// joint's or the parent's, gives the child's current one: a * b applies
+	// a first, so child * conj(base).
 	Quat baseRot;
 	bool ok = false;
-	if (joint >= 0 && parent->type == kModel) {
-		const Vec3 zero;
-		ok = self->JointToWorld(*parent, joint, zero, basePos) &&
-				self->JointWorldRotation(*parent, joint, baseRot);
+	const std::vector<Mat4>* bones = self->PosedBones(*parent);
+	if (joint >= 0 && bones && size_t(joint) < bones->size() &&
+			self->JointWorldRotation(*parent, joint, baseRot)) {
+		const float k = parent->scale > 1e-6f ? 1.f / parent->scale : 1.f;
+		const Vec3 model = k * parent->rot.Conjugate().Rotate(child->pos - parent->pos);
+		child->parentOffset = Mat4::InvertAffine((*bones)[size_t(joint)]).TransformPoint(model);
+		ok = true;
 	}
 	if (!ok) {
-		basePos = parent->pos;
 		baseRot = parent->rot;
+		child->parentOffset = parent->rot.Conjugate().Rotate(child->pos - parent->pos);
 		joint = -1;
 	}
-	// Inverse of a unit quaternion is its conjugate in any convention.
-	const Quat inv = baseRot.Conjugate();
-	child->parentOffset = inv.Rotate(child->pos - basePos);
-	child->parentRot = inv * child->rot;
+	child->parentRot = child->rot * baseRot.Conjugate();
 	child->parentRotBound = true;
 	child->parentBound = true;
+	child->localPose = false;
+	child->localScale = 1.f;
 	child->parentJointIndex = joint;
 	child->parentJoint.clear();
 	return 0;
@@ -1369,8 +1376,18 @@ void ScriptEngine::PlaceAttached(Entity& e) {
 
 // Every bound entity, once the parents have finished moving for the frame.
 void ScriptEngine::UpdateAttached() {
-	for (auto& kv : entities_)
-		if (kv.second.parentBound) PlaceAttached(kv.second);
+	static const bool kDecalTrace = DebugFlag("PAINFUL_DECAL_TRACE");
+	for (auto& kv : entities_) {
+		Entity& e = kv.second;
+		if (e.parentBound) PlaceAttached(e);
+		// A decal cut on a body rides it: its transform is the body's pose.
+		if (e.type == kDecal && e.decalSlot >= 0 && e.parent != 0 && decals_.Attached(e.decalSlot))
+			if (const Entity* parent = Find(e.parent))
+				decals_.SetTransform(e.decalSlot, parent->pos, parent->rot);
+		if (kDecalTrace && e.type == kDecal && e.parent != 0 && decals_.Attached(e.decalSlot))
+			if (const Entity* parent = Find(e.parent))
+				LogInfo("decal %d rides entity %d at (%.2f %.2f %.2f)", kv.first, e.parent, parent->pos[0], parent->pos[1], parent->pos[2]);
+	}
 }
 
 

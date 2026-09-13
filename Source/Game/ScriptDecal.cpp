@@ -111,7 +111,7 @@ int ScriptEngine::SpawnDecalEntity(lua_State* L, bool oriented, const char* stat
 		stored.parent = target;
 		stored.dieWithParent = true;
 	}
-	BuildDecalGeometry(stored, target, pos, n);
+	BuildDecalGeometry(stored, handle, target, pos, n);
 	// PAINFUL_DECAL_TRACE: what each spawn cut, for the headless probe.
 	static const bool kTrace = DebugFlag("PAINFUL_DECAL_TRACE");
 	if (kTrace) {
@@ -124,17 +124,26 @@ int ScriptEngine::SpawnDecalEntity(lua_State* L, bool oriented, const char* stat
 	return 1;
 }
 
-void ScriptEngine::BuildDecalGeometry(Entity& decal, int target, const Vec3& pos,
+void ScriptEngine::BuildDecalGeometry(Entity& decal, int decalHandle, int target, const Vec3& pos,
 		const Vec3& normal) {
 	const int slot = decal.decalSlot;
 	if (slot < 0 || !mapLoaded_) return;
 	decal.decalObject = -1;
-	auto worldObject = [&](const Entity* we) {
+	auto worldObject = [&](int handle) {
+		Entity* we = handle != 0 ? Find(handle) : nullptr;
 		if (we == nullptr || !we->worldObject) return false;
 		if (we->activeMesh >= 0 && size_t(we->activeMesh) < map_.objects.size()) {
 			const MapObject& o = map_.objects[size_t(we->activeMesh)];
 			decals_.Append(slot, o, WorldObjectToWorld(o, world_.scale, *we));
 			decal.decalObject = we->activeMesh;
+			// A body moves: the cut geometry goes into its frame and the decal
+			// becomes its child, as Decal::Spawn registers it in the original.
+			decals_.Attach(slot, we->pos, we->rot);
+			if (decal.parent == 0) {
+				decal.parent = handle;
+				decal.dieWithParent = true;
+				we->children.push_back(decalHandle);
+			}
 			return true;
 		}
 		// A water surface: a world-object entity that names its object and
@@ -152,7 +161,7 @@ void ScriptEngine::BuildDecalGeometry(Entity& decal, int target, const Vec3& pos
 	// Decal::Spawn clips to the mesh of the entity it was given - a Mesh
 	// entity only. A model or a pack mesh gets nothing, as in the original.
 	if (target != 0) {
-		worldObject(Find(target));
+		worldObject(target);
 		return;
 	}
 
@@ -168,7 +177,7 @@ void ScriptEngine::BuildDecalGeometry(Entity& decal, int target, const Vec3& pos
 		PhysicsWorld::RayHit hit;
 		if (physics_->RayCast(from, to, hit, true)) {
 			if (hit.bodySlot >= 0) {
-				if (worldObject(Find(EntityForBody(hit.bodySlot)))) return;
+				if (worldObject(EntityForBody(hit.bodySlot))) return;
 				// A glass pane is a body with no entity behind it, so the
 				// lookup above finds nothing: clip to the pane's own object,
 				// which is also what lets breaking it take the decal away.
@@ -221,7 +230,7 @@ int DecalNatives::L_ENTITY_UpdateDecal(lua_State* L) {
 	for (int c = 0; c < 3; ++c) d->pos[c] = pos[c];
 	self->decals_.ClearGeometry(d->decalSlot);
 	self->decals_.SetBasis(d->decalSlot, pos, n);
-	self->BuildDecalGeometry(*d, target, pos, n);
+	self->BuildDecalGeometry(*d, HandleArg(L, 2), target, pos, n);
 	return 0;
 }
 

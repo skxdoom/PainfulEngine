@@ -889,7 +889,7 @@ private:
 	// Projects a decal onto what it was spawned against: the target's map
 	// object when it is a world object, else the object under the spawn
 	// point, else every collidable object the box overlaps.
-	void BuildDecalGeometry(Entity& decal, int target, const Vec3& pos,
+	void BuildDecalGeometry(Entity& decal, int decalHandle, int target, const Vec3& pos,
 			const Vec3& normal);
 	int SpawnDecalEntity(lua_State* L, bool oriented, const char* staticTexture);
 	// The blast itself: collects what it reached, pushes it, and posts one

@@ -1835,6 +1835,18 @@ scratchpad: two zombies at 14 units, one given 1000 health, shot at spawn).
   In the engine's q^-1*v*q convention a rotation by +angle about n is
   (cos, -n sin); with the vector part negated the nose reads -0.12 at the same
   moment, a little ahead of the velocity, as authored.
+- **`ComputeChildMatrix` in `PlaceAttached`'s own units** (2026-09-13). The
+  native stored a joint offset in world units rotated into the joint frame,
+  while the joint path pushes the offset through the posed bone matrix and the
+  entity scale (`JointToWorld`) - so a nailed stake came back at the joint's
+  own scale, off where it had struck; and its rotation product was the old
+  `joint * euler` order. It now stores the offset bone-local in model space
+  (`InvertAffine` of the posed bone, after the entity's inverse rotation and
+  scale) and the rotation as `child * conj(base)`, which the Euler-first
+  composition turns back into the child's own. Measured headless: a stake
+  nailed to the weapon's joint 5 drifts 0.0013 over the next frame with its
+  forward dot 1.0000, and keeps its 0.374 distance to the joint through a
+  40-degree pitch of the view.
 - **A child's own transform is its local one.** `Entity::UpdateTransform`
   (0x101D2CB0) builds an entity's matrix as scale x rotation with the position
   in the last row, and for a following child multiplies it by the parent's

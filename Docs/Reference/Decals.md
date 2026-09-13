@@ -169,6 +169,25 @@ and when that finds nothing, every collidable object the box overlaps is
 cut. A decal on a **model or a pack mesh** — blood on a crate — gets no
 geometry, which is the original's answer for a non-Mesh entity as well.
 
+## On a moving mesh
+
+`Decal::Spawn` registers the decal as the mesh's child (`RegisterChild(e,
+decal, true, -1)`), and the child's matrix rides the parent's
+(`Entity::UpdateTransform`, [`Physics.md`](Physics.md) "The stake") - so a
+bullet hole on a gravestone that is then knocked over goes with the stone. The
+port cuts an active mesh in its current pose as before, then
+`DecalSystem::Attach` re-expresses the vertices and the normal in the body's
+frame and `ScriptEngine::UpdateAttached` refreshes the decal's transform from
+the entity every frame; `DecalRenderer::Draw` sets it as the model transform.
+The decal is parented to the entity whichever way it was found (a target
+handle, or the trace through the spawn point), so it dies with it.
+`PAINFUL_DECAL_TRACE=1` logs the ride each frame. Measured headless on Cemetery:
+a bullet hole on the gravestone `phys_vheavy_actgrp23_nagrob4shape` (the stone as
+target) cuts 48 vertices, and a cross teleported two units carries its decal's
+frame with it as it settles. A spawn with target 0 finds no active mesh: the
+trace through the point is static-only and the overlap fallback skips them -
+the weapon scripts pass the entity they hit, so that path is not theirs.
+
 ## The clock (`Decal::Tick`)
 
 ```

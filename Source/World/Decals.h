@@ -61,6 +61,11 @@ struct DecalInstance {
 	bool finished = false;
 	uint8_t alpha = 255; // the fade factor, 0x01010101 * alpha
 	int objects = 0; // map objects appended, for diagnostics
+	// Cut on a body that moves: the vertices and normal are in the ENTITY's
+	// frame and `transform` is its pose, refreshed every frame (the original
+	// registers the decal as the mesh's child). Decals.md, "On a moving mesh".
+	bool attached = false;
+	Mat4 transform;
 };
 
 // Decals in the CPU: Decal::Spawn's projection and clip, Decal::Tick's clock.
@@ -85,6 +90,11 @@ public:
 	void Box(int slot, Vec3& lo, Vec3& hi) const;
 	bool HasGeometry(int slot) const;
 	void SetTextureOverride(int slot, const std::string& texture);
+	// Re-express the cut geometry in the frame of a body at (pos, rot), and
+	// keep that frame current.
+	void Attach(int slot, const Vec3& pos, const Quat& rot);
+	void SetTransform(int slot, const Vec3& pos, const Quat& rot);
+	bool Attached(int slot) const { return Valid(slot) && decals_[size_t(slot)].attached; }
 
 	// Decal::Tick for every live decal.
 	void Tick(float dt);

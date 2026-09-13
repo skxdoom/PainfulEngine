@@ -125,6 +125,8 @@ void DecalRenderer::Draw(bgfx::ViewId view, const Camera& camera, const DecalSys
 				BlendModeState(blend);
 		if (blend == 0) state |= BGFX_STATE_WRITE_Z;
 		bgfx::setState(state);
+		// On a moving mesh the vertices are in the body's frame.
+		if (d.attached) bgfx::setTransform(d.transform.m);
 		bgfx::setVertexBuffer(0, &tvb, 0, count);
 		float fogColor[4];
 		FogColorForBlend(blend, fogColor_, fogColor);

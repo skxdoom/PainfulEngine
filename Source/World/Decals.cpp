@@ -233,6 +233,7 @@ void DecalSystem::SetBasisOriented(int slot, const Vec3& pos, const Vec3& normal
 
 void DecalSystem::ClearGeometry(int slot) {
 	if (!Valid(slot)) return;
+	decals_[size_t(slot)].attached = false;
 	decals_[size_t(slot)].verts.clear();
 	decals_[size_t(slot)].objects = 0;
 }
@@ -377,6 +378,27 @@ void DecalSystem::ProjectTriangle(DecalInstance& d, const Vec3 w[3], const float
 // Decal::Tick (0x101CDD70): an unanimated decal ages at Cfg.DecalsStayTime
 // times real time and holds still under R3D.KeepDecals; an animated one ages
 // at real time regardless. Under DecayTime the fade factor is life/decay.
+
+void DecalSystem::SetTransform(int slot, const Vec3& pos, const Quat& rot) {
+	if (!Valid(slot)) return;
+	DecalInstance& d = decals_[size_t(slot)];
+	float rot9[9];
+	EngineQuatToRot9(rot, rot9);
+	for (int r = 0; r < 3; ++r)
+		for (int col = 0; col < 3; ++col) d.transform[r * 4 + col] = rot9[r * 3 + col];
+	for (int col = 0; col < 3; ++col) d.transform[12 + col] = pos[col];
+}
+
+void DecalSystem::Attach(int slot, const Vec3& pos, const Quat& rot) {
+	if (!Valid(slot)) return;
+	DecalInstance& d = decals_[size_t(slot)];
+	const Quat inv = rot.Conjugate();
+	for (DecalVertex& v : d.verts) v.pos = inv.Rotate(v.pos - pos);
+	d.normal = inv.Rotate(d.normal);
+	d.attached = true;
+	SetTransform(slot, pos, rot);
+}
+
 void DecalSystem::Tick(float dt) {
 	if (dt <= 0.f) return;
 	for (DecalInstance& d : decals_) {
