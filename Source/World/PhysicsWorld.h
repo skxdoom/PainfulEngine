@@ -313,6 +313,9 @@ public:
 	// GetRagdollPose is what the renderer should draw.
 	void SetRagdollPose(int slot, const float* boneMatrices, bool kinematic);
 	bool GetRagdollPose(int slot, float* boneMatrices) const;
+	void LogRagdollJoints(int slot) const;
+	// The widest anchor separation over the ragdoll's joints, world units.
+	float RagdollWorstJointGap(int slot) const;
 	// Is this ragdoll being simulated rather than driven? MDL.IsRagdollActive.
 	bool RagdollActive(int slot) const;
 	// MDL.SetRagdollCollisionGroup / GetRagdollCollisionGroup, and the layer an

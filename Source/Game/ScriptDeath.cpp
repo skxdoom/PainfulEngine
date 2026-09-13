@@ -180,6 +180,7 @@ bool ScriptEngine::EnableRagdoll(Entity& e, bool enable, const std::vector<Mat4>
 		physics_->RemoveRagdoll(e.ragdollSlot);
 		e.ragdollSlot = -1;
 		e.ragdollPose.clear();
+		e.ragdollLocal.clear();
 		return true;
 	}
 	if (e.ragdollSlot >= 0) return true; // already one
@@ -313,6 +314,14 @@ bool ScriptEngine::EnableRagdoll(Entity& e, bool enable, const std::vector<Mat4>
 	// so a joint query in the same tick as the death (CreateGib asks for
 	// "root" straight away) answers with the corpse, not with identity.
 	e.ragdollPose = *bones;
+	// The seed's local transforms, for the bones no body drives.
+	e.ragdollLocal.assign(bones->size(), Mat4());
+	for (size_t b = 0; b < bones->size(); ++b) {
+		const int par = skel->bones[b].parent;
+		e.ragdollLocal[b] = (par >= 0 && size_t(par) < b)
+			? Mat4::Mul((*bones)[b], Mat4::InvertAffine((*bones)[size_t(par)]))
+			: (*bones)[b];
+	}
 	LogInfo("ragdoll on: %s (%s, %zu parts)", e.name.c_str(), e.source.c_str(), parts.size());
 	return true;
 }
@@ -356,6 +365,8 @@ void ScriptEngine::TickRagdolls() {
 			LogInfo("rdbg %s parts=%zu world extent %.2f x %.2f x %.2f  lo.y %.2f  p0 %.2f %.2f %.2f",
 					e.name.c_str(), parts.size(), hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2],
 					lo[1], got[12], got[13], got[14]);
+			static int debugFrame = 0;
+			if ((++debugFrame % 30) == 1) physics_->LogRagdollJoints(e.ragdollSlot);
 		}
 
 		// THE ENTITY FOLLOWS ITS OWN CORPSE. The solver moves the body across
@@ -428,13 +439,24 @@ void ScriptEngine::TickRagdolls() {
 		// the leaves; then downward for everything still unresolved. A bone's
 		// rest transform relative to its parent is bindWorld[b] *
 		// inverse(bindWorld[parent]), and it inverts cleanly either way.
+		const bool seeded = e.ragdollLocal.size() == skel->bones.size();
 		const auto restLocal = [&](size_t b, size_t par) {
+			if (seeded) return e.ragdollLocal[b];
 			return Mat4::Mul(skel->bindWorld[b], Mat4::InvertAffine(skel->bindWorld[par]));
 		};
+		// A bone with a driven ancestor is placed from above by the downward
+		// pass. Resolving it from a child instead hung the chest off whichever
+		// arm came last in the walk, and the torso twisted with that arm.
+		std::vector<bool> fromAbove(skel->bones.size(), false);
+		for (size_t b = 0; b < skel->bones.size(); ++b) {
+			const int par = skel->bones[b].parent;
+			fromAbove[b] = par >= 0 && size_t(par) < b &&
+					(driven[size_t(par)] || fromAbove[size_t(par)]);
+		}
 		for (size_t i = skel->bones.size(); i-- > 0;) {
 			if (!driven[i] || loose[i]) continue; // a dropped weapon drags nothing
 			const int par = skel->bones[i].parent;
-			if (par < 0 || size_t(par) >= i || driven[size_t(par)]) continue;
+			if (par < 0 || size_t(par) >= i || driven[size_t(par)] || fromAbove[size_t(par)]) continue;
 			e.ragdollPose[size_t(par)] =
 				Mat4::Mul(Mat4::InvertAffine(restLocal(i, size_t(par))), e.ragdollPose[i]);
 			driven[size_t(par)] = true;

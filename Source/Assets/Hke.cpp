@@ -535,6 +535,10 @@ bool Hke::Load(const std::string& path, Hke& out) {
 		text.assign(reinterpret_cast<const char*>(data.data()), data.size());
 	}
 
+	// PAINFUL_HKE_DUMP=<file>: the text the parser sees, binary decoded.
+	if (const char* dump = std::getenv("PAINFUL_HKE_DUMP"))
+		if (FILE* d = std::fopen(dump, "wb")) { std::fwrite(text.data(), 1, text.size(), d); std::fclose(d); }
+
 	Tokens k;
 	Tokenize(text, k);
 	k.next(); // the leading 'A'

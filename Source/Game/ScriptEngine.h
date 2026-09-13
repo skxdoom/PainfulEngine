@@ -432,6 +432,10 @@ public:
 		// the ragdoll only names a dozen or so bones and the rest have to
 		// follow their nearest driven ancestor or the corpse loses its hands.
 		std::vector<Mat4> ragdollPose;
+		// Each bone's LOCAL transform in the pose the ragdoll was seeded from. A
+		// bone with no body (ankle, head, hand) keeps this against its driven
+		// parent; the bind pose put the foot 35 degrees off the shin at the seed.
+		std::vector<Mat4> ragdollLocal;
 	};
 
 	// What the scripts told WORLD.* to set up; the game loop turns this into

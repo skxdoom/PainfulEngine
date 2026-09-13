@@ -219,9 +219,9 @@ const Command kCommands[] = {
 		"the .hke as text (a binary one decoded)",
 		[](int, char** argv) { return HkeTextCmd(argv[2]); }},
 
-{"ragdolldrop", 5, Root::kArgv3, "physics", "<levelDir> <DataRoot> <model>",
+{"ragdolldrop", 5, Root::kArgv3, "physics", "<levelDir> <DataRoot> <model> [impulse] [mass]",
 		"drop a ragdoll into the level and settle it",
-		[](int, char** argv) { return RagdollDropCmd(argv[2], argv[3], argv[4]); }},
+		[](int argc, char** argv) { return RagdollDropCmd(argv[2], argv[3], argv[4], argc > 5 ? float(atof(argv[5])) : 0.f, argc > 6 ? float(atof(argv[6])) : 0.f); }},
 
 {"lua", 3, Root::kArgv2, "script", "<DataRoot> [frames] [level] [exec]",
 		"boot the script layer, tick, report native calls",

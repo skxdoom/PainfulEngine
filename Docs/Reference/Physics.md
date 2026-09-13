@@ -1389,6 +1389,133 @@ Still stubs: `SetRagdollRestitution`, `SetRagdollCollisionGroup`,
 `ApplyVelocitiesToJoint` / `ApplyRotationToJoint` joint-level family.
 
 
+### Bones no body drives
+
+The zombie's ragdoll ends at the knees and the neck: the ankle, the foot, the
+head and the hands have no rigid body and are posed from their driven parent.
+`TickRagdolls` gave them the BIND pose's local transform, so at the seed the
+foot snapped from the animation's angle to the bind's - measured on a spawned
+Cemetery zombie, one frame after `EnableRagdoll` the shin had turned 4.3
+degrees and the ankle 39.2 - and read as a twisted ankle or head for the rest
+of the fall. The seed now records every bone's local transform from the pose
+it was taken in (`Entity::ragdollLocal`) and the undriven bones keep that
+against their parents, which is what a skeleton driven only at its ragdoll
+bones does in the original: the animation's own pose where physics has nothing
+to say. A loaded save re-seeds from the saved pose and rebuilds the same.
+
+A bone with a driven ancestor is placed from above, never from a child. The
+skeleton soldier's `k_ramiona` (the chest, under `k_zebra`) has three driven
+children - the neck and both upper arms - and the upward pass, which exists
+for the zombie's `root` above its whole ragdoll, was resolving it from
+whichever arm came last in the walk. The chest then turned with that arm,
+which was the twisted torso of the Catacombs corpses.
+
+**Two ragdolls carry no constraints at all, by design.** `bones.hke` (the
+Catacombs skeleton) and `bagbaby.hke` are bodies plus a drag action and
+nothing else: the skeleton is nine loose bones that the death hook scatters
+(`Bones:CustomOnDeathAfterRagdoll`, a bone effect at each `DeathJoints` entry
+and an explosion), so a heap of separate bones is what it should be. The
+armoured `skeletonsoldier` has its ten constraints like everyone else.
+`PAINFUL_HKE_DUMP=<file>` writes the text the parser saw, binary decoded,
+which is how the two were checked. The original synthesises nothing: the
+ragdoll builder (`Ragdoll::Init` 0x1019cca0 -> FUN_101c1a40 -> FUN_101bc620)
+is three loops over the parsed file, bodies then constraints then actions,
+with no branch for an empty constraint list. So a killed Bones is a heap of
+loose bones in the original too, and the port keeps it that way.
+
+### Self-collision
+
+A ragdoll's bodies do not collide with each other when they overlap in the
+rest pose, and never with their parent. Jolt's
+`DisableParentChildCollisions` does both once it is handed the rest-pose
+matrices; without them it disables the parent pairs only, and a file with no
+constraints has no parent pairs at all. That was the Catacombs skeleton:
+nine overlapping bone hulls, nine free bodies, and the solver pushing the
+overlaps apart in the first step. Measured with `PainfulTools ragdolldrop`
+on `bones`: the pile settled at 4.6 x 7.4 units from a standing extent of
+1.0, and 2.1 x 1.4 with the overlaps ignored. Havok's exact filter policy
+for one ragdoll's bodies is not recovered; the observable is that the
+original's skeleton collapses without flying apart, and this matches it.
+
+### Mass
+
+The builder in `Engine.dll` (FUN_101bc620, the body loop) never reads a
+primitive's `MASS` as a mass. With no mass flag on the model it computes the
+scaled hull's mass properties at density 600 (`DAT_102c8d60`) and floors the
+result at 10 (`DAT_102af16c`); a model-level mass field (`Model+0xdc`, flag
+bits at `+0xd8`) replaces that, scaled by the model's scale cubed under one
+flag and verbatim under the other, and nothing shipped has been seen to set
+it. `Ragdoll::SetMass` (FUN_101ab970) then scales every body by the same
+factor so the total is the requested one, which is what `PO_SetMass` does to
+a corpse straight after `EnableRagdoll` (zombie 150, nun 120). So the limbs
+are volume-proportioned and the total is the template's, and the port does
+both: `CreateRagdoll` gives a part `max(10, volume x 600)` and
+`SetRagdollMass` rescales. Before this every limb weighed the `.hke`'s 1.0
+and a hand took the same impulse as the torso.
+
+### Solver steps
+
+A ragdoll's parts run 30 velocity and 8 position solver iterations instead
+of Jolt's 10 and 2. `PainfulTools ragdolldrop <level> <DataRoot> <model>
+[impulse] [mass]` puts that much impulse sideways into the first part and
+reports the widest anchor separation over the joints frame by frame; on the
+zombie at its 150 total mass:
+
+| hit | 10/2 peak | 30/8 peak | 10/2 after 1 s | 30/8 after 1 s |
+|---|---|---|---|---|
+| 300 | 0.08 | 0.05 | 0.024 | 0.006 |
+| 1000 | 0.16 | 0.07 | 0.012 | 0.002 |
+| 3000 | 0.52 | 0.26 | 0.032 | 0.015 |
+
+in world units on a corpse 1.8 long. The half-body gap at the defaults, and
+the slow closing that follows, was the stretch seen on a strong hit in play.
+The committed builder measured the same, so it was never the limits; the
+defaults just could not carry a hit down a twelve-body chain in one step.
+
+### The joint limits
+
+Every ragdoll constraint carries SIGNED ranges - `TWIST_MIN/MAX`,
+`CONE_MIN/MAX`, `PLANE_MIN/MAX` - and the data says what they are: the zombie
+hip has `cone -16..94` (a leg flexes far forward, extends a little back) and
+mirrored `plane` ranges on the two legs (`-30..8` / `-8..29`, the sideways
+spread). The `ragdoll` report prints each joint's axes in the authored frame:
+the hip's twist axis runs down the thigh, its plane axis is the forward/back
+axis and its normal (twist x plane) the sideways one - so the cone pair is the
+swing ABOUT THE NORMAL (flexion) and the plane pair the swing about the plane
+axis (spread).
+
+Their SIGN was settled from anatomy against the rigs' facing, as the binary
+hands them straight to Havok (the builder FUN_101bc620 passes each pair in
+file order, and Havok's own angle sense in this version is not recovered).
+Model space is +Z forward - on `bones.pkmdl` the jaw sits at +Z of the skull
+and the toes at +Z of the ankle, and Animation.md measures every walk sliding
+the root along +Z. Against that: the cone/plane/twist ranges read as Jolt
+does, body 2 (`RIGID_BODY_ATTACHED`) relative to body 1
+(`RIGID_BODY_REFERENCE`) - the zombie hip's `cone -16..94` then flexes the
+thigh 94 forward and 16 back - while a hinge range runs the OTHER way:
+`-87..0` on a knee with its axis along +X swings the shin forward when read
+verbatim, and the elbows the same, so `BuildConstraint` negates every hinge
+range (`[-max, -min]`). Reading either the other way folded that joint
+backward. DevilMonkv2 writes its two knees in opposite orders with opposite
+world axes and the same range, which only agrees physically if the frame swap
+negates a hinge range too, and it does.
+
+Jolt's `SwingTwistConstraint` limits each swing symmetrically, and a hip
+that could bend 94 either way was the folded-back corpse of Catacombs. The
+cone-twist joints are `SixDOFConstraint`s with a pyramid swing now: X the
+twist axis, Y the plane axis, Z their cross; the twist pair limits X, the
+plane pair Y, the cone pair Z, translation fixed.
+
+**And the limits are hard.** The hinges had a spring limit at about 1 Hz,
+made from Havok's `TAU` read as a softness so the seed's anchor gap would slump
+rather than snap. `TAU` is the solver's per-step correction fraction, not a
+limit stiffness, and the spring was weak enough that a corpse's own weight
+folded both knees 120 degrees the wrong way (`PAINFUL_RAGDOLL_DEBUG=1` now logs
+every joint in Jolt's constraint space against its limits every thirty frames,
+which is how this was seen: knees at +122 and +132 against `[-87, 0]`). With
+hard limits the same fall keeps every joint inside its range.
+
+
 ## Ragdoll items: the Catacombs bridge
 
 `Cat_bridge1` is a `CItem` (scale 3.2, `Mass = 250` on the physics object)
@@ -1407,7 +1534,7 @@ bridge (`joint1_getmass` / `joint8_getmass` here; `most.hke` has three). The
 port had let Jolt compute a mass from the hull, so every one of these fell.
 `CreateRagdoll` now makes a mass-0 part KINEMATIC and `SetRagdollPose` never
 switches it to dynamic; it is seeded at its authored place with the rest and
-stays there. The other six planks are 300 each.
+stays there. The other six planks weigh what their hulls displace at density 600, "Mass" above.
 
 ### Stiff springs
 

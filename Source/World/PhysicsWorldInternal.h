@@ -39,6 +39,7 @@
 #include <Jolt/Math/Math.h>
 #include <Jolt/Physics/Constraints/HingeConstraint.h>
 #include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
+#include <Jolt/Physics/Constraints/SixDOFConstraint.h>
 #include <Jolt/Physics/Constraints/DistanceConstraint.h>
 #include <Jolt/Physics/Ragdoll/Ragdoll.h>
 #include <Jolt/Skeleton/Skeleton.h>

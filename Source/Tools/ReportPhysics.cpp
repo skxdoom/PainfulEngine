@@ -6,7 +6,7 @@
 #include <vector>
 #include <map>
 
-int RagdollDropCmd(const char* levelDir, const char* dataRoot, const char* modelName) {
+int RagdollDropCmd(const char* levelDir, const char* dataRoot, const char* modelName, float impulse, float mass) {
 	Level level;
 	if (!level.Load(levelDir, dataRoot)) {
 		LogInfo("cannot load level: %s", level.error().c_str());
@@ -37,6 +37,8 @@ int RagdollDropCmd(const char* levelDir, const char* dataRoot, const char* model
 		LogInfo("could not create a ragdoll for %s", modelName);
 		return 2;
 	}
+	// The template's whole-body mass, the way CActor:EnableRagdoll sets it.
+	if (mass > 0.f) physics.SetRagdollMass(slot, mass);
 	const std::vector<std::string>& bones = physics.RagdollBones(slot);
 	const size_t n = bones.size();
 
@@ -86,6 +88,9 @@ int RagdollDropCmd(const char* levelDir, const char* dataRoot, const char* model
 		for (int c = 0; c < 3; ++c) m[12 + c] = b->translation[c] * scale + at[c];
 	}
 	physics.SetRagdollPose(slot, pose.data(), /*kinematic=*/false);
+	// An optional hit: that much impulse sideways into the first part, and
+	// the widest gap watched frame by frame while the chain absorbs it.
+	if (impulse != 0.f) physics.AddRagdollPartImpulse(slot, 0, at, Vec3{impulse, 0.f, 0.f});
 
 	// A BODY THAT HELD TOGETHER KEEPS ITS OWN SIZE, WHATEVER WAY UP IT LANDS.
 	// Per-axis extents cannot say that: a figure that starts standing and ends
@@ -141,6 +146,25 @@ int RagdollDropCmd(const char* levelDir, const char* dataRoot, const char* model
 	LogInfo("  authored: extent %.2f x %.2f x %.2f, widest part gap %.2f",
 			hi0[0] - lo0[0], hi0[1] - lo0[1], hi0[2] - lo0[2], span0);
 
+	if (impulse != 0.f) {
+		float peak = 0.f;
+		float jointPeak = 0.f;
+		int jointPeakAt = 0;
+		int peakAt = 0;
+		for (int step = 0; step < 60; ++step) {
+			physics.Update(1.f / 60.f);
+			physics.GetRagdollPose(slot, readback.data());
+			const float w = widest(readback);
+			if (w > peak) { peak = w; peakAt = step + 1; }
+			const float g = physics.RagdollWorstJointGap(slot);
+			if (g > jointPeak) { jointPeak = g; jointPeakAt = step + 1; }
+		}
+		LogInfo("  hit %.0f: widest gap peaked at %.2f (%.2fx) on frame %d, %.2f (%.2fx) after a second",
+				impulse, peak, span0 > 1e-3f ? peak / span0 : 0.f, peakAt,
+				widest(readback), span0 > 1e-3f ? widest(readback) / span0 : 0.f);
+		LogInfo("  hit %.0f: worst joint gap peaked at %.3f on frame %d, %.3f after a second (parts span %.2f)",
+				impulse, jointPeak, jointPeakAt, physics.RagdollWorstJointGap(slot), span0);
+	}
 	for (int second = 1; second <= 5; ++second) {
 		for (int step = 0; step < 60; ++step) physics.Update(1.f / 60.f);
 		physics.GetRagdollPose(slot, readback.data());
@@ -161,6 +185,7 @@ int RagdollDropCmd(const char* levelDir, const char* dataRoot, const char* model
 			span0, span, span0 > 1e-3f ? span / span0 : 0.f);
 	LogInfo("  settled extent: %.2f x %.2f x %.2f, fell %.2f units",
 			hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2], c0[1] - c[1]);
+	physics.LogRagdollJoints(slot);
 	physics.RemoveRagdoll(slot);
 	return 0;
 }
@@ -524,6 +549,11 @@ int RagdollCmd(const char* path, const char* modelsRoot) {
 					c.coneMin * 180.f / 3.14159265f, c.coneMax * 180.f / 3.14159265f,
 					c.planeMin * 180.f / 3.14159265f, c.planeMax * 180.f / 3.14159265f,
 					c.breakable ? "  BREAKABLE" : "");
+			LogInfo("            %s twist (%.2f %.2f %.2f) plane (%.2f %.2f %.2f) pivot (%.2f %.2f %.2f)",
+					c.worldSpace ? "world" : "ref-space",
+					c.worldSpace ? c.twistAxis[0] : c.csToRef[0][0], c.worldSpace ? c.twistAxis[1] : c.csToRef[0][1], c.worldSpace ? c.twistAxis[2] : c.csToRef[0][2],
+					c.worldSpace ? c.planeAxis[0] : c.csToRef[1][0], c.worldSpace ? c.planeAxis[1] : c.csToRef[1][1], c.worldSpace ? c.planeAxis[2] : c.csToRef[1][2],
+					c.worldSpace ? c.worldPivot[0] : c.csToRef[3][0], c.worldSpace ? c.worldPivot[1] : c.csToRef[3][1], c.worldSpace ? c.worldPivot[2] : c.csToRef[3][2]);
 		}
 	}
 
@@ -565,6 +595,40 @@ int RagdollCmd(const char* path, const char* modelsRoot) {
 		}
 		LogInfo("  anchor gap at the authored rest pose: worst %.4f model units over %zu "
 				"constraints (%s)", worst, checked, worstPair.c_str());
+	}
+	// The sense of every limit: each joint's axes in the authored world frame,
+	// and which way the model faces (ankle to foot). A positive rotation about
+	// a hinge axis swings the child by the right-hand rule; about a ragdoll
+	// constraint's normal it swings the twist axis toward the plane axis.
+	{
+		auto rotate = [](const Mat4& m, const Vec3& v) {
+			return Vec3(v[0] * m.m[0] + v[1] * m.m[4] + v[2] * m.m[8],
+					v[0] * m.m[1] + v[1] * m.m[5] + v[2] * m.m[9],
+					v[0] * m.m[2] + v[1] * m.m[6] + v[2] * m.m[10]);
+		};
+		for (const HkeConstraint& c : hke.constraints) {
+			if (c.worldSpace || c.kind == HkeConstraint::kStiffSpring) continue;
+			const HkeBody* ba = hke.Body(c.bodyA);
+			const HkeBody* bb = hke.Body(c.bodyB);
+			if (ba == nullptr || bb == nullptr) continue;
+			Mat4 ra, rb;
+			ba->RestMatrix(ra.m);
+			bb->RestMatrix(rb.m);
+			if (c.kind == HkeConstraint::kHinge) {
+				const Vec3 axis = rotate(ra, c.hingeDirA);
+				const Vec3 down = Vec3(rb.m[12] - ra.m[12], rb.m[13] - ra.m[13], rb.m[14] - ra.m[14]);
+				const Vec3 swing = Cross(axis, down);
+				LogInfo("    world hinge %-14s -> %-14s axis (%.2f %.2f %.2f)  +angle swings the child toward (%.2f %.2f %.2f)",
+						c.bodyA.c_str(), c.bodyB.c_str(), axis[0], axis[1], axis[2], swing[0], swing[1], swing[2]);
+			} else {
+				const Vec3 twist = rotate(ra, c.csToRef[0]);
+				const Vec3 plane = rotate(ra, c.csToRef[1]);
+				const Vec3 normal = Cross(twist, plane);
+				LogInfo("    world ragdoll %-14s -> %-14s twist (%.2f %.2f %.2f) plane (%.2f %.2f %.2f) normal (%.2f %.2f %.2f)  +cone swings the twist axis toward the plane axis",
+						c.bodyA.c_str(), c.bodyB.c_str(), twist[0], twist[1], twist[2], plane[0], plane[1], plane[2],
+						normal[0], normal[1], normal[2]);
+			}
+		}
 	}
 
 	// Which limbs are NOT part of the body - the answer Ragdoll::Joint_AreLinked

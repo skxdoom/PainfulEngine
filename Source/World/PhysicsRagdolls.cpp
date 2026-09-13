@@ -65,50 +65,18 @@ JPH::ShapeSettings::ShapeResult BuildLimbHull(const Hke& def, const HkeBody& b, 
 	return hull.Create();
 }
 
-// TAU is on every constraint in every .hke, and it is 0.1 on all of them.
-//
-// In Havok tau is the fraction of the remaining position error a constraint
-// corrects per step - a RELAXATION factor, not a hard snap. Jolt's equivalent
-// default is Baumgarte 0.2, so the original's joints are half as eager as
-// Jolt's out of the box, and a hard limit in Jolt is harder still: it resolves
-// as completely as the solver iterations allow.
-//
-// That matters at the moment of activation. The ragdoll's joints SKIP skeleton
-// bones - evilmonkv2 constrains root to k_zebra while the rig runs root ->
-// k_ogo -> k_zebra - so a pose with any bend in the skipped bone separates the
-// two anchors. Measured: 0.000 at the authored rest pose, 0.113 when activated
-// from a death animation. A hard constraint eats that in one step and the
-// corpse snaps; a soft one absorbs it over several and it slumps.
-//
-// Only the HINGES can take it: Jolt gives HingeConstraint an mLimitsSpringSettings
-// and SwingTwistConstraint nothing equivalent, so the cone-twist joints keep hard
-// limits for now. Nine of evilmonkv2's fourteen constraints are hinges.
-//
-// Converting: a constraint correcting a fraction tau of its error each step of
-// length h behaves like a spring of angular frequency tau/h, so at the fixed
-// 1/60 step tau 0.1 is 6 rad/s, just under 1 Hz. Critically damped, because an
-// overshooting joint is a twitching one.
-JPH::SpringSettings LimitSpring(float tau) {
-	JPH::SpringSettings spring;
-	if (tau <= 0.f) return spring; // frequency 0 keeps hard limits
-	spring.mMode = JPH::ESpringMode::FrequencyAndDamping;
-	spring.mFrequency = (tau * 60.f) / (2.f * JPH::JPH_PI);
-	spring.mDamping = 1.f;
-	return spring;
-}
+// Limits are HARD. A 1 Hz spring limit (Havok's tau read as softness) let a
+// corpse's weight fold both knees 120 degrees the wrong way; tau is the
+// solver's correction fraction, not a limit stiffness. Physics.md, "The joint limits".
 
-// The .hke's limits onto Jolt's.
-//
-// JOLT'S SWING IS SYMMETRIC AND HAVOK'S IS NOT. hkRagdollConstraint carries a
-// signed min and max for both the cone and the plane; SwingTwistConstraint has
-// one half-angle for each. Taking the larger magnitude keeps the joint from
-// binding where the original allowed movement, at the cost of allowing a
-// little more the other way. Twist is asymmetric in both and carries over
-// exactly.
+// The .hke's limits onto Jolt's: Hinge onto HingeConstraint (a range of body B
+// relative to A about the hinge axis), StiffSpring onto DistanceConstraint,
+// and the cone-twist joint onto a six-DOF constraint, which is the one that
+// takes the file's signed cone and plane ranges. Physics.md, "The joint limits".
 JPH::Ref<JPH::TwoBodyConstraintSettings> BuildConstraint(const HkeConstraint& c,
 		const JPH::Mat44& restA,
 		const JPH::Mat44& restB,
-		float scale) {
+		float scale, bool referenceIsParent) {
 	if (c.kind == HkeConstraint::kHinge) {
 		JPH::HingeConstraintSettings* h = new JPH::HingeConstraintSettings();
 		h->mSpace = JPH::EConstraintSpace::WorldSpace;
@@ -134,9 +102,11 @@ JPH::Ref<JPH::TwoBodyConstraintSettings> BuildConstraint(const HkeConstraint& c,
 			// Jolt wants min in [-pi,0] and max in [0,pi]; every shipped value
 			// is already inside that, but a clamp costs nothing and an
 			// out-of-range limit is an assert in a debug build.
-			h->mLimitsMin = std::max(-JPH::JPH_PI, std::min(0.f, c.limitMinAngle));
-			h->mLimitsMax = std::min(JPH::JPH_PI, std::max(0.f, c.limitMaxAngle));
-			h->mLimitsSpringSettings = LimitSpring(c.tau);
+			// The file's range runs the OTHER way from Jolt's body-2-relative-
+			// to-1 angle: read verbatim, every knee and elbow folded forward.
+			// Settled from the +Z-forward rigs. Physics.md, "The joint limits".
+			h->mLimitsMin = std::max(-JPH::JPH_PI, std::min(0.f, -c.limitMaxAngle));
+			h->mLimitsMax = std::min(JPH::JPH_PI, std::max(0.f, -c.limitMinAngle));
 		}
 		return h;
 	}
@@ -154,7 +124,14 @@ JPH::Ref<JPH::TwoBodyConstraintSettings> BuildConstraint(const HkeConstraint& c,
 		return d;
 	}
 
-	JPH::SwingTwistConstraintSettings* s = new JPH::SwingTwistConstraintSettings();
+	// hkRagdollConstraint onto a six-DOF constraint with a pyramid swing, which
+	// carries the file's ASYMMETRIC ranges (a hip flexes 94 forward and 16
+	// back). X is the twist axis, Y the plane axis, Z their cross: the twist
+	// pair limits X, the plane pair Y and the cone pair Z. The ranges describe
+	// the ATTACHED body relative to the REFERENCE - Jolt's body 2 relative to
+	// body 1 while A is body 1. SwapConstraintFrames puts the parent first,
+	// so a child-first pair takes them negated. Physics.md, "The joint limits".
+	JPH::SixDOFConstraintSettings* s = new JPH::SixDOFConstraintSettings();
 	s->mSpace = JPH::EConstraintSpace::WorldSpace;
 	JPH::Vec3 pivot, twist, plane;
 	if (c.worldSpace) {
@@ -162,28 +139,34 @@ JPH::Ref<JPH::TwoBodyConstraintSettings> BuildConstraint(const HkeConstraint& c,
 		twist = V3(c.twistAxis);
 		plane = V3(c.planeAxis);
 	} else {
-		// CS_TO_REF_TM is the constraint frame in the REFERENCE body: COL0..2
-		// the basis, COL3 the origin. Twist runs along the first column and
-		// the plane axis along the second, which is hkRagdollConstraint's own
-		// ordering and what the world form states explicitly.
 		pivot = restA * (V3(c.csToRef[3]) * scale);
 		twist = restA.Multiply3x3(V3(c.csToRef[0]));
 		plane = restA.Multiply3x3(V3(c.csToRef[1]));
 	}
 	twist = twist.NormalizedOr(JPH::Vec3::sAxisX());
 	plane = plane.NormalizedOr(twist.GetNormalizedPerpendicular());
-	// Jolt asserts the two are perpendicular; re-orthogonalise rather than
-	// trust an exported basis to be exact.
 	plane = (plane - twist * twist.Dot(plane)).NormalizedOr(twist.GetNormalizedPerpendicular());
 
 	s->mPosition1 = s->mPosition2 = pivot;
-	s->mTwistAxis1 = s->mTwistAxis2 = twist;
-	s->mPlaneAxis1 = s->mPlaneAxis2 = plane;
-	s->mNormalHalfConeAngle = std::max(std::fabs(c.coneMin), std::fabs(c.coneMax));
-	s->mPlaneHalfConeAngle = std::max(std::fabs(c.planeMin), std::fabs(c.planeMax));
-	s->mTwistMinAngle = std::max(-JPH::JPH_PI, std::min(JPH::JPH_PI, c.twistMin));
-	s->mTwistMaxAngle = std::max(-JPH::JPH_PI, std::min(JPH::JPH_PI, c.twistMax));
-	if (s->mTwistMinAngle > s->mTwistMaxAngle) std::swap(s->mTwistMinAngle, s->mTwistMaxAngle);
+	s->mAxisX1 = s->mAxisX2 = twist;
+	s->mAxisY1 = s->mAxisY2 = plane;
+	s->MakeFixedAxis(JPH::SixDOFConstraintSettings::EAxis::TranslationX);
+	s->MakeFixedAxis(JPH::SixDOFConstraintSettings::EAxis::TranslationY);
+	s->MakeFixedAxis(JPH::SixDOFConstraintSettings::EAxis::TranslationZ);
+	s->mSwingType = JPH::ESwingType::Pyramid;
+	auto range = [&](float lo, float hi) {
+		if (!referenceIsParent) { const float t = lo; lo = -hi; hi = -t; }
+		lo = std::max(-JPH::JPH_PI, std::min(JPH::JPH_PI, lo));
+		hi = std::max(-JPH::JPH_PI, std::min(JPH::JPH_PI, hi));
+		if (lo > hi) std::swap(lo, hi);
+		return std::make_pair(lo, hi);
+	};
+	const auto tw = range(c.twistMin, c.twistMax);
+	const auto pl = range(c.planeMin, c.planeMax);
+	const auto co = range(c.coneMin, c.coneMax);
+	s->SetLimitedAxis(JPH::SixDOFConstraintSettings::EAxis::RotationX, tw.first, tw.second);
+	s->SetLimitedAxis(JPH::SixDOFConstraintSettings::EAxis::RotationY, pl.first, pl.second);
+	s->SetLimitedAxis(JPH::SixDOFConstraintSettings::EAxis::RotationZ, co.first, co.second);
 	return s;
 }
 
@@ -208,13 +191,11 @@ void SwapConstraintFrames(JPH::TwoBodyConstraintSettings* s, HkeConstraint::Kind
 		h->mLimitsMin = -hi;
 		h->mLimitsMax = -lo;
 	} else if (kind == HkeConstraint::kRagdoll) {
-		JPH::SwingTwistConstraintSettings* t = static_cast<JPH::SwingTwistConstraintSettings*>(s);
+		// Frames only: the ranges were already given the child's sense.
+		JPH::SixDOFConstraintSettings* t = static_cast<JPH::SixDOFConstraintSettings*>(s);
 		std::swap(t->mPosition1, t->mPosition2);
-		std::swap(t->mTwistAxis1, t->mTwistAxis2);
-		std::swap(t->mPlaneAxis1, t->mPlaneAxis2);
-		const float lo = t->mTwistMinAngle, hi = t->mTwistMaxAngle;
-		t->mTwistMinAngle = -hi;
-		t->mTwistMaxAngle = -lo;
+		std::swap(t->mAxisX1, t->mAxisX2);
+		std::swap(t->mAxisY1, t->mAxisY2);
 	} else {
 		JPH::DistanceConstraintSettings* d = static_cast<JPH::DistanceConstraintSettings*>(s);
 		std::swap(d->mPoint1, d->mPoint2);
@@ -300,19 +281,24 @@ int PhysicsWorld::CreateRagdoll(const std::string& model, const Hke& def, float 
 			// the floor between two steps. Measured: the raven fell 209 units
 			// out of Cathedral before this, 4.4 after.
 			part.mMotionQuality = JPH::EMotionQuality::LinearCast;
+			// A chain of a dozen bodies needs more solver work than a crate: at
+			// the defaults a hard hit opens a joint by half a body for a frame.
+			// Measured in Physics.md, "Solver steps".
+			part.mNumVelocityStepsOverride = 30;
+			part.mNumPositionStepsOverride = 8;
 			part.mObjectLayer = Layers::kMoving;
 			part.mFriction = b.staticFriction;
 			part.mRestitution = b.elasticity;
 			part.mLinearDamping = def.linearDrag;
 			part.mAngularDamping = def.angularDrag;
-			// The .hke mass is the authority; the .rde says -1 everywhere,
-			// which is what "take it from here" looks like. MASS 0 is Havok's
-			// FIXED body - the wall end of a lamp, chain, door or bridge - so
-			// it is kinematic here and never moves. Physics.md, "Fixed bodies".
+			// Mass is hull volume x 600, never under 10 - the original's builder
+			// (FUN_101bc620) ignores the primitive MASS except as 0 = Havok's
+			// FIXED body, kinematic here. Physics.md, "Fixed bodies", "Mass".
 			if (b.mass > 0.f) {
 				part.mOverrideMassProperties =
 					JPH::EOverrideMassProperties::CalculateInertia;
-				part.mMassPropertiesOverride.mMass = b.mass;
+				const float volume = hull.IsValid() ? hull.Get()->GetVolume() : 0.f;
+				part.mMassPropertiesOverride.mMass = std::max(10.f, volume * 600.f);
 			} else {
 				part.mMotionType = JPH::EMotionType::Kinematic;
 			}
@@ -324,8 +310,8 @@ int PhysicsWorld::CreateRagdoll(const std::string& model, const Hke& def, float 
 				const bool aIsParent = (c.bodyA == def.bodies[size_t(par)].bone);
 				const JPH::Mat44 restPar = BodyRest(def.bodies[size_t(par)], scale);
 				JPH::Ref<JPH::TwoBodyConstraintSettings> made =
-					BuildConstraint(c, aIsParent ? restPar : rest, aIsParent ? rest : restPar,
-							scale);
+					BuildConstraint(c, aIsParent ? restPar : rest, aIsParent ? rest : restPar, scale,
+							aIsParent);
 				if (!aIsParent) SwapConstraintFrames(made, c.kind);
 				part.mToParent = made;
 			}
@@ -349,11 +335,18 @@ int PhysicsWorld::CreateRagdoll(const std::string& model, const Hke& def, float 
 			const JPH::Mat44 rb = BodyRest(def.bodies[size_t(visitOrder[size_t(ib)])], scale);
 			settings->mAdditionalConstraints.push_back(
 					JPH::RagdollSettings::AdditionalConstraint(ia, ib,
-					BuildConstraint(c, ra, rb, scale)));
+					// Body 1 is A, the reference, and stays so: verbatim ranges.
+					BuildConstraint(c, ra, rb, scale, true)));
 		}
 
 		settings->Stabilize();
-		settings->DisableParentChildCollisions();
+		// Parent-child pairs AND any two hulls that overlap in the rest
+		// pose. Without the second rule bones.hke (nine bodies, no
+		// constraints) kicks itself apart. Physics.md, "Self-collision".
+		std::vector<JPH::Mat44> restPose;
+		for (size_t p = 0; p < visitOrder.size(); ++p)
+			restPose.push_back(BodyRest(def.bodies[size_t(visitOrder[p])], scale));
+		settings->DisableParentChildCollisions(restPose.data());
 		settings->CalculateBodyIndexToConstraintIndex();
 		cached = settings;
 		LogInfo("ragdoll %s: %zu parts, %zu tree constraints, %zu additional",
@@ -796,6 +789,36 @@ void PhysicsWorld::SetRagdollPose(int slot, const float* boneMatrices, bool kine
 	inst.ragdoll->SetPose(JPH::RVec3::sZero(), mats.data());
 	inst.simulated = !kinematic;
 	if (!kinematic) inst.ragdoll->Activate();
+}
+
+
+// PAINFUL_RAGDOLL_DEBUG: every joint's rotation in Jolt's own constraint space
+// against its limits - twist about X, swing about Y and Z (a hinge: its angle).
+void PhysicsWorld::LogRagdollJoints(int slot) const {
+	if (!RagdollExists(slot)) return;
+	const Impl::RagdollInst& inst = impl_->ragdolls[size_t(slot)];
+	const float k = 180.f / JPH::JPH_PI;
+	for (size_t i = 0; i < inst.ragdoll->GetConstraintCount(); ++i) {
+		const JPH::TwoBodyConstraint* c = inst.ragdoll->GetConstraint(int(i));
+		if (c == nullptr) continue;
+		if (c->GetSubType() == JPH::EConstraintSubType::SixDOF) {
+			const JPH::SixDOFConstraint* s = static_cast<const JPH::SixDOFConstraint*>(c);
+			JPH::Quat swing, twist;
+			s->GetRotationInConstraintSpace().GetSwingTwist(swing, twist);
+			using A = JPH::SixDOFConstraintSettings::EAxis;
+			LogInfo("rdjoint %zu sixdof twist %6.1f [%6.1f %6.1f]  swingY %6.1f [%6.1f %6.1f]  swingZ %6.1f [%6.1f %6.1f]",
+					i, 2.f * std::atan2(twist.GetX(), twist.GetW()) * k,
+					s->GetLimitsMin(A::RotationX) * k, s->GetLimitsMax(A::RotationX) * k,
+					2.f * std::atan2(swing.GetY(), swing.GetW()) * k,
+					s->GetLimitsMin(A::RotationY) * k, s->GetLimitsMax(A::RotationY) * k,
+					2.f * std::atan2(swing.GetZ(), swing.GetW()) * k,
+					s->GetLimitsMin(A::RotationZ) * k, s->GetLimitsMax(A::RotationZ) * k);
+		} else if (c->GetSubType() == JPH::EConstraintSubType::Hinge) {
+			const JPH::HingeConstraint* h = static_cast<const JPH::HingeConstraint*>(c);
+			LogInfo("rdjoint %zu hinge  angle %6.1f [%6.1f %6.1f]", i, h->GetCurrentAngle() * k,
+					h->GetLimitsMin() * k, h->GetLimitsMax() * k);
+		}
+	}
 }
 
 bool PhysicsWorld::GetRagdollPose(int slot, float* boneMatrices) const {
@@ -1313,6 +1336,27 @@ void PhysicsWorld::SlideSphere(Vec3& pos, const Vec3& delta, float radius,
 	}
 
 	for (int c = 0; c < 3; ++c) pos[c] = at[c];
+}
+
+
+// How far apart the two anchors of a joint have been pulled: the stretch a
+// hard hit leaves in the chain, which the skin shows directly.
+float PhysicsWorld::RagdollWorstJointGap(int slot) const {
+	if (!RagdollExists(slot)) return 0.f;
+	const Impl::RagdollInst& inst = impl_->ragdolls[size_t(slot)];
+	const JPH::BodyLockInterfaceNoLock& lock = impl_->system.GetBodyLockInterfaceNoLock();
+	float worst = 0.f;
+	for (size_t i = 0; i < inst.ragdoll->GetConstraintCount(); ++i) {
+		const JPH::TwoBodyConstraint* c = inst.ragdoll->GetConstraint(int(i));
+		if (c == nullptr) continue;
+		const JPH::Body* b1 = lock.TryGetBody(c->GetBody1()->GetID());
+		const JPH::Body* b2 = lock.TryGetBody(c->GetBody2()->GetID());
+		if (b1 == nullptr || b2 == nullptr) continue;
+		const JPH::RVec3 a1 = b1->GetCenterOfMassTransform() * c->GetConstraintToBody1Matrix().GetTranslation();
+		const JPH::RVec3 a2 = b2->GetCenterOfMassTransform() * c->GetConstraintToBody2Matrix().GetTranslation();
+		worst = std::max(worst, float((a1 - a2).Length()));
+	}
+	return worst;
 }
 
 } // namespace painful

@@ -114,7 +114,7 @@ int ParticlesCmd(const char* levelDir, const char* dataRoot);
 int BillboardsCmd(const char* levelDir, const char* dataRoot);
 
 // ----------------------------------------------------------------- physics
-int RagdollDropCmd(const char* levelDir, const char* dataRoot, const char* modelName);
+int RagdollDropCmd(const char* levelDir, const char* dataRoot, const char* modelName, float impulse, float mass);
 int PhysicsCmd(const char* levelDir, const char* dataRoot);
 int RagdollCmd(const char* path, const char* modelsRoot);
 
