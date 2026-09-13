@@ -158,10 +158,11 @@ public:
 			TextureCache& textures, const std::string& levelHint);
 	int CreateScriptPack(const std::string& packName, const std::string& meshName,
 			float scale, TextureCache& textures,
-			const std::string& itemsRoot);
+			const std::string& itemsRoot, bool centred = false);
 	// rot is an engine-order quaternion, converted with the engine's own
 	// matrix form (see Properties.cpp ReadRotation).
 	void SetScriptPose(int slot, const Vec3& pos, const Quat& rot);
+	void SetScriptScale(int slot, float scale);
 	// This instance's pose for the frame: one skinning matrix per bone, in the
 	// model's own bone order. The script side owns the skeleton and computes
 	// this (see SkeletonCache), because the joint natives have to answer from
@@ -318,7 +319,8 @@ private:
 			const std::string& modelsRoot, size_t& outIndex);
 	// Same, for an object inside a .dat item pack.
 	bool GetPack(const std::string& packName, const std::string& meshName,
-			TextureCache& textures, const std::string& itemsRoot, size_t& outIndex);
+			TextureCache& textures, const std::string& itemsRoot, size_t& outIndex,
+			bool centred = false);
 
 	ShaderLibrary* shaders_ = nullptr; // material scripts, set by Build
 	std::map<std::string, size_t> modelIndex_; // model name -> models_ slot

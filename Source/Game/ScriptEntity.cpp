@@ -82,6 +82,7 @@ int EntityNatives::L_Create(lua_State* L) {
 	e.source = luaL_optstring(L, 2, "");
 	e.mesh = luaL_optstring(L, 3, "");
 	e.scale = float(luaL_optnumber(L, 4, 1.0));
+	e.meshCentred = lua_toboolean(L, 5) != 0;
 	if (e.type == kModel) {
 		// Argument 3 is the "Name:Tag" identity for models, not a mesh name.
 		e.name = e.mesh;
@@ -1030,7 +1031,7 @@ int EntityNatives::L_PO_Create(lua_State* L) {
 		(bodyType == 1 || bodyType == 9) && argScale > 0.f ? argScale * 1.1f : 0.f;
 	const int slot = self->physics_->CreateScriptBody(
 			bodyType, model, pack, e->mesh, scale, e->pos, e->rot, self->dataRoot_,
-			collisionGroup, sphereRadius);
+			collisionGroup, sphereRadius, e->meshCentred);
 	if (slot >= 0) {
 		e->physicsBody = slot;
 		e->bodyType = bodyType;
@@ -1134,6 +1135,7 @@ int EntityNatives::L_ENTITY_RegisterChild(lua_State* L) {
 	// number, a name when a string (0x1012FAD0 branches on the Lua type) -
 	// which is how the stake rides the limb it struck. Physics.md, "The stake".
 	const bool follows = lua_isnone(L, 3) || lua_toboolean(L, 3) != 0;
+	const bool wasBound = childEntity->parentBound;
 	if (!follows) {
 		childEntity->parentBound = false;
 	} else if (lua_isnumber(L, 4) && lua_tonumber(L, 4) >= 0) {
@@ -1144,6 +1146,21 @@ int EntityNatives::L_ENTITY_RegisterChild(lua_State* L) {
 		childEntity->parentJoint = lua_tostring(L, 4);
 		childEntity->parentJointIndex = -2;
 		childEntity->parentBound = true;
+	}
+	// Entity::UpdateTransform (0x101D2CB0): a following child's matrix is its
+	// own (scale, rotation, position) times the parent's, so what the script
+	// set before this call is the LOCAL transform - Stake:Combo makes its
+	// grenade at scale 6 and (0, 0, 9) on a stake of scale 0.07. An effect
+	// keeps its own offset (PARTICLE.SetParentOffset), and a child already
+	// placed by ComputeChildMatrix keeps that.
+	if (follows && !wasBound && childEntity->type != kParticleFX) {
+		childEntity->parentOffset = childEntity->pos;
+		childEntity->parentRot = childEntity->rot;
+		childEntity->parentRotBound = true;
+		childEntity->localScale = childEntity->scale;
+		childEntity->localPose = true;
+		childEntity->parentBound = true;
+		self->PlaceAttached(*childEntity);
 	}
 	return 0;
 }
@@ -1239,6 +1256,8 @@ int EntityNatives::L_PARTICLE_SetParentOffset(lua_State* L) {
 		e->parentOffset[c] = float(luaL_optnumber(L, c + 2, 0));
 
 	e->parentJoint.clear();
+	e->localPose = false;
+	e->localScale = 1.f;
 	e->parentJointIndex = -2;
 	if (lua_isnumber(L, 5)) {
 		e->parentJointIndex = int(lua_tonumber(L, 5));
@@ -1330,7 +1349,7 @@ void ScriptEngine::PlaceAttached(Entity& e) {
 			haveRot = true;
 		}
 	} else {
-		world = parent->pos + parent->rot.Rotate(e.parentOffset);
+		world = parent->pos + parent->rot.Rotate(e.localPose ? parent->scale * e.parentOffset : e.parentOffset);
 		if (e.parentRotBound) {
 			rot = e.parentRot * parent->rot;
 			haveRot = true;
@@ -1338,6 +1357,13 @@ void ScriptEngine::PlaceAttached(Entity& e) {
 	}
 	e.pos = world;
 	if (haveRot) e.rot = rot;
+	if (e.localPose) {
+		const float scale = parent->scale * e.localScale;
+		if (scale != e.scale) {
+			e.scale = scale;
+			if (renderer_ && e.rendererInstance >= 0) renderer_->SetScriptScale(e.rendererInstance, scale);
+		}
+	}
 	SyncPose(e);
 }
 

@@ -1835,6 +1835,26 @@ scratchpad: two zombies at 14 units, one given 1000 health, shot at spawn).
   In the engine's q^-1*v*q convention a rotation by +angle about n is
   (cos, -n sin); with the vector part negated the nose reads -0.12 at the same
   moment, a little ahead of the velocity, as authored.
+- **A child's own transform is its local one.** `Entity::UpdateTransform`
+  (0x101D2CB0) builds an entity's matrix as scale x rotation with the position
+  in the last row, and for a following child multiplies it by the parent's
+  matrix (or the joint's) - scale included. `Entity::RegisterChild` (0x101D3250)
+  only links and sets the flags. So `Stake:Combo`'s grenade, created at scale 6
+  and placed at (0, 0, 9) before `RegisterChild`, is a 0.42 grenade 0.63 up the
+  stake's length (the stake's scale is 0.07); the port drew it at scale 6 at the
+  parent's origin. `L_ENTITY_RegisterChild` takes a mesh or model child's pose
+  and scale as its local transform now (`localPose`), `PlaceAttached` scales
+  the offset by the parent and multiplies the scales; a particle keeps
+  `SetParentOffset`'s unscaled offset and a child placed by
+  `ComputeChildMatrix` keeps that.
+- **`translateToZero` is `WorldMesh::CenterGeometry`** (0x101D6F80): `World::
+  CreateEntity` (0x1005FBE0, the Mesh case) moves the pack mesh's vertices so
+  the bounding-box centre is the origin when `ENTITY.Create`'s fifth argument is
+  true - which `CItem:Apply` passes for every item. `PO_Create`'s sphere sits at
+  the entity origin, so an uncentred grenade spun about a point off its body.
+  The port centres the drawn mesh and the collision points alike
+  (`EntityRenderer::GetPack`, `PackPoints`), keyed on the flag, which the save
+  carries.
 - **The flame outlived the stake.** `Stake:OnHitSomething` kills the bound
   effect with `ENTITY.KillAllChildrenByName(se, "stakeflame")`; a ParticleFX
   entity carried no name in the port, so nothing matched and the flame stayed.

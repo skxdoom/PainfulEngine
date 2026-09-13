@@ -334,7 +334,7 @@ inline void Thin(MeshPoints& mesh) {
 }
 
 inline bool PackPoints(const std::string& itemsRoot, const std::string& packName,
-		const std::string& meshName, MeshPoints& out) {
+		const std::string& meshName, MeshPoints& out, bool centred = false) {
 	const std::string path = itemsRoot + "/" + packName;
 	if (!FileSystem::Get().Exists(path)) return false;
 
@@ -354,6 +354,14 @@ inline bool PackPoints(const std::string& itemsRoot, const std::string& packName
 			o.position(v, p);
 			out.Add(p);
 		}
+	}
+	// The entity's mesh was centred on its bounding box (WorldMesh::
+	// CenterGeometry); the hull has to sit where it is drawn.
+	if (centred && !out.empty()) {
+		JPH::Vec3 lo = JPH::Vec3::sReplicate(1e30f), hi = JPH::Vec3::sReplicate(-1e30f);
+		for (const JPH::Vec3& p : out.points) { lo = JPH::Vec3::sMin(lo, p); hi = JPH::Vec3::sMax(hi, p); }
+		const JPH::Vec3 centre = (lo + hi) * 0.5f;
+		for (JPH::Vec3& p : out.points) p -= centre;
 	}
 	return !out.empty();
 }

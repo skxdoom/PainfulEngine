@@ -327,8 +327,8 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
 
 bool EntityRenderer::GetPack(const std::string& packName, const std::string& meshName,
 		TextureCache& textures, const std::string& itemsRoot,
-		size_t& outIndex) {
-	const std::string key = packName + "/" + meshName;
+		size_t& outIndex, bool centred) {
+	const std::string key = packName + "/" + meshName + (centred ? "|c" : "");
 	auto it = modelIndex_.find(key);
 	if (it != modelIndex_.end()) {
 		outIndex = it->second;
@@ -344,6 +344,22 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
 		return false;
 	}
 
+	// ENTITY.Create's translateToZero: WorldMesh::CenterGeometry (0x101D6F80)
+	// moves the vertices so the bounding-box centre is the origin.
+	Vec3 centre;
+	if (centred) {
+		Vec3 clo(1e30f), chi(-1e30f);
+		for (const MapObject& o : pack.objects) {
+			if (!meshName.empty() && o.name != meshName && pack.objects.size() > 1) continue;
+			for (size_t i = 0; i < o.vertexCount(); ++i) {
+				Vec3 p;
+				o.position(i, p);
+				clo = Min(clo, p);
+				chi = Max(chi, p);
+			}
+		}
+		if (clo[0] <= chi[0]) centre = (clo + chi) * 0.5f;
+	}
 	GpuModel gpu;
 	bool materialSet = false;
 	Vec3 lo(1e30f), hi(-1e30f);
@@ -374,14 +390,14 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
 			o.normal(i, n);
 			o.uv(i, uv);
 			MeshVertex& v = verts[i];
-			v.x = p[0]; v.y = p[1]; v.z = p[2];
+			v.x = p[0] - centre[0]; v.y = p[1] - centre[1]; v.z = p[2] - centre[2];
 			v.nx = n[0]; v.ny = n[1]; v.nz = n[2];
 			v.u0 = v.u1 = uv[0];
 			v.v0 = v.v1 = uv[1];
 		}
 		for (int a = 0; a < 3; ++a) {
-			lo[a] = std::min(lo[a], o.bboxMin[a]);
-			hi[a] = std::max(hi[a], o.bboxMax[a]);
+			lo[a] = std::min(lo[a], o.bboxMin[a] - centre[a]);
+			hi[a] = std::max(hi[a], o.bboxMax[a] - centre[a]);
 		}
 		const bgfx::VertexBufferHandle vbo = MakeVertexBuffer(
 				verts.data(), uint32_t(verts.size() * sizeof(MeshVertex)), layout_);
@@ -634,9 +650,9 @@ int EntityRenderer::CreateWorldObject(const MapObject& o, float worldScale,
 int EntityRenderer::CreateScriptPack(const std::string& packName,
 		const std::string& meshName, float scale,
 		TextureCache& textures,
-		const std::string& itemsRoot) {
+		const std::string& itemsRoot, bool centred) {
 	size_t slot = 0;
-	if (packName.empty() || !GetPack(packName, meshName, textures, itemsRoot, slot))
+	if (packName.empty() || !GetPack(packName, meshName, textures, itemsRoot, slot, centred))
 		return -1;
 	Instance instance;
 	instance.model = slot;
@@ -655,6 +671,16 @@ void EntityRenderer::SetScriptPose(int slot, const Vec3& pos, const Quat& rot) {
 	Instance& instance = instances_[slot];
 	for (int c = 0; c < 3; ++c) instance.pos[c] = pos[c];
 	EngineQuatToRot9(rot, instance.rot9);
+	instance.transform = MakeTransform(instance.pos, instance.rot9, instance.scale);
+	UpdateBounds(instance, models_[instance.model]);
+}
+
+void EntityRenderer::SetScriptScale(int slot, float scale) {
+	if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
+			"EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
+		return;
+	Instance& instance = instances_[slot];
+	instance.scale = scale;
 	instance.transform = MakeTransform(instance.pos, instance.rot9, instance.scale);
 	UpdateBounds(instance, models_[instance.model]);
 }

@@ -171,7 +171,7 @@ void ScriptEngine::CreateRendererInstance(Entity& e) {
 			root = itemsRoot;
 		}
 		e.rendererInstance =
-			renderer_->CreateScriptPack(pack, e.mesh, e.scale, *textures_, root);
+			renderer_->CreateScriptPack(pack, e.mesh, e.scale, *textures_, root, e.meshCentred);
 	}
 	// A rebuilt instance starts with every mesh shown, so the hidden set has to
 	// be replayed - otherwise swapping a weapon's model brings back the blades

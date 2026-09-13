@@ -317,7 +317,7 @@ WORLD.AmbientColor(r, g, b, gunAmbientMultiplier)        -- 0-255
 WORLD.SetDirLight(dx, dy, dz, packedColor, intensity)
 WORLD.LoadSky(path) -> layerCount ; WORLD.AddEntity(e, hidden)
 WORLD.FindEntityByName(name) -> handle
-ENTITY.Create(etype, source, nameTagOrMesh, scale [, translateToZero]) -> handle
+ENTITY.Create(etype, source, nameTagOrMesh, scale [, translateToZero]) -> handle  -- true: the pack mesh centred on its bbox (CenterGeometry 0x101D6F80)
 ENTITY.SetRotationQ(e, w, x, y, z) / GetRotationQ(e) -> w,x,y,z
 ENTITY.GetVelocity(e) -> vx,vy,vz,speed
 MDL.SetAnim(e, anim, loop, speed, blend, mcurve, hasMovingCurveRot) -> animIndex (<0 = missing)
@@ -794,7 +794,8 @@ light in the save's own world data. Without this a loaded level came back with
 exactly ONE light, the flashlight `Game:OnPlay` makes fresh, and every placed
 `CLight` was gone. [`Lighting.md`](Lighting.md)
 
-**Version 3 carries the parent joint INDEX** (2026-09-12). `BindFX` hangs an
+**Version 4 carries the centred-mesh flag and a child's local transform** (2026-09-13,
+Physics.md "The stake"). **Version 3 carries the parent joint INDEX** (2026-09-12). `BindFX` hangs an
 effect on a joint by the number `MDL.GetJointIndex` returns, and
 `PARTICLE.SetParentOffset` / `ENTITY.RegisterChild` keep a number as
 `parentJointIndex` with the name field empty; the file carried only the name.

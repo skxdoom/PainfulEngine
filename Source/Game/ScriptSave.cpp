@@ -33,10 +33,11 @@ namespace {
 
 constexpr char kMagic[4] = {'P', 'K', 'S', 'V'};
 // 2 added the LIGHT.* block; 3 the parent joint INDEX, which BindFX binds by
-// (a number from MDL.GetJointIndex) and which the name field cannot carry.
+// (a number from MDL.GetJointIndex) and which the name field cannot carry; 4
+// the centred-mesh flag and a child's local transform.
 // An older save still loads with what it has: no light state at 1, bound
 // effects on their parent's origin at 2 - the behaviour each was written with.
-constexpr uint32_t kVersion = 3;
+constexpr uint32_t kVersion = 4;
 constexpr uint32_t kMinVersion = 1;
 
 // One class reads and writes, so a field is listed once. `ok` goes false on a
@@ -174,6 +175,7 @@ void ArchiveEntity(Archive& ar, ScriptEngine::Entity& e, bool& hadBody, bool& ha
 	ar.F(e.parent); ar.F(e.parentOffset); ar.F(e.parentJoint); ar.F(e.parentBound);
 	ar.F(e.parentRotBound); ar.F(e.parentRot);
 	if (version >= 3) ar.F(e.parentJointIndex);
+	if (version >= 4) { ar.F(e.meshCentred); ar.F(e.localPose); ar.F(e.localScale); }
 	ar.F(e.collisionGroup); ar.F(e.movedByExplosions); ar.F(e.isProjectile); ar.F(e.isGrenade);
 	ar.F(e.bodyFriction); ar.F(e.bodyRestitution);
 	ar.F(e.bodyType); ar.F(e.bodyArgScale); ar.F(e.bodyMass); ar.F(e.bodyFreedomMode);
@@ -316,7 +318,7 @@ void ScriptEngine::RebuildEntity(int handle, Entity& src) {
 						? e.bodyArgScale * 1.1f : 0.f;
 				slot = physics_->CreateScriptBody(e.bodyType, model, pack, e.mesh, scale, e.pos,
 						e.rot, dataRoot_, e.collisionGroup,
-						sphereRadius);
+						sphereRadius, e.meshCentred);
 			}
 		}
 		if (slot >= 0) {

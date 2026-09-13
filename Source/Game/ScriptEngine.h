@@ -66,6 +66,10 @@ public:
 		bool demonic = false;
 		bool inWorld = false; // WORLD.AddEntity was called
 		bool worldObject = false; // WORLD.FindEntityByName pseudo-entity
+		// ENTITY.Create's 5th argument for a pack mesh: WorldMesh::CenterGeometry
+		// (0x101D6F80) moves the vertices so the bounding-box centre is the origin,
+		// which is where PO_Create's sphere sits - a grenade spins about its middle.
+		bool meshCentred = false;
 		int rendererInstance = -1; // EntityRenderer slot, -1 when headless/unresolved
 		int physicsBody = -1; // PhysicsWorld script-body slot
 		// A world-mesh object promoted to a rigid body (name has "phys"):
@@ -186,6 +190,11 @@ public:
 		Vec3 parentOffset;
 		std::string parentJoint; // empty = the parent's own transform
 		int parentJointIndex = -2; // -2 not resolved, -1 absent
+		// RegisterChild on a mesh or model: the child's own pose and scale ARE its
+		// local transform, multiplied through the parent's matrix, scale included
+		// (Entity::UpdateTransform 0x101D2CB0). A particle's offset is not scaled.
+		bool localPose = false;
+		float localScale = 1.f;
 		bool parentBound = false; // SetParentOffset was called
 		// SetParentOffset's optional 9th..11th arguments: an Euler rotation the
 		// effect carries relative to its joint (ParticleEffect+0xc88/+0xc8c).

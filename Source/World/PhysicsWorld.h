@@ -125,7 +125,7 @@ public:
 			// > 0: a plain sphere of this radius instead of a
 			// shape derived from the mesh (BodyTypes.Sphere with
 			// an explicit PO_Create scale).
-			float sphereRadius = 0.f);
+			float sphereRadius = 0.f, bool centred = false);
 	bool ScriptBodyExists(int slot) const;
 	// The contacts recorded during the last step, then cleared. Only pairs where
 	// BOTH sides are script bodies: a prop hitting the static world is not a

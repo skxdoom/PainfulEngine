@@ -62,12 +62,12 @@ int PhysicsWorld::CreateScriptBody(int bodyType, const std::string& modelName,
 		const std::string& packMesh, float scale,
 		const Vec3& pos, const Quat& rot,
 		const std::string& dataRoot, int collisionGroup,
-		float sphereRadius) {
+		float sphereRadius, bool centred) {
 	if (impl_->worldBody.IsInvalid()) return -1; // no world, nothing to rest on
 
 	MeshPoints mesh;
 	if (!packName.empty()) {
-		if (!PackPoints(dataRoot + "/Items", packName, packMesh, mesh)) return -1;
+		if (!PackPoints(dataRoot + "/Items", packName, packMesh, mesh, centred)) return -1;
 	} else {
 		if (modelName.empty() || !ModelPoints(dataRoot + "/Models", modelName, mesh))
 			return -1;
