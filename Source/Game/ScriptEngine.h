@@ -135,7 +135,7 @@ public:
 		float soundDist2 = 20.f; // Setup3D arg 4, default 20
 		float soundInterval = -1.f; // arg 5: >= 0 loops, -1 plays once
 		float soundStartIn = -1.f; // SND.Play's delay, counted down
-		int soundVoice = 0; // the AudioEngine voice, 0 when silent
+		int soundVoice = -1; // the AudioEngine voice (a 3D key), -1 when silent
 		bool soundPlaying = false; // SND.Play happened and SND.Stop has not
 		// ENTITY.EnableCollisions(e, on, minTime=0.4, minStrength=0.6) - whether
 		// this body reports contacts to the scripts, and how often. The cooldown

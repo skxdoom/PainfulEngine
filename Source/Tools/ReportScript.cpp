@@ -340,13 +340,27 @@ int WorldSaveCmd(const char* path, const char* dataRoot, const char* option) {
 	for (const WsGlass& g : save.glass)
 		for (const WsGlass::Piece& p : g.pieces) shards += p.present ? 1 : 0;
 	LogInfo("  glass: %zu panes, %zu shards", save.glass.size(), shards);
-	std::vector<WsStream> streams;
-	if (!WsAudioStreams(save.audio.body, streams)) LogInfo("  music: the audio chunk does not parse");
+	WsAudio audio;
+	if (!WsAudioRead(save.audio.body, audio)) LogInfo("  music: the audio chunk does not parse");
+	else if (!audio.soundsRead && !save.audio.body.empty()) LogInfo("  sounds: %s", audio.error.c_str());
+	const std::vector<WsStream>& streams = audio.streams;
 	for (size_t i = 0; i < streams.size(); ++i)
 		if (streams[i].present)
 			LogInfo("  music slot %zu: '%s' volume %.2f rate %u %u loop %u at byte %u%s", i,
 					WsText(streams[i].file).c_str(), streams[i].volume, streams[i].rate, streams[i].u1c,
 					streams[i].loopCount, streams[i].position, streams[i].resumes ? ", resumes" : ", paused");
+	LogInfo("  sounds: next IDs %u / %u, %zu cached samples, %zu 2D, %zu 3D", audio.next2D, audio.next3D,
+			audio.samples.size(), audio.sounds2D.size(), audio.sounds3D.size());
+	if (list) {
+		for (const WsSound2D& s : audio.sounds2D)
+			LogInfo("    2D #%u '%s' flags %02x loop %u at byte %u volume %.2f speed %.2f%s", s.id,
+					WsText(s.file).c_str(), s.flags, s.loopCount, s.position, s.volume, s.speed,
+					s.pause.present ? ", in the pause set" : "");
+		for (const WsSound3D& s : audio.sounds3D)
+			LogInfo("    3D #%u '%s' flags %02x loop %u at byte %u volume %.2f at %.1f %.1f %.1f, %.1f..%.1f%s",
+					s.id, WsText(s.file).c_str(), s.flags, s.loopCount, s.position, s.volume, s.pos[0],
+					s.pos[1], s.pos[2], s.minDistance, s.maxDistance, s.pause.present ? ", in the pause set" : "");
+	}
 
 	// Entities read so far: all of them, or up to and including the failing one.
 	const size_t parsed = ok ? save.entities.size() : save.entityAt.size();
@@ -906,7 +920,7 @@ int SoundCmd(const char* root, const char* name, const char* seconds) {
 
 	// 2D at full volume: no distance, no panning, nothing to get wrong.
 	const int v = audio.Play2D(name, 100.f, false, true);
-	if (!v) {
+	if (v < 0) {
 		LogInfo("could not play %s (missing %zu)", name, audio.samplesMissing());
 		return 2;
 	}

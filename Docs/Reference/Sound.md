@@ -97,8 +97,9 @@ that pass a `true` pass it as the FOURTH argument, `noRandomize`, and were
 never affected — worth checking argument POSITION before assuming a shared
 fault.
 
-A looping 2D sound is not this call at all: it is `SOUND2D.Create(name, loop)`
-plus `SOUND2D.Play`, which is how `_sndRotor` and `_sndElectro` are held.
+A looping 2D sound is not this call at all: it is `SOUND2D.Create(name)`, then
+`SetLoopCount(h, 0)` and `SOUND2D.Play`, which is how `_sndRotor` and
+`_sndElectro` are held.
 
 `sameSpeedInBulletTime` is the one per-voice exception to `WORLD.SetWorldSpeed`:
 under slow motion every other voice advances at the world rate and the voice
@@ -136,9 +137,9 @@ themselves when they finish. The few callers that do keep the handle still
 work - it simply stops resolving once the sound ends, which is exactly what
 they are asking `IsPlaying` about.
 
-Handles carry a **generation** in their high bits, so a kept handle whose slot
-has since been reused answers "not playing" rather than answering about
-whatever took the slot.
+Handles are IDs that are never reused ("Handles are Miles IDs" below), so a
+kept handle whose sound has been freed answers "not playing" rather than
+answering about whatever took the slot.
 
 **The instantaneous voice count is a bad diagnostic** - a hundred one-shots can
 start and finish between two samples of it. Started and reaped, cumulative, are
@@ -201,6 +202,42 @@ this the menu restarted the battle track the save had paused, and both tracks
 played. The original never meets the case: `LoadAudio` replaces the stream pause
 sets with the saved ones ([`Formats.md`](Formats.md), "The audio chunk carries
 the music").
+
+## Handles are Miles IDs, and a save carries them
+
+A `SOUND2D` / `SOUND3D` handle is not a slot. `Sound2D_Create` (0x101f6010) takes
+the next value of a counter at `MilesEngine+0x220`, from 0 and never reused, and
+files the sound in a 16-bucket hash under it; `Sound3D_Create` (0x101f6260) counts
+at `+0x2a4`. The counts are separate, so 7 can be a live 2D sound and a live 3D
+sound at once. Every setter looks the ID up. The natives read it with
+`GetInt(1, -1)` and ignore -1, which is also what a failed create pushes.
+`SOUND.Play2D` / `Play3D` count through the same two. The port keys a voice as
+`id * 2 + (3D ? 1 : 0)`, and each SOUND2D / SOUND3D native is one function
+instantiated per kind.
+
+`SOUND2D.Create(name, sameSpeedInBulletTime, noRandomize, dontSave)`
+(`Sound2D_CreateEx` 0x101f60f0, native 0x10126430) has no loop argument: a sound
+plays once until `SetLoopCount(h, 0)`. `SOUND3D.Create(name)` takes the name alone.
+
+**A save carries the sounds, and that is what keeps the handles alive.** The
+scripts create a weapon's loops once, in `OnCreateEntity`, and keep the IDs in its
+table (`PainKiller._sndRotor`, `_sndElectro`, `_sndShock`). A load rebuilds those
+tables through `RestoreFromSave`, never `OnCreateEntity`, so the numbers come back
+from the file. The original makes them valid again:
+
+1. `PCFSystem::SaveGame` (0x100518a0) runs `SaveGame_PauseSounds`: every audible
+   sound stops at its offset and is filed in a pause set.
+2. `SaveAudio` writes every sound record, except those `SetDontSave` flagged 0x10,
+   with its ID, file, offset and pause set, and the two counters in its header.
+3. `LoadAudio` resets Miles and rebuilds the records at those IDs, before any
+   entity loads, so a Sound entity takes a fresh ID afterwards.
+4. `SOUND.SaveGame_ResumeSounds`, near the end of `SaveGame:Load`, resumes the set.
+
+The port had restored only the music, so after any load every held handle named
+nothing: the Painkiller's blades spun without their loop. Both save formats now
+carry the sounds; the record layouts are in [`Formats.md`](Formats.md), "The audio
+chunk carries the music". A save made before PKSV version 6 still loads with
+silent held sounds.
 
 ## Design
 
@@ -338,10 +375,11 @@ The first bug silenced everything. This one silenced only the sounds a script
 **holds** — which is worse, because it looked selective and therefore looked
 like a loop problem.
 
-`AudioEngine::Open` returns a **packed handle**: the voice index in the low 16
+`AudioEngine::Open` returned a **packed handle**: the voice index in the low 16
 bits, a generation counter in the high 16, so a stale handle cannot address a
-slot that has since been reused. `Resolve` decodes it. The setters did not —
-their guard treated the handle as a bare 1-based index:
+slot that has since been reused. (It has since given way to the original's IDs,
+"Handles are Miles IDs"; the lesson stands.) `Resolve` decoded it. The setters
+did not — their guard treated the handle as a bare 1-based index:
 
 ```cpp
 if (size_t(v) > voices_.size()) return;

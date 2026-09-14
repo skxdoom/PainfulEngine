@@ -368,11 +368,92 @@ struct WsStream {
 	// SaveGame_ResumeSounds lifts after the load: playing, not paused, at the save.
 	bool resumes = false;
 };
-// The streams in an audio chunk's body; false when it does not parse that far.
-bool WsAudioStreams(const std::vector<uint8_t>& body, std::vector<WsStream>& out);
-// A body holding only these streams, with the header every original save has and
-// no cached samples, groups, or 2D and 3D sounds.
-std::vector<uint8_t> WsAudioBody(const std::vector<WsStream>& streams);
+// The sample cache (FUN_101f8080 / FUN_101f8160): a MilesLoadedFile, loaded again
+// when `loaded`. Ticks are written as now minus the tick, here and below.
+struct WsSample {
+	std::string file; // "../Data/Sounds/<name>.wav", NUL included
+	uint32_t sinceCreated = 0; // +0x38
+	uint32_t sinceLastStart = 0; // +0x3c, what the start gap counts from
+	uint32_t minIntervalMs = 0; // +0x40, SOUND.SetSoundProperties
+	uint32_t maxInstances = 100; // +0x48, likewise
+	uint32_t u44 = 0; // +0x44
+	float speedRandom = 0.f; // +0x4c, the spread a created sound's speed gets
+	uint8_t loaded = 1;
+};
+
+// The pause set a sound is filed in (MilesEngine+0x2ec), with the forget bit
+// PauseCurrentlyPlayingSounds took off it; the loader files it there again.
+struct WsPauseEntry {
+	uint8_t present = 0;
+	uint32_t set = 0;
+	uint8_t forget = 0;
+};
+
+// A Miles2DSound (save FUN_101ed810, load FUN_101edd50, tag 0x5e57). The id is the
+// SOUND2D handle the scripts hold.
+struct WsSound2D {
+	uint32_t id = 0; // +0x04
+	uint32_t position = 0; // +0x10, AIL_sample_position when stopped
+	float volume = 1.f; // +0x28
+	std::string file; // +0x14's name
+	uint8_t priority = 0; // +0x08
+	uint32_t loopCount = 1; // +0x18, 0 plays forever
+	uint8_t flags = 0; // +0x00: 1 forget, 2 playing, 8 same speed in bullet time, 0x10 not saved
+	uint32_t sinceStart = 0; // +0x1c
+	uint32_t lengthMs = 0; // +0x20, what is left to play, -1 looping
+	float targetVolume = 1.f; // +0x2c, where a fade ends
+	uint32_t sinceFadeEnd = 0, sinceFadeStart = 0; // +0x30, +0x34
+	float f38[3] = {1.f, 1.f, 1.f}; // +0x38 .. +0x40
+	uint32_t since44 = 0, since48 = 0; // +0x44, +0x48
+	uint32_t maxInstances = 100; // +0x4c, the file's +0x48 when created
+	float speed = 1.f; // +0x54
+	WsPauseEntry pause;
+};
+
+// A Miles3DSound (save FUN_101ef3d0, load FUN_101efa60, tag 0x5e58).
+struct WsSound3D {
+	uint32_t id = 0; // +0x90
+	uint32_t position = 0; // +0x40, AIL_3D_sample_offset when stopped
+	std::string file; // +0x44's name
+	uint8_t flags = 0; // as a 2D sound's
+	uint8_t priority = 0; // +0x08
+	uint32_t loopCount = 1; // +0x48
+	float minDistance = 0.01f; // +0x4c, SetHearingDistance's first
+	float maxDistance = 100.f; // +0x50, and its second
+	Vec3 pos; // +0x54
+	Vec3 front{0, 0, 1}; // +0x60, SetOrientation
+	Vec3 up{0, 1, 0}; // +0x6c
+	Vec3 velocity; // +0x78, ASSUMED SetVelocity's: the one vector left
+	uint32_t sinceStart = 0; // +0x84
+	uint32_t lengthMs = 0; // +0x88
+	float volume = 1.f; // +0x0c
+	float targetVolume = 1.f; // +0x10
+	uint32_t sinceFadeEnd = 0, sinceFadeStart = 0; // +0x14, +0x18
+	float f1c[3] = {1.f, 1.f, 1.f}; // +0x1c SetIntensity, +0x20, +0x24
+	uint32_t since28 = 0, since2c = 0; // +0x28, +0x2c
+	uint32_t u34 = 0, u30 = 0; // +0x34, then +0x30
+	uint32_t since38 = 0, since3c = 0; // +0x38, +0x3c
+	uint32_t maxInstances = 100; // +0x94
+	float speed = 1.f; // +0x9c
+	WsPauseEntry pause;
+};
+
+// An audio chunk's body (MilesEngine::SaveAudio 0x101f22a0 / LoadAudio 0x101f6d40).
+struct WsAudio {
+	uint32_t next2D = 0, next3D = 0; // header 16 and 17: +0x220 / +0x2a4, the next IDs
+	uint32_t pauseSet = 0; // header 20, +0x304: the set SaveGame_ResumeSounds lifts
+	std::vector<WsSample> samples;
+	std::vector<WsStream> streams;
+	std::vector<WsSound2D> sounds2D;
+	std::vector<WsSound3D> sounds3D;
+	bool soundsRead = false; // the 2D and 3D sections parsed as well
+	std::string error;
+};
+// False when the body does not parse as far as the 2D sounds' tag. The sound
+// records can still fail on their own: `soundsRead`.
+bool WsAudioRead(const std::vector<uint8_t>& body, WsAudio& out);
+// A body with the header every original save has, its tick stamps as zero.
+std::vector<uint8_t> WsAudioWrite(const WsAudio& audio);
 
 struct WorldSave {
 	uint32_t version = 3;

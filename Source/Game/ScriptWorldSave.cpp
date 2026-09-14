@@ -25,6 +25,51 @@ namespace painful {
 
 namespace {
 
+// "../Data/Sounds/weapons/painkiller/pain-rotor-loop.wav" -> the name under Sounds.
+std::string SoundNameOf(const std::string& file) {
+	// Only the prefix goes: a script's own backslash is part of the cache key.
+	std::string name = WsText(file);
+	const size_t at = name.find("Sounds/");
+	if (at != std::string::npos) name.erase(0, at + 7);
+	const size_t dot = name.rfind('.');
+	if (dot != std::string::npos) name.erase(dot);
+	return name;
+}
+
+// The records as the AudioEngine keeps them. A sound filed in the save's pause set
+// resumes, and its forget bit sits in that entry rather than in its flags.
+std::vector<AudioEngine::VoiceState> SavedVoices(const WsAudio& audio) {
+	std::vector<AudioEngine::VoiceState> out;
+	const auto fill = [&](AudioEngine::VoiceState& s, uint32_t id, const std::string& file, uint8_t flags,
+			uint32_t loopCount, uint32_t position, float volume, float speed, const WsPauseEntry& pause) {
+		const bool filed = pause.present && pause.set == audio.pauseSet;
+		s.id = int(id);
+		s.name = SoundNameOf(file);
+		s.forget = (flags & 1) != 0 || (filed && pause.forget);
+		s.resumes = filed || (flags & 2) != 0;
+		s.sameSpeed = (flags & 8) != 0;
+		s.loopCount = int(loopCount);
+		s.offset = position;
+		s.volume = volume;
+		s.speed = speed;
+	};
+	for (const WsSound2D& r : audio.sounds2D) {
+		AudioEngine::VoiceState s;
+		fill(s, r.id, r.file, r.flags, r.loopCount, r.position, r.volume, r.speed, r.pause);
+		out.push_back(s);
+	}
+	for (const WsSound3D& r : audio.sounds3D) {
+		AudioEngine::VoiceState s;
+		s.positional = true;
+		fill(s, r.id, r.file, r.flags, r.loopCount, r.position, r.volume, r.speed, r.pause);
+		s.pos = r.pos;
+		s.dist1 = r.minDistance;
+		s.dist2 = r.maxDistance;
+		out.push_back(s);
+	}
+	return out;
+}
+
 float Bits(uint32_t v) {
 	float f;
 	std::memcpy(&f, &v, 4);
@@ -102,6 +147,15 @@ bool ScriptEngine::LoadWorldSave(const std::vector<uint8_t>& buf, const std::str
 	playerHandle_ = 0;
 	PAINFUL_CHECK(displaced == 0, "WORLD.LoadGame: %zu level objects sat on handles the save owns",
 			displaced);
+
+	// LoadAudio comes before the entities: every sound record at its ID, so the handles
+	// in the scripts' tables address sounds again, and a Sound entity then takes a new one.
+	WsAudio audio;
+	const bool audioRead = WsAudioRead(save.audio.body, audio);
+	PAINFUL_CHECK(!audioRead || audio.soundsRead || save.audio.body.empty(),
+			"WORLD.LoadGame: the audio chunk's sounds do not parse: %s", audio.error.c_str());
+	if (audio_ && audioRead)
+		audio_->RestoreVoices(SavedVoices(audio), int(audio.next2D), int(audio.next3D));
 
 	std::map<std::string, size_t> skipped;
 	std::vector<std::pair<int, const WsRagdoll*>> ragdolls;
@@ -404,9 +458,9 @@ bool ScriptEngine::LoadWorldSave(const std::vector<uint8_t>& buf, const std::str
 
 	// The music (MilesEngine::LoadAudio): each stream reopened at its saved byte. The
 	// scripts deleted theirs before this load and only start one on a change.
-	std::vector<WsStream> streams;
+	const std::vector<WsStream>& streams = audio.streams;
 	size_t musicSlots = 0;
-	if (audio_ && WsAudioStreams(save.audio.body, streams)) {
+	if (audio_ && audioRead) {
 		for (size_t slot = 0; slot < streams.size(); ++slot) {
 			if (!streams[slot].present) continue;
 			std::string name = WsText(streams[slot].file);
@@ -424,7 +478,8 @@ bool ScriptEngine::LoadWorldSave(const std::vector<uint8_t>& buf, const std::str
 			if (audio_->RestoreStream(int(slot), state)) ++musicSlots;
 		}
 	}
-	LogInfo("WORLD.LoadGame: %zu music streams reopened", musicSlots);
+	LogInfo("WORLD.LoadGame: %zu music streams reopened, %zu 2D and %zu 3D sounds restored",
+			musicSlots, audio.sounds2D.size(), audio.sounds3D.size());
 
 	if (host_) host_->RunString("SaveGame:AfterLoadEntities()");
 	// LoadPortalState: the antiportal flags by index, once the Slabs have remade theirs.

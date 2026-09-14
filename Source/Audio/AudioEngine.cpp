@@ -166,6 +166,8 @@ void AudioEngine::Shutdown() {
 	{
 		std::lock_guard<std::mutex> guard(lock_);
 		voices_.clear();
+		slotOf_.clear();
+		savedResume_.clear();
 		streams_.clear();
 	}
 	cache_.clear();
@@ -176,6 +178,7 @@ AudioEngine::Sample* AudioEngine::Load(const std::string& name) {
 	if (it != cache_.end()) return it->second.ok ? &it->second : nullptr;
 
 	Sample& s = cache_[name];
+	s.name = name;
 	auto props = pendingProps_.find(name);
 	if (props != pendingProps_.end()) {
 		s.maxInstances = props->second.first;
@@ -232,6 +235,8 @@ AudioEngine::Sample* AudioEngine::Load(const std::string& name) {
 	}
 	SDL_free(raw);
 
+	s.srcRate = have.freq;
+	s.srcBytesPerFrame = int(SDL_AUDIO_FRAMESIZE(have));
 	s.channels = want.channels;
 	s.pcm.resize(size_t(convertedLen) / sizeof(float));
 	std::memcpy(s.pcm.data(), converted, size_t(convertedLen));
@@ -341,13 +346,11 @@ void AudioEngine::Mix(float* out, int frames) {
 }
 
 AudioEngine::Playing* AudioEngine::Resolve(Voice v) {
-	if (v <= 0) return nullptr;
-	const size_t index = size_t(uint32_t(v) & 0xffffu);
-	const uint16_t gen = uint16_t(uint32_t(v) >> 16);
-	if (index == 0 || index > voices_.size()) return nullptr;
-	Playing& p = voices_[index - 1];
-	if (!p.used || p.generation != gen) return nullptr;
-	return &p;
+	if (v < 0) return nullptr;
+	const auto it = slotOf_.find(v);
+	if (it == slotOf_.end()) return nullptr;
+	Playing& p = voices_[it->second];
+	return p.used && p.key == v ? &p : nullptr;
 }
 
 const AudioEngine::Playing* AudioEngine::Resolve(Voice v) const {
@@ -355,9 +358,9 @@ const AudioEngine::Playing* AudioEngine::Resolve(Voice v) const {
 }
 
 AudioEngine::Voice AudioEngine::Open(const std::string& name, bool positional, bool held) {
-	if (!stream_) return 0;
+	if (!stream_) return kNoVoice;
 	Sample* s = Load(name);
-	if (!s) return 0;
+	if (!s) return kNoVoice;
 
 	std::lock_guard<std::mutex> guard(lock_);
 	size_t slot = voices_.size();
@@ -366,16 +369,14 @@ AudioEngine::Voice AudioEngine::Open(const std::string& name, bool positional, b
 	// The table grows rather than refusing. A held handle that is stopped and
 	// never deleted - every burning-gas item does this - is a leaked record
 	// in the original too (Sound3D_Stop keeps the object; only Sound3D_Delete
-	// frees it), and a record that is not real costs nothing to mix. The
-	// handle carries a 16-bit index, which is the only bound.
-	if (slot == voices_.size()) {
-		if (voices_.size() >= 0xfffe) return 0;
-		voices_.emplace_back();
-	}
+	// frees it), and a record that is not real costs nothing to mix.
+	if (slot == voices_.size()) voices_.emplace_back();
 	Playing& p = voices_[slot];
-	const uint16_t gen = uint16_t(p.generation + 1 ? p.generation + 1 : 1);
 	p = Playing{};
-	p.generation = gen;
+	// Sound2D_Create / Sound3D_Create (0x101f6010 / 0x101f6260): the next ID of
+	// the kind.
+	p.key = Key(positional, nextId_[positional ? 1 : 0]++);
+	slotOf_[p.key] = slot;
 	p.sample = s;
 	p.positional = positional;
 	p.used = true;
@@ -383,7 +384,7 @@ AudioEngine::Voice AudioEngine::Open(const std::string& name, bool positional, b
 	p.volume = 1.f;
 	p.gain[0] = p.gain[1] = 1.f;
 	++started_;
-	return MakeHandle(slot, gen);
+	return p.key;
 }
 
 AudioEngine::Voice AudioEngine::Create(const std::string& name, bool positional) {
@@ -399,10 +400,10 @@ AudioEngine::Voice AudioEngine::Create(const std::string& name, bool positional)
 AudioEngine::Voice AudioEngine::Play2D(const std::string& name, float volume,
 		bool sameSpeedInBulletTime, bool noPitch) {
 	const Voice v = Open(name, false, false);
-	if (!v) return 0;
+	if (v < 0) return kNoVoice;
 	std::lock_guard<std::mutex> guard(lock_);
 	Playing* p = Resolve(v);
-	if (!p) return 0;
+	if (!p) return kNoVoice;
 	p->sameSpeed = sameSpeedInBulletTime;
 	p->volume = volume > 0.f ? volume : 1.f;
 	p->gain[0] = p->gain[1] = p->volume;
@@ -420,10 +421,10 @@ AudioEngine::Voice AudioEngine::Play2D(const std::string& name, float volume,
 AudioEngine::Voice AudioEngine::Play3D(const std::string& name, const Vec3& pos,
 		float dist1, float dist2, bool noPitch) {
 	const Voice v = Open(name, true, false);
-	if (!v) return 0;
+	if (v < 0) return kNoVoice;
 	std::lock_guard<std::mutex> guard(lock_);
 	Playing* p = Resolve(v);
-	if (!p) return 0;
+	if (!p) return kNoVoice;
 	for (int c = 0; c < 3; ++c) p->pos[c] = pos[c];
 	p->dist1 = dist1;
 	p->dist2 = dist2;
@@ -579,14 +580,8 @@ void AudioEngine::SetSoundProperties(const std::string& name, int maxInstances,
 }
 
 // The setters all take the lock because the mixing callback reads what they
-// write. They are short enough that the audio thread never waits long.
-// A Voice is a PACKED handle - index in the low 16 bits, generation in the
-// high 16 - which is what Open returns and what Resolve decodes. Treating it as
-// a bare 1-based index made every setter here a silent no-op: the second voice
-// of the second generation is 0x20002 = 131074, which fails the bounds check
-// against 512 voices and returns. Nothing a script Created could be started,
-// stopped, looped or moved - SOUND2D/SOUND3D.Create hands the script one of
-// these handles and every call it then makes with it went nowhere.
+// write. They are short enough that the audio thread never waits long. Each
+// goes through Resolve: a Voice is a key, never an index into voices_.
 #define PAINFUL_VOICE(v) \
 	std::lock_guard<std::mutex> guard(lock_); \
 	Playing* resolved = Resolve(v); \
@@ -616,13 +611,12 @@ void AudioEngine::Pause(Voice v, bool paused) {
 int AudioEngine::PauseCurrentlyPlaying() {
 	std::lock_guard<std::mutex> guard(lock_);
 	PauseSet set;
-	for (size_t i = 0; i < voices_.size(); ++i) {
-		Playing& p = voices_[i];
+	for (Playing& p : voices_) {
 		// Already paused stays out of the set: a script paused it, and this
 		// resume is not the one that should undo that.
 		if (!p.used || !p.playing || p.paused) continue;
 		p.paused = true;
-		set.voices.push_back(MakeHandle(i, p.generation));
+		set.voices.push_back(p.key);
 	}
 	// The music too: MilesEngine::PauseCurrentlyPlayingSounds walks the AIL
 	// streams after the samples (AIL_pause_stream), and ResumeSounds restarts them.
@@ -680,6 +674,16 @@ void AudioEngine::SetSpeed(Voice v, float speed) {
 	if (speed > 0.f) p.speed = double(speed);
 }
 
+void AudioEngine::SetSameSpeed(Voice v, bool on) {
+	PAINFUL_VOICE(v)
+	p.sameSpeed = on;
+}
+
+void AudioEngine::SetDontSave(Voice v) {
+	PAINFUL_VOICE(v)
+	p.dontSave = true;
+}
+
 // WORLD.SetWorldSpeed's audio half. The cut-off follows MilesEngine::SetLowPass:
 // sqrt of the rate, 1 and above unfiltered, below 0.2 held at 0.2.
 void AudioEngine::SetWorldSpeed(float rate) {
@@ -696,6 +700,7 @@ void AudioEngine::Release(Voice v, bool letFinish) {
 	p.held = false;
 	if (!letFinish) {
 		Demote(p);
+		slotOf_.erase(p.key);
 		p.playing = false;
 		p.used = false;
 	}
@@ -731,9 +736,8 @@ void AudioEngine::Update() {
 		// about it, and to start it again.
 		if (!p.held && !p.playing) {
 			++reaped_;
-			const uint16_t gen = p.generation;
+			slotOf_.erase(p.key);
 			p = Playing{};
-			p.generation = gen; // Open bumps it; keep the slot's history
 			continue;
 		}
 		if (p.playing && p.positional) ComputeGains(p);
@@ -937,6 +941,147 @@ bool AudioEngine::RestoreStream(int slot, const StreamState& state) {
 	ms.paused = state.paused;
 	ms.playing = state.playing && ms.ok;
 	return true;
+}
+
+// ------------------------------------------------------------ saved sounds
+
+// An AIL offset counts bytes of the file's own sample data; a cursor counts
+// frames at the mixing rate.
+double AudioEngine::FramesOf(const Sample& s, uint32_t bytes) const {
+	if (s.srcBytesPerFrame <= 0 || s.srcRate <= 0) return 0.0;
+	return double(bytes / uint32_t(s.srcBytesPerFrame)) * double(rate_) / double(s.srcRate);
+}
+
+uint32_t AudioEngine::BytesOf(const Sample& s, double frames) const {
+	if (s.srcBytesPerFrame <= 0 || s.srcRate <= 0 || frames <= 0.0) return 0;
+	return uint32_t(frames * double(s.srcRate) / double(rate_)) * uint32_t(s.srcBytesPerFrame);
+}
+
+std::vector<AudioEngine::VoiceState> AudioEngine::VoiceStates() const {
+	std::lock_guard<std::mutex> guard(lock_);
+	const uint32_t now = NowMs();
+	std::vector<VoiceState> out;
+	for (const Playing& p : voices_) {
+		// SaveAudio skips flag 0x10; a finished sound nobody holds is freed already.
+		if (!p.used || p.dontSave || !p.sample || (!p.held && !p.playing)) continue;
+		VoiceState s;
+		s.id = IdOf(p.key);
+		s.positional = p.positional;
+		s.name = p.sample->name;
+		s.forget = !p.held;
+		s.sameSpeed = p.sameSpeed;
+		// SaveGame_PauseSounds stops what is audible into the pause set. ASSUMED: a
+		// script's own Pause is a stop there (two SOUND2D natives reach Sound2D_Stop).
+		s.resumes = p.playing && !p.paused;
+		double cursor = p.cursor;
+		int loopsLeft = p.loopsLeft;
+		if (p.playing && !p.real && !Remaining(p, now, cursor, loopsLeft)) {
+			if (!p.held) continue;
+			s.resumes = false;
+			cursor = 0.0;
+			loopsLeft = p.loopsLeft;
+		}
+		s.loopCount = loopsLeft < 0 ? 0 : std::max(loopsLeft, 1);
+		s.offset = p.playing ? BytesOf(*p.sample, cursor) : 0;
+		s.volume = p.volume;
+		s.speed = float(p.speed);
+		s.pos = p.pos;
+		s.dist1 = p.dist1;
+		s.dist2 = p.dist2;
+		out.push_back(s);
+	}
+	std::sort(out.begin(), out.end(), [](const VoiceState& a, const VoiceState& b) {
+		return a.positional != b.positional ? !a.positional : a.id < b.id;
+	});
+	return out;
+}
+
+int AudioEngine::NextId(bool positional) const {
+	std::lock_guard<std::mutex> guard(lock_);
+	return nextId_[positional ? 1 : 0];
+}
+
+void AudioEngine::RestoreVoices(const std::vector<VoiceState>& voices, int next2D, int next3D) {
+	// Loaded outside the lock, as Open does.
+	std::vector<Sample*> samples;
+	samples.reserve(voices.size());
+	for (const VoiceState& s : voices) samples.push_back(stream_ && !s.name.empty() ? Load(s.name) : nullptr);
+
+	std::lock_guard<std::mutex> guard(lock_);
+	// LoadAudio starts from LoadReset: nothing from before the load survives, and
+	// no pause set may resume a key a restored sound now owns.
+	for (Playing& p : voices_) {
+		if (p.used) Demote(p);
+		p = Playing{};
+	}
+	slotOf_.clear();
+	savedResume_.clear();
+	for (auto& kv : pauseSets_) kv.second.voices.clear();
+	if (voices_.size() < voices.size()) voices_.resize(voices.size());
+
+	int next[2] = {std::max(next2D, 0), std::max(next3D, 0)};
+	size_t slot = 0;
+	for (size_t i = 0; i < voices.size(); ++i) {
+		const VoiceState& s = voices[i];
+		const Voice key = Key(s.positional, s.id);
+		if (key < 0 || slotOf_.count(key)) continue;
+		Playing& p = voices_[slot];
+		p.key = key;
+		p.sample = samples[i];
+		p.positional = s.positional;
+		p.used = true;
+		p.held = !s.forget;
+		p.sameSpeed = s.sameSpeed;
+		p.loopsLeft = s.loopCount == 0 ? -1 : s.loopCount;
+		p.cursor = p.sample ? FramesOf(*p.sample, s.offset) : 0.0;
+		p.volume = s.volume;
+		p.speed = s.speed > 0.f ? double(s.speed) : 1.0;
+		p.pos = s.pos;
+		p.dist1 = s.dist1;
+		p.dist2 = s.dist2;
+		ComputeGains(p);
+		slotOf_[key] = slot++;
+		int& n = next[s.positional ? 1 : 0];
+		n = std::max(n, s.id + 1);
+		if (s.resumes) savedResume_.push_back(key);
+	}
+	nextId_[0] = next[0];
+	nextId_[1] = next[1];
+}
+
+void AudioEngine::ResumeSaved() {
+	std::lock_guard<std::mutex> guard(lock_);
+	const uint32_t now = NowMs();
+	for (Voice v : savedResume_) {
+		Playing* p = Resolve(v);
+		if (!p || p->playing || !p->sample) continue;
+		// Resume (FUN_101ecd90) plays on from the stopped offset: dating the start
+		// back by it makes Remaining arrive at that cursor.
+		const double framesPerMs = double(rate_) * std::max(Rate(*p), 1e-3) / 1000.0;
+		p->startedMs = now - uint32_t(p->cursor / framesPerMs);
+		p->playing = true;
+		p->paused = false;
+		TryToPlayReal(*p, now);
+	}
+	savedResume_.clear();
+}
+
+void AudioEngine::GetSoundProperties(const std::string& name, int& maxInstances,
+		int& intervalMs) const {
+	std::lock_guard<std::mutex> guard(lock_);
+	maxInstances = defaultMaxInstances_;
+	intervalMs = defaultIntervalMs_;
+	const auto it = cache_.find(name);
+	if (it != cache_.end()) {
+		if (it->second.maxInstances >= 0) maxInstances = it->second.maxInstances;
+		if (it->second.minIntervalMs >= 0) intervalMs = it->second.minIntervalMs;
+		return;
+	}
+	const auto pending = pendingProps_.find(name);
+	if (pending != pendingProps_.end()) {
+		maxInstances = pending->second.first;
+		intervalMs = pending->second.second;
+	}
 }
 
 bool AudioEngine::StreamIsPlaying(int slot) const {

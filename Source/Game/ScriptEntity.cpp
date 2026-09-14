@@ -142,7 +142,7 @@ void ScriptEngine::ReleaseEntity(int handle) {
 	}
 	// A bound sound dies with the thing it was following: a PainHead's rotor
 	// loop is held, so nothing would ever hand the slot back on its own.
-	if (audio_ && it->second.soundVoice)
+	if (audio_ && it->second.soundVoice >= 0)
 		audio_->Release(it->second.soundVoice, false);
 	if (renderer_ && it->second.rendererInstance >= 0)
 		renderer_->ReleaseScript(it->second.rendererInstance);

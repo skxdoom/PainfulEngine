@@ -43,8 +43,9 @@ constexpr char kSideSuffix[] = ".pksv";
 // the centred-mesh flag and a child's local transform.
 // An older save still loads with what it has: no light state at 1, bound
 // effects on their parent's origin at 2 - the behaviour each was written with.
-// 5 the music streams, which the scripts delete on a load and never restart.
-constexpr uint32_t kVersion = 5;
+// 5 the music streams, which the scripts delete on a load and never restart;
+// 6 the sounds the scripts hold, at the IDs their tables keep.
+constexpr uint32_t kVersion = 6;
 constexpr uint32_t kMinVersion = 1;
 
 // One class reads and writes, so a field is listed once. `ok` goes false on a
@@ -222,6 +223,22 @@ void ArchiveStreams(Archive& ar, std::vector<AudioEngine::StreamState>& streams)
 	}
 }
 
+// The next 2D and 3D IDs, then one record per sound, as AudioEngine::VoiceStates
+// gives them.
+void ArchiveVoices(Archive& ar, std::vector<AudioEngine::VoiceState>& voices, int& next2D,
+		int& next3D) {
+	ar.F(next2D);
+	ar.F(next3D);
+	uint32_t n = uint32_t(voices.size());
+	ar.F(n);
+	if (!ar.writing()) voices.assign(std::min<uint32_t>(n, 1u << 16), AudioEngine::VoiceState());
+	for (AudioEngine::VoiceState& s : voices) {
+		ar.F(s.id); ar.F(s.positional); ar.F(s.name); ar.F(s.forget); ar.F(s.resumes);
+		ar.F(s.sameSpeed); ar.F(s.loopCount); ar.F(s.offset); ar.F(s.volume); ar.F(s.speed);
+		ar.F(s.pos); ar.F(s.dist1); ar.F(s.dist2);
+	}
+}
+
 } // namespace
 
 bool ScriptEngine::SaveWorld(const std::string& enginePath) {
@@ -242,6 +259,14 @@ bool ScriptEngine::SaveWorld(const std::string& enginePath) {
 	std::vector<AudioEngine::StreamState> streams;
 	if (audio_) streams = audio_->StreamStates();
 	ArchiveStreams(ar, streams);
+	std::vector<AudioEngine::VoiceState> voices;
+	int next2D = 0, next3D = 0;
+	if (audio_) {
+		voices = audio_->VoiceStates();
+		next2D = audio_->NextId(false);
+		next3D = audio_->NextId(true);
+	}
+	ArchiveVoices(ar, voices, next2D, next3D);
 
 	// Handles in order, so a save diffs cleanly and loads deterministically.
 	std::vector<int> handles;
@@ -299,7 +324,7 @@ void ScriptEngine::RebuildEntity(int handle, Entity& src) {
 	src.ragdollSlot = -1;
 	src.rendererInstance = -1;
 	src.spriteSlot = -1;
-	src.soundVoice = 0;
+	src.soundVoice = AudioEngine::kNoVoice;
 	src.emitterSlots.clear();
 	// A joint given by NAME is resolved again against the rebuilt parent; one
 	// given by index (BindFX, RegisterChild with a number) is the index itself.
@@ -428,7 +453,8 @@ bool ScriptEngine::LoadWorld(const std::string& enginePath) {
 				path.c_str(), version,
 				version < 2 ? "the level's CLights stay dark"
 						: version < 3 ? "its bound effects sit on their parents' origins"
-						: "its music stays silent");
+						: version < 5 ? "its music stays silent"
+						: "the sounds its scripts hold stay silent");
 
 	// Everything the level load made goes: LoadMap's active meshes and water
 	// took handles the save owns.
@@ -446,6 +472,14 @@ bool ScriptEngine::LoadWorld(const std::string& enginePath) {
 		ArchiveStreams(ar, streams);
 		for (size_t slot = 0; audio_ && slot < streams.size(); ++slot)
 			if (!streams[slot].name.empty()) audio_->RestoreStream(int(slot), streams[slot]);
+	}
+	// Before the entities, as LoadAudio is: a Sound entity rebuilt below takes the
+	// next ID rather than one a script's table holds.
+	if (version >= 6) {
+		std::vector<AudioEngine::VoiceState> voices;
+		int next2D = 0, next3D = 0;
+		ArchiveVoices(ar, voices, next2D, next3D);
+		if (audio_) audio_->RestoreVoices(voices, next2D, next3D);
 	}
 
 	uint32_t count = 0;

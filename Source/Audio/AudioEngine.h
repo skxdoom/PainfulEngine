@@ -33,9 +33,16 @@ public:
 	void Shutdown();
 	bool ready() const { return stream_ != nullptr; }
 
-	// A voice handle, or 0. Zero is never valid, so the scripts' `if not h`
-	// works and a failed load is simply inaudible rather than an error.
+	// A voice as the engine keys it: the script's ID doubled, plus one for 3D.
+	// 2D and 3D sounds count their IDs separately from 0 (MilesEngine+0x220 /
+	// +0x2a4), so one number can name both. -1 is none, as Create returns.
+	// Sound.md, "Handles are Miles IDs"
 	using Voice = int;
+	static constexpr Voice kNoVoice = -1;
+	static Voice Key(bool positional, int id) {
+		return id < 0 || id > 0x3fffffff ? kNoVoice : id * 2 + (positional ? 1 : 0);
+	}
+	static int IdOf(Voice v) { return v < 0 ? -1 : v / 2; }
 
 	// `name` is a path under Sounds without the extension, exactly as the
 	// scripts write it: "actor/evilmonkv2/monk_attack", "misc/gas-outflow-5sec".
@@ -65,6 +72,10 @@ public:
 	// translates. See L_SND_SetLoopCount.
 	void SetLoopCount(Voice v, int count);
 	void SetSpeed(Voice v, float speed);
+	// SOUND2D.Create's arguments 2 and 4 (Sound2D_CreateEx 0x101f60f0): keeps its
+	// rate under SetWorldSpeed; left out of a save (record flag 0x10).
+	void SetSameSpeed(Voice v, bool on);
+	void SetDontSave(Voice v);
 	// WORLD.SetWorldSpeed's audio: every voice not marked sameSpeed plays at
 	// this rate, and the mix is low-passed at sqrt(rate) of Nyquist (0.2..1).
 	// MilesEngine::SetSpeed / SetLowPass, 0x101F2090 / 0x101F13C0. Sound.md
@@ -138,6 +149,34 @@ public:
 	// Loads the file into the slot and carries on from the saved byte.
 	bool RestoreStream(int slot, const StreamState& state);
 
+	// A sound as a save keeps it (Miles2DSound / Miles3DSound records). Saving
+	// stops what plays and files it in a pause set, which SaveGame_ResumeSounds
+	// lifts after the load: `resumes`. Formats.md, "The audio chunk"
+	struct VoiceState {
+		int id = -1;
+		bool positional = false;
+		std::string name; // under Sounds, no extension
+		bool forget = false; // nobody holds it: freed once stopped
+		bool resumes = false;
+		bool sameSpeed = false;
+		int loopCount = 1; // Miles' count: 0 forever
+		uint32_t offset = 0; // bytes into the file's sample data, as AIL reports it
+		float volume = 1.f;
+		float speed = 1.f;
+		Vec3 pos;
+		float dist1 = 0.f, dist2 = 0.f;
+	};
+	std::vector<VoiceState> VoiceStates() const;
+	int NextId(bool positional) const;
+	// Every sound replaced by these, at their IDs, stopped; the counters continue
+	// from next2D / next3D. LoadAudio (0x101f6d40).
+	void RestoreVoices(const std::vector<VoiceState>& voices, int next2D, int next3D);
+	// SOUND.SaveGame_ResumeSounds (0x101f5500): the restored `resumes` sounds
+	// play on from their offsets.
+	void ResumeSaved();
+	// What SetSoundProperties gave the file, or the defaults.
+	void GetSoundProperties(const std::string& name, int& maxInstances, int& intervalMs) const;
+
 	size_t voicesPlaying() const;
 	// Every sample with a real voice right now, with how many are real and how
 	// many are waiting: the headless check that the per-file caps hold.
@@ -154,6 +193,8 @@ private:
 		std::vector<float> pcm; // interleaved at the device rate
 		int channels = 1;
 		bool ok = false;
+		std::string name; // the cache key, which a save records
+		int srcRate = 0, srcBytesPerFrame = 0; // the file's own format, for AIL offsets
 		// SOUND.SetSoundProperties for this file: how many instances may be
 		// audible at once and how close together two may start. -1 means the
 		// "default" entry applies. MilesLoadedFile +0x48 / +0x40.
@@ -186,18 +227,12 @@ private:
 		bool held = false; // a script still owns the handle
 		bool used = false;
 		uint32_t startedMs = 0;
-		// Bumped every time the slot is reused. A handle carries the value it
-		// was issued with, so a script that keeps a fire-and-forget handle and
-		// later asks IsPlaying about it gets "no" rather than an answer about
-		// whatever sound has since taken the slot.
-		uint16_t generation = 1;
+		// IDs are never reused, so a kept handle whose sound was freed resolves
+		// to nothing rather than to whatever took the slot.
+		Voice key = kNoVoice;
+		bool dontSave = false;
 	};
 
-	// Handle layout: (generation << 16) | (index + 1). Index 0 is never
-	// issued, so 0 stays "no voice" and the scripts' `if not h` works.
-	static Voice MakeHandle(size_t index, uint16_t gen) {
-		return Voice(((uint32_t(gen) << 16) | uint32_t(index + 1)));
-	}
 	Playing* Resolve(Voice v);
 	const Playing* Resolve(Voice v) const;
 
@@ -226,6 +261,11 @@ private:
 	std::string root_;
 	std::unordered_map<std::string, Sample> cache_;
 	std::vector<Playing> voices_;
+	std::unordered_map<Voice, size_t> slotOf_; // key -> index into voices_
+	int nextId_[2] = {0, 0}; // 2D, 3D
+	std::vector<Voice> savedResume_; // RestoreVoices' `resumes`, for ResumeSaved
+	double FramesOf(const Sample& s, uint32_t bytes) const;
+	uint32_t BytesOf(const Sample& s, double frames) const;
 	mutable std::mutex lock_; // guards voices_; the callback holds it briefly
 
 	// One entry per outstanding PauseCurrentlyPlaying, so nested pauses each

@@ -896,9 +896,10 @@ turns each record into the Entity fields our own save keeps, and calls
   joint6: 124.1 x 0.72 = 89.4 units). Fixed parts (`.hke` mass 0) keep the seed.
 
 The music streams are restored: each is reopened at its byte. Those in the pause
-set play; the others stay paused. Not restored yet: decals, trails, sounds, the
-glass panes' broken state, the audio chunk's 2D and 3D sounds, and the portal and
-zone blocks. `WORLD.LoadGame` logs the counts.
+set play; the others stay paused. The 2D and 3D sounds come back at their IDs,
+before the entities ([`Sound.md`](Sound.md), "Handles are Miles IDs"). Not
+restored yet: decals, trails, Sound entities' own records, the glass panes' broken
+state, and the portal and zone blocks. `WORLD.LoadGame` logs the counts.
 
 KNOWN DEVIATION, not specific to loading: our `PATH.GetShortest` is A* between
 the waypoints closest to each end, whereas `Pathfinder2::GetShortestPath`

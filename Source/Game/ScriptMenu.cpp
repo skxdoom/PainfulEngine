@@ -1412,7 +1412,6 @@ void BindMenu(ScriptEngine& engine, LuaHost& host) {
 		{"WORLD", "LateVBsBegin", MenuNatives::L_PMENU_NoOp},
 		{"WORLD", "LateVBsEnd", MenuNatives::L_PMENU_NoOp},
 		{"WORLD", "UpdateAllEntities", MenuNatives::L_PMENU_NoOp},
-		{"SOUND", "SaveGame_ResumeSounds", MenuNatives::L_PMENU_NoOp},
 	};
 	RegisterFamily(engine, host, natives);
 }

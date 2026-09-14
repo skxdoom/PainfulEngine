@@ -14,18 +14,20 @@ struct SoundNatives : ScriptNativesBase {
 	static int L_SOUND_Play3D(lua_State* L);
 	static int L_SND_Create2D(lua_State* L);
 	static int L_SND_Create3D(lua_State* L);
-	static int L_SND_Play(lua_State* L);
-	static int L_SND_Stop(lua_State* L);
-	static int L_SND_Pause(lua_State* L);
-	static int L_SND_IsPlaying(lua_State* L);
-	static int L_SND_SetVolume(lua_State* L);
-	static int L_SND_SetLoopCount(lua_State* L);
+	// SOUND2D and SOUND3D take the same arguments but count their IDs apart.
+	template <bool Positional> static int L_SND_Play(lua_State* L);
+	template <bool Positional> static int L_SND_Stop(lua_State* L);
+	template <bool Positional> static int L_SND_Pause(lua_State* L);
+	template <bool Positional> static int L_SND_IsPlaying(lua_State* L);
+	template <bool Positional> static int L_SND_SetVolume(lua_State* L);
+	template <bool Positional> static int L_SND_SetLoopCount(lua_State* L);
 	static int L_SOUND_SetSoundProperties(lua_State* L);
 	static int L_SND_SetPosition(lua_State* L);
 	static int L_SND_SetHearingDistance(lua_State* L);
-	static int L_SND_SetSoundSpeed(lua_State* L);
-	static int L_SND_Delete(lua_State* L);
-	static int L_SND_Forget(lua_State* L);
+	template <bool Positional> static int L_SND_SetSoundSpeed(lua_State* L);
+	template <bool Positional> static int L_SND_Delete(lua_State* L);
+	template <bool Positional> static int L_SND_Forget(lua_State* L);
+	static int L_SOUND_SaveGame_ResumeSounds(lua_State* L);
 	static int L_SOUND_SetPlayerPos(lua_State* L);
 	static int L_SOUND_SetPlayerOrientation(lua_State* L);
 	static int L_WPT_Load(lua_State* L);
@@ -96,6 +98,12 @@ static std::string SoundName(lua_State* L, int index) {
 	return name;
 }
 
+// A SOUND2D / SOUND3D handle as the engine keys it. The natives read it with
+// GetInt(1, -1), so nil and -1 name nothing.
+static AudioEngine::Voice VoiceArg(lua_State* L, int index, bool positional) {
+	return AudioEngine::Key(positional, lua_isnumber(L, index) ? int(lua_tonumber(L, index)) : -1);
+}
+
 static float SoundVolume(lua_State* L, int index, double fallback = 100.0) {
 	// 0..100 from the scripts, and no further: CObject:Snd2D(id, v) passes the
 	// player ENTITY as v, so flame_stop arrives as volume 1278. The original
@@ -113,7 +121,7 @@ int SoundNatives::L_SOUND_Play2D(lua_State* L) {
 	const int v = self->audio_->Play2D(SoundName(L, 1), SoundVolume(L, 2, 80.0),
 			lua_toboolean(L, 3) != 0,
 			lua_toboolean(L, 4) != 0);
-	lua_pushnumber(L, v);
+	lua_pushnumber(L, AudioEngine::IdOf(v));
 	return 1;
 }
 
@@ -126,59 +134,68 @@ int SoundNatives::L_SOUND_Play3D(lua_State* L) {
 	const int v = self->audio_->Play3D(SoundName(L, 1), pos, dist1,
 			float(luaL_optnumber(L, 6, dist1 + 24.0)),
 			lua_toboolean(L, 7) != 0);
-	lua_pushnumber(L, v);
+	lua_pushnumber(L, AudioEngine::IdOf(v));
 	return 1;
 }
 
-// SOUND2D.Create(name, loop) / SOUND3D.Create(name) -> a handle the script
-// keeps. Created stopped: the scripts call Play when they want it.
+// SOUND2D.Create(name, sameSpeedInBulletTime, noRandomize, dontSave) and
+// SOUND3D.Create(name) -> an ID the script keeps, -1 when there is none
+// (natives 0x10126430 / 0x10125720). There is no loop argument: a sound plays
+// once until SetLoopCount(h, 0). Created stopped. Sound.md, "Handles are Miles IDs"
 int SoundNatives::L_SND_Create2D(lua_State* L) {
 	ScriptEngine* self = From(L);
 	if (!self->audio_) return 0;
-	const int v = self->audio_->Create(SoundName(L, 1), false);
-	if (v && lua_toboolean(L, 2)) self->audio_->SetLoopCount(v, -1);
-	lua_pushnumber(L, v);
+	const AudioEngine::Voice v = self->audio_->Create(SoundName(L, 1), false);
+	// Argument 3 fixes the speed at 1, which a created voice here already has.
+	if (v >= 0) {
+		self->audio_->SetSameSpeed(v, lua_toboolean(L, 2) != 0);
+		if (lua_toboolean(L, 4)) self->audio_->SetDontSave(v);
+	}
+	lua_pushnumber(L, AudioEngine::IdOf(v));
 	return 1;
 }
 
 int SoundNatives::L_SND_Create3D(lua_State* L) {
 	ScriptEngine* self = From(L);
 	if (!self->audio_) return 0;
-	const int v = self->audio_->Create(SoundName(L, 1), true);
-	if (v && lua_toboolean(L, 2)) self->audio_->SetLoopCount(v, -1);
-	lua_pushnumber(L, v);
+	lua_pushnumber(L, AudioEngine::IdOf(self->audio_->Create(SoundName(L, 1), true)));
 	return 1;
 }
 
+template <bool Positional>
 int SoundNatives::L_SND_Play(lua_State* L) {
 	ScriptEngine* self = From(L);
-	if (self->audio_) self->audio_->Start(int(luaL_optnumber(L, 1, 0)));
+	if (self->audio_) self->audio_->Start(VoiceArg(L, 1, Positional));
 	return 0;
 }
 
+template <bool Positional>
 int SoundNatives::L_SND_Stop(lua_State* L) {
 	ScriptEngine* self = From(L);
-	if (self->audio_) self->audio_->Stop(int(luaL_optnumber(L, 1, 0)));
+	if (self->audio_) self->audio_->Stop(VoiceArg(L, 1, Positional));
 	return 0;
 }
 
+template <bool Positional>
 int SoundNatives::L_SND_Pause(lua_State* L) {
 	ScriptEngine* self = From(L);
-	if (self->audio_) self->audio_->Pause(int(luaL_optnumber(L, 1, 0)), true);
+	if (self->audio_) self->audio_->Pause(VoiceArg(L, 1, Positional), true);
 	return 0;
 }
 
+template <bool Positional>
 int SoundNatives::L_SND_IsPlaying(lua_State* L) {
 	ScriptEngine* self = From(L);
 	lua_pushboolean(L, self->audio_ &&
-			self->audio_->IsPlaying(int(luaL_optnumber(L, 1, 0))));
+			self->audio_->IsPlaying(VoiceArg(L, 1, Positional)));
 	return 1;
 }
 
+template <bool Positional>
 int SoundNatives::L_SND_SetVolume(lua_State* L) {
 	ScriptEngine* self = From(L);
 	if (self->audio_)
-		self->audio_->SetVolume(int(luaL_optnumber(L, 1, 0)), SoundVolume(L, 2));
+		self->audio_->SetVolume(VoiceArg(L, 1, Positional), SoundVolume(L, 2));
 	return 0;
 }
 
@@ -193,11 +210,12 @@ int SoundNatives::L_SND_SetVolume(lua_State* L) {
 //
 // AudioEngine counts down instead, so forever is -1 there and 0 would silence
 // exactly the sounds the scripts loop most. Translate at the boundary.
+template <bool Positional>
 int SoundNatives::L_SND_SetLoopCount(lua_State* L) {
 	ScriptEngine* self = From(L);
 	if (!self->audio_) return 0;
 	const int miles = int(luaL_optnumber(L, 2, 0));
-	self->audio_->SetLoopCount(int(luaL_optnumber(L, 1, 0)), miles == 0 ? -1 : miles);
+	self->audio_->SetLoopCount(VoiceArg(L, 1, Positional), miles == 0 ? -1 : miles);
 	return 0;
 }
 
@@ -217,38 +235,50 @@ int SoundNatives::L_SND_SetPosition(lua_State* L) {
 	if (!self->audio_) return 0;
 	const Vec3 pos{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
 			float(luaL_optnumber(L, 4, 0))};
-	self->audio_->SetPosition(int(luaL_optnumber(L, 1, 0)), pos);
+	self->audio_->SetPosition(VoiceArg(L, 1, true), pos);
 	return 0;
 }
 
 int SoundNatives::L_SND_SetHearingDistance(lua_State* L) {
 	ScriptEngine* self = From(L);
 	if (self->audio_)
-		self->audio_->SetHearingDistance(int(luaL_optnumber(L, 1, 0)),
+		self->audio_->SetHearingDistance(VoiceArg(L, 1, true),
 				float(luaL_optnumber(L, 2, 15.0)),
 				float(luaL_optnumber(L, 3, 40.0)));
 	return 0;
 }
 
+template <bool Positional>
 int SoundNatives::L_SND_SetSoundSpeed(lua_State* L) {
 	ScriptEngine* self = From(L);
 	if (self->audio_)
-		self->audio_->SetSpeed(int(luaL_optnumber(L, 1, 0)),
+		self->audio_->SetSpeed(VoiceArg(L, 1, Positional),
 				float(luaL_optnumber(L, 2, 1.0)));
 	return 0;
 }
 
 // Delete stops it; Forget lets it finish and stops caring. Both hand the slot
 // back, which is what keeps a level's worth of one-shots from filling the pool.
+template <bool Positional>
 int SoundNatives::L_SND_Delete(lua_State* L) {
 	ScriptEngine* self = From(L);
-	if (self->audio_) self->audio_->Release(int(luaL_optnumber(L, 1, 0)), false);
+	if (self->audio_) self->audio_->Release(VoiceArg(L, 1, Positional), false);
 	return 0;
 }
 
+template <bool Positional>
 int SoundNatives::L_SND_Forget(lua_State* L) {
 	ScriptEngine* self = From(L);
-	if (self->audio_) self->audio_->Release(int(luaL_optnumber(L, 1, 0)), true);
+	if (self->audio_) self->audio_->Release(VoiceArg(L, 1, Positional), true);
+	return 0;
+}
+
+// SOUND.SaveGame_ResumeSounds (MilesEngine 0x101f5500), near the end of
+// SaveGame:Load: the sounds the save had paused play on. The music was reopened
+// with its own pause state.
+int SoundNatives::L_SOUND_SaveGame_ResumeSounds(lua_State* L) {
+	ScriptEngine* self = From(L);
+	if (self->audio_) self->audio_->ResumeSaved();
 	return 0;
 }
 
@@ -782,14 +812,14 @@ int SoundNatives::L_SND_EntityStop(lua_State* L) {
 	if (!e) return 0;
 	e->soundStartIn = -1.f;
 	e->soundPlaying = false;
-	if (self->audio_ && e->soundVoice) self->audio_->Stop(e->soundVoice);
+	if (self->audio_ && e->soundVoice >= 0) self->audio_->Stop(e->soundVoice);
 	return 0;
 }
 
 int SoundNatives::L_SND_EntityIsPlaying(lua_State* L) {
 	ScriptEngine* self = From(L);
 	const Entity* e = self->Find(HandleArg(L, 1));
-	const bool on = e && self->audio_ && e->soundVoice &&
+	const bool on = e && self->audio_ && e->soundVoice >= 0 &&
 					self->audio_->IsPlaying(e->soundVoice);
 	lua_pushboolean(L, on ? 1 : 0);
 	return 1;
@@ -801,15 +831,15 @@ int SoundNatives::L_SND_EntityIsPlaying(lua_State* L) {
 int SoundNatives::L_SND_GetSound3DPtr(lua_State* L) {
 	ScriptEngine* self = From(L);
 	const Entity* e = self->Find(HandleArg(L, 1));
-	lua_pushnumber(L, e ? e->soundVoice : 0);
+	lua_pushnumber(L, e ? AudioEngine::IdOf(e->soundVoice) : -1);
 	return 1;
 }
 
 void ScriptEngine::StartBoundSound(Entity& e) {
 	if (!audio_ || e.soundName.empty()) return;
-	if (e.soundVoice) audio_->Release(e.soundVoice, false);
+	if (e.soundVoice >= 0) audio_->Release(e.soundVoice, false);
 	e.soundVoice = audio_->Create(e.soundName, true);
-	if (!e.soundVoice) return;
+	if (e.soundVoice < 0) return;
 	audio_->SetHearingDistance(e.soundVoice, e.soundDist1, e.soundDist2);
 	// interval >= 0 repeats; AudioEngine counts down, so forever is -1 there.
 	audio_->SetLoopCount(e.soundVoice, e.soundInterval >= 0.f ? -1 : 1);
@@ -830,7 +860,7 @@ void ScriptEngine::TickSounds(float dt) {
 				StartBoundSound(e);
 			}
 		}
-		if (e.soundVoice) audio_->SetPosition(e.soundVoice, e.pos);
+		if (e.soundVoice >= 0) audio_->SetPosition(e.soundVoice, e.pos);
 	}
 }
 
@@ -942,26 +972,27 @@ void BindSound(ScriptEngine& engine, LuaHost& host) {
 		{"SOUND", "SetSoundProperties", SoundNatives::L_SOUND_SetSoundProperties},
 		{"SOUND", "SetPlayerPos", SoundNatives::L_SOUND_SetPlayerPos},
 		{"SOUND", "SetPlayerOrientation", SoundNatives::L_SOUND_SetPlayerOrientation},
+		{"SOUND", "SaveGame_ResumeSounds", SoundNatives::L_SOUND_SaveGame_ResumeSounds},
 		{"SOUND2D", "Create", SoundNatives::L_SND_Create2D},
-		{"SOUND2D", "Play", SoundNatives::L_SND_Play},
-		{"SOUND2D", "Stop", SoundNatives::L_SND_Stop},
-		{"SOUND2D", "Pause", SoundNatives::L_SND_Pause},
-		{"SOUND2D", "IsPlaying", SoundNatives::L_SND_IsPlaying},
-		{"SOUND2D", "SetVolume", SoundNatives::L_SND_SetVolume},
-		{"SOUND2D", "SetLoopCount", SoundNatives::L_SND_SetLoopCount},
-		{"SOUND2D", "SetSoundSpeed", SoundNatives::L_SND_SetSoundSpeed},
-		{"SOUND2D", "Delete", SoundNatives::L_SND_Delete},
-		{"SOUND2D", "Forget", SoundNatives::L_SND_Forget},
+		{"SOUND2D", "Play", SoundNatives::L_SND_Play<false>},
+		{"SOUND2D", "Stop", SoundNatives::L_SND_Stop<false>},
+		{"SOUND2D", "Pause", SoundNatives::L_SND_Pause<false>},
+		{"SOUND2D", "IsPlaying", SoundNatives::L_SND_IsPlaying<false>},
+		{"SOUND2D", "SetVolume", SoundNatives::L_SND_SetVolume<false>},
+		{"SOUND2D", "SetLoopCount", SoundNatives::L_SND_SetLoopCount<false>},
+		{"SOUND2D", "SetSoundSpeed", SoundNatives::L_SND_SetSoundSpeed<false>},
+		{"SOUND2D", "Delete", SoundNatives::L_SND_Delete<false>},
+		{"SOUND2D", "Forget", SoundNatives::L_SND_Forget<false>},
 		{"SOUND3D", "Create", SoundNatives::L_SND_Create3D},
-		{"SOUND3D", "Play", SoundNatives::L_SND_Play},
-		{"SOUND3D", "Stop", SoundNatives::L_SND_Stop},
-		{"SOUND3D", "IsPlaying", SoundNatives::L_SND_IsPlaying},
-		{"SOUND3D", "SetVolume", SoundNatives::L_SND_SetVolume},
-		{"SOUND3D", "SetLoopCount", SoundNatives::L_SND_SetLoopCount},
+		{"SOUND3D", "Play", SoundNatives::L_SND_Play<true>},
+		{"SOUND3D", "Stop", SoundNatives::L_SND_Stop<true>},
+		{"SOUND3D", "IsPlaying", SoundNatives::L_SND_IsPlaying<true>},
+		{"SOUND3D", "SetVolume", SoundNatives::L_SND_SetVolume<true>},
+		{"SOUND3D", "SetLoopCount", SoundNatives::L_SND_SetLoopCount<true>},
 		{"SOUND3D", "SetPosition", SoundNatives::L_SND_SetPosition},
 		{"SOUND3D", "SetHearingDistance", SoundNatives::L_SND_SetHearingDistance},
-		{"SOUND3D", "Delete", SoundNatives::L_SND_Delete},
-		{"SOUND3D", "Forget", SoundNatives::L_SND_Forget},
+		{"SOUND3D", "Delete", SoundNatives::L_SND_Delete<true>},
+		{"SOUND3D", "Forget", SoundNatives::L_SND_Forget<true>},
 		{"WPT", "Load", SoundNatives::L_WPT_Load},
 		{"WPT", "GetClosest", SoundNatives::L_WPT_GetClosest},
 		{"WPT", "GetPosition", SoundNatives::L_WPT_GetPosition},

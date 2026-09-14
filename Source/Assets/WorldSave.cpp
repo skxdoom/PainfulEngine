@@ -678,25 +678,96 @@ const char* WsTypeName(uint32_t type) {
 	}
 }
 
-bool WsAudioStreams(const std::vector<uint8_t>& body, std::vector<WsStream>& out) {
-	out.clear();
+static void ArchiveSample(Archive& ar, WsSample& s) {
+	ar.Str(s.file);
+	ar.U32(s.sinceCreated);
+	ar.U32(s.sinceLastStart);
+	ar.U32(s.minIntervalMs);
+	ar.U32(s.maxInstances);
+	ar.U32(s.u44);
+	ar.F32(s.speedRandom);
+	ar.U8(s.loaded);
+}
+
+static void ArchivePause(Archive& ar, WsPauseEntry& e) {
+	ar.U8(e.present);
+	if (!e.present) return;
+	ar.U32(e.set);
+	ar.U8(e.forget);
+}
+
+static void ArchiveSound2D(Archive& ar, WsSound2D& s) {
+	ar.Tag(0x5e57, "2D sound");
+	ar.U32(s.id);
+	ar.U32(s.position);
+	ar.F32(s.volume);
+	ar.Str(s.file);
+	ar.U8(s.priority);
+	ar.U32(s.loopCount);
+	ar.U8(s.flags);
+	ar.U32(s.sinceStart);
+	ar.U32(s.lengthMs);
+	ar.F32(s.targetVolume);
+	ar.U32(s.sinceFadeEnd);
+	ar.U32(s.sinceFadeStart);
+	ar.F(s.f38, 3);
+	ar.U32(s.since44);
+	ar.U32(s.since48);
+	ar.U32(s.maxInstances);
+	ar.F32(s.speed);
+	ArchivePause(ar, s.pause);
+}
+
+static void ArchiveSound3D(Archive& ar, WsSound3D& s) {
+	ar.Tag(0x5e58, "3D sound");
+	ar.U32(s.id);
+	ar.U32(s.position);
+	ar.Str(s.file);
+	ar.U8(s.flags);
+	ar.U8(s.priority);
+	ar.U32(s.loopCount);
+	ar.F32(s.minDistance);
+	ar.F32(s.maxDistance);
+	ar.V(s.pos);
+	ar.V(s.front);
+	ar.V(s.up);
+	ar.V(s.velocity);
+	ar.U32(s.sinceStart);
+	ar.U32(s.lengthMs);
+	ar.F32(s.volume);
+	ar.F32(s.targetVolume);
+	ar.U32(s.sinceFadeEnd);
+	ar.U32(s.sinceFadeStart);
+	ar.F(s.f1c, 3);
+	ar.U32(s.since28);
+	ar.U32(s.since2c);
+	ar.U32(s.u34);
+	ar.U32(s.u30);
+	ar.U32(s.since38);
+	ar.U32(s.since3c);
+	ar.U32(s.maxInstances);
+	ar.F32(s.speed);
+	ArchivePause(ar, s.pause);
+}
+
+bool WsAudioRead(const std::vector<uint8_t>& body, WsAudio& out) {
+	out = WsAudio();
 	if (body.empty()) return true;
 	// The archive only reads from the buffer in this mode.
 	Archive ar(const_cast<std::vector<uint8_t>&>(body), false, nullptr);
 	ar.Tag(0x5e60, "audio");
 	uint32_t header[21];
 	ar.U(header, 21);
-	// The sample cache (FUN_101f8080): a file, six u32, a loaded byte.
+	out.next2D = header[16];
+	out.next3D = header[17];
+	out.pauseSet = header[20];
 	uint32_t samples = 0;
 	ar.U32(samples);
 	if (samples > kMaxCount) ar.Fail("%u cached samples", samples);
-	for (uint32_t i = 0; i < samples && ar.ok(); ++i) {
-		std::string file;
-		ar.Str(file);
-		uint32_t v[6];
-		ar.U(v, 6);
-		uint8_t loaded = 0;
-		ar.U8(loaded);
+	if (ar.ok()) out.samples.resize(samples);
+	for (WsSample& s : out.samples) {
+		if (!ar.ok()) break;
+		ArchiveSample(ar, s);
 	}
 	// The pause sets (PauseCurrentlyPlayingSounds): a present byte, u32 n and n stream
 	// slots, u32 m and m "was playing" bytes.
@@ -731,8 +802,8 @@ bool WsAudioStreams(const std::vector<uint8_t>& body, std::vector<WsStream>& out
 	uint32_t count = 0;
 	ar.U32(count);
 	if (!ar.ok() || count > 64) return false;
-	out.assign(count, WsStream());
-	for (WsStream& s : out) {
+	out.streams.assign(count, WsStream());
+	for (WsStream& s : out.streams) {
 		ar.U8(s.present);
 		if (!s.present) continue;
 		ar.Str(s.file);
@@ -745,13 +816,40 @@ bool WsAudioStreams(const std::vector<uint8_t>& body, std::vector<WsStream>& out
 	uint32_t globals[4];
 	ar.U(globals, 4);
 	ar.Tag(0x5f01, "2D sounds");
+	if (!ar.ok()) return false;
 	if (header[20] < sets.size())
 		for (const std::pair<uint32_t, uint8_t>& entry : sets[header[20]])
-			if (entry.second && entry.first < out.size()) out[entry.first].resumes = true;
-	return ar.ok();
+			if (entry.second && entry.first < out.streams.size()) out.streams[entry.first].resumes = true;
+
+	uint32_t n = 0;
+	ar.U32(n);
+	if (n > kMaxCount) ar.Fail("%u 2D sounds", n);
+	if (ar.ok()) out.sounds2D.resize(n);
+	for (WsSound2D& s : out.sounds2D) {
+		if (!ar.ok()) break;
+		ArchiveSound2D(ar, s);
+	}
+	ar.Tag(0x5f02, "3D sounds");
+	n = 0;
+	ar.U32(n);
+	if (n > kMaxCount) ar.Fail("%u 3D sounds", n);
+	if (ar.ok()) out.sounds3D.resize(n);
+	for (WsSound3D& s : out.sounds3D) {
+		if (!ar.ok()) break;
+		ArchiveSound3D(ar, s);
+	}
+	ar.Tag(0x5f03, "audio end");
+	out.soundsRead = ar.ok();
+	if (!out.soundsRead) {
+		out.error = ar.error();
+		out.sounds2D.clear();
+		out.sounds3D.clear();
+	}
+	return true;
 }
 
-std::vector<uint8_t> WsAudioBody(const std::vector<WsStream>& streams) {
+std::vector<uint8_t> WsAudioWrite(const WsAudio& audio) {
+	WsAudio a = audio; // the archive writes through references
 	const auto bits = [](float f) {
 		uint32_t v = 0;
 		std::memcpy(&v, &f, 4);
@@ -760,16 +858,18 @@ std::vector<uint8_t> WsAudioBody(const std::vector<WsStream>& streams) {
 	std::vector<uint8_t> out;
 	Archive ar(out, true, nullptr);
 	ar.Tag(0x5e60, "audio");
-	// The values every original save holds. +0x3c and +0x40 are GetTickCount stamps
-	// and +0x220 and +0x2a4 counters, written as zero.
+	// The values every original save holds. +0x3c and +0x40 are GetTickCount stamps,
+	// written as zero; 16 and 17 are the next 2D and 3D IDs, 20 the pause set.
 	uint32_t header[21] = {bits(2.f), 0x81, bits(1.f), bits(1.f), bits(1.f), bits(1.f), 0, 0, bits(1.f),
-			bits(4.f), bits(0.2f), 0, bits(1.f), bits(1.f), bits(1000.f), 0x447a00a4, 0, 0, 0xffffffffu,
-			0xffffffffu, 0};
+			bits(4.f), bits(0.2f), 0, bits(1.f), bits(1.f), bits(1000.f), 0x447a00a4, a.next2D, a.next3D,
+			0xffffffffu, 0xffffffffu, 0};
 	ar.U(header, 21);
-	uint32_t zero = 0;
-	ar.U32(zero); // cached samples
+	uint32_t samples = uint32_t(a.samples.size());
+	ar.U32(samples);
+	for (WsSample& s : a.samples) ArchiveSample(ar, s);
 	// One pause set, number 0 as header[20] says: the streams SaveGame_ResumeSounds
-	// restarts once the load is done.
+	// restarts once the load is done. Sounds name the set in their own records.
+	const std::vector<WsStream>& streams = a.streams;
 	std::vector<uint32_t> resume;
 	for (size_t slot = 0; slot < streams.size(); ++slot)
 		if (streams[slot].present && streams[slot].resumes) resume.push_back(uint32_t(slot));
@@ -797,9 +897,13 @@ std::vector<uint8_t> WsAudioBody(const std::vector<WsStream>& streams) {
 	uint32_t globals[4] = {0, 0xffffffffu, 0xffffffffu, 0xffffffffu};
 	ar.U(globals, 4);
 	ar.Tag(0x5f01, "2D sounds");
-	ar.U32(zero);
+	uint32_t sounds = uint32_t(a.sounds2D.size());
+	ar.U32(sounds);
+	for (WsSound2D& s : a.sounds2D) ArchiveSound2D(ar, s);
 	ar.Tag(0x5f02, "3D sounds");
-	ar.U32(zero);
+	sounds = uint32_t(a.sounds3D.size());
+	ar.U32(sounds);
+	for (WsSound3D& s : a.sounds3D) ArchiveSound3D(ar, s);
 	ar.Tag(0x5f03, "audio end");
 	return out;
 }

@@ -110,12 +110,15 @@ void ScriptEngine::BuildWorldSave(WorldSave& out) {
 	// states may be fewer, so they are left as the level loads them.
 	for (const AntiPortal& a : antiportals_) out.antiportals.push_back(a.enabled ? 1 : 0);
 
-	// The music. The scripts delete their streams on a load and start one only on a
+	// The audio. The scripts delete their streams on a load and start one only on a
 	// change, so LoadAudio reopens them here, and SaveGame_ResumeSounds restarts the
-	// ones in the pause set: those that were playing.
+	// ones in the pause set: those that were playing. The sounds keep the IDs the
+	// scripts' tables hold, each file in the sample cache the loader looks it up in.
 	if (audio_) {
+		WsAudio audio;
 		const std::vector<AudioEngine::StreamState> states = audio_->StreamStates();
-		std::vector<WsStream> streams(states.size());
+		std::vector<WsStream>& streams = audio.streams;
+		streams.resize(states.size());
 		bool any = false;
 		for (size_t slot = 0; slot < states.size(); ++slot) {
 			const AudioEngine::StreamState& st = states[slot];
@@ -129,7 +132,62 @@ void ScriptEngine::BuildWorldSave(WorldSave& out) {
 			s.resumes = st.playing && !st.paused;
 			any = true;
 		}
-		if (any) out.audio.body = WsAudioBody(streams);
+		audio.next2D = uint32_t(audio_->NextId(false));
+		audio.next3D = uint32_t(audio_->NextId(true));
+		std::map<std::string, size_t> sampleOf;
+		for (const AudioEngine::VoiceState& v : audio_->VoiceStates()) {
+			const std::string file = Z("../Data/Sounds/" + v.name + ".wav");
+			if (!sampleOf.count(v.name)) {
+				WsSample sample;
+				sample.file = file;
+				int maxInstances = 0, intervalMs = 0;
+				audio_->GetSoundProperties(v.name, maxInstances, intervalMs);
+				sample.maxInstances = uint32_t(maxInstances);
+				sample.minIntervalMs = uint32_t(intervalMs);
+				// LoadAudio takes now minus this and clamps at 0: started long ago.
+				sample.sinceLastStart = 0xffffffffu;
+				sampleOf[v.name] = audio.samples.size();
+				audio.samples.push_back(sample);
+			}
+			const uint32_t maxInstances = audio.samples[sampleOf[v.name]].maxInstances;
+			// SaveGame_PauseSounds files what plays in set 0, its forget bit with it.
+			WsPauseEntry pause;
+			pause.present = v.resumes ? 1 : 0;
+			pause.forget = v.resumes && v.forget ? 1 : 0;
+			const uint8_t flags = uint8_t((v.forget && !v.resumes ? 1 : 0) | (v.sameSpeed ? 8 : 0));
+			if (!v.positional) {
+				WsSound2D r;
+				r.id = uint32_t(v.id);
+				r.position = v.offset;
+				r.volume = v.volume;
+				r.targetVolume = v.volume;
+				r.file = file;
+				r.loopCount = uint32_t(v.loopCount);
+				r.flags = flags;
+				r.maxInstances = maxInstances;
+				r.speed = v.speed;
+				r.pause = pause;
+				audio.sounds2D.push_back(r);
+			} else {
+				WsSound3D r;
+				r.id = uint32_t(v.id);
+				r.position = v.offset;
+				r.file = file;
+				r.flags = flags;
+				r.loopCount = uint32_t(v.loopCount);
+				r.minDistance = v.dist1;
+				r.maxDistance = v.dist2;
+				r.pos = v.pos;
+				r.volume = v.volume;
+				r.targetVolume = v.volume;
+				r.maxInstances = maxInstances;
+				r.speed = v.speed;
+				r.pause = pause;
+				audio.sounds3D.push_back(r);
+			}
+			any = true;
+		}
+		if (any) out.audio.body = WsAudioWrite(audio);
 	}
 
 	std::map<std::string, std::vector<std::string>> meshNames;

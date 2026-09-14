@@ -232,9 +232,13 @@ streams when a save loads (`CLevel:Delete`). After that they start one only when
 the music changes, so whatever plays after a load comes from here. The body
 (`MilesEngine::SaveAudio` 0x101f22a0, read back by `LoadAudio` 0x101f6d40) is:
 1. `0x5e60`, then 21 u32 of Miles state. These are the same in every save except
-   two `GetTickCount` stamps and two counters.
-2. The sample cache: a u32 count, then per sample (FUN_101f8080) a file name, six
-   u32 and a loaded byte.
+   two `GetTickCount` stamps and the fields that count: 16 and 17 are the next 2D
+   and 3D sound IDs (`+0x220`, `+0x2a4`), 20 the pause set `SaveGame_ResumeSounds`
+   lifts (`+0x304`).
+2. The sample cache: a u32 count, then per sample (FUN_101f8080) a file name, now
+   minus `+0x38`, now minus `+0x3c` (the last start), the start gap `+0x40`, the
+   instance cap `+0x48`, `+0x44`, the speed spread `+0x4c` (a float) and a loaded
+   byte.
 3. The pause sets (`PauseCurrentlyPlayingSounds` 0x101f4df0): a u32 count, then per
    set a present byte, u32 n and n stream slots, and u32 m and m "was playing"
    bytes.
@@ -245,7 +249,8 @@ the music changes, so whatever plays after a load comes from here. The body
    - +0x1c;
    - the loop count (+0x20; 0 plays forever);
    - the byte `AIL_stream_position` reports.
-5. Four u32, then `0x5f01` 2D sounds, `0x5f02` 3D sounds and `0x5f03`.
+5. Four u32, then `0x5f01` and a u32 count of 2D sound records, `0x5f02` and the
+   3D ones, and `0x5f03`.
 
 `LoadAudio` reopens each stream at its byte but does not start it.
 `SaveGame_ResumeSounds` (0x101f5500) then unpauses the slots in the pause set that
@@ -253,6 +258,30 @@ header field 20 names: the streams that were playing when `SaveGame` paused
 everything. A stream paused by the scripts, such as a faded-out battle track, is
 not in the set and stays silent. All six original saves hold one stream, slot 0,
 in that set.
+
+**The sound records** give the script handles their sounds back ([`Sound.md`](Sound.md),
+"Handles are Miles IDs"). Fields in write order; a tick is written as now minus
+the tick, and the loader clamps it at 0.
+- A 2D record (`0x5e57`, FUN_101ed810 / FUN_101edd50): the ID (+0x04); the stopped
+  offset (+0x10); the volume (+0x28); the file name; a priority byte (+0x08); the
+  loop count (+0x18); a flags byte (+0x00: 1 forget, 2 playing, 8 same speed in
+  bullet time, 0x10 not saved); tick +0x1c, the start; the length left in ms
+  (+0x20); the fade's target volume (+0x2c); ticks +0x30 and +0x34; floats +0x38
+  to +0x40; ticks +0x44 and +0x48; the file's instance cap when created (+0x4c);
+  the speed (+0x54); the pause-set entry.
+- A 3D record (`0x5e58`, FUN_101ef3d0 / FUN_101efa60): the ID (+0x90); the offset
+  (+0x40); the file name; flags; priority; the loop count (+0x48); the hearing
+  distances, +0x4c where falloff starts and +0x50 where it ends; four vectors,
+  +0x54 the position, +0x60 and +0x6c the front and up `SetOrientation` sets, and
+  +0x78, ASSUMED the velocity by elimination; tick +0x84, the start; the length
+  (+0x88); the volume (+0x0c) and its target (+0x10); ticks +0x14 and +0x18;
+  floats +0x1c (`SetIntensity`) to +0x24; ticks +0x28 and +0x2c; +0x34, then
+  +0x30; ticks +0x38 and +0x3c; the cap (+0x94); the speed (+0x9c); the pause-set
+  entry.
+- The pause-set entry is a present byte, then the set's index and the forget bit
+  `PauseCurrentlyPlayingSounds` took off the sound. The loader files the sound in
+  that set again. The set's own list holds only stream slots, so this is how a
+  save brings back the sounds that were playing.
 
 **A chunk** states its own extent: a string name, u32 start = the file offset of
 the chunk's own header, u32 size from there to the end of the body. `LoadGame`
@@ -313,12 +342,17 @@ in this order of trust:
    for a field that nothing names.
 
 - **Left out, as the loaders allow:** glass panes, the physics worlds, and portal and
-  zone states. Decals, trails and sounds are not written yet. The two floats after
-  the worlds are 8 and 1.
-- **Audio:** only the music. The chunk (named `AUDIOv01`, NUL included) holds the
-  header every save has, with the stamps and counters as zero, no cached samples,
-  every loaded stream at its byte, and one pause set listing those that play.
-  Without it the original loads our saves silent: nothing else restarts the music.
+  zone states. Decals, trails and Sound entities are not written yet. The two floats
+  after the worlds are 8 and 1.
+- **Audio:** the music and the sounds. The chunk (named `AUDIOv01`, NUL included)
+  holds the header every save has, with the stamps as zero and the two sound
+  counters; a sample cache entry for each file a sound names (loaded, its
+  `SetSoundProperties` values, last started long ago); every loaded stream at its
+  byte; one pause set listing the streams that play; and a record per held or
+  playing sound at its ID, filed in set 0 when it was audible. A field the port has
+  no value for is what the constructors leave (FUN_101edca0, FUN_101ef950).
+  Without the chunk the original loads our saves silent: nothing else restarts the
+  music.
 - **Antiportals:** one flag per entry of `World+0x78`. The map's `antyp` objects come
   first, then the ones `WORLD.CreateEnabledAntiPortalFromClosedConvexMesh` made. Slab
   items remake theirs in `RestoreFromSave`, before `LoadPortalState` counts them.
