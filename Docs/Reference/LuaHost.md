@@ -260,6 +260,29 @@ handles, which is what `lua <DataRoot> [frames] [level]` exercises; the
 windowed path attaches `EntityRenderer` and the same natives put things on
 screen.
 
+### Handles
+
+A handle is the entity's slot in the world's array, and a save is only portable
+if ours are numbered like the original's. `World::Release` (0x1005f160; what
+`WORLD.Release()` and `WORLD.Release(true)` call) deletes every entity and sets
+the count back to 1. `World::LoadMeshPak` (0x1005e8b0) then makes every map
+object an entity, in file order, before any script runs: `World::AddEntity`
+(0x1005dbf0) numbers an entity that has no handle yet. Zones, portals and
+antiportals are classes of their own and get none. `WORLD.LoadMap` reserves the
+same handles (`objectHandles_`). Active meshes and water take their object's
+handle, and `WORLD.FindEntityByName` (0x1013dd70) hands one out on first ask.
+Otherwise it answers with the newest entity of that name, compared without case,
+or 0. `WORLD.Release(false)` is `ReleaseWithoutMap` (0x1005dc80): only what the
+scripts made goes, and the count keeps going.
+
+The class is read from the name (`zone`, `portal`, `antyp`). Measured by joining
+`EntityToObject` at a fresh level start with an original save's: every script
+entity's handle matches, 390 of 390 on C3L1_Train_Station and 279 of 279 on
+C1L2_Atrium_Complex. Before the reservation they were 508 and 235 short, which is
+the two maps' 511 and 235 entity objects less Train Station's 3 active meshes. A
+pack with another class, or an object the parser skips, would shift the count;
+the class field in the pack would settle that.
+
 ```
 PainfulEngine game <DataRoot> [level] [--shot f]
 ```
@@ -316,7 +339,7 @@ WORLD.SetFarClipDist(dist)
 WORLD.AmbientColor(r, g, b, gunAmbientMultiplier)        -- 0-255
 WORLD.SetDirLight(dx, dy, dz, packedColor, intensity)
 WORLD.LoadSky(path) -> layerCount ; WORLD.AddEntity(e, hidden)
-WORLD.FindEntityByName(name) -> handle
+WORLD.FindEntityByName(name) -> handle, or 0
 ENTITY.Create(etype, source, nameTagOrMesh, scale [, translateToZero]) -> handle  -- true: the pack mesh centred on its bbox (CenterGeometry 0x101D6F80)
 ENTITY.SetRotationQ(e, w, x, y, z) / GetRotationQ(e) -> w,x,y,z
 ENTITY.GetVelocity(e) -> vx,vy,vz,speed
@@ -731,12 +754,17 @@ starting the level fresh through the map screen; `Normal`, `Quick` and
 `Game:OnPlay(true)`, so a level start always produces it.
 
 **The world file.** The original's is `"C^"`, a version (3), then glass,
-`"AUDIOv01"` plus the Miles state, Havok physics, pathfinding, entities,
+`"AUDIOv01"` plus the Miles state, physics, pathfinding, entities,
 portal state and zone state - and `SaveGame:AfterLoadEntities()` is called
-from C++ between the entities and the portals. That file is Havok state and
-cannot be read or written here, so `WORLD.SaveGame` writes OUR file in the
-same place (`PKSV`, version 3; `Source/Game/ScriptSave.cpp`) under the same
-contract: every entity comes back at the HANDLE it had, because the scripts
+from C++ between the entities and the portals. Its layout is decoded
+([`Formats.md`](Formats.md), "The original world save") and `WORLD.LoadGame`
+reads it ("Loading an original save" below). `WORLD.SaveGame` writes it too
+([`Formats.md`](Formats.md), "Writing the original world save"), which is what lets
+the original load our saves. Our own file goes beside it as
+`<level>.World.pksv` (`PKSV`, version 4; `Source/Game/ScriptSave.cpp`), carrying
+what the original format has no room for. `WORLD.LoadGame` prefers ours when it is
+there. The original never sees it: it lists only `*.C*` object files. Both files
+follow the same contract: every entity comes back at the HANDLE it had, because the scripts
 saved those handles in `EntityToObject` and in every `_Entity` field, and
 `Cache:PrecacheLevel` is deliberately run only after `LoadGame` so the counter
 is not disturbed ("indeksy musza isc od zera").
@@ -775,11 +803,16 @@ the object count and the player's health, with no script error on either
 side; the pack written is decoded independently (a PowerShell parse of its
 directory with the seed formula) to the same 665 names.
 
+**The music is carried** (version 5): each music slot's file, byte, volume, and
+whether it plays. The shipped scripts delete both streams when a save loads
+(`CLevel:Delete`) and start one only when the music changes, so without this a
+loaded game stayed silent. The original keeps the same state in its audio chunk
+([`Formats.md`](Formats.md), "The audio chunk carries the music").
+
 Not carried over: the animation cross-fade in progress (the new run starts on
 the current animation), angular velocity of free bodies (`angVel` is kept,
 the solver's own spin is not read back), the particle systems' live
-particles (emitters restart), 2D sounds and music streams (script-side, and
-the scripts restart the level's music), the decals on the walls (engine
+particles (emitters restart), 2D sounds (script-side), the decals on the walls (engine
 entities the scripts never see; [`Decals.md`](Decals.md)), and anything in
 the stub natives. `SOUND.SaveGame_ResumeSounds` and the bookkeeping
 `WORLD.SwitchToState` / `LateVBsBegin` / `LateVBsEnd` / `UpdateAllEntities` /
@@ -806,6 +839,81 @@ into one spot instead of riding the joints the idle animation moves. A version
 moved active mesh: `RebuildEntity` re-based the rebuilt world object on the
 SAVED position instead of `activeOrigin`, so a gravestone knocked over before
 the save drew displaced from its body by however far it had moved.
+
+**Loading an original save** (2026-09-14). `LoadWorld` hands a file that starts
+`C^` to `LoadWorldSave` (`Source/Game/ScriptWorldSave.cpp`), which reads it
+with `Assets/WorldSave` ([`Formats.md`](Formats.md), "The original world save"),
+turns each record into the Entity fields our own save keeps, and calls
+`RebuildEntity`: one rebuild path for both formats.
+
+- The level's own objects stay. `World::SaveEntities` never writes a map active
+  mesh, and the saved decals hang off level handles (9, 17 and 235 in Train
+  Station), so only script-made entities and whatever sits on a saved handle are
+  released. A level object on a saved handle fails a check.
+- Models: the pose; draw flag 0x40; one visibility byte per `.pkmdl` mesh; the
+  animation slots, with slot 0 left empty because it is the model's own and never
+  written, while the scripts' `_CurAnimIndex` counts from it; each slot's
+  movement-curve mask, which `Model::LoadEntity` hands the animation on `ROOOT`
+  (without it a walk has no root motion); the playing channel's time, speed and
+  loop; `PO_Create`'s type and scale argument, mass, friction, restitution,
+  damping and collision group; the monster block (`PO_SetSightParams` 0x10131210
+  stores range, 360 range, yaw at degrees x pi/360 and pitch at degrees x pi/180
+  in that order at +0x24..+0x30; then move wish, move const, and flying 0x800). The
+  player is the model whose body carries the mover. Its pawn spawns 2 above the
+  entity, which sits at the feet as ours does.
+- An item pack's mesh body (`CreatePhysicsObjectFromMesh`, types 4-8 and 11-13)
+  takes the entity's scale. The 1.0 its PhysicsObject carries is not a scale, and
+  building from it gave every destructible unit-scale collision.
+- A body's freedom-of-rotation mode is re-applied when it is not 1, the
+  `CreatePhysicsObject` default. Every `CObject` item carries 3 (`PO_Create` sets it
+  after `PO_SetMass`), broken debris 2. Without it the body kept the inertia of its
+  creation mass under a mass of 1000: benches in Train Station save 009 sank
+  through the platform, then fell. With it they settle at y 11.473, the same as a
+  fresh level start.
+- A body's `^Q` header is `ENTITY.EnableCollisions`' minimum time and strength, and
+  turns its collision reports back on.
+- A limb's extra floats are its `EnableCollisionsToRagdoll` pair.
+- A ragdoll's damping and its moved-by-explosions flag are restored before
+  `EnableRagdoll` applies them.
+- An animation slot keeps its own loop flag: `SetAnim`'s third argument, the last
+  time the slot played, which `Model::LoadEntity` hands to `LoadAnimation`.
+- Paths: a `PATH` handle is a Pathfinder2 slot counted from 0 (`PATH.IsFinished`
+  0x1013aa20 indexes the array with it), and ours now count the same way. A live
+  slot's next point and destination are routed again, as `WaypointGPath2::Load`
+  does. Without them every walking monster held a dead handle and kept its saved
+  move wish.
+- Item packs: `CreateEntity`'s last argument is header flag 0x80, which centres the mesh.
+- Lights: where `LIGHT.Setup` / `SetFalloff` / `SetIntensity` store (colour
+  +0x678, intensity +0x67c, direction +0x7e4, cone +0x7f0 outer and +0x680 inner,
+  range +0x7f8, start +0x7fc, type +0x7f4); dynamic is flag 0x400000.
+- Coronas: `SetupCorona`'s arguments from where 0x10137b70 stores them. The blend
+  comes back from the material enum (1, 2, 4, 5 to 1, 2, 3, 4); sprite-only is
+  corona flag 0.
+- Particle effects: each emitter's file with `SetupEmitter`'s offset, rotation and
+  scale (0x10139cb0). A child that follows is placed on its parent's joint (+0x118).
+- Ragdolls: limb poses matched by bone name. A saved position is the Havok
+  body's, DISPLACEMENT times the scale short of our part frame (C3L1_LampA's
+  joint6: 124.1 x 0.72 = 89.4 units). Fixed parts (`.hke` mass 0) keep the seed.
+
+The music streams are restored: each is reopened at its byte. Those in the pause
+set play; the others stay paused. Not restored yet: decals, trails, sounds, the
+glass panes' broken state, the audio chunk's 2D and 3D sounds, and the portal and
+zone blocks. `WORLD.LoadGame` logs the counts.
+
+KNOWN DEVIATION, not specific to loading: our `PATH.GetShortest` is A* between
+the waypoints closest to each end, whereas `Pathfinder2::GetShortestPath`
+(0x1016c070) searches by area and picks the portal waypoints that minimise
+from-to distance. So a monster already beside the player can be routed on a detour:
+after loading the Train Station save, two that started 4.6 and 5.6 units away ran
+down onto the tracks and ended 22 units off.
+
+Verified headless with `SaveGame.Save` stubbed so no slot is written
+(`PainfulTools lua <root> 30 <level> "PROBE_SLOT=9 dofile([[probe]])"`). The Train
+Station Quick save restores 599 of 798 entities: the player at its saved position
+with 5 weapons and 107.6 health, 14 live monsters where their scripts have them,
+50 ragdolls posed, 0 script errors. An Atrium checkpoint restores 476 of 584. The
+worst moving ragdoll part lands 6.4 units from its animation seed, on a toppled
+stand.
 
 ## The time multiplier
 

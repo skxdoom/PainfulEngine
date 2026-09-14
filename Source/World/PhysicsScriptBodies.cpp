@@ -1253,6 +1253,36 @@ float PhysicsWorld::ScriptBodyRadius(int slot) const {
 	return ScriptBodyExists(slot) ? impl_->scriptBodies[slot].radius : 0.f;
 }
 
+bool PhysicsWorld::ScriptBodyInverseInertia(int slot, Vec3& invDiag) const {
+	if (!ScriptBodyExists(slot)) return false;
+	JPH::BodyLockRead lock(impl_->system.GetBodyLockInterface(), impl_->scriptBodies[slot].body);
+	if (!lock.Succeeded() || !lock.GetBody().IsDynamic()) return false;
+	const JPH::Vec3 d = lock.GetBody().GetMotionProperties()->GetInverseInertiaDiagonal();
+	invDiag = Vec3{d.GetX(), d.GetY(), d.GetZ()};
+	return true;
+}
+
+bool PhysicsWorld::GetScriptBodyAngularVelocity(int slot, Vec3& out) const {
+	if (!ScriptBodyExists(slot)) return false;
+	const JPH::Vec3 w =
+			impl_->system.GetBodyInterfaceNoLock().GetAngularVelocity(impl_->scriptBodies[slot].body);
+	out = Vec3{w.GetX(), w.GetY(), w.GetZ()};
+	return true;
+}
+
+bool PhysicsWorld::ScriptBodyAwake(int slot) const {
+	return ScriptBodyExists(slot) &&
+			impl_->system.GetBodyInterfaceNoLock().IsActive(impl_->scriptBodies[slot].body);
+}
+
+bool PhysicsWorld::ScriptBodyInWorld(int slot) const {
+	return ScriptBodyExists(slot) && impl_->scriptBodies[slot].inWorld;
+}
+
+int PhysicsWorld::ScriptBodyFreedomMode(int slot) const {
+	return ScriptBodyExists(slot) ? impl_->scriptBodies[slot].freedomMode : 1;
+}
+
 // Where Jolt actually put the body, in world space.
 //
 // The only way to settle a placement argument: what we asked for and what the

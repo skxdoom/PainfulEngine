@@ -492,6 +492,7 @@ int EntityNatives::L_ENTITY_ExplodeItem(lua_State* L) {
 					self->dataRoot_, 3 /* ECollisionGroups.Normal */);
 			if (slot >= 0) {
 				live.physicsBody = slot;
+				live.bodyType = 4; // what a save remakes it as
 				self->bodyToEntity_[slot] = handle;
 				self->physics_->SetScriptBodyVelocity(slot, live.velocity);
 			}

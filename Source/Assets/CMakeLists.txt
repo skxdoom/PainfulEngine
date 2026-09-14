@@ -14,6 +14,7 @@ add_library(Assets STATIC
 		Properties.cpp Properties.h
 		Emitter.cpp Emitter.h
 		Tweaks.cpp Tweaks.h
+		WorldSave.cpp WorldSave.h
 		)
 target_link_libraries(Assets PUBLIC Core)
 painful_layer(Assets)

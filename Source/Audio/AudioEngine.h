@@ -125,6 +125,18 @@ public:
 	void StreamSetLowPass(int slot, float cutoff);
 	float StreamGetLowPass(int slot) const;
 	size_t streamsPlaying() const;
+	// A slot as a save keeps it (MilesEngine::SaveAudio's stream records): the file,
+	// the byte decoding had reached, the volume, and whether it plays.
+	struct StreamState {
+		std::string name;
+		size_t offset = 0;
+		float volume = 0.f;
+		bool playing = false, paused = false, loop = false;
+	};
+	// One per slot, with an empty name where the slot holds nothing.
+	std::vector<StreamState> StreamStates() const;
+	// Loads the file into the slot and carries on from the saved byte.
+	bool RestoreStream(int slot, const StreamState& state);
 
 	size_t voicesPlaying() const;
 	// Every sample with a real voice right now, with how many are real and how

@@ -5,11 +5,581 @@
 #include "../Core/Matrix.h"
 #include "Core/Debug.h"
 
+#include <algorithm>
 #include <chrono>
+#include <cstdio>
+#include <cstring>
 #include <thread>
 #include <string>
 #include <vector>
 #include <map>
+#include <fstream>
+#include <iterator>
+
+namespace {
+
+// --census: the values each field takes over the records that carry it, most
+// common first. A writer fills the fields no loader or native names from these.
+class Census {
+public:
+	void Add(const std::string& key, const std::string& value) { ++seen_[key][value]; }
+	void U(const std::string& key, uint32_t v) { Add(key, std::to_string(v)); }
+	void X(const std::string& key, uint32_t v) {
+		char t[16];
+		std::snprintf(t, sizeof t, "%08x", v);
+		Add(key, t);
+	}
+	void F(const std::string& key, const float* v, size_t n = 1) {
+		std::string s;
+		for (size_t i = 0; i < n; ++i) {
+			char t[32];
+			std::snprintf(t, sizeof t, "%s%.4g", i ? " " : "", v[i]);
+			s += t;
+		}
+		Add(key, s);
+	}
+	void V(const std::string& key, const Vec3& v) {
+		const float t[3] = {v[0], v[1], v[2]};
+		F(key, t, 3);
+	}
+	void S(const std::string& key, const std::string& v) { Add(key, "'" + WsText(v) + "'"); }
+	void Print() const {
+		for (const auto& kv : seen_) {
+			std::vector<std::pair<size_t, std::string>> order;
+			size_t total = 0;
+			for (const auto& v : kv.second) {
+				order.emplace_back(v.second, v.first);
+				total += v.second;
+			}
+			std::stable_sort(order.begin(), order.end(),
+					[](const auto& a, const auto& b) { return a.first > b.first; });
+			std::string line;
+			for (size_t i = 0; i < order.size() && i < 6; ++i)
+				line += "  " + order[i].second + " x" + std::to_string(order[i].first);
+			if (order.size() > 6) line += "  (+" + std::to_string(order.size() - 6) + " more)";
+			LogInfo("  census %s [%zu]:%s", kv.first.c_str(), total, line.c_str());
+		}
+	}
+
+private:
+	std::map<std::string, std::map<std::string, size_t>> seen_;
+};
+
+void CensusBody(Census& c, const std::string& owner, const WsPhysicsObject& p) {
+	const std::string k = owner + ".po.";
+	c.U(k + "type", p.type);
+	c.F(k + "scaleArg", &p.scaleArg);
+	c.X(k + "flags", p.flags);
+	c.U(k + "freedom", p.freedom);
+	c.U(k + "group", p.collisionGroup);
+	c.U(k + "b2", p.b2);
+	c.U(k + "b3", p.b3);
+	c.U(k + "lineTrace", p.lineTrace);
+	c.F(k + "mass", &p.mass);
+	c.F(k + "friction", &p.friction);
+	c.F(k + "restitution", &p.restitution);
+	c.F(k + "linDamp", &p.linearDamping);
+	c.F(k + "angDamp", &p.angularDamping);
+	c.U(k + "b5", p.b5);
+	c.X(k + "u18", p.u18);
+	c.F(k + "inertia", p.inertia, 9);
+	float scaled[9];
+	for (int i = 0; i < 9; ++i) scaled[i] = p.inertia[i] * p.mass;
+	c.F(k + "inertia*mass t" + std::to_string(p.type), scaled, 9);
+	c.U(k + "hasController", p.hasController);
+	if (p.hasController) {
+		// FUN_1018aeb0's fields: u32 +0x1c.., one row per 4 bytes so the census shows each.
+		for (size_t i = 0; i + 4 <= sizeof p.controller; i += 4) {
+			uint32_t v = 0;
+			std::memcpy(&v, p.controller + i, 4);
+			char name[32];
+			std::snprintf(name, sizeof name, "ctrl@%03zu", i);
+			c.X(k + name, v);
+		}
+	}
+	c.U(k + "cons.hasHeader", p.constraints.hasHeader);
+	if (p.constraints.hasHeader) c.F(k + "cons.header", p.constraints.header, 3);
+	c.U(k + "cons.records", uint32_t(p.constraints.records.size()));
+	if (p.flags & 2) {
+		c.F(k + "sight", p.sight, 4);
+		c.V(k + "ext60", p.ext60);
+		c.F(k + "moveConst", &p.moveConst);
+		c.U(k + "moveFlag", p.moveFlag);
+		c.U(k + "ext71", p.ext71);
+	}
+}
+
+void CensusEntity(Census& c, const WsEntity& e) {
+	std::string t = WsTypeName(e.type);
+	if (e.type == kWsModel && e.model.hasBody)
+		t += e.model.body.hasController ? "(player)" : (e.model.body.flags & 2) ? "(monster)" : "(body)";
+	if (e.type == kWsModel && e.model.ragdollOn) t += "(ragdoll)";
+	const WsEntityBase& b = e.base;
+	c.U(t + ".headerFlag", e.headerFlag);
+	if (e.type != kWsModel) c.X(t + ".headerValue", e.headerValue);
+	c.F(t + ".fb0", &b.fb0);
+	c.F(t + ".fb4", &b.fb4);
+	c.U(t + ".dz", b.deathZoneTest);
+	c.U(t + ".u24", b.u24);
+	c.U(t + ".b28", b.b28);
+	c.X(t + ".flags", b.flags);
+	c.X(t + ".u2c", b.u2c);
+	c.X(t + ".u30", b.u30);
+	c.X(t + ".u34", b.u34);
+	c.U(t + ".hasParent", b.hasParent);
+	if (b.hasParent) {
+		c.Add(t + ".joint", std::to_string(int(int8_t(b.joint))));
+		c.U(t + ".follows", b.follows);
+		c.U(t + ".die", b.dieWithParent);
+	}
+	c.U(t + ".inWorld", e.inWorld);
+	switch (e.type) {
+	case kWsModel: {
+		const WsModel& m = e.model;
+		float scale = 0.f;
+		std::memcpy(&scale, &e.headerValue, 4);
+		const float ratio = scale != 0.f ? m.f700 / scale : m.f700;
+		c.F(t + ".f700/scale", &ratio);
+		c.S(t + ".material", m.material);
+		c.U(t + ".shadow", m.shadow);
+		uint32_t hidden = 0;
+		for (uint8_t v : m.meshVisible) hidden += v ? 0 : 1;
+		c.U(t + ".hiddenMeshes", hidden);
+		c.U(t + ".slotCount", m.slotCount);
+		for (const WsModel::Slot& s : m.slots) {
+			c.U(t + ".slot.present", s.present);
+			if (!s.present) continue;
+			c.U(t + ".slot.loop", s.loop);
+			c.U(t + ".slot.curveMask", s.curveMask);
+		}
+		c.U(t + ".channels", uint32_t(m.channels.size()));
+		for (const WsModel::Channel& ch : m.channels) {
+			c.U(t + ".ch.slotIsZero", ch.slot == 0);
+			c.F(t + ".ch.weight", &ch.weight);
+			c.F(t + ".ch.speed", &ch.speed);
+			c.U(t + ".ch.loop", ch.loop);
+			c.U(t + ".ch.e", ch.e);
+			c.F(t + ".ch.blend", &ch.blend);
+			c.F(t + ".ch.blendLeft", &ch.blendLeft);
+		}
+		c.U(t + ".hasBody", m.hasBody);
+		c.U(t + ".ragdollOn", m.ragdollOn);
+		c.U(t + ".hasGroups", m.hasGroups);
+		if (m.hasBody) CensusBody(c, t, m.body);
+		if (m.hasGroups) {
+			c.X(t + ".groups.tag", m.groups.tag);
+			c.U(t + ".groups.n", uint32_t(m.groups.records.size()));
+			for (const WsRagdollGroups::Record& r : m.groups.records) {
+				c.U(t + ".groups.has", r.has);
+				if (r.has) c.F(t + ".groups.v", r.v, 3);
+				c.U(t + ".groups.after", r.after);
+			}
+		}
+		if (m.ragdollOn) {
+			const WsRagdoll& r = m.ragdoll;
+			for (const WsRagdoll::Body& rb : r.bodies) {
+				c.U(t + ".rb.flag", rb.flag);
+				c.U(t + ".rb.hasExtra", rb.hasExtra);
+				if (rb.hasExtra) c.F(t + ".rb.extra", rb.extra, 3);
+				c.F(t + ".rb.mass", &rb.mass);
+				c.U(t + ".rb.b", rb.b);
+				c.F(t + ".rb.c", &rb.c);
+				c.F(t + ".rb.d", &rb.d);
+				c.F(t + ".rb.e", &rb.e);
+				c.F(t + ".rb.f", rb.f, 8);
+				c.U(t + ".rb.g", rb.g);
+			}
+			c.F(t + ".rd.tail", r.tail, 3);
+			for (const WsRagdoll::Constraint& k : r.constraints) {
+				c.U(t + ".rc.type", k.type);
+				if (k.type >= 10) {
+					c.U(t + ".rc.breakable", k.breakable);
+					c.F(t + ".rc.strength", &k.strength);
+				}
+				c.F(t + ".rc.data", k.data, 8);
+				c.U(t + ".rc.after", k.after);
+			}
+			for (const WsRagdoll::Action& a : r.actions) {
+				c.U(t + ".ra.skip", a.skip);
+				c.U(t + ".ra.kind", a.kind);
+				c.U(t + ".ra.after", a.after);
+			}
+			c.U(t + ".rd.flag", r.flag);
+			c.V(t + ".rd.gravity", r.gravity);
+		}
+		break;
+	}
+	case kWsWorldMesh: {
+		const WsWorldMesh& w = e.mesh;
+		c.U(t + ".hasBody", w.hasBody);
+		c.S(t + ".material", w.material);
+		for (int i = 0; i < 4; ++i) c.X(t + ".materialData" + std::to_string(i), w.materialData[i]);
+		c.S(t + ".s684", w.s684);
+		c.S(t + ".s690", w.s690);
+		if (w.hasBody) CensusBody(c, t, w.body);
+		break;
+	}
+	case kWsLight:
+		c.X(t + ".lightFlags", e.light.flags);
+		c.U(t + ".type", e.light.type);
+		c.S(t + ".projector", e.light.projector);
+		break;
+	case kWsParticle: {
+		const WsParticle& p = e.particle;
+		c.X(t + ".u18", p.u18);
+		c.U(t + ".bc88", p.bc88);
+		c.V(t + ".vc90", p.vc90);
+		c.F(t + ".fc8c", &p.fc8c);
+		c.V(t + ".vc9c", p.vc9c);
+		c.U(t + ".bca8", p.bca8);
+		c.U(t + ".bcaa", p.bcaa);
+		c.U(t + ".bca9", p.bca9);
+		c.U(t + ".emitters", uint32_t(p.emitters.size()));
+		for (const WsParticle::Emitter& em : p.emitters) {
+			c.V(t + ".em.a", em.a);
+			c.F(t + ".em.b", &em.b);
+			c.V(t + ".em.c", em.c);
+			c.V(t + ".em.d", em.d);
+			c.Add(t + ".em.flags", std::to_string(em.flags[0]) + std::to_string(em.flags[1]) +
+					std::to_string(em.flags[2]) + std::to_string(em.flags[3]) + std::to_string(em.flags[4]));
+		}
+		break;
+	}
+	case kWsBillboard: {
+		const WsBillboard& bb = e.billboard;
+		c.U(t + ".corona", bb.corona);
+		c.U(t + ".blend", bb.blend);
+		for (int i : {1, 4, 6, 13, 14, 15, 16}) c.F(t + ".f" + std::to_string(i), &bb.f[i]);
+		break;
+	}
+	case kWsDecal:
+		c.S(t + ".texture", e.decal.texture);
+		c.F(t + ".f678", &e.decal.f678);
+		c.F(t + ".f67c", &e.decal.f67c);
+		c.F(t + ".f684", &e.decal.f684);
+		c.U(t + ".b688", e.decal.b688);
+		c.U(t + ".verts", uint32_t(e.decal.verts.size()));
+		break;
+	case kWsTrail:
+		c.F(t + ".f680", &e.trail.f680);
+		c.X(t + ".unknown", e.trail.unknown);
+		c.F(t + ".f868", &e.trail.f868);
+		c.U(t + ".b86c", e.trail.b86c);
+		c.U(t + ".capacity", e.trail.capacity);
+		c.U(t + ".segments", e.trail.segments);
+		break;
+	case kWsSound:
+		for (int i = 0; i < 10; ++i) c.X(t + ".v" + std::to_string(i), e.sound.v[i]);
+		c.U(t + ".b", e.sound.b);
+		break;
+	}
+}
+
+} // namespace
+
+// The original engine's world save, decoded against the mounted data (a model's
+// mesh count and its .hke counts are not in the file), then written back and
+// compared byte for byte. `option` is "--list" or "--census".
+int WorldSaveCmd(const char* path, const char* dataRoot, const char* option) {
+	const bool list = !std::strcmp(option, "--list");
+	const bool census = !std::strcmp(option, "--census");
+	Census cs;
+	std::vector<uint8_t> data;
+	{
+		std::ifstream in(path, std::ios::binary);
+		if (!in) {
+			LogInfo("%s: cannot open", path);
+			return 2;
+		}
+		data.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+	}
+
+	const std::string root = dataRoot;
+	std::map<std::string, int> meshCounts;
+	std::map<std::string, std::pair<int, int>> ragdollCounts;
+	WorldSave::Resolver models;
+	models.meshCount = [&](const std::string& model) {
+		auto it = meshCounts.find(model);
+		if (it != meshCounts.end()) return it->second;
+		Model m;
+		const int n = Model::Load(root + "/Models/" + model + ".pkmdl", m) ? int(m.meshes.size()) : -1;
+		meshCounts[model] = n;
+		return n;
+	};
+	models.ragdoll = [&](const std::string& model, int& constraints, int& actions) {
+		auto it = ragdollCounts.find(model);
+		if (it == ragdollCounts.end()) {
+			Hke hke;
+			std::pair<int, int> counts(-1, -1);
+			if (Hke::Load(root + "/Models/" + model + ".hke", hke))
+				counts = {int(hke.constraints.size()), int(hke.springs.size() + hke.dashpots.size())};
+			it = ragdollCounts.emplace(model, counts).first;
+		}
+		constraints = it->second.first;
+		actions = it->second.second;
+		return constraints >= 0;
+	};
+
+	WorldSave save;
+	const bool ok = WorldSave::Read(data, save, models);
+	LogInfo("%s: %zu bytes, version %u", path, data.size(), save.version);
+	LogInfo("  audio chunk %zu bytes; physics @0x%zx, paths @0x%zx, entities @0x%zx, portals @0x%zx",
+			save.audio.body.size(), save.physicsAt, save.pathsAt, save.entitiesAt, save.portalsAt);
+	size_t layers = 0, groups = 0, bodies = 0, pairs = 0;
+	for (const WsPhysicsWorld& w : save.worlds) {
+		layers += w.layers.size();
+		groups += w.groups.size();
+		bodies += w.bodies.size();
+		pairs += w.pairs.size();
+	}
+	size_t activePaths = 0;
+	for (const WorldSave::Path& p : save.paths) activePaths += p.active ? 1 : 0;
+	LogInfo("  physics: %zu worlds, %zu layers, %zu groups, %zu bodies, %zu pairs; %zu paths, %zu active",
+			save.worlds.size(), layers, groups, bodies, pairs, save.paths.size(), activePaths);
+	size_t shards = 0;
+	for (const WsGlass& g : save.glass)
+		for (const WsGlass::Piece& p : g.pieces) shards += p.present ? 1 : 0;
+	LogInfo("  glass: %zu panes, %zu shards", save.glass.size(), shards);
+	std::vector<WsStream> streams;
+	if (!WsAudioStreams(save.audio.body, streams)) LogInfo("  music: the audio chunk does not parse");
+	for (size_t i = 0; i < streams.size(); ++i)
+		if (streams[i].present)
+			LogInfo("  music slot %zu: '%s' volume %.2f rate %u %u loop %u at byte %u%s", i,
+					WsText(streams[i].file).c_str(), streams[i].volume, streams[i].rate, streams[i].u1c,
+					streams[i].loopCount, streams[i].position, streams[i].resumes ? ", resumes" : ", paused");
+
+	// Entities read so far: all of them, or up to and including the failing one.
+	const size_t parsed = ok ? save.entities.size() : save.entityAt.size();
+	std::map<std::string, size_t> byType;
+	size_t withBody = 0, ragdolls = 0, parented = 0;
+	for (size_t i = 0; i < parsed; ++i) {
+		const WsEntity& e = save.entities[i];
+		++byType[WsTypeName(e.type)];
+		if ((e.type == kWsModel && e.model.hasBody) || (e.type == kWsWorldMesh && e.mesh.hasBody)) ++withBody;
+		if (e.type == kWsModel && e.model.ragdollOn) ++ragdolls;
+		if (e.base.hasParent) ++parented;
+		if (census) CensusEntity(cs, e);
+		if (!list) continue;
+		const Vec3* pos = e.type == kWsModel ? &e.model.pos
+				: e.type == kWsWorldMesh ? &e.mesh.pos
+				: e.type == kWsLight ? &e.light.pos
+				: e.type == kWsParticle ? &e.particle.pos
+				: e.type == kWsBillboard ? &e.billboard.pos
+				: e.type == kWsTrail ? &e.trail.pos : nullptr;
+		LogInfo("  #%zu @0x%zx %-14s h%-5d %s / %s%s  (%.2f %.2f %.2f)", i, save.entityAt[i],
+				WsTypeName(e.type), e.base.handle, WsText(e.resource).c_str(), WsText(e.name).c_str(),
+				e.base.hasParent ? " [child]" : "", pos ? (*pos)[0] : 0.f, pos ? (*pos)[1] : 0.f,
+				pos ? (*pos)[2] : 0.f);
+		const WsEntityBase& b = e.base;
+		LogInfo("      base: hdr %08x/%u fb0 %.3f fb4 %.3f dz %u u24 %u b28 %u flags %08x %08x %08x %08x in %u%s",
+				e.headerValue, e.headerFlag, b.fb0, b.fb4, b.deathZoneTest, b.u24, b.b28, b.flags, b.u2c,
+				b.u30, b.u34, e.inWorld,
+				b.hasParent ? (" parent h" + std::to_string(b.parent) + " j" + std::to_string(int(int8_t(b.joint))) +
+						" follow " + std::to_string(b.follows) + " die " + std::to_string(b.dieWithParent)).c_str() : "");
+		if (e.type == kWsModel) {
+			const WsModel& m = e.model;
+			std::string slots, vis, ch;
+			for (size_t s = 0; s < m.slots.size(); ++s)
+				if (m.slots[s].present)
+					slots += " " + std::to_string(s + 1) + ":" + WsText(m.slots[s].anim) + "/" +
+							std::to_string(m.slots[s].loop) + "/" + std::to_string(m.slots[s].curveMask);
+			for (uint8_t v : m.meshVisible) vis += char('0' + v);
+			for (const WsModel::Channel& c : m.channels) {
+				char t[128];
+				std::snprintf(t, sizeof t, " [s%u t %.3f w %.3f speed %.3f loop %u %u blend %.3f %.3f]", c.slot,
+						c.time, c.weight, c.speed, c.loop, c.e, c.blend, c.blendLeft);
+				ch += t;
+			}
+			LogInfo("      model: rot %.3f %.3f %.3f %.3f f700 %.3f mat '%s' shadow %u meshes %s slots %u%s",
+					m.rot[0], m.rot[1], m.rot[2], m.rot[3], m.f700, WsText(m.material).c_str(), m.shadow,
+					vis.c_str(), m.slotCount, slots.c_str());
+			LogInfo("      anims:%s", ch.c_str());
+			if (m.hasBody) {
+				const WsPhysicsObject& p = m.body;
+				LogInfo("      body: type %u scale %.3f flags %08x b0 %u vel %.2f %.2f %.2f av %.2f %.2f %.2f "
+						"group %u %u %u %u mass %.3f fr %.3f rest %.3f damp %.3f %.3f b5 %u u18 %08x ctrl %u cons %zu",
+						p.type, p.scaleArg, p.flags, p.freedom, p.velocity[0], p.velocity[1], p.velocity[2],
+						p.angularVelocity[0], p.angularVelocity[1], p.angularVelocity[2], p.collisionGroup,
+						p.b2, p.b3, p.lineTrace, p.mass, p.friction, p.restitution, p.linearDamping,
+						p.angularDamping, p.b5, p.u18, p.hasController, p.constraints.records.size());
+				if (p.flags & 2)
+					LogInfo("      monster: sight %.3f %.3f %.3f %.3f wish %.2f %.2f %.2f e60 %.2f %.2f %.2f const %.3f flag %u %u",
+							p.sight[0], p.sight[1], p.sight[2], p.sight[3], p.moveWish[0], p.moveWish[1],
+							p.moveWish[2], p.ext60[0], p.ext60[1], p.ext60[2], p.moveConst, p.moveFlag, p.ext71);
+			}
+			if (m.ragdollOn)
+				LogInfo("      ragdoll: %zu bodies, body0 (%.2f %.2f %.2f) tail %.3f %.3f %.3f flag %u",
+						m.ragdoll.bodies.size(), m.ragdoll.bodies.empty() ? 0.f : m.ragdoll.bodies[0].pos[0],
+						m.ragdoll.bodies.empty() ? 0.f : m.ragdoll.bodies[0].pos[1],
+						m.ragdoll.bodies.empty() ? 0.f : m.ragdoll.bodies[0].pos[2], m.ragdoll.tail[0],
+						m.ragdoll.tail[1], m.ragdoll.tail[2], m.ragdoll.flag);
+			for (const WsRagdoll::Body& rb : m.ragdoll.bodies)
+				LogInfo("        body (%.2f %.2f %.2f) rot %.3f %.3f %.3f %.3f v %.2f %.2f %.2f flag %u extra %u "
+						"mass %.2f b %u c %.3f d %.3f e %.3f g %u",
+						rb.pos[0], rb.pos[1], rb.pos[2], rb.rot[0], rb.rot[1], rb.rot[2], rb.rot[3],
+						rb.velocity[0], rb.velocity[1], rb.velocity[2], rb.flag, rb.hasExtra, rb.mass, rb.b,
+						rb.c, rb.d, rb.e, rb.g);
+			// The saved limbs and constraints beside the .hke's, for the writer's mapping.
+			Hke hke;
+			if (m.ragdollOn && Hke::Load(root + "/Models/" + WsText(e.resource) + ".hke", hke)) {
+				for (size_t k = 0; k < hke.bodies.size() && k < m.ragdoll.bodies.size(); ++k) {
+					const HkeBody& hb = hke.bodies[k];
+					const WsRagdoll::Body& rb = m.ragdoll.bodies[k];
+					LogInfo("        hke body %zu %s mass %.2f mask %d active %d nocoll %d | saved b %u mass %.2f "
+							"f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f e %.3f extra %u",
+							k, hb.bone.c_str(), hb.mass, hb.collisionMask, hb.active, hb.collisionsDisabled, rb.b,
+							rb.mass, rb.f[0], rb.f[1], rb.f[2], rb.f[3], rb.f[4], rb.f[5], rb.f[6], rb.f[7], rb.e,
+							rb.hasExtra);
+				}
+				for (size_t k = 0; k < m.ragdoll.constraints.size(); ++k) {
+					const WsRagdoll::Constraint& c = m.ragdoll.constraints[k];
+					LogInfo("        cons %zu: type %u brk %u str %.1f data %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f after %u",
+							k, c.type, c.breakable, c.strength, c.data[0], c.data[1], c.data[2], c.data[3], c.data[4],
+							c.data[5], c.data[6], c.data[7], c.after);
+					if (k >= hke.constraints.size()) continue;
+					const HkeConstraint& h = hke.constraints[k];
+					LogInfo("          hke %s %s-%s lim %d brk %d str %.1f ws %d ref %.3f %.3f %.3f att %.3f %.3f %.3f "
+							"hA %.3f %.3f %.3f hB %.3f %.3f %.3f pA %.3f %.3f %.3f pB %.3f %.3f %.3f len %.3f "
+							"wp %.3f %.3f %.3f lin %.1f ang %.1f min %.3f max %.3f",
+							h.kind == HkeConstraint::kHinge ? "hinge" : h.kind == HkeConstraint::kRagdoll ? "ragdoll" : "spring",
+							h.bodyA.c_str(), h.bodyB.c_str(), h.limited, h.breakable, h.strength, h.worldSpace,
+							h.csToRef[3][0], h.csToRef[3][1], h.csToRef[3][2], h.csToAtt[3][0], h.csToAtt[3][1],
+							h.csToAtt[3][2], h.hingePosA[0], h.hingePosA[1], h.hingePosA[2], h.hingePosB[0],
+							h.hingePosB[1], h.hingePosB[2], h.localPointA[0], h.localPointA[1], h.localPointA[2],
+							h.localPointB[0], h.localPointB[1], h.localPointB[2], h.springLength, h.worldPivot[0],
+							h.worldPivot[1], h.worldPivot[2], h.linearStrength, h.angularStrength, h.limitMinAngle,
+							h.limitMaxAngle);
+					const auto bodyInfo = [&](const std::string& bone) {
+						for (const HkeBody& hb : hke.bodies) {
+							if (hb.bone != bone) continue;
+							char t[256];
+							std::snprintf(t, sizeof t, "%s disp %.3f %.3f %.3f tr %.3f %.3f %.3f rot %.3f (%.3f %.3f %.3f)",
+									bone.c_str(), hb.displacement[0], hb.displacement[1], hb.displacement[2],
+									hb.translation[0], hb.translation[1], hb.translation[2], hb.rotAngle,
+									hb.rotAxis[0], hb.rotAxis[1], hb.rotAxis[2]);
+							return std::string(t);
+						}
+						return bone + " ?";
+					};
+					float modelScale = 0.f;
+					std::memcpy(&modelScale, &e.headerValue, 4);
+					LogInfo("          bodies: A %s | B %s | scale %.4f | hingeA %.3f %.3f %.3f",
+							bodyInfo(h.bodyA).c_str(), bodyInfo(h.bodyB).c_str(), modelScale,
+							h.worldHingePos[0], h.worldHingePos[1], h.worldHingePos[2]);
+				}
+			}
+		} else if (e.type == kWsLight) {
+			const WsLight& l = e.light;
+			LogInfo("      light: type %u argb %08x intensity %.3f dir %.3f %.3f %.3f cone %.3f %.3f range %.3f "
+					"start %.3f proj '%s'",
+					l.type, l.argb, l.intensity, l.dir[0], l.dir[1], l.dir[2], l.coneCos, l.coneInnerCos,
+					l.range, l.startFalloff, WsText(l.projector).c_str());
+		} else if (e.type == kWsBillboard) {
+			const WsBillboard& bb = e.billboard;
+			std::string f;
+			for (float v : bb.f) f += " " + std::to_string(v);
+			LogInfo("      corona: '%s' corona %u blend %u f610 %.3f:%s", WsText(bb.texture).c_str(), bb.corona,
+					bb.blend, bb.f610, f.c_str());
+		} else if (e.type == kWsParticle) {
+			for (const WsParticle::Emitter& em : e.particle.emitters)
+				LogInfo("      emitter '%s' a %.2f %.2f %.2f b %.2f c %.2f %.2f %.2f d %.2f %.2f %.2f "
+						"flags %u%u%u%u%u offset %.2f %.2f %.2f rot %.2f %.2f %.2f scale %.3f",
+						WsText(em.file).c_str(), em.a[0], em.a[1], em.a[2], em.b, em.c[0], em.c[1], em.c[2],
+						em.d[0], em.d[1], em.d[2], em.flags[0], em.flags[1], em.flags[2], em.flags[3],
+						em.flags[4], em.offset[0], em.offset[1], em.offset[2], em.rotDeg[0], em.rotDeg[1],
+						em.rotDeg[2], em.scale);
+		} else if (e.type == kWsWorldMesh) {
+			const WsWorldMesh& w = e.mesh;
+			LogInfo("      mesh: rot %.3f %.3f %.3f %.3f body %u '%s' %08x %08x %08x %08x '%s' '%s'", w.rot[0],
+					w.rot[1], w.rot[2], w.rot[3], w.hasBody, WsText(w.material).c_str(), w.materialData[0],
+					w.materialData[1], w.materialData[2], w.materialData[3], WsText(w.s684).c_str(),
+					WsText(w.s690).c_str());
+			if (w.hasBody)
+				LogInfo("      body: type %u scale %.3f flags %08x b0 %u group %u %u %u %u b5 %u mass %.3f fr %.3f rest %.3f damp %.3f %.3f",
+						w.body.type, w.body.scaleArg, w.body.flags, w.body.freedom, w.body.collisionGroup, w.body.b2,
+						w.body.b3, w.body.lineTrace, w.body.b5, w.body.mass, w.body.friction, w.body.restitution,
+						w.body.linearDamping, w.body.angularDamping);
+		}
+	}
+	std::string types;
+	for (const auto& kv : byType) types += " " + kv.first + " " + std::to_string(kv.second);
+	LogInfo("  entities: %zu of %zu read:%s", parsed, save.entities.size(), types.c_str());
+	LogInfo("  %zu with a physics object, %zu ragdolls simulating, %zu children", withBody, ragdolls, parented);
+	LogInfo("  portals %zu, antiportals %zu, zones %zu", save.portals.size(), save.antiportals.size(),
+			save.zones.size());
+	if (census) {
+		cs.U("save.e6dc", save.e6dc);
+		cs.U("save.e6dd", save.e6dd);
+		cs.U("save.e6bb", save.e6bb);
+		cs.X("save.physicsC", save.physicsC);
+		cs.X("save.physics14", save.physics14);
+		for (uint8_t v : save.portals) cs.U("save.portal", v);
+		for (uint8_t v : save.antiportals) cs.U("save.antiportal", v);
+		for (uint8_t v : save.zones) cs.U("save.zone", v);
+		cs.Print();
+	}
+
+	// Which branches of the format these bytes exercised: a round trip proves
+	// only the paths a file takes.
+	size_t ext = 0, controllers = 0, constraintHeaders = 0, overrides = 0, groupsOff = 0;
+	size_t ragdollConstraints = 0, breakable = 0, ragdollActions = 0, sounds = 0, samples = 0, frames = 0;
+	std::map<int, size_t> constraintTypes;
+	auto countBody = [&](const WsPhysicsObject& p) {
+		ext += (p.flags & 2) ? 1 : 0;
+		controllers += p.hasController ? 1 : 0;
+		constraintHeaders += p.constraints.hasHeader ? 1 : 0;
+		for (const WsConstraints::Record& r : p.constraints.records) ++constraintTypes[r.type];
+	};
+	for (size_t i = 0; i < parsed; ++i) {
+		const WsEntity& e = save.entities[i];
+		if (e.type == kWsModel) {
+			if (e.model.hasBody) countBody(e.model.body);
+			overrides += e.model.channels.size();
+			groupsOff += e.model.hasGroups ? 1 : 0;
+			ragdollConstraints += e.model.ragdoll.constraints.size();
+			for (const WsRagdoll::Constraint& c : e.model.ragdoll.constraints) breakable += c.type >= 10 ? 1 : 0;
+			ragdollActions += e.model.ragdoll.actions.size();
+		}
+		if (e.type == kWsWorldMesh && e.mesh.hasBody) countBody(e.mesh.body);
+		if (e.type == kWsSound) {
+			++sounds;
+			samples += e.sound.sample.body.size() > 1 ? 1 : 0;
+		}
+		if (e.type == kWsTrail) frames += e.trail.frames.size();
+	}
+	std::string typeList;
+	for (const auto& kv : constraintTypes) typeList += " t" + std::to_string(kv.first) + " " + std::to_string(kv.second);
+	LogInfo("  coverage: %zu ext blocks, %zu controllers, %zu constraint headers, constraints:%s", ext,
+			controllers, constraintHeaders, typeList.empty() ? " none" : typeList.c_str());
+	LogInfo("  coverage: %zu overrides, %zu idle ragdoll groups, ragdoll constraints %zu (%zu breakable), actions %zu, sounds %zu (%zu samples), trail frames %zu",
+			overrides, groupsOff, ragdollConstraints, breakable, ragdollActions, sounds, samples, frames);
+
+	if (!ok) {
+		LogInfo("  FAILED at 0x%zx: %s", save.errorAt, save.error.c_str());
+		const size_t from = save.errorAt > 16 ? save.errorAt - 16 : 0;
+		std::string hex;
+		for (size_t i = from; i < from + 48 && i < data.size(); ++i) {
+			char b[4];
+			std::snprintf(b, sizeof b, "%02x ", data[i]);
+			hex += b;
+		}
+		LogInfo("  bytes from 0x%zx: %s", from, hex.c_str());
+		for (const auto& kv : meshCounts)
+			if (kv.second < 0) LogInfo("  no model file for %s", kv.first.c_str());
+		return 1;
+	}
+
+	std::vector<uint8_t> again;
+	save.Write(again);
+	size_t same = 0;
+	while (same < again.size() && same < data.size() && again[same] == data[same]) ++same;
+	if (again.size() == data.size() && same == data.size()) {
+		LogInfo("  written back: identical");
+		return 0;
+	}
+	LogInfo("  written back: %zu bytes, first difference at 0x%zx", again.size(), same);
+	return 1;
+}
 
 int LuaCmd(const char* dataRoot, int frames, const char* level,
 		const char* exec) {

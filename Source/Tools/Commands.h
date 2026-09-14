@@ -14,6 +14,7 @@
 #include "Assets/Dat.h"
 #include "Assets/Hke.h"
 #include "Assets/Mpk.h"
+#include "Assets/WorldSave.h"
 #include "Assets/Pkmdl.h"
 #include "Assets/Rde.h"
 #include "Assets/ShaderScript.h"
@@ -123,6 +124,8 @@ int LuaCmd(const char* dataRoot, int frames, const char* level, const char* exec
 int BlendCmd(const char* path, const char* animA, const char* animB,
 		const char* timeArg);
 int WpsCmd(const char* path);
+// The original engine's <level>.World: decoded, then written back and compared.
+int WorldSaveCmd(const char* path, const char* dataRoot, const char* option);
 int SoundCmd(const char* root, const char* name, const char* seconds);
 int MkLevelCmd(const char* dataRoot, const char* levelName, float extent,
 		float height, const char* texture, const char* steps,

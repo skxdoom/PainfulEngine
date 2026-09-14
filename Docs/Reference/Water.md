@@ -319,9 +319,10 @@ answered. The original has the same problem and solves it the same way:
 `SetupFlags` stores the water mesh at `World+0x778` rather than leaving it to
 the general geometry path.
 
-So each water object becomes a world-object entity at map load — a name and a
-handle, no body, no renderer instance, the same kind `WORLD.FindEntityByName`
-hands out — and `TraceCommon` tests the segment against the surface directly,
+So each water object becomes a world-object entity at map load — a name and the
+handle `WORLD.LoadMap` reserved for its object ([`LuaHost.md`](LuaHost.md),
+"Handles"), no body, no renderer instance, the same kind
+`WORLD.FindEntityByName` hands out — and `TraceCommon` tests the segment against the surface directly,
 reporting it when it is nearer than the solid hit. Only a **crossing** counts:
 a segment wholly above the plane has not hit the water, which is what stops a
 shot fired across a lake from reporting one.

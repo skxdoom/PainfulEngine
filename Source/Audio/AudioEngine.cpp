@@ -845,6 +845,13 @@ void AudioEngine::StreamDelete(int slot) {
 		std::lock_guard<std::mutex> guard(lock_);
 		if (slot < 0 || size_t(slot) >= streams_.size()) return;
 		gone = std::move(streams_[size_t(slot)]);
+		// A pause set must not restart whatever is put in the slot next, as Resolve
+		// refuses a recycled voice. A load deletes the streams and restores its own
+		// with their own pause state; LoadAudio drops the old sets the same way.
+		for (auto& kv : pauseSets_) {
+			std::vector<int>& taken = kv.second.streams;
+			taken.erase(std::remove(taken.begin(), taken.end(), slot), taken.end());
+		}
 	}
 	// Destroyed outside the lock: the SDL stream teardown is not instant.
 }
@@ -897,6 +904,39 @@ float AudioEngine::StreamGetLowPass(int slot) const {
 	std::lock_guard<std::mutex> guard(lock_);
 	if (slot < 0 || size_t(slot) >= streams_.size() || !streams_[size_t(slot)]) return 0.f;
 	return streams_[size_t(slot)]->lowPass;
+}
+
+std::vector<AudioEngine::StreamState> AudioEngine::StreamStates() const {
+	std::lock_guard<std::mutex> guard(lock_);
+	std::vector<StreamState> out(streams_.size());
+	for (size_t i = 0; i < streams_.size(); ++i) {
+		const MusicStream* ms = streams_[i].get();
+		if (!ms || !ms->ok) continue;
+		StreamState& s = out[i];
+		s.name = ms->name;
+		s.offset = ms->offset;
+		s.volume = ms->volume;
+		s.playing = ms->playing;
+		s.paused = ms->paused;
+		s.loop = ms->loop;
+	}
+	return out;
+}
+
+bool AudioEngine::RestoreStream(int slot, const StreamState& state) {
+	if (!StreamLoad(slot, state.name)) return false;
+	std::lock_guard<std::mutex> guard(lock_);
+	MusicStream& ms = *streams_[size_t(slot)];
+	// The offset is a byte of the file, as AIL_stream_position reports it; minimp3
+	// finds the next frame header from wherever decoding starts.
+	ms.Rewind();
+	ms.offset = std::min(state.offset, ms.file.size());
+	ms.DecodeFrame();
+	ms.loop = state.loop;
+	ms.volume = std::max(0.f, std::min(1.f, state.volume));
+	ms.paused = state.paused;
+	ms.playing = state.playing && ms.ok;
+	return true;
 }
 
 bool AudioEngine::StreamIsPlaying(int slot) const {

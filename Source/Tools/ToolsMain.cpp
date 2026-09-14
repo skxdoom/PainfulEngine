@@ -238,6 +238,10 @@ const Command kCommands[] = {
 		"the waypoint graph",
 		[](int, char** argv) { return WpsCmd(argv[2]); }},
 
+{"worldsave", 4, Root::kArgv3, "script", "<file.World> <DataRoot> [--list|--census]",
+		"the original engine's world save, decoded and written back",
+		[](int argc, char** argv) { return WorldSaveCmd(argv[2], argv[3], argc >= 5 ? argv[4] : ""); }},
+
 {"pose", 4, Root::kFromPath, "script", "<file.pkmdl> <anim> [time]",
 		"skinning, checked numerically",
 		[](int argc, char** argv) { return PoseCmd(argv[2], argv[3], argc >= 5 ? argv[4] : nullptr); }},

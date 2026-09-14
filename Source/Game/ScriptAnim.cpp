@@ -162,6 +162,7 @@ int AnimNatives::L_MDL_SetAnim(lua_State* L) {
 	// idle, and several shipped call sites rely on that by omitting the
 	// argument entirely.
 	e->animLoop = lua_isnil(L, 3) || lua_isnone(L, 3) ? true : lua_toboolean(L, 3) != 0;
+	if (index >= 0 && size_t(index) < e->animSlots.size()) e->animSlots[size_t(index)].loop = e->animLoop;
 	// The template's declared speed. A speed of zero would stall the event
 	// loop the moment it started, so an unspecified or zero speed plays at 1.
 	const float speed = float(luaL_optnumber(L, 4, 1.0));

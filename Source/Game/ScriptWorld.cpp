@@ -1,7 +1,10 @@
 // ScriptEngine: the WORLD natives - map loading, fog, ambient and the sky.
 
 #include "ScriptEngineInternal.h"
+#include "../Core/Check.h"
 #include "../Core/Vectors.h"
+#include <algorithm>
+#include <cctype>
 #include <string>
 #include <vector>
 
@@ -12,6 +15,12 @@ namespace painful {
 struct WorldNatives : ScriptNativesBase {
 	static int L_WORLD_AddEntity(lua_State* L);
 	static int L_WORLD_FindEntityByName(lua_State* L);
+	static int L_WORLD_Release(lua_State* L);
+	static int L_WORLD_CreateEnabledAntiPortalFromClosedConvexMesh(lua_State* L);
+	static int L_WORLD_DeleteAntiPortal(lua_State* L);
+	static int L_WORLD_EnableAntiPortal(lua_State* L);
+	static int L_WORLD_IsAntiPortalEnabled(lua_State* L);
+	static ScriptEngine::AntiPortal* AntiPortalArg(lua_State* L);
 	static int L_PHYSICS_ActiveMeshGroupActivate(lua_State* L);
 	static int L_PHYSICS_ActiveMeshGroupEnable(lua_State* L);
 	static int L_PHYSICS_ActiveMeshGroupStaticMeshEnable(lua_State* L);
@@ -279,26 +288,84 @@ int WorldNatives::L_WORLD_AddEntity(lua_State* L) {
 	return 0;
 }
 
-// WORLD.FindEntityByName(name) - resolves a world-mesh object (MapEntities
-// bind EMesh scripts to named .mpk objects). Handed out as a pseudo-entity;
-// the mesh-level natives that act on it are still stubs.
+namespace {
+
+bool SameNameNoCase(const std::string& a, const std::string& b) {
+	return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(),
+			[](char x, char y) { return std::tolower(uint8_t(x)) == std::tolower(uint8_t(y)); });
+}
+
+} // namespace
+
+// WORLD.FindEntityByName(name) -> handle, or 0 (0x1013dd70: the world's entities
+// newest first, names compared without case). A map object's entity is made on
+// first ask at the handle LoadMap reserved; its mesh natives are still stubs.
 int WorldNatives::L_WORLD_FindEntityByName(lua_State* L) {
 	ScriptEngine* self = From(L);
-	const char* name = luaL_optstring(L, 1, "");
-	for (const auto& kv : self->entities_) {
-		if (kv.second.worldObject && kv.second.name == name) {
-			lua_pushnumber(L, kv.first);
-			return 1;
+	const std::string name = luaL_optstring(L, 1, "");
+	int found = 0;
+	if (!name.empty()) {
+		for (const auto& kv : self->entities_)
+			if (kv.second.inWorld && kv.first > found && SameNameNoCase(kv.second.name, name))
+				found = kv.first;
+		for (size_t i = 0; !found && i < self->objectHandles_.size(); ++i) {
+			if (!self->objectHandles_[i] || !SameNameNoCase(self->map_.objects[i].name, name))
+				continue;
+			// Taken only when a save from before the reservation put something there.
+			found = self->Find(self->objectHandles_[i]) ? self->nextHandle_++ : self->objectHandles_[i];
+			Entity e;
+			e.type = kMesh;
+			e.name = self->map_.objects[i].name;
+			e.worldObject = true;
+			e.inWorld = true;
+			self->entities_.emplace(found, e);
+			++self->created_;
 		}
 	}
-	Entity e;
-	e.type = kMesh;
-	e.name = name;
-	e.worldObject = true;
-	e.inWorld = true;
-	const int handle = self->nextHandle_++;
-	self->entities_.emplace(handle, e);
-	lua_pushnumber(L, handle);
+	lua_pushnumber(L, found);
+	return 1;
+}
+
+// WORLD.Release(withMap = true, mapName) - 0x10120d50.
+int WorldNatives::L_WORLD_Release(lua_State* L) {
+	From(L)->ReleaseWorld(lua_isnoneornil(L, 1) || lua_toboolean(L, 1));
+	return 0;
+}
+
+// The antiportal natives keep the list and its flags; nothing is culled by them
+// here. The names Create hands out are ours: Slab only passes them back.
+ScriptEngine::AntiPortal* WorldNatives::AntiPortalArg(lua_State* L) {
+	const std::string name = luaL_optstring(L, 1, "");
+	for (ScriptEngine::AntiPortal& a : From(L)->antiportals_)
+		if (SameNameNoCase(a.name, name)) return &a;
+	return nullptr;
+}
+
+int WorldNatives::L_WORLD_CreateEnabledAntiPortalFromClosedConvexMesh(lua_State* L) {
+	ScriptEngine* self = From(L);
+	ScriptEngine::AntiPortal a;
+	a.name = "antiportal" + std::to_string(++self->antiportalSerial_);
+	a.enabled = true;
+	self->antiportals_.push_back(a);
+	lua_pushstring(L, a.name.c_str());
+	return 1;
+}
+
+int WorldNatives::L_WORLD_DeleteAntiPortal(lua_State* L) {
+	ScriptEngine* self = From(L);
+	if (ScriptEngine::AntiPortal* a = AntiPortalArg(L))
+		self->antiportals_.erase(self->antiportals_.begin() + (a - self->antiportals_.data()));
+	return 0;
+}
+
+int WorldNatives::L_WORLD_EnableAntiPortal(lua_State* L) {
+	if (ScriptEngine::AntiPortal* a = AntiPortalArg(L)) a->enabled = lua_toboolean(L, 2) != 0;
+	return 0;
+}
+
+int WorldNatives::L_WORLD_IsAntiPortalEnabled(lua_State* L) {
+	const ScriptEngine::AntiPortal* a = AntiPortalArg(L);
+	lua_pushboolean(L, a && a->enabled);
 	return 1;
 }
 
@@ -355,7 +422,8 @@ void ScriptEngine::CreateActiveMeshes() {
 		// unseen (AddMesh's physdest branch ends in World::RemoveEntity).
 		const bool piece = o.isDestructiblePiece();
 		if (piece) e.visible = false;
-		const int handle = nextHandle_++;
+		const int handle = i < objectHandles_.size() && objectHandles_[i] ? objectHandles_[i] : nextHandle_++;
+		PAINFUL_CHECK(!Find(handle), "active mesh %s: handle %d is taken", o.name.c_str(), handle);
 		entities_.emplace(handle, e);
 		bodyToEntity_[slot] = handle;
 		++created_;
@@ -500,6 +568,7 @@ int WorldNatives::L_WORLD_LoadMap(lua_State* L) {
 	// released their own entities in Game:Clear. Drop what is ours.
 	if (self->mapLoaded_) self->ResetLevelState();
 	self->mapLoaded_ = false;
+	self->objectHandles_.clear();
 	// A level is going up (or the empty one): the app rebuilds its renderer
 	// on the next TakeLevelChange, and a LoadWorld after this marks itself.
 	++self->levelChangeSerial_;
@@ -511,6 +580,15 @@ int WorldNatives::L_WORLD_LoadMap(lua_State* L) {
 		self->map_ = MapMesh();
 		if (MapMesh::Load(path, self->map_)) {
 			self->mapLoaded_ = true;
+			// World::LoadMeshPak makes the objects entities before any script does.
+			self->objectHandles_.assign(self->map_.objects.size(), 0);
+			for (size_t i = 0; i < self->map_.objects.size(); ++i)
+				if (self->map_.objects[i].makesEntity())
+					self->objectHandles_[i] = self->nextHandle_++;
+			// The map's antiportals come first in World+0x78, off until a Slab opens them.
+			self->antiportals_.clear();
+			for (const MapObject& o : self->map_.objects)
+				if (o.nameHas("antyp")) self->antiportals_.push_back({o.name, false});
 			self->physics_->LoadWorldMesh(self->map_, self->world_.scale,
 					self->dataRoot_);
 			self->CreateActiveMeshes();
@@ -544,6 +622,24 @@ void ScriptEngine::ResetLevelState() {
 	if (playerHandle_ && Find(playerHandle_) == nullptr) playerHandle_ = 0;
 	LogInfo("level switch: %zu engine entities dropped, %zu script entities still live",
 			engineOwned.size(), entities_.size());
+}
+
+void ScriptEngine::ReleaseWorld(bool withMap) {
+	if (withMap) {
+		// World::Release (0x1005f160) deletes them all and sets the array count back to 1.
+		ReleaseAllEntities();
+		ResetLevelState();
+		nextHandle_ = 1;
+		objectHandles_.clear();
+		antiportals_.clear();
+		return;
+	}
+	// ReleaseWithoutMap (0x1005dc80): what CreateEntity flagged (+0x19 & 2) goes, the
+	// map objects stay, and the handles keep counting.
+	std::vector<int> made;
+	for (const auto& kv : entities_)
+		if (!kv.second.worldObject) made.push_back(kv.first);
+	for (int handle : made) ReleaseEntity(handle);
 }
 
 // WORLD.Init(activeMeshesMassScale, defaultMeshFriction,
@@ -793,6 +889,12 @@ void BindWorld(ScriptEngine& engine, LuaHost& host) {
 		{"WORLD", "Init", WorldNatives::L_WORLD_Init},
 		{"WORLD", "AddEntity", WorldNatives::L_WORLD_AddEntity},
 		{"WORLD", "FindEntityByName", WorldNatives::L_WORLD_FindEntityByName},
+		{"WORLD", "Release", WorldNatives::L_WORLD_Release},
+		{"WORLD", "CreateEnabledAntiPortalFromClosedConvexMesh",
+				WorldNatives::L_WORLD_CreateEnabledAntiPortalFromClosedConvexMesh},
+		{"WORLD", "DeleteAntiPortal", WorldNatives::L_WORLD_DeleteAntiPortal},
+		{"WORLD", "EnableAntiPortal", WorldNatives::L_WORLD_EnableAntiPortal},
+		{"WORLD", "IsAntiPortalEnabled", WorldNatives::L_WORLD_IsAntiPortalEnabled},
 		{"WORLD", "LoadMap", WorldNatives::L_WORLD_LoadMap},
 		{"PHYSICS", "ActiveMeshGroupActivate", WorldNatives::L_PHYSICS_ActiveMeshGroupActivate},
 		{"PHYSICS", "ActiveMeshGroupEnable", WorldNatives::L_PHYSICS_ActiveMeshGroupEnable},

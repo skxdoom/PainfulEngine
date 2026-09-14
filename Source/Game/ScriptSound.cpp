@@ -357,25 +357,27 @@ int SoundNatives::L_WPT_GetPosition(lua_State* L) {
 	return 3;
 }
 
+// A PATH handle is the slot index, from 0: 0x1013AA20 and its siblings index
+// Pathfinder2's path array with it, and an original save's live slots start at 0.
 int SoundNatives::L_PATH_Create(lua_State* L) {
 	ScriptEngine* self = From(L);
 	for (size_t i = 0; i < self->paths_.size(); ++i) {
 		if (self->paths_[i].live) continue;
 		self->paths_[i] = Route{};
 		self->paths_[i].live = true;
-		lua_pushnumber(L, double(i + 1));
+		lua_pushnumber(L, double(i));
 		return 1;
 	}
 	self->paths_.push_back(Route{});
 	self->paths_.back().live = true;
-	lua_pushnumber(L, double(self->paths_.size()));
+	lua_pushnumber(L, double(self->paths_.size() - 1));
 	return 1;
 }
 
 int SoundNatives::L_PATH_Release(lua_State* L) {
 	ScriptEngine* self = From(L);
-	const int h = int(luaL_optnumber(L, 1, 0));
-	if (h > 0 && size_t(h) <= self->paths_.size()) self->paths_[size_t(h) - 1] = Route{};
+	const int h = lua_isnumber(L, 1) ? int(lua_tonumber(L, 1)) : -1;
+	if (h >= 0 && size_t(h) < self->paths_.size()) self->paths_[size_t(h)] = Route{};
 	return 0;
 }
 
@@ -392,23 +394,29 @@ int SoundNatives::L_PATH_Release(lua_State* L) {
 // does not walk backwards to a point it has effectively reached.
 int SoundNatives::L_PATH_GetShortest(lua_State* L) {
 	ScriptEngine* self = From(L);
-	const int h = int(luaL_optnumber(L, 1, 0));
-	if (h <= 0 || size_t(h) > self->paths_.size()) return 0;
-	Route& route = self->paths_[size_t(h) - 1];
-	route.points.clear();
-	route.next = 0;
-	if (self->waypoints_.nodes.empty()) return 0;
+	const int h = lua_isnumber(L, 1) ? int(lua_tonumber(L, 1)) : -1;
+	if (h < 0 || size_t(h) >= self->paths_.size()) return 0;
+	Route& route = self->paths_[size_t(h)];
 
 	const Vec3 from{float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
 			float(luaL_optnumber(L, 4, 0))};
 	const Vec3 to{float(luaL_optnumber(L, 5, 0)), float(luaL_optnumber(L, 6, 0)),
 			float(luaL_optnumber(L, 7, 0))};
 	const float maxDist = float(luaL_optnumber(L, 9, 0));
+	(void)luaL_optnumber(L, 8, 0); // WPminDist: stored by the original, not consulted here
+	self->RoutePath(route, from, to, maxDist);
+	return 0;
+}
 
-	const int a = self->waypoints_.Closest(from, maxDist);
-	const int b = self->waypoints_.Closest(to, maxDist);
-	if (a < 0 || b < 0) return 0;
-	if (!self->waypoints_.FindPath(a, b, self->routeScratch_)) return 0;
+void ScriptEngine::RoutePath(Route& route, const Vec3& from, const Vec3& to, float maxDist) {
+	route.points.clear();
+	route.next = 0;
+	route.from = from;
+	route.to = to;
+	if (waypoints_.nodes.empty()) return;
+	const int a = waypoints_.Closest(from, maxDist);
+	const int b = waypoints_.Closest(to, maxDist);
+	if (a < 0 || b < 0 || !waypoints_.FindPath(a, b, routeScratch_)) return;
 
 	// THE START NODE IS NOT A POINT. Pathfinder2::GetShortestPath (0x1016C070)
 	// pops the route's first node straight into the path's "last point"
@@ -418,13 +426,10 @@ int SoundNatives::L_PATH_GetShortest(lua_State* L) {
 	// straight". Handing the nearest node over made every walk begin with a
 	// turn toward a waypoint half a unit away, often behind: Cemetery's
 	// zombies took 71 walking stops in 15 s and could not keep up.
-	(void)luaL_optnumber(L, 8, 0); // WPminDist: stored by the original, not consulted here
-	for (size_t i = 1; i < self->routeScratch_.size(); ++i) {
-		const WaypointSet::Node& n =
-			self->waypoints_.nodes[size_t(self->routeScratch_[i])];
+	for (size_t i = 1; i < routeScratch_.size(); ++i) {
+		const WaypointSet::Node& n = waypoints_.nodes[size_t(routeScratch_[i])];
 		for (int c = 0; c < 3; ++c) route.points.push_back(n.pos[c]);
 	}
-	return 0;
 }
 
 // PATH.IsFinished(path) -> 1 when no waypoint is left.
@@ -435,10 +440,10 @@ int SoundNatives::L_PATH_GetShortest(lua_State* L) {
 // therefore degrades to the old straight-line behaviour rather than stopping.
 int SoundNatives::L_PATH_IsFinished(lua_State* L) {
 	ScriptEngine* self = From(L);
-	const int h = int(luaL_optnumber(L, 1, 0));
+	const int h = lua_isnumber(L, 1) ? int(lua_tonumber(L, 1)) : -1;
 	bool finished = true;
-	if (h > 0 && size_t(h) <= self->paths_.size()) {
-		const Route& route = self->paths_[size_t(h) - 1];
+	if (h >= 0 && size_t(h) < self->paths_.size()) {
+		const Route& route = self->paths_[size_t(h)];
 		finished = route.next * 3 >= route.points.size();
 	}
 	lua_pushnumber(L, finished ? 1 : 0);
@@ -449,10 +454,10 @@ int SoundNatives::L_PATH_IsFinished(lua_State* L) {
 // then asks IsFinished again to learn whether that was the last one.
 int SoundNatives::L_PATH_GetNextPoint(lua_State* L) {
 	ScriptEngine* self = From(L);
-	const int h = int(luaL_optnumber(L, 1, 0));
+	const int h = lua_isnumber(L, 1) ? int(lua_tonumber(L, 1)) : -1;
 	Vec3 p;
-	if (h > 0 && size_t(h) <= self->paths_.size()) {
-		Route& route = self->paths_[size_t(h) - 1];
+	if (h >= 0 && size_t(h) < self->paths_.size()) {
+		Route& route = self->paths_[size_t(h)];
 		if (route.next * 3 + 2 < route.points.size()) {
 			for (int c = 0; c < 3; ++c) p[c] = route.points[route.next * 3 + size_t(c)];
 			++route.next;

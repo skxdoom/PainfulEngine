@@ -395,6 +395,23 @@ bool PhysicsWorld::RagdollActive(int slot) const {
 	return RagdollExists(slot) && impl_->ragdolls[size_t(slot)].simulated;
 }
 
+bool PhysicsWorld::RagdollPartInverseInertia(int slot, int part, Vec3& invDiag) const {
+	if (!RagdollExists(slot) || part < 0) return false;
+	const auto& ids = impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs();
+	if (size_t(part) >= ids.size()) return false;
+	JPH::BodyLockRead lock(impl_->system.GetBodyLockInterface(), ids[size_t(part)]);
+	if (!lock.Succeeded() || !lock.GetBody().IsDynamic()) return false;
+	const JPH::Vec3 d = lock.GetBody().GetMotionProperties()->GetInverseInertiaDiagonal();
+	invDiag = Vec3{d.GetX(), d.GetY(), d.GetZ()};
+	return true;
+}
+
+bool PhysicsWorld::RagdollPartAwake(int slot, int part) const {
+	if (!RagdollExists(slot) || part < 0) return false;
+	const auto& ids = impl_->ragdolls[size_t(slot)].ragdoll->GetBodyIDs();
+	return size_t(part) < ids.size() && impl_->system.GetBodyInterfaceNoLock().IsActive(ids[size_t(part)]);
+}
+
 void PhysicsWorld::SetRagdollDamping(int slot, float linear, float angular) {
 	if (!RagdollExists(slot)) return;
 	JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();

@@ -54,6 +54,12 @@ bool MapObject::isCollidable() const {
 			!nameHas("volfog") && !nameHas("zone") && !nameHas("noclip");
 }
 
+bool MapObject::makesEntity() const {
+	// Zone, Portal and AntiPortal are classes of their own in the pack; the rest are
+	// WorldMesh objects that World::AddEntity numbers (0x1005e8b0, 0x1005dbf0).
+	return !nameHas("zone") && !nameHas("portal") && !nameHas("antyp");
+}
+
 static bool HeaderAt(const Reader& r, size_t p) {
 	size_t n = r.size();
 	if (p + 4 > n) return false;

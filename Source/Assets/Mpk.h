@@ -68,6 +68,9 @@ struct MapObject {
 
 	bool nameHas(const char* token) const;
 	bool isCollidable() const;
+	// Whether the original makes this an entity: World::LoadMeshPak numbers every
+	// object but the zones, portals and antiportals. Docs/Reference/LuaHost.md, "Handles".
+	bool makesEntity() const;
 	// A rigid body rather than static world: WorldMesh::SetupFlags (0x101D7050)
 	// sets the flag PhysicsWorld::AddMesh (0x1019AA00) branches on when the
 	// name contains "phys". "noclip" objects never reach physics at all.

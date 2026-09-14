@@ -51,7 +51,8 @@ void ScriptEngine::BuildWaterSurfaces() {
 	if (!mapLoaded_) return;
 
 	const float scale = world_.scale > 0.f ? world_.scale : 1.f;
-	for (const MapObject& o : map_.objects) {
+	for (size_t i = 0; i < map_.objects.size(); ++i) {
+		const MapObject& o = map_.objects[i];
 		if (!NameSaysWater(o.name)) continue;
 		// Flat by construction - the shipped surfaces are a single horizontal
 		// plane, which is why their y bounds are equal. Take the top either
@@ -69,7 +70,7 @@ void ScriptEngine::BuildWaterSurfaces() {
 		e.worldObject = true;
 		e.inWorld = true;
 		e.visible = false; // the renderer draws the world mesh itself
-		w.entity = nextHandle_++;
+		w.entity = i < objectHandles_.size() && objectHandles_[i] ? objectHandles_[i] : nextHandle_++;
 		entities_.emplace(w.entity, e);
 		++created_;
 		water_.push_back(w);

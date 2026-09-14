@@ -33,6 +33,7 @@ class PlayerPawn;
 class TextureCache;
 class AudioEngine;
 class HudRenderer;
+struct WorldSave;
 
 // The engine-side state behind the script natives: the entity registry that
 // ENTITY.* manipulates and the world state WORLD.* accumulates. This is the
@@ -301,6 +302,7 @@ public:
 			// for that argument and the name of bone 0 in the shipped rigs.
 			uint32_t curveMask = 0;
 			std::string curveBone;
+			bool loop = true; // SetAnim's third argument, the last time this slot played
 			int curveBoneIndex = -2; // -2 = not looked up yet, -1 = absent
 		};
 		std::vector<AnimSlot> animSlots;
@@ -623,6 +625,10 @@ public:
 	// ScriptSave.cpp; Docs/Reference/LuaHost.md, "Saving".
 	bool SaveWorld(const std::string& path);
 	bool LoadWorld(const std::string& path);
+	// A world file the original engine wrote ("C^"). ScriptWorldSave.cpp.
+	bool LoadWorldSave(const std::vector<uint8_t>& buf, const std::string& path);
+	// The same file from our entities, for the original to load. ScriptWorldSaveWrite.cpp.
+	void BuildWorldSave(WorldSave& out);
 	// The app polls this once per frame: WORLD.LoadMap ran since last asked,
 	// so the level renderer has to be rebuilt. hasMap is false for the empty
 	// "NoName" level; fromSave says LoadWorld followed, in which case the
@@ -944,6 +950,9 @@ private:
 	// themselves: the engine-made active-mesh entities, the water, the
 	// per-level caches. Run by WORLD.LoadMap when a map was already up.
 	void ResetLevelState();
+	// WORLD.Release: every entity goes and the handles restart at 1 (World::Release),
+	// or, keeping the map, only what the scripts made (World::ReleaseWithoutMap).
+	void ReleaseWorld(bool withMap);
 	// Music streams and the 3D rolloff (ScriptSound.cpp).
 
 	LuaHost* host_ = nullptr;
@@ -952,6 +961,17 @@ private:
 	uint32_t explosionCounter_ = 0;
 	std::unordered_map<int, Entity> entities_;
 	int nextHandle_ = 1;
+	// The handle WORLD.LoadMap reserved for each map_.objects entry, 0 for none. The
+	// original numbers them before any script entity, and a save's handles rely on it.
+	std::vector<int> objectHandles_;
+	// World+0x78: the map's `antyp` objects, then the ones Slab items make from their
+	// mesh. A world save writes each one's flag, and LoadPortalState wants the count.
+	struct AntiPortal {
+		std::string name;
+		bool enabled = false;
+	};
+	std::vector<AntiPortal> antiportals_;
+	int antiportalSerial_ = 0;
 	// Save/load: every entity goes, then each saved one is rebuilt at its
 	// saved handle (the scripts hold them in EntityToObject).
 	void ReleaseAllEntities();
@@ -1121,9 +1141,12 @@ private:
 		std::vector<float> points; // xyz triples, front first
 		size_t next = 0; // how far along GetNextPoint has eaten
 		bool live = false;
+		Vec3 from, to; // GetShortest's ends, which WaypointGPath2::Save writes
 	};
 	std::vector<Route> paths_;
 	std::vector<int> routeScratch_; // node indices, reused by GetShortest
+	// The waypoint route PATH.GetShortest builds, from `from` to `to`.
+	void RoutePath(Route& route, const Vec3& from, const Vec3& to, float maxDist);
 	bool playerSpotDone_ = false;
 	// Scratch for the per-frame pose push; kept so that posing forty actors
 	// does not allocate forty times a frame.

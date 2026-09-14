@@ -193,6 +193,15 @@ and `ResumeSounds(token)` restores that set, both driven from
 menu handler and `WORLD.SetGamePaused` cannot drift apart. Voices already
 paused are left out of the set, for the reason above.
 
+A set holds stream SLOTS, so deleting or reloading a slot's stream takes that
+slot out of every pending set, just as a recycled voice fails `Resolve`. Loading
+a save from the menu shows why. `CLevel:Delete` drops both streams, the save
+restores its own with their own pause state, and then the menu closes. Without
+this the menu restarted the battle track the save had paused, and both tracks
+played. The original never meets the case: `LoadAudio` replaces the stream pause
+sets with the saved ones ([`Formats.md`](Formats.md), "The audio chunk carries
+the music").
+
 ## Design
 
 One device stream at 44.1 kHz stereo float, mixed here rather than by SDL - SDL

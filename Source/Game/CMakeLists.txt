@@ -37,6 +37,8 @@ add_library(Game STATIC
 		ScriptExplosion.cpp
 		ScriptWater.cpp
 		ScriptSave.cpp
+		ScriptWorldSave.cpp
+		ScriptWorldSaveWrite.cpp
 		ScriptDecal.cpp
 		ScriptLight.cpp
 		)

@@ -279,6 +279,14 @@ public:
 	float ScriptBodyRadius(int slot) const;
 	// Where Jolt actually put the body, world space. Settles placement.
 	bool ScriptBodyBounds(int slot, Vec3& lo, Vec3& hi) const;
+	// What a world save writes for a body (PhysicsObject::SavePO): Jolt's inverse
+	// inertia diagonal (false on a static or kinematic body), the angular velocity,
+	// whether it is awake and in the world, and PO_SetFreedomOfRotation's mode.
+	bool ScriptBodyInverseInertia(int slot, Vec3& invDiag) const;
+	bool GetScriptBodyAngularVelocity(int slot, Vec3& out) const;
+	bool ScriptBodyAwake(int slot) const;
+	bool ScriptBodyInWorld(int slot) const;
+	int ScriptBodyFreedomMode(int slot) const;
 	// The body's centre right now, before the frame's read-back.
 	bool GetScriptBodyPosition(int slot, Vec3& out) const;
 	void RemoveScriptBody(int slot);
@@ -318,6 +326,9 @@ public:
 	float RagdollWorstJointGap(int slot) const;
 	// Is this ragdoll being simulated rather than driven? MDL.IsRagdollActive.
 	bool RagdollActive(int slot) const;
+	// The same for one limb (Ragdoll's save, FUN_101b0330).
+	bool RagdollPartInverseInertia(int slot, int part, Vec3& invDiag) const;
+	bool RagdollPartAwake(int slot, int part) const;
 	// MDL.SetRagdollCollisionGroup / GetRagdollCollisionGroup, and the layer an
 	// ECollisionGroups value maps to. Physics.md, "A corpse's collision group".
 	void SetRagdollCollisionGroup(int slot, int group);

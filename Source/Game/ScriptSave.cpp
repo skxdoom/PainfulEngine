@@ -3,12 +3,15 @@
 // The original's PCFSystem::SaveGame (Engine.dll 0x100518a0) writes "C^", a
 // version, then glass, audio, physics, pathfinding, entities, portal and zone
 // state, and LoadGame (0x10051700) reads them back and runs
-// SaveGame:AfterLoadEntities() between the entities and the portals. That
-// file is Havok state and cannot be read here; this is our own file in the
-// same place, with the same contract: every entity comes back at the handle
-// the scripts saved in EntityToObject. Docs/Reference/LuaHost.md, "Saving".
+// SaveGame:AfterLoadEntities() between the entities and the portals. We write
+// that file where the scripts ask (ScriptWorldSaveWrite.cpp), so the original loads
+// our saves, and our own beside it, which carries what that format has no room for.
+// Both share the contract: every entity comes back at the handle the scripts saved
+// in EntityToObject. Docs/Reference/LuaHost.md, "Saving".
 
 #include "ScriptEngineInternal.h"
+#include "../Assets/WorldSave.h"
+#include "../Core/Check.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Vectors.h"
 #include "../Core/Matrix.h"
@@ -32,12 +35,16 @@ struct SaveNatives : ScriptNativesBase {
 namespace {
 
 constexpr char kMagic[4] = {'P', 'K', 'S', 'V'};
+// Our file's name beside the world file: "C1L1_Cathedral.World.pksv". The original
+// lists only "*.C*" object files, so it never sees it.
+constexpr char kSideSuffix[] = ".pksv";
 // 2 added the LIGHT.* block; 3 the parent joint INDEX, which BindFX binds by
 // (a number from MDL.GetJointIndex) and which the name field cannot carry; 4
 // the centred-mesh flag and a child's local transform.
 // An older save still loads with what it has: no light state at 1, bound
 // effects on their parent's origin at 2 - the behaviour each was written with.
-constexpr uint32_t kVersion = 4;
+// 5 the music streams, which the scripts delete on a load and never restart.
+constexpr uint32_t kVersion = 5;
 constexpr uint32_t kMinVersion = 1;
 
 // One class reads and writes, so a field is listed once. `ok` goes false on a
@@ -203,6 +210,18 @@ void ArchiveEntity(Archive& ar, ScriptEngine::Entity& e, bool& hadBody, bool& ha
 	ar.F(hadBody); ar.F(hadRagdoll); ar.F(bodyVel);
 }
 
+// The music slots, one record each; an empty name is an empty slot.
+void ArchiveStreams(Archive& ar, std::vector<AudioEngine::StreamState>& streams) {
+	uint32_t n = uint32_t(streams.size());
+	ar.F(n);
+	if (!ar.writing()) streams.assign(std::min<uint32_t>(n, 64), AudioEngine::StreamState());
+	for (AudioEngine::StreamState& s : streams) {
+		uint32_t offset = uint32_t(s.offset);
+		ar.F(s.name); ar.F(offset); ar.F(s.volume); ar.F(s.playing); ar.F(s.paused); ar.F(s.loop);
+		s.offset = offset;
+	}
+}
+
 } // namespace
 
 bool ScriptEngine::SaveWorld(const std::string& enginePath) {
@@ -220,6 +239,9 @@ bool ScriptEngine::SaveWorld(const std::string& enginePath) {
 	ar.F(head);
 	ar.F(camPos_); ar.F(camYaw_); ar.F(camPitch_);
 	ar.F(timeMultiplier_); ar.F(playerSpotDone_); ar.F(mouseLocked_);
+	std::vector<AudioEngine::StreamState> streams;
+	if (audio_) streams = audio_->StreamStates();
+	ArchiveStreams(ar, streams);
 
 	// Handles in order, so a save diffs cleanly and loads deterministically.
 	std::vector<int> handles;
@@ -238,11 +260,19 @@ bool ScriptEngine::SaveWorld(const std::string& enginePath) {
 	}
 
 	const std::string path = host_ ? host_->ResolvePath(enginePath) : enginePath;
-	if (!FileSystem::Get().WriteFile(path, buf)) {
+	WorldSave portable;
+	BuildWorldSave(portable);
+	std::vector<uint8_t> portableBuf;
+	const bool built = portable.Write(portableBuf);
+	PAINFUL_CHECK(built, "WORLD.SaveGame: the world save did not serialise (%zu entities)",
+			portable.entities.size());
+	if (!FileSystem::Get().WriteFile(path, portableBuf) ||
+			!FileSystem::Get().WriteFile(path + kSideSuffix, buf)) {
 		LogWarn("WORLD.SaveGame: cannot write %s", path.c_str());
 		return false;
 	}
-	LogInfo("WORLD.SaveGame: %u entities, %zu bytes -> %s", count, buf.size(), path.c_str());
+	LogInfo("WORLD.SaveGame: %u entities, %zu bytes -> %s, %zu beside it", count, portableBuf.size(),
+			path.c_str(), buf.size());
 	return true;
 }
 
@@ -374,10 +404,15 @@ void ScriptEngine::RebuildEntity(int handle, Entity& src) {
 bool ScriptEngine::LoadWorld(const std::string& enginePath) {
 	const std::string path = host_ ? host_->ResolvePath(enginePath) : enginePath;
 	std::vector<uint8_t> buf;
-	if (!FileSystem::Get().Exists(path) || !ReadFile(path, buf)) {
+	// Ours when it is there: the world file is the portable one, not the complete one.
+	const std::string side = path + kSideSuffix;
+	if (FileSystem::Get().Exists(side) && ReadFile(side, buf)) {
+		LogInfo("WORLD.LoadGame: %s", side.c_str());
+	} else if (!FileSystem::Get().Exists(path) || !ReadFile(path, buf)) {
 		LogWarn("WORLD.LoadGame: cannot read %s", path.c_str());
 		return false;
 	}
+	if (buf.size() >= 2 && buf[0] == 'C' && buf[1] == '^') return LoadWorldSave(buf, path);
 	Archive ar(buf, false);
 	char magic[4] = {0, 0, 0, 0};
 	ar.Raw(magic, 4);
@@ -392,7 +427,8 @@ bool ScriptEngine::LoadWorld(const std::string& enginePath) {
 		LogInfo("WORLD.LoadGame: %s is a version %u save; %s until it is saved again",
 				path.c_str(), version,
 				version < 2 ? "the level's CLights stay dark"
-						: "its bound effects sit on their parents' origins");
+						: version < 3 ? "its bound effects sit on their parents' origins"
+						: "its music stays silent");
 
 	// Everything the level load made goes: LoadMap's active meshes and water
 	// took handles the save owns.
@@ -405,6 +441,12 @@ bool ScriptEngine::LoadWorld(const std::string& enginePath) {
 	ar.F(camPos_); ar.F(camYaw_); ar.F(camPitch_);
 	ar.F(timeMultiplier_); ar.F(playerSpotDone_); ar.F(mouseLocked_);
 	camPoseDirty_ = true;
+	if (version >= 5) {
+		std::vector<AudioEngine::StreamState> streams;
+		ArchiveStreams(ar, streams);
+		for (size_t slot = 0; audio_ && slot < streams.size(); ++slot)
+			if (!streams[slot].name.empty()) audio_->RestoreStream(int(slot), streams[slot]);
+	}
 
 	uint32_t count = 0;
 	ar.F(count);

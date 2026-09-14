@@ -178,6 +178,201 @@ directory entries. The engine mounts it over its own folder with
 `FS.RegisterPack`. The flow and the world file's own format are in
 [`LuaHost.md`](LuaHost.md), "Saving and loading".
 
+### The original world save (`<level>.World`)
+
+`PCFSystem::SaveGame` 0x100518a0 writes it as the last entry of `Save.dat`;
+`LoadGame` 0x10051700 reads it. Decoded in `Source/Assets/WorldSave.cpp`;
+`PainfulTools worldsave <file.World> <DataRoot>` reads one, prints what it holds
+and writes it back for a byte comparison.
+
+Little-endian and byte-packed. Blocks open with a u16 tag `0x5eXX` (on disk
+`XX 5e`). `LoadGame` checks the first two bytes and returns false on anything
+else, silently, and `SaveGame:Load` ignores the result. That is why a
+PainfulEngine `PKSV` save leaves the original with no entities and no
+`SaveGame:AfterLoadEntities()`: script objects without their class methods
+(`CSound.lua:173`), then a crash on handles that were never made.
+
+| Block | Tag | Writer | Contents |
+|---|---|---|---|
+| header | `C^` 43 | | u32 version, 3 (a mismatch only warns) |
+| glass | `^p` 70 a pane | `World::SaveGlasses` 0x1005ab20, FUN_10037020 | u32 count; a pane is its name, flags, two vec3 + u32, points (vec3 + u32), then one more piece slot than points: u8 present, an entity record without the in-world byte, u8, two i32 list indices and a u32 when the second is not -1 |
+| audio | chunk | `MilesEngine::SaveAudio` 0x101f22a0 | named `AUDIOv01`; skipped by its extent without a Miles device; the music streams, below |
+| physics | `^G` 47 | `PhysicsEngine::SavePhysics` 0x10187ae0 | u32 worlds; each `^P` 50 (FUN_101b30c0): collision layers (u32 index, u8, 7 f32), groups (u8 u32 u8 u8 f32), bodies (u8; 28 B, a physics object, the owning entity's +0x18 and +0xb0), pairs (u8; u32 u8 u8 u32); then 2 f32 |
+| paths | | `Pathfinder2::SavePathfinding` 0x1016bb10 | u32 count; u8 active, then `^D` 44 and two vec3 |
+| entities | `^E` 45 | `World::SaveEntities` 0x1005b8f0 | 3 u8, u32 count, records |
+| portals | | `SavePortalState` 0x1005ac40 | u32 n, n u8; u32 m, m u8 |
+| zones | | `SaveZoneState` 0x1005ad60 | u32 n, n u8 |
+
+**What `LoadGame` holds a file to.**
+- **The file's own counts:** glass panes (`World::LoadGlasses` 0x1005aad0) and
+  paths (`Pathfinder2::LoadPathfinding` 0x1016d400). `WaypointGPath2::Load`
+  0x1016d350 re-routes each active path from its two points.
+- **Entities:** `World::LoadEntities` 0x10061020 creates each one without a
+  handle. `Entity::LoadEntity` 0x101d2620 then puts it at its saved slot, over
+  whatever is there. Handles must therefore follow the original's numbering
+  ([`LuaHost.md`](LuaHost.md), "Handles").
+- **Audio:** a chunk with an empty body makes Miles reset.
+- **Physics:** a world's groups and bodies are matched by index to the level's
+  own (FUN_101b9ed0), so the file may hold fewer. Zero worlds leaves the level's
+  worlds as loaded. The two floats after the worlds are 8 and 1 in every sample.
+- **Portals and zones:** the file may hold fewer states than the level has
+  (`LoadPortalState` 0x1005ab80, `LoadZoneState` 0x1005acf0).
+- **Antiportals:** the count must equal the level's exactly. That is the map's
+  `antyp` objects plus the ones Slab items make with
+  `WORLD.CreateEnabledAntiPortalFromClosedConvexMesh` (11 + 6 = 17 in Train
+  Station).
+
+The entities written (`World::SaveEntities` 0x1005b8f0):
+- every entity of class 2, 3, 4, 8, 10 and 11;
+- a WorldMesh when it is not a map object (+0x7dc is -1) and not a glass shard;
+- a decal not named "shadow".
+
+**The audio chunk carries the music.** The shipped scripts delete both music
+streams when a save loads (`CLevel:Delete`). After that they start one only when
+the music changes, so whatever plays after a load comes from here. The body
+(`MilesEngine::SaveAudio` 0x101f22a0, read back by `LoadAudio` 0x101f6d40) is:
+1. `0x5e60`, then 21 u32 of Miles state. These are the same in every save except
+   two `GetTickCount` stamps and two counters.
+2. The sample cache: a u32 count, then per sample (FUN_101f8080) a file name, six
+   u32 and a loaded byte.
+3. The pause sets (`PauseCurrentlyPlayingSounds` 0x101f4df0): a u32 count, then per
+   set a present byte, u32 n and n stream slots, and u32 m and m "was playing"
+   bytes.
+4. `0x5f00` and a u32 count of stream slots. Each slot has a present byte, then:
+   - the file (`../Data/Music/<name>.mp3`);
+   - the volume (+0x14);
+   - +0x18, which is 44100 in every save;
+   - +0x1c;
+   - the loop count (+0x20; 0 plays forever);
+   - the byte `AIL_stream_position` reports.
+5. Four u32, then `0x5f01` 2D sounds, `0x5f02` 3D sounds and `0x5f03`.
+
+`LoadAudio` reopens each stream at its byte but does not start it.
+`SaveGame_ResumeSounds` (0x101f5500) then unpauses the slots in the pause set that
+header field 20 names: the streams that were playing when `SaveGame` paused
+everything. A stream paused by the scripts, such as a faded-out battle track, is
+not in the set and stays silent. All six original saves hold one stream, slot 0,
+in that set.
+
+**A chunk** states its own extent: a string name, u32 start = the file offset of
+the chunk's own header, u32 size from there to the end of the body. `LoadGame`
+seeks over the audio this way when there is no Miles device, and a Sound
+entity's sample is the same shape with an empty name.
+
+**An entity record** is u32 class, string resource, string name, u32 (a scale
+for most classes), u8, the class tag, the `^S` 53 base (`Entity::SaveEntity`
+0x101d1240: the handle, flags, parent index), the class body, and a u8
+`SaveEntities` adds. Strings are a u32 length and that many bytes, the NUL
+counted. Classes: 1 WorldMesh `^T`, 2 Light 0x5ea0 (computed in SaveEntity, checked by LoadEntity), 3
+ParticleEffect 0x5e93, 4 Model `^U`, 6 Decal 0x5e80, 8 Billboard 0x5e90, 10
+Trail 0x5e85, 11 Sound `^V`. The handle is the entity's slot in the world's
+array, the number the scripts keep in `_Entity` and `EntityToObject`.
+
+**Two counts are not in the file.** A Model writes one visibility byte per mesh
+of its `.pkmdl`, and a simulating ragdoll (`^I` 49, FUN_101b0330) writes as
+many constraint records as its `.hke` has constraints, and as many action
+records as it has springs and dashpots. A reader needs the model data. Our
+`Model::Load` and `Hke::Load` counts agree with the engine's for every model in
+the samples.
+
+**Physics objects** (`^F` 46, `PhysicsObject::SavePO` 0x1018ca10) carry two u32
+before the tag (`Model::LoadEntity` reads those itself before `LoadPO`), a byte
+holding the freedom-of-rotation mode (+0x10, `EFreedomsOfRotation`; `LoadPO` calls
+`SetFreedomOfRotation(mode, 1.0)` when it differs from the created body's),
+velocities, mass and damping, a 9-float pose, an extended block when flag bit 1
+is set, an optional 120-byte controller (FUN_1018b150) and a `^Q` 51 constraint
+list (FUN_101c4390). A record's size follows its type byte: 0 and 1 are 12
+bytes, 2 is 25, and 3, 4, 5 and 7 are 16.
+
+The write sizes come from the disassembly of each writer: the decompile loses
+the stack-built arguments. A field that a loader or a native setter names carries
+that name in `WorldSave.h`; the rest are named by engine offset. A rotation is
+stored x, y, z, then w (`Model::SaveEntity` at 0x101df639 writes +0x614..+0x61c
+before +0x610), where the engine's own order is w first. A ragdoll limb's position
+is the Havok body's, which sits DISPLACEMENT times the scale short of the `.hke`
+frame. What loading does with each field is in [`LuaHost.md`](LuaHost.md),
+"Loading an original save".
+
+Verified 2026-09-14 on six saves made by the original: three checkpoints of
+C1L2_Atrium_Complex, and two checkpoints plus a mid-fight Quick save of
+C3L1_Train_Station. Each decodes to its last byte and writes back identical. They
+cover 524 to 798 entities, 149 glass panes with 1155 to 1183 shards, 3 world
+bodies, 5 to 51 simulating ragdolls with 58 breakable constraints, 14 idle-ragdoll
+group blocks, monster blocks, the player's controller, animation channels and 54
+trail frames. Branches no file takes, and which rest on the disassembly alone:
+group pairs, `^Q` records, ragdoll actions, and Sound entities with their samples.
+
+### Writing the original world save
+
+`WORLD.SaveGame` writes this format too (`Source/Game/ScriptWorldSaveWrite.cpp`), so
+Painkiller loads a save PainfulEngine made. A value comes from one of three sources,
+in this order of trust:
+1. what a loader or a native does with the field;
+2. a rule measured on the original saves;
+3. the census of the six saves (`PainfulTools worldsave <file> <DataRoot> --census`),
+   for a field that nothing names.
+
+- **Left out, as the loaders allow:** glass panes, the physics worlds, and portal and
+  zone states. Decals, trails and sounds are not written yet. The two floats after
+  the worlds are 8 and 1.
+- **Audio:** only the music. The chunk (named `AUDIOv01`, NUL included) holds the
+  header every save has, with the stamps and counters as zero, no cached samples,
+  every loaded stream at its byte, and one pause set listing those that play.
+  Without it the original loads our saves silent: nothing else restarts the music.
+- **Antiportals:** one flag per entry of `World+0x78`. The map's `antyp` objects come
+  first, then the ones `WORLD.CreateEnabledAntiPortalFromClosedConvexMesh` made. Slab
+  items remake theirs in `RestoreFromSave`, before `LoadPortalState` counts them.
+- **Entity base fields:**
+  - +0xb0 is the time to die (`ENTITY.SetTimeToDie`, -1 for none).
+  - +0xb4 is 0.5 in every record.
+  - +0x28 is `ENTITY.EnableDemonic`.
+  - +0x24 is a pass: 1 for a model, 7 after `ENTITY.EnableGunPass`, 4 for lights,
+    particles and trails, 6 for a corona, 4 for a plain sprite.
+- **Entity flags:** the census's value per class.
+  - 0x200 marks what `CreateEntity` made; 0x40 is added when hidden.
+  - A light is 0x240; the player is 0x260.
+  - A pack mesh is 0x01000604, plus 0x80 when centred.
+- **Physics objects** (`PhysicsObject::SavePO` 0x1018ca10):
+  - The two bytes after the collision group are "in the world" and "awake".
+  - The byte after the damping is "motion type 4", a pinned body.
+  - Then +0x18: 1.0 for a character, the mesh radius for a pack.
+  - Then the inertia tensor as nine floats: 0.4 × mass on the diagonal for every
+    FullFree item, infinite for a character, zero for a pinned body.
+  - The `^Q` header is `ENTITY.EnableCollisions`' minimum time and strength, and a
+    pack that has it carries flag 0x8.
+  - A monster's flags are 0x1012 (plus 0x800 when flying); the player's are 0x1001.
+- **The player's controller** (FUN_1018aeb0, 120 bytes):
+  - Every save has 2 at +0x34 and +0x38, 0.5 at +0x40, 8.0 at +0x6c, 1.0 at +0x74 and
+    -100.0 at +0x7c.
+  - +0x54 is the last position, which `LoadPO` overwrites.
+  - The rest is written as zero, a player at rest.
+- **Ragdoll limbs** (FUN_101b0330, loaded by FUN_101af8b0):
+  - Mass is the `.hke`'s times the scale cubed, 0 when fixed.
+  - The nine floats are the inertia tensor (C3L1_Fan joint2: 62.1, 107.2, 62.1 on the
+    diagonal).
+  - The per-limb layer runs 10 to 16, one per ragdoll. 2.5 and 0.4 follow in every
+    record.
+- **Ragdoll constraints:**
+  - The type must equal the live one or the load fails: 0 a ragdoll joint, 1 a
+    limited hinge, 2 an unlimited hinge, plus 10 when breakable.
+  - A breakable constraint's strength is the `.hke`'s `LINEAR_STRENGTH`.
+  - The eight floats are the two pivots in their bodies' Havok space,
+    `(pivot + DISPLACEMENT) × scale` (C3L1_LampA joint6: (7.474 + 124.109) × 0.72 =
+    94.74).
+  - No save shows an action's kind byte, so a ragdoll with springs or dashpots is
+    written idle instead, as the per-limb collision-group block.
+
+Verified by loading original save 009 in PainfulEngine and saving it again:
+- The file decodes and writes back identical.
+- All 177 ragdoll constraints, 58 of them breakable, match the original's within 0.002.
+- After 30 frames of simulation the median limb position differs by 0.
+- Read back without our side file, it restores 695 of 695 entities and 50 of 50
+  ragdolls.
+
+Still written from the census rather than recovered: the particle emitter flag bits
+(marked ASSUMED in the code), a billboard's f15, the per-limb 2.5 and 0.4, and the
+controller's constants.
+
 ### Numbered patch layering (observed in exe string table)
 For each category the engine mounts, in priority order:
 `<name>2.pak`, `<name>1.pak`, `<name>.pak`, then the loose `<name>/` directory.

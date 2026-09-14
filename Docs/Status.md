@@ -364,8 +364,10 @@ that buys:
   and load (F5 / F9), checkpoints, the level-start autosave, and the Saves /
   Autosaves screens with their table, over the original's own container -
   `Save.dat` is a pak, and its name seed is now known, which also made the
-  archive reader exact. The world file is ours; what it carries and what it
-  does not is in [`LuaHost.md`](Reference/LuaHost.md), "Saving and loading".
+  archive reader exact. Saves are meant to cross between the engines. A save
+  the original made loads here. A save made here writes the original's world
+  file, with ours beside it; Painkiller itself has not loaded one yet. What each
+  file carries is in [`LuaHost.md`](Reference/LuaHost.md), "Saving and loading".
 - **The console.** `~` drops the panel, and the shipped `Console.lua` runs
   its commands as written: the cheats (`pkgod`, `pkweapons`, `pkhealth`,
   `pkhaste`, `pkdemon`, ...), the settings, Tab completion and the history.
