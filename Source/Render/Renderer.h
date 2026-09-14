@@ -59,8 +59,15 @@ public:
 	static constexpr bgfx::ViewId kDemonEntityView = 77;
 	static constexpr bgfx::ViewId kDemonWarpView = 78;
 	static constexpr bgfx::ViewId kDemonCopyView = 79;
+	// pfsdfdebugclipmaps (Render/SdfClipmapDebug.h): the distance field
+	// raymarched over the finished frame, under the 2D layer.
+	static constexpr bgfx::ViewId kSdfDebugView = 80;
+	// The sky for the distance field's rays (Render/SkyCapture.h): one face
+	// drawn, then blitted for read-back in the view after it.
+	static constexpr bgfx::ViewId kSkyCaptureView = 81;
+	static constexpr bgfx::ViewId kSkyCaptureBlitView = 82;
 	// The 2D layer, drawn over everything: no depth, in submission order.
-	static constexpr bgfx::ViewId kHudView = 80;
+	static constexpr bgfx::ViewId kHudView = 83;
 
 	// A view's transform and rect from the camera, the way WorldRenderer::Draw
 	// sets the world view's - for a view that draws with the same eye later.
@@ -90,6 +97,8 @@ public:
 
 	void BeginFrame();
 	void EndFrame();
+	// What bgfx::frame returned last: when a readTexture's data has arrived.
+	uint32_t frameNumber() const { return frame_; }
 
 	// Debug overlay text, one line per call, starting at the given row.
 	void DebugText(uint16_t row, const char* fmt, ...);
@@ -109,6 +118,7 @@ private:
 	bool initialised_ = false;
 	int width_ = 0, height_ = 0;
 	int msaa_ = 0;
+	uint32_t frame_ = 0;
 };
 
 } // namespace painful

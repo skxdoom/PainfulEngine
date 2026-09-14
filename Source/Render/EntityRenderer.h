@@ -13,6 +13,7 @@
 #include "Camera.h"
 #include "LightUniforms.h"
 #include "LightShadowAtlas.h"
+#include "SdfLighting.h"
 #include "TextureCache.h"
 #include <bgfx/bgfx.h>
 #include <map>
@@ -86,14 +87,14 @@ public:
 	// the model shadow map.
 	void DirectionalAt(const Vec3& pos, Vec3& toLight, Vec3& color) const;
 
-	// The lighting mix: what a model keeps of its box's ambient and
-	// directional, and of the positional lights. 1, 1, 1 is the original;
-	// ModelLighting = 1 in painful_config.ini lowers the first two so a
-	// model's shade side goes as dark as the shadow it casts.
-	void SetLightingMix(float ambient, float directional, float lights) {
-		ambientScale_ = ambient;
-		directionalScale_ = directional;
-		lightScale_ = lights;
+	// What a model keeps of the positional lights: 1 is the original,
+	// ModelLightScale under RendererType 1.
+	void SetLightScale(float lights) { lightScale_ = lights; }
+	// Pf.RendererType 1: the ambient traced through `sdf`, times `gain`. Null is
+	// the original's box ambient, untouched.
+	void SetSdf(const SdfLighting* sdf, float gain) {
+		sdf_ = sdf;
+		sdfGain_ = gain;
 	}
 
 	// --- the placed lights' shadows ---
@@ -316,6 +317,18 @@ private:
 		// instance because two monks either side of a doorway are at different
 		// points of the same fade.
 		EntityLightFade lightFade;
+		// Pf.RendererType 1: the last trace, where it was taken and against
+		// which window, and the fade in from the box ambient.
+		float sdfSh[27] = {};
+		float sdfShShown[27] = {}; // eased toward sdfSh, so a re-trace does not snap
+		Vec3 sdfPos;
+		uint32_t sdfGeneration = 0;
+		float sdfWeight = 0.f;
+		float sdfFade = 0.f;
+		// How much of the directional's light the model sees (SunVisibility),
+		// and the value shown, easing toward it.
+		float sdfSun = 1.f, sdfSunShown = 1.f;
+		bool sdfValid = false;
 	};
 
 	// Recomputes the instance's world-space bounds from its model's bbox.
@@ -390,7 +403,11 @@ private:
 	bgfx::UniformHandle uVmMtx_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uVmLight_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle sVmShadow_ = BGFX_INVALID_HANDLE;
-	float ambientScale_ = 1.f, directionalScale_ = 1.f, lightScale_ = 1.f;
+	float lightScale_ = 1.f;
+	const SdfLighting* sdf_ = nullptr; // Pf.RendererType 1
+	float sdfGain_ = 1.f;
+	bgfx::UniformHandle uSdf_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uSh_ = BGFX_INVALID_HANDLE;
 	size_t shadowDrawCalls_ = 0;
 	TextureCache* textures_ = nullptr; // for the projector maps only
 	std::string levelHint_;

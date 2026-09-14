@@ -18,29 +18,6 @@ namespace painful {
 
 namespace {
 
-// Which way cross(b - a, c - a) faces on this level's winding: agreed with
-// the normals of the objects that carry them, so the ones that do not can be
-// rebuilt facing the same way.
-float WindingSign(const MapMesh& map) {
-	double agree = 0.0;
-	for (const MapObject& o : map.objects) {
-		if (o.normals.empty() && o.uvChannels != 1) continue;
-		for (size_t t = 0; t + 2 < o.indices.size(); t += 3) {
-			Vec3 a, b, c, n;
-			o.position(o.indices[t], a);
-			o.position(o.indices[t + 1], b);
-			o.position(o.indices[t + 2], c);
-			const Vec3 face = Cross(b - a, c - a);
-			for (int k = 0; k < 3; ++k) {
-				o.normal(o.indices[t + k], n);
-				if (std::isfinite(n[0]) && std::isfinite(n[1]) && std::isfinite(n[2]))
-					agree += Dot(face, n);
-			}
-		}
-	}
-	return agree < 0.0 ? -1.f : 1.f;
-}
-
 // Normals the file does not carry, or carries broken. A 2-UV object has no
 // inline normal, and what sits in that slot is a packed colour whose bits
 // read as NaN - which turned every chunk the flashlight reached black, the

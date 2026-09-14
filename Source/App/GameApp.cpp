@@ -30,6 +30,10 @@
 #include "Render/SceneTargets.h"
 #include "Render/WaterReflection.h"
 #include "Render/EnvCubeMap.h"
+#include "Render/SdfLighting.h"
+#include "Render/SdfDebug.h"
+#include "Render/SdfClipmapDebug.h"
+#include "Render/SkyCapture.h"
 #include "Render/DecalRenderer.h"
 #include "Render/EntityRenderer.h"
 #include "Render/HudRenderer.h"
@@ -430,6 +434,22 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	WaterReflection waterReflection;
 	WaterReflection waterRefraction;
 	EnvCubeMap envCube;
+	// Pf.RendererType 1: the models' ambient traced through a distance field.
+	SdfLighting sdf;
+	int rendererType = 0;
+	float sdfGain = 1.f;
+	// pfsdfdebuggrid: the field drawn as a lattice of probes.
+	SdfDebug sdfDebug;
+	const bool sdfDebugInit = sdfDebug.Init(shaderDir);
+	bool sdfGridOn = false;
+	// pfsdfdebugclipmaps: the field's surfaces raymarched over the frame.
+	SdfClipmapDebug sdfClipmaps;
+	const bool sdfClipmapsInit = sdfClipmaps.Init(shaderDir);
+	bool sdfClipmapsOn = false;
+	// The sky as the light a distance field ray takes when it leaves the window.
+	SkyCapture skyCapture;
+	const bool skyCaptureInit = skyCapture.Init();
+	bool skyHandedOver = false;
 	const bool sceneInit = sceneTargets.Init(shaderDir);
 	// The post-process. Cfg.Bloom and the level's BloomFX gate it per frame;
 	// PAINFUL_BLOOM=0 turns it off for an A/B.
@@ -493,13 +513,19 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		}
 		world.SetLightShadowStrength(float(cfg.GetInt("LightShadowWorldStrength", 100)) / 100.f);
 
-		// ModelLighting: 0 the original's mix, 1 led by the lights.
-		if (cfg.GetInt("ModelLighting", 0) == 1)
-			entities.SetLightingMix(float(cfg.GetInt("ModelAmbientScale", 50)) / 100.f,
-					float(cfg.GetInt("ModelDirectionalScale", 50)) / 100.f,
-					float(cfg.GetInt("ModelLightScale", 100)) / 100.f);
-		else
-			entities.SetLightingMix(1.f, 1.f, 1.f);
+		// RendererType: 0 the original model shading; 1 the ambient traced
+		// through a distance field about the camera (Render/SdfLighting.h),
+		// falling back to the box's own terms, unscaled, outside it.
+		rendererType = cfg.GetInt("RendererType", 0);
+		entities.SetLightScale(rendererType == 1 ? float(cfg.GetInt("ModelLightScale", 100)) / 100.f : 1.f);
+		sdfGain = float(cfg.GetInt("SdfGain", 100)) / 100.f;
+		sdf.SetAlbedo(float(std::clamp(cfg.GetInt("SdfAlbedo", 0), 0, 100)) / 100.f);
+		sdf.SetSkyGain(float(std::max(cfg.GetInt("SdfSkyGain", 100), 0)) / 100.f,
+				float(std::max(cfg.GetInt("SdfSkyHighlight", 0), 0)) / 100.f);
+		entities.SetSdf(rendererType == 1 ? &sdf : nullptr, sdfGain);
+		// The distance field debug views, under either type.
+		sdfGridOn = sdfDebugInit && cfg.GetBool("SdfDebugGrid", false);
+		sdfClipmapsOn = sdfClipmapsInit && cfg.GetBool("SdfDebugClipmaps", false);
 		bloom.SetQuality(cfg.GetInt("BloomScale", 2), cfg.GetInt("BloomKernel", 0));
 	};
 	applySettings();
@@ -517,6 +543,11 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		if (!levelUp) return;
 		world.Clear();
 		decals.Clear();
+		sdf.Clear();
+		sdfDebug.Clear();
+		sdfClipmaps.Clear();
+		skyCapture.Clear();
+		skyHandedOver = false;
 		sky.Unload();
 		collision = CollisionMesh();
 		fallbackMap = MapMesh();
@@ -664,6 +695,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		else LogWarn("map failed: %s (%s)", mapPath.c_str(), fallbackMap.error.c_str());
 	}
 	if (map) {
+		// Read on the first frame of RendererType 1, not here: type 0 pays nothing.
+		sdf.SetLevel(map, info.scale, info.overbright, &textures, MapNameWithoutExtension(info.mapFile));
 		if (worldInit) {
 			world.Upload(*map, textures, MapNameWithoutExtension(info.mapFile), info,
 					&shaderScripts, /*skipActiveMeshes=*/true);
@@ -688,6 +721,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	// Corona line-of-sight traces run against the same solid geometry the
 	// world is drawn from.
 	if (map) collision.Build(*map, ws.scale);
+	// And the distance field's rays test the way to the sky against it.
+	sdf.SetCollision(&collision);
 
 	// The pose the level pushed out through CAM.SetPos/SetAng during load,
 	// captured at the play transition above. Reading Lev.Pos here instead
@@ -1319,6 +1354,18 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 					cube = envCube.texture();
 				entities.SetEnvCube(cube);
 			}
+			// The distance field window: adopt a finished one, start the next.
+			if (worldReady && (rendererType == 1 || sdfGridOn || sdfClipmapsOn)) {
+				// The sky first, once a level: the light a ray leaving the window takes.
+				if (skyCaptureInit && !skyCapture.done())
+					skyCapture.Tick(Renderer::kSkyCaptureView, Renderer::kSkyCaptureBlitView,
+							skyReady ? &sky : nullptr, elapsed, renderer.frameNumber());
+				if (skyCapture.done() && !skyHandedOver) {
+					sdf.SetSky(skyCapture.map(), SkyCapture::kWidth, SkyCapture::kHeight);
+					skyHandedOver = true;
+				}
+				sdf.Update(camera.pos);
+			}
 			WorldRenderer::Reflection refl;
 			bgfx::TextureHandle reflTex = BGFX_INVALID_HANDLE;
 			if (worldReady && DebugInt("PAINFUL_WATER_REFLECT", 1) > 0 &&
@@ -1362,6 +1409,12 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		entities.Draw(Renderer::kWorldView, camera, window.width(), window.height(),
 				info, elapsed);
 		entities.SetDrawSet(EntityRenderer::kAll);
+		// pfsdfdebuggrid: the probe lattice, opaque, in the world view.
+		if (worldReady && sdfGridOn)
+			sdfDebug.Draw(Renderer::kWorldView, camera, sdf, entities.lighting(), sdfGain);
+		// pfsdfdebugclipmaps: the field over the finished frame, in a view of its own.
+		if (worldReady && sdfClipmapsOn)
+			sdfClipmaps.Draw(Renderer::kSdfDebugView, camera, window.width(), window.height(), sdf);
 		// The casters, after the passes that cull the zones and pose the
 		// models; bgfx orders the views, not the calls.
 		if (shadow.active()) {

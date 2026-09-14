@@ -24,6 +24,10 @@ add_library(Render STATIC
 		SceneTargets.cpp SceneTargets.h
 		WaterReflection.cpp WaterReflection.h
 		EnvCubeMap.cpp EnvCubeMap.h
+		SdfLighting.cpp SdfLighting.h
+		SdfDebug.cpp SdfDebug.h
+		SdfClipmapDebug.cpp SdfClipmapDebug.h
+		SkyCapture.cpp SkyCapture.h
 		ShaderLoad.cpp ShaderLoad.h
 		Camera.cpp Camera.h
 		MeshVertex.h

@@ -176,7 +176,7 @@ void Renderer::BeginFrame() {
 }
 
 void Renderer::EndFrame() {
-	if (initialised_) bgfx::frame();
+	if (initialised_) frame_ = bgfx::frame();
 }
 
 void Renderer::DebugText(uint16_t row, const char* fmt, ...) {

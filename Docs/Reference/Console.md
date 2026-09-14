@@ -153,10 +153,10 @@ The engine's own commands, in the shape of the scripts' `pkweapons` and
 `painful_config.ini` is reachable from inside the game with no script touched.
 
 ```
-pfmodellighting       as `fov` answers: the usage line, then the value
-                        pfmodellighting value  (0 as the original, 1 led by the lights ...)
-                        current pfmodellighting:  0
-pfmodellighting 1     sets it, writes painful_config.ini, applied next frame
+pfrenderertype        as `fov` answers: the usage line, then the value
+                        pfrenderertype value  (model shading: 0 the original, 1 ...)
+                        current pfrenderertype:  0
+pfrenderertype 1      sets it, writes painful_config.ini, applied next frame
 ```
 
 Tab completes them the way `Console:OnPrompt` completes the scripts' own:

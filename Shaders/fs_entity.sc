@@ -49,6 +49,19 @@ uniform vec4 u_eye; // xyz: the camera, for the per-pixel half-vector
 uniform vec4 u_specular; // x: exponent, y: strength, z: N.L gate softening
 uniform vec4 u_stage1; // x: op - 0 off, 1 modulate, 2 add, 3 modulatealphaadd
 
+// Pf.RendererType 1: the ambient traced through the distance field about the
+// camera (Render/SdfLighting.h), nine SH coefficients a model.
+#include "shared_sh.sh"
+uniform vec4 u_sdf; // x: weight against the box ambient (0 off), y: gain, z: PAINFUL_AMBIENTVIEW
+uniform vec4 u_sh[9];
+
+vec3 TracedAmbient(vec3 n)
+{
+	vec3 sum = vec3_splat(0.0);
+	for (int k = 0; k < 9; ++k) sum += u_sh[k].rgb * ShBasis(k, n);
+	return max(sum, vec3_splat(0.0)) * u_sdf.y;
+}
+
 void main()
 {
 	vec2 uv = (v_texcoord0 * u_uv0.xy + u_uv0.zw + u_uvanim.xy) * u_tile.xy;
@@ -74,7 +87,12 @@ void main()
 	// already said whether there is sun to shadow.
 	float dirShadow = 1.0;
 	if (u_vmParams.x > 0.5 && u_vmParams.y > 0.5) dirShadow = VmShadow(v_wpos, n, u_dirDir.xyz);
-	vec3 diffuse = u_ambient.rgb + u_dirColor.rgb * ndotl * dirShadow;
+	// Pf.RendererType 1 blends the box ambient toward the traced one; 0 sends
+	// weight 0 and this is the original term.
+	vec3 ambient = u_ambient.rgb;
+	if (u_sdf.x > 0.0) ambient = mix(u_ambient.rgb, TracedAmbient(n), u_sdf.x);
+	if (u_sdf.z > 0.5) { gl_FragColor = vec4(ambient, 1.0); return; }
+	vec3 diffuse = ambient + u_dirColor.rgb * ndotl * dirShadow;
 
 	// The directional's specular, still `lit`-gated on N.L > 0 - a step in the
 	// original, ramped here over u_specular.z, because per pixel the step

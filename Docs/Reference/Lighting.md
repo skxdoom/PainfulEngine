@@ -501,12 +501,15 @@ show.
 **Two model-lighting mixes.** With the shadows in, the original's model
 lighting shows its seam: a barrel's shade side keeps the box's full ambient
 and directional while the shadow it casts on the floor loses the whole lamp,
-so the two never agree. `ModelLighting = 0` keeps the original mix;
-`ModelLighting = 1` scales the box ambient and directional on the models by
-`ModelAmbientScale` / `ModelDirectionalScale` (50 percent each) and the
-positional lights by `ModelLightScale` (100), so the lights lead and a model's
-shade side goes as dark as its shadow. The world is untouched by the mode; the
-flashlight and directional shadows work in both. The other half of that seam
+so the two never agree. The old `ModelLighting = 1` answered it by halving the
+box ambient and directional on every model (`ModelAmbientScale` /
+`ModelDirectionalScale`). `RendererType = 1` took that switch over and dropped
+both scales: it replaces the box terms with the traced ambient and the occluded
+sun ("Distance field ambient"), and where a model falls back to the box, outside
+the window, halving them left it at half of type 0's light (the user's report).
+Only `ModelLightScale` (100 percent) remains, on the positional lights. The
+world is untouched by the type; the flashlight and directional shadows work in
+both. The other half of that seam
 is `LightShadowWorldStrength`: where the bake stored less of a lamp than the
 analytic term says, the subtraction clamps at zero and the floor shadow goes
 black, and lowering it is the fix.
@@ -540,6 +543,168 @@ the map, with the bias in texels as everywhere else.
 
 `painful_config.ini`: `ViewModelShadows` (1/0), `ViewModelShadowMapSize`
 (512). `PAINFUL_SHADOWVIEW` darkens the weapon by these terms.
+
+## Distance field ambient
+
+`Pf.RendererType = 1` (console `pfrenderertype 1`) is a prototype and a
+deviation with nothing to recover behind it. The original lights a model from
+its CEnvironment box's flat ambient, one directional and the lights, so a model
+never sees the bright and dark patches, the bounce off a torch-lit wall or the
+open sky that the lightmap and sky show around it. `0` is the original and is
+left untouched: the shader takes the same term it always did.
+
+**What a model gets.** Its ambient becomes the irradiance of the world around
+its bounds centre, as L2 spherical harmonics evaluated at the pixel normal. The
+box's directional is a sun inside the window: a model takes only the share of it
+that three rays toward it see, from a quarter, half and three quarters up its
+bounds' vertical axis, each through the window by the trace's rule (`March`)
+and on through the collision mesh (`SdfLighting::SunVisibility`). It is
+re-measured whenever the model re-traces and eased over 0.2 s, so walking into
+shade does not pop. Outside the window, by the same weight as the ambient, the
+box's directional applies whole as before. (Unoccluded it read as artificial
+next to the traced light - the user's report - and it went; the sky, drawn in
+0..1, could not carry the sun's direction alone, so it came back occluded.) The
+lights and their specular are unchanged, and the models' shadows on the world
+still fall from the box's directional. The world's light is
+baked, so what reaches a surface is its lightmap (x2 on an Overbright level)
+and never changes; only the window has to move.
+
+**The field holds the light arriving, not the light leaving.** Storing
+`albedo x lightmap`, what a surface sends, is the physical bounce, and it did
+not match the world: a model's ambient came out near the on-screen colour of
+the walls about it, and the model multiplied that by its own albedo, landing
+darker than the wall by the wall's albedo - a dark stone wall passes on a fifth
+of its light, and these lightmaps sit at 10-40 of 255. Monsters beside a
+torch-lit wall went nearly black (the user's report). So a surface voxel holds
+its lightmap by default, what the lightmap says arrives there, the way a light
+grid of the Quake 3 kind is lit: a model beside a wall takes the light the wall
+takes. `SdfAlbedo` (0 percent) tints it back toward the surface's albedo, 100
+being the physical bounce; a change rebuilds the window. An unlightmapped
+surface is drawn at full albedo and sends its albedo either way. The placed
+lights still reach the model directly, and a lightmap beside a torch already
+holds that torch, so near one it is counted twice.
+
+**The cascades.** `Render/SdfLighting.cpp`: three cascades about the camera,
+each 128³ voxels and twice the size of the last - 0.25-unit voxels over 32
+units, 0.5 over 64, 1 over 128 - the way light propagation volumes cascade (the
+user's call; one 64-unit window of 0.5 came first). Each is rebuilt on its own
+on a worker thread, finest first, when the camera is a quarter of its size from
+its centre, and snapped to four of its own voxels so the grids line up. Every
+step of a trace reads the finest cascade holding the point and never strides
+past that cascade's face, so a ray from a model starts fine and hands over to
+coarser cascades as it goes out; the full-weight fade runs against the
+outermost cascade holding the model. Below, "the window" is the union.
+Measured on C5L1_City_On_Water's start (2026-09-14): 16,928 / 16,102 / 14,850
+surface voxels, each cascade about 215 ms on the worker (21 / 37 / 41 ms
+voxelizing, the rest distances), so all three are in about 0.65 s after the
+level starts. The surface count stays level across cascades because the area
+per voxel grows as fast as the area covered. The level's size costs only load-time data, built on
+the first frame of type 1: the triangles of the drawn solid world (no helpers,
+bodies, water, `trans` or `decal`), a per-material albedo from the smallest
+mip of the diffuse (both terrains' on a blend), and every lightmap decoded.
+Voxelizing samples each triangle in the window at half a voxel. A surface voxel
+keeps its light in six bins by the facing of what wrote it, so the two sides of
+a wall stay apart and a surface seen from behind sends nothing. Every voxel then
+takes its nearest surface voxel in two sweeps over the 26 neighbours: an
+unsigned distance field that also names the surface.
+
+**The trace.** 32 rays in a spherical Fibonacci set, sphere-traced from the
+model's centre, stepping the distance to the nearest surface voxel less one
+voxel (at least half). A hit is a surface voxel within one voxel that is not
+behind the ray's start. A ray that leaves the window takes the sky when nothing
+in the level is in its way, and the model's box ambient when something is (see
+"The sky" below). A model outside the window takes the box ambient: full weight
+from 6 units inside the window's faces, none within 2. The sum reaches `fs_entity` as `u_sh[9]` with the
+cosine lobe applied, and is evaluated per pixel with no texture fetch. A model
+re-traces when it moves a tenth of a unit or a new window arrives, at most 64
+traces a frame, and fades from the box ambient to its first trace over 0.3 s.
+After that the SH it shows eases toward each new trace (0.25 s time constant):
+applied whole, every re-trace of a walking monster was a visible jump in its
+light (the user's report), because a ray changing outcome - surface to sky, one
+voxel's light to the next - moves the sum by a thirty-second at once.
+
+`SdfGain` (100 percent) scales the traced light. `PAINFUL_AMBIENTVIEW=1`
+draws the models as their ambient term alone, under either type.
+
+`SdfDebugClipmaps` (console `pfsdfdebugclipmaps 1`) draws the window's surfaces
+themselves over the finished frame, under the 2D layer
+(`Render/SdfClipmapDebug.cpp`, view `kSdfDebugView`). Each cascade is uploaded when
+it first shows: the distance per voxel as a 3D R8 texture in quarter voxels (up
+to 64), the nearest surface's index as a 3D R32F texture, and each surface's
+six light bins as an RGBA32F texture. `fs_sdfclipmap` then steps a ray per
+pixel with the CPU trace's own rule and colours a hit with the bin facing the
+eye, so a pixel shows the light a ray from the camera would take there, voxels
+and all. Inside the window a miss is dark blue, outside it near black. It runs
+under either type.
+
+`SdfDebugGrid` (console `pfsdfdebuggrid 1`) draws the field as probes: a lattice of
+spheres 2 units apart, 11 x 5 x 11 about the camera's cell and aligned to the
+world, so they stay put as the camera moves (`Render/SdfDebug.cpp`). Each is
+lit per pixel by the trace a model at its centre would take, times the gain,
+and nothing else. A sphere within a voxel of a surface, or outside the window,
+is not drawn, so the lattice's edge is the window's. It runs under either type
+(it keeps the window updating), re-traces when a new window arrives, 256 probes
+a frame.
+
+The spheres show the ambient at its real brightness, so one with light from
+all sides reads flat. On Cathedral's start corridor a probe in the middle
+varies about 10% from its top to its equator (47.7 to 52 of 255), while probes
+beside the walls carry a first-order term of 32 to 76% of the average - the
+field's directional content is there, the middle of a symmetric corridor just
+has little of it.
+
+Measured on C1L1_Cathedral from the level start (2026-09-14, Release): the
+surface list builds in 140 ms on the first type 1 frame (282,724 triangles,
+1609 materials, 55 lightmaps holding 44.6 MB). A window takes about 330 ms on
+the worker: 60,061 surface voxels, 133 ms voxelizing, 194 ms of distances. A
+trace costs 19 µs, so the budget of 64 is about 1.2 ms on a frame where that
+many models need one, and nothing on a frame where none moved. Under
+`PAINFUL_AMBIENTVIEW` the pixels that change between the types, the models,
+average 59.5 under the box ambient, 45.2 traced with the light leaving
+(`SdfAlbedo 100`) and 85.6 with the light arriving (`SdfAlbedo 0`, the
+default), 0-255 and none black: the leaving light gave about three quarters of
+the boxes' ambient there, the arriving light about half again more than it.
+
+**The sky.** `Render/SkyCapture.cpp` draws the dome once a level, one 32x32
+face a frame for six frames (`kSkyCaptureView`, blitted for read-back in
+`kSkyCaptureBlitView`), and bins every texel by solid angle into a 64x32
+latitude-longitude map of the light from each direction. Each texel's direction
+comes back through its face's own inverse view-projection, so the face table
+only has to cover the sphere. The sky counts as the light it is drawn with. A
+ray that leaves the window is then tested once against the collision mesh
+(`CollisionMesh::Occluded`, 4000 units on from where it left): clear, it takes
+the sky averaged over its own share of the sphere - the map's cells nearer its
+direction than any other ray's, by solid angle, computed once when the sky
+arrives - so a small bright sun lands whole on the nearest ray instead of
+falling between two; blocked, the box ambient. The trace counts what its rays
+found (hit, sky, blocked by the level, out of steps, no sky) and logs the
+shares with its timing. A courtyard open
+above takes the sky from above and its walls' light from the sides. Until the
+six faces are in, and on a level with no sky, every leaving ray takes the box
+ambient. A new sky bumps the field's generation, so every model re-traces.
+Measured on C5L1_City_On_Water (2026-09-14, 64x64 faces): the map's mean light
+is 0.370 0.259 0.178, its luminance 0.603 over the top eighth of rows, 0.332 at
+the horizon and 0.000 under the dome's rim - the order a read-back flipped
+upside down would reverse - and the sky over each ray's share runs 0.000 to
+0.768. With `pfsdfdebuggrid`'s 605 probes traced against that sky, 59% of the
+rays hit a surface, 37% took the sky, 4% were blocked by the level and none ran
+out of steps, at 10.3 µs a trace. The sky is drawn in 0..1 while an Overbright
+level's lightmap reaches 2, so the sky's share of a model's light, and its
+direction, is small next to the surfaces': the painted sun carries no more than
+white. `SdfSkyGain` (100 percent) scales the sky's light and `SdfSkyHighlight`
+(0) lifts its brightest cells - luminance above 0.6, by up to that percentage at
+white on a square ramp - before each ray's share is averaged; either change
+re-traces every model. On City on Water's start (2026-09-14) the per-ray sky ran
+0.000 to 0.768 at highlight 0 and to 1.249 at 200. Against the frame before the
+occluded sun and the per-ray sky, 6.5% of the pixels changed, the changed ones -
+the models - brightening from 87.5 to 120.4 of 255; highlight 200 moved a
+further 4%, from 130 to 139. Before
+this, the user saw a blue cast from above on every level under type 1; the box
+ambient every upward ray took is the likely cause, not a measured one.
+
+Not handled yet: alpha-tested foliage (solid), a model much larger than a voxel
+lit from one point, the sky below the dome's rim (black, as the capture draws
+it), and nothing re-voxelized when a destructible's intact twin hides.
 
 ## What the scripts do with them
 

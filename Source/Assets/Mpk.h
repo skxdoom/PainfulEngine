@@ -134,4 +134,8 @@ struct MapMesh {
 	static bool Write(const std::string& path, const MapMesh& mesh);
 };
 
+// Which way cross(b - a, c - a) faces on this level's winding, +1 or -1: agreed
+// with the normals of the objects that carry them rather than assumed.
+float WindingSign(const MapMesh& map);
+
 } // namespace painful
