@@ -29,6 +29,7 @@
 #include "Render/DemonFx.h"
 #include "Render/SceneTargets.h"
 #include "Render/WaterReflection.h"
+#include "Render/EnvCubeMap.h"
 #include "Render/DecalRenderer.h"
 #include "Render/EntityRenderer.h"
 #include "Render/HudRenderer.h"
@@ -428,6 +429,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	SceneTargets sceneTargets;
 	WaterReflection waterReflection;
 	WaterReflection waterRefraction;
+	EnvCubeMap envCube;
 	const bool sceneInit = sceneTargets.Init(shaderDir);
 	// The post-process. Cfg.Bloom and the level's BloomFX gate it per frame;
 	// PAINFUL_BLOOM=0 turns it off for an A/B.
@@ -647,6 +649,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	info.skyMap = ws.skyMap;
 	info.skyTexture = ws.skyTexture;
 	info.skyAngle = ws.skyAngle;
+	info.water = ws.water;
+	info.cubeMap = ws.cubeMap;
+	info.rtCubeMap = ws.rtCubeMap;
 	const size_t slash = ws.mapPath.find_last_of("/\\");
 	info.mapFile = slash == std::string::npos ? ws.mapPath : ws.mapPath.substr(slash + 1);
 
@@ -667,6 +672,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			// while the scripts loaded; the chunks exist only now.
 			for (const auto& kv : engine.meshOverrides())
 				world.SetMeshOverride(kv.first, kv.second.material, kv.second.cube, kv.second.normal);
+			entities.SetLevelCubeMap(info.cubeMap, textures);
 			engine.SetWorldObjectVisibility(
 					[&world](size_t object, bool visible) { world.SetObjectVisible(object, visible); });
 		}
@@ -1301,6 +1307,18 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		// the scene mirrored about the surface, or a cleared target when the
 		// camera is past the environment's ReflectDist. Water.md.
 		{
+			// The live environment cube map (o.RTCubeMap): six faces of sky and
+			// world from the eye mirrored about WaterLevel, which the models'
+			// water reflects. Water.md, "Swamp".
+			{
+				bgfx::TextureHandle cube = BGFX_INVALID_HANDLE;
+				const int cubeSize = DebugInt("PAINFUL_ENVCUBE", 256);
+				if (worldReady && info.rtCubeMap && cubeSize > 0 &&
+						envCube.Render(Renderer::kEnvCubeViewBase, skyReady ? &sky : nullptr, world,
+						camera, info.water.waterLevel, info, elapsed, cubeSize))
+					cube = envCube.texture();
+				entities.SetEnvCube(cube);
+			}
 			WorldRenderer::Reflection refl;
 			bgfx::TextureHandle reflTex = BGFX_INVALID_HANDLE;
 			if (worldReady && DebugInt("PAINFUL_WATER_REFLECT", 1) > 0 &&

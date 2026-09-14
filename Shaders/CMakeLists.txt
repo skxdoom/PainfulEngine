@@ -44,7 +44,7 @@ set(SHADER_NAMES
 		vs_hud fs_hud
 		vs_post fs_bloom_bright fs_bloom_blur fs_bloom_composite
 		fs_demon_gray fs_demon_warp fs_demon_entity fs_post_copy
-		vs_water fs_water)
+		vs_water fs_water fs_entity_water)
 
 set(SHADER_HEADERS "")
 set(SHADER_SOURCES "")

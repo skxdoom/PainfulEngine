@@ -349,18 +349,61 @@ o.Model = "swamp_dirtywater"
 o.Scale = 40
 o.waterImpJoint = "root"   o.waterImpAmplitude = 0.2   o.waterImpPeriod = 5.1
 o.waterImpRange = 190.0    o.waterImpSpeed = 3.0
-o.s_SubClass.RefractFresnel = { dirtywater = { Refract = 2.0, Fresnel = 0.8, … } }
+o.s_SubClass.RefractFresnel = { dirtywater = { Refract = 2.0, Fresnel = 0.8,
+    ReflTint = Color:New(179,171,149), RefrTint = Color:New(121,121,121) } }
 ```
 
-`Swamp_dirtywater.pkmdl` holds a single mesh named `dirtywater`, which is the
-`skin.shader` entry that gives it its scroll — `palskinned_water` plus
-`pan[0] = 0.0 0.03`, with `map[1]`/`map[2] = $envcubemap` and, on the `tnl`
-variant, `texgen[0] = reflect worldorient`.
+`Swamp_dirtywater.pkmdl` holds meshes named `dirtywater` and `water_swamp`,
+which are the `skin.shader` entries `dirtywater copy palskinned_water` (pan
+0.0 0.03) and `water_swamp copy dirtywater` (pan 0.0 -0.21): `vshader =
+palskin_water`, `fshader = skin_dirtywater`, `map[0] = $colormap`,
+`map[1]/map[2] = $envcubemap`. Only nv20 and tnl variants exist; there is no
+FX water for models, and no planar pass either. What reflects the bonfires
+in the water is the cube map:
 
-Two general bugs kept it off screen entirely, both now fixed: `o.Model` was
-resolved only through the template chain (this instance names its model directly
-and inherits from no template), and material overrides were keyed off the model
-*file* name instead of the mesh name.
+**`o.RTCubeMap = true`** (Swamp, Leningrad, CTF_Chaos, the two Trainstations)
+makes `View::RenderCubemap` (0x100b4c80) draw the world into a 512x512 cube
+(`World+0x18c4`, `World::Init`) every frame - six faces, FOV 90, black clear,
+`RenderWorld(scene, 0)` each - from **the eye mirrored about
+`o.Water.WaterLevel`** (`World+0x72c`; Swamp sets 59.9, the surface's own
+height). A model's `$envcubemap` reflection looked up from the real eye then
+lands where a planar reflection would, for every point on that plane. The
+other levels keep `o.CubeMap.Tex` (`MESH.SetDefaultCubeMaps`) as a static
+environment.
 
-Still missing for Swamp: the cube reflection, the `RefractFresnel` tinting, and
-the `waterImp*` vertex waves driven by `Model::SetWaterImpact`.
+**The programs, decoded.** `palskin_water.vso` skins, adds the impact
+ripples (four centres at c17..c20, frequency/phase/range/amplitude in
+c12..c16 - `Model::SetWaterImpact`'s state, zero when nothing hit the water)
+along the normal, and per vertex computes with `c11 = (Refract, Refract^2,
+Fresnel, 2)`:
+
+```
+I = -e                              (e: vertex to eye, normalised)
+T = Refract I + (Refract (n.I) + sqrt(1 - Refract^2 (1 - (n.I)^2))) n
+R = 2 (n.e) n - e
+f = Fresnel (1 - e.R)^2             (clamped by the colour register it rides in)
+oD0 = (ReflTint - RefrTint) f + RefrTint,  oD0.w = f
+```
+
+`skin_water.pso` is `lrp(cube(T), cube(R), f) * oD0.rgb`; `skin_dirtywater`
+then `lrp(that, colormap, colormap.a)`. `RenderDefault` (0x100041d0)
+uploads c11 and the two tints (c21 = Refl - Refr with w 1, c22 = Refr with w
+0) from what `MDL.SetMaterialRefractFresnel` stored per mesh
+(`Model::SetMaterialRefractFresnel`, 0x101dea90, mesh entry +0x90..+0xac).
+The engine negates z for every cube lookup (`mov oT1.z, -r.z` / `oT2.z`),
+and its face table looks along -Z for the +Z slot and +Z for the -Z slot:
+the cube-map convention (D3D's, which bgfx keeps on every backend) is
+left-handed, so a right-handed world can only fill it by mirroring one
+axis and undoing that on lookup. A capture with the textbook GL up
+vectors mirrors every face instead, and the seams read as a cube-shaped
+boundary that moves against the camera.
+
+**What this port does.** `EnvCubeMap` renders sky and world into a 256 cube
+(`PAINFUL_ENVCUBE` sets the face size, 0 turns it off) from the mirrored eye
+on `RTCubeMap` levels, views 54-65, with the engine's face table (+Y up on
+the side faces, +Z / -Z up on the poles, the Z slots swapped) and
+`fs_entity_water` sampling `(x, y, -z)`. `EntityRenderer` draws every part
+whose material's vertex program is `palskin_water` with `fs_entity_water`:
+the two cube looks, the fresnel lerp, the tints and the dirty variant's colour
+map, from `MDL.SetMaterialRefractFresnel`. Still missing: the `waterImp*`
+ripples, and the cube renders only sky and world, not the models.

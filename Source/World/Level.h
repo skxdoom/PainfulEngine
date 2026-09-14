@@ -121,6 +121,10 @@ struct LevelInfo {
 	std::string skyDomeMap; // o.SkyDome.Map - the full layered dome
 	SkyLayer skyLayers[4];
 	WaterInfo water;
+	// o.CubeMap.Tex, the $envcubemap every model reflects, and o.RTCubeMap,
+	// which replaces it with a live one rendered each frame (View::RenderCubemap).
+	std::string cubeMap;
+	bool rtCubeMap = false;
 };
 
 // A loaded level: its settings, its placed entities, and the world mesh it names.

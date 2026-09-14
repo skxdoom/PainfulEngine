@@ -31,6 +31,8 @@ struct WorldNatives : ScriptNativesBase {
 	static int L_WORLD_SetupSkyLayer(lua_State* L);
 	static int L_MESH_SetDefaultDetailMaps(lua_State* L);
 	static int L_MESH_SetDefaultMaterial(lua_State* L);
+	static int L_WORLD_SetupWater(lua_State* L);
+	static int L_MESH_SetDefaultCubeMaps(lua_State* L);
 	static int L_MESH_SetCubeMap(lua_State* L);
 	static int L_MESH_SetNormalMap(lua_State* L);
 	static ScriptEngine::MeshOverride* MeshOverrideFor(ScriptEngine* self, lua_State* L);
@@ -485,6 +487,7 @@ int WorldNatives::L_WORLD_LoadMap(lua_State* L) {
 	self->world_.levelName = luaL_optstring(L, 2, "");
 	self->world_.scale = float(luaL_optnumber(L, 3, 1.0));
 	self->world_.overbright = lua_toboolean(L, 4) != 0;
+	self->world_.rtCubeMap = lua_toboolean(L, 5) != 0;
 	// The empty "NoName" level passes "../Data/Maps/" with no file - a level
 	// without a world, not an error.
 	self->world_.loadRequested =
@@ -721,6 +724,41 @@ int WorldNatives::L_MESH_SetDefaultDetailMaps(lua_State* L) {
 
 
 
+// WORLD.SetupWater (FUN_1011f3b0): CLevel:Apply hands the level's o.Water
+// over as 21 numbers, in this order. The level-wide block - a surface in
+// a CEnvironment water box takes that one instead. Water.md.
+int WorldNatives::L_WORLD_SetupWater(lua_State* L) {
+	ScriptEngine* self = From(L);
+	WaterInfo& w = self->world_.water;
+	w.fresnelBias = float(luaL_optnumber(L, 1, 0));
+	w.fresnelExponent = float(luaL_optnumber(L, 2, 2));
+	w.bumpHeight = float(luaL_optnumber(L, 3, 0.05));
+	w.waveAmplitude = float(luaL_optnumber(L, 4, 1));
+	w.waveFrequency = float(luaL_optnumber(L, 5, 1));
+	for (int c = 0; c < 3; ++c) {
+		w.deepColor[c] = float(luaL_optnumber(L, 6 + c, 150));
+		w.shallowColor[c] = float(luaL_optnumber(L, 9 + c, 100));
+	}
+	w.waveSpeed = float(luaL_optnumber(L, 12, 1));
+	w.waterAmount = float(luaL_optnumber(L, 13, 1));
+	w.reflectionAmount = float(luaL_optnumber(L, 14, 1));
+	w.waterLevel = float(luaL_optnumber(L, 15, 0));
+	w.reflectScene = lua_toboolean(L, 16) != 0;
+	w.refractScene = lua_toboolean(L, 17) != 0;
+	w.pan[0] = float(luaL_optnumber(L, 18, 0.00172));
+	w.pan[1] = float(luaL_optnumber(L, 19, 0.003));
+	w.tile[0] = float(luaL_optnumber(L, 20, 17.5));
+	w.tile[1] = float(luaL_optnumber(L, 21, 10));
+	return 0;
+}
+
+// MESH.SetDefaultCubeMaps(texture): o.CubeMap.Tex, every model's $envcubemap.
+int WorldNatives::L_MESH_SetDefaultCubeMaps(lua_State* L) {
+	ScriptEngine* self = From(L);
+	self->world_.cubeMap = luaL_optstring(L, 1, "");
+	return 0;
+}
+
 // MESH.SetDefaultMaterial / SetCubeMap / SetNormalMap on a world-mesh object,
 // which is how a map's MapEntities .EMesh picks its water: Orphanage's
 // water_noclipshape is "water_ntu_refl" with special/ripples_00, Docks' keeps
@@ -773,6 +811,8 @@ void BindWorld(ScriptEngine& engine, LuaHost& host) {
 		{"WORLD", "SetupSkyLayer", WorldNatives::L_WORLD_SetupSkyLayer},
 		{"MESH", "SetDefaultDetailMaps", WorldNatives::L_MESH_SetDefaultDetailMaps},
 		{"MESH", "SetDefaultMaterial", WorldNatives::L_MESH_SetDefaultMaterial},
+		{"WORLD", "SetupWater", WorldNatives::L_WORLD_SetupWater},
+		{"MESH", "SetDefaultCubeMaps", WorldNatives::L_MESH_SetDefaultCubeMaps},
 		{"MESH", "SetCubeMap", WorldNatives::L_MESH_SetCubeMap},
 		{"MESH", "SetNormalMap", WorldNatives::L_MESH_SetNormalMap},
 		{"ENTITY", "EnableDeathZoneTest", WorldNatives::L_ENTITY_EnableDeathZoneTest},

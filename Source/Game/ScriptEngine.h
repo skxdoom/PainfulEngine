@@ -476,6 +476,12 @@ public:
 		std::string skyMap; // low-quality dome, basename
 		std::string skyTexture; // low-quality single texture
 		float skyAngle = 0.f;
+		// WORLD.SetupWater: the level-wide o.Water, the fallback for surfaces
+		// outside any CEnvironment water box. MESH.SetDefaultCubeMaps and
+		// WORLD.LoadMap arg 5: the models $envcubemap and the live one.
+		WaterInfo water;
+		std::string cubeMap;
+		bool rtCubeMap = false;
 	};
 
 	// Installs the real natives over their stubs. Call after LuaHost::Init.

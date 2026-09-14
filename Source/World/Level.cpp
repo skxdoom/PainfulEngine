@@ -72,6 +72,8 @@ bool Level::LoadSettings(const std::string& levelDir) {
 	// default is 0.3, NOT 1 - levels that omit the key rely on it.
 	info_.scale = static_cast<float>(p.Number("Scale", 0.3));
 	info_.overbright = p.Bool("Overbright", false);
+	info_.cubeMap = p.String("CubeMap.Tex", "");
+	info_.rtCubeMap = p.Bool("RTCubeMap", false);
 	ReadWaterInfo(p, info_.water);
 
 	info_.detailTex = p.String("DetailMap.Tex", "special/detail");

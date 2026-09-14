@@ -23,6 +23,7 @@ add_library(Render STATIC
 		FullScreenPass.h
 		SceneTargets.cpp SceneTargets.h
 		WaterReflection.cpp WaterReflection.h
+		EnvCubeMap.cpp EnvCubeMap.h
 		ShaderLoad.cpp ShaderLoad.h
 		Camera.cpp Camera.h
 		MeshVertex.h

@@ -118,6 +118,13 @@ public:
 	void SetDrawSet(DrawSet s) { drawSet_ = s; }
 	// ENTITY.EnableDemonic: drawn by the demon pass while it is on.
 	void SetScriptDemonic(int slot, bool demonic);
+	// MDL.SetMaterialRefractFresnel: one mesh's water look on one instance.
+	void SetScriptMeshWater(int slot, const std::string& mesh, float refract, float fresnel,
+			const Vec3& reflTint, const Vec3& refrTint);
+	// $envcubemap: the level's cube map, or the live one a RTCubeMap level
+	// renders each frame (invalid = back to the level's).
+	void SetLevelCubeMap(const std::string& name, TextureCache& textures);
+	void SetEnvCube(bgfx::TextureHandle cube) { envCube_ = cube; }
 	// Demon Morph: while `on`, demonic instances leave the main pass and are
 	// submitted to `view` with the fresnel program over `detail` x `ramp`
 	// (Render/DemonFx.h supplies all three). DemonFx.md, "The monsters".
@@ -226,6 +233,7 @@ private:
 		// someone else's indices. Docs/Reference/Physics.md, "Active meshes".
 		bgfx::IndexBufferHandle ibo = BGFX_INVALID_HANDLE;
 		bgfx::TextureHandle diffuse = BGFX_INVALID_HANDLE;
+		bool water = false; // palskin_water: the model water look (Water.md, "Swamp")
 		// The material's stage-1 texture, when it has one (blood, freeze).
 		bgfx::TextureHandle stage1 = BGFX_INVALID_HANDLE;
 		uint32_t firstIndex = 0;
@@ -264,6 +272,12 @@ private:
 		// MDL.SetMaterial: this instance draws with another material family
 		// (gibs turn palskinned_bloody). Per instance, since the GpuModel and
 		// its parts are shared by every entity using that model.
+		struct MeshWater {
+			std::string mesh;
+			float refract = 1.f, fresnel = 1.f;
+			Vec3 reflTint{1.f, 1.f, 1.f}, refrTint{1.f, 1.f, 1.f};
+		};
+		std::vector<MeshWater> water;
 		bool materialOverride = false;
 		MaterialState material;
 		bgfx::TextureHandle stage1 = BGFX_INVALID_HANDLE;
@@ -382,6 +396,14 @@ private:
 	std::string levelHint_;
 	bgfx::UniformHandle sStage1_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uStage1_ = BGFX_INVALID_HANDLE;
+	// The model water program and its constants (fs_entity_water).
+	bgfx::ProgramHandle waterProgram_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uEntWater_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uEntWaterRefl_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uEntWaterRefr_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle sEnvCube_ = BGFX_INVALID_HANDLE;
+	bgfx::TextureHandle envCube_ = BGFX_INVALID_HANDLE; // the live one, when there is one
+	bgfx::TextureHandle levelCube_ = BGFX_INVALID_HANDLE; // o.CubeMap.Tex
 	EntityLighting lighting_;
 	float lastTime_ = 0.f;
 	bgfx::TextureHandle white_ = BGFX_INVALID_HANDLE;

@@ -21,6 +21,7 @@ struct DeathNatives : ScriptNativesBase {
 	static int L_MDL_SetRagdollLinearDamping(lua_State* L);
 	static int L_MDL_SetRagdollAngularDamping(lua_State* L);
 	static int L_MDL_SetRagdollFriction(lua_State* L);
+	static int L_MDL_SetMaterialRefractFresnel(lua_State* L);
 	static int L_MDL_JointsLinked(lua_State* L);
 	static int L_MDL_EnableJoint(lua_State* L);
 	static int L_PHYSICS_RemoveHavokBodyFromIS(lua_State* L);
@@ -644,6 +645,23 @@ int DeathNatives::L_MDL_SetRagdollAngularDamping(lua_State* L) {
 	e->ragdollAngularDamping = float(luaL_optnumber(L, 2, 0));
 	if (e->ragdollSlot >= 0 && self->physics_)
 		self->physics_->SetRagdollDamping(e->ragdollSlot, -1.f, e->ragdollAngularDamping);
+	return 0;
+}
+
+// MDL.SetMaterialRefractFresnel(entity, mesh, Refract, Fresnel, reflR, reflG,
+// reflB, refrR, refrG, refrB) - CActor:ApplyFresnel, from the template's
+// s_SubClass.RefractFresnel: the Swamp water model's look. Model::
+// SetMaterialRefractFresnel (0x101dea90) keeps them per mesh. Water.md, "Swamp".
+int DeathNatives::L_MDL_SetMaterialRefractFresnel(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || e->rendererInstance < 0 || !self->renderer_) return 0;
+	const Vec3 refl{float(luaL_optnumber(L, 5, 255)) / 255.f, float(luaL_optnumber(L, 6, 255)) / 255.f,
+			float(luaL_optnumber(L, 7, 255)) / 255.f};
+	const Vec3 refr{float(luaL_optnumber(L, 8, 255)) / 255.f, float(luaL_optnumber(L, 9, 255)) / 255.f,
+			float(luaL_optnumber(L, 10, 255)) / 255.f};
+	self->renderer_->SetScriptMeshWater(e->rendererInstance, luaL_optstring(L, 2, ""),
+			float(luaL_optnumber(L, 3, 1)), float(luaL_optnumber(L, 4, 1)), refl, refr);
 	return 0;
 }
 
@@ -1291,6 +1309,7 @@ void BindDeath(ScriptEngine& engine, LuaHost& host) {
 		{"MDL", "SetRagdollLinearDamping", DeathNatives::L_MDL_SetRagdollLinearDamping},
 		{"MDL", "SetRagdollAngularDamping", DeathNatives::L_MDL_SetRagdollAngularDamping},
 		{"MDL", "SetRagdollFriction", DeathNatives::L_MDL_SetRagdollFriction},
+		{"MDL", "SetMaterialRefractFresnel", DeathNatives::L_MDL_SetMaterialRefractFresnel},
 		{"MDL", "MakeGib", DeathNatives::L_MDL_MakeGib},
 		{"MDL", "SetRagdollMovedByExplosions", DeathNatives::L_MDL_SetRagdollMovedByExplosions},
 		{"MDL", "RagdollSelfExplosion", DeathNatives::L_MDL_RagdollSelfExplosion},

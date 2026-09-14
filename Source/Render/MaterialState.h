@@ -36,6 +36,9 @@ struct MaterialState {
 	//   3 modulatealphaadd texop[1] = texture modulatealphaadd texture
 	int stage1Op = 0; // 0 = no second stage
 	std::string map1; // map[1], empty when it is a $variable
+	// The pass's programs by name, first word only ("palskin_water def ntu,
+	// 3C" is palskin_water): what picks a model water surface out.
+	std::string vshader, fshader;
 
 	// Builds the state from a resolved pass. Unknown values fall back to the
 	// most common defaults and are reported through *warning when given.

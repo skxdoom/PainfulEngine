@@ -125,6 +125,13 @@ bool EntityRenderer::Init(const std::string& shaderDir) {
 		}
 	}
 	uDemonFresnel_ = bgfx::createUniform("u_demonFresnel", bgfx::UniformType::Vec4);
+	// The model water program shares the vertex shader; the fragment side
+	// is fs_entity_water. Missing is not fatal: water draws as skin.
+	bgfx::ShaderHandle fsw = LoadShader(shaderDir, "fs_entity_water");
+	if (bgfx::isValid(fsw)) {
+		waterProgram_ = bgfx::createProgram(vs, fsw, false);
+		bgfx::destroy(fsw);
+	}
 	program_ = bgfx::createProgram(vs, fsh, true);
 	if (!bgfx::isValid(program_)) return false;
 
@@ -143,6 +150,10 @@ bool EntityRenderer::Init(const std::string& shaderDir) {
 	uSpecular_ = bgfx::createUniform("u_specular", bgfx::UniformType::Vec4);
 	sStage1_ = bgfx::createUniform("s_stage1", bgfx::UniformType::Sampler);
 	uStage1_ = bgfx::createUniform("u_stage1", bgfx::UniformType::Vec4);
+	uEntWater_ = bgfx::createUniform("u_entWater", bgfx::UniformType::Vec4);
+	uEntWaterRefl_ = bgfx::createUniform("u_entWaterRefl", bgfx::UniformType::Vec4);
+	uEntWaterRefr_ = bgfx::createUniform("u_entWaterRefr", bgfx::UniformType::Vec4);
+	sEnvCube_ = bgfx::createUniform("s_envcube", bgfx::UniformType::Sampler);
 	uVmParams_ = bgfx::createUniform("u_vmParams", bgfx::UniformType::Vec4);
 	uVmMtx_ = bgfx::createUniform("u_vmMtx", bgfx::UniformType::Mat4);
 	uVmLight_ = bgfx::createUniform("u_vmLight", bgfx::UniformType::Vec4);
@@ -164,6 +175,11 @@ void EntityRenderer::Shutdown() {
 	models_.clear();
 	instances_.clear();
 	if (bgfx::isValid(program_)) { bgfx::destroy(program_); program_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(waterProgram_)) { bgfx::destroy(waterProgram_); waterProgram_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uEntWater_)) { bgfx::destroy(uEntWater_); uEntWater_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uEntWaterRefl_)) { bgfx::destroy(uEntWaterRefl_); uEntWaterRefl_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uEntWaterRefr_)) { bgfx::destroy(uEntWaterRefr_); uEntWaterRefr_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(sEnvCube_)) { bgfx::destroy(sEnvCube_); sEnvCube_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(demonProgram_)) { bgfx::destroy(demonProgram_); demonProgram_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uDemonFresnel_)) { bgfx::destroy(uDemonFresnel_); uDemonFresnel_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(sDiffuse_)) { bgfx::destroy(sDiffuse_); sDiffuse_ = BGFX_INVALID_HANDLE; }
@@ -292,6 +308,9 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
 			std::string family = "palskinned";
 			if (mesh.nameHas("2sided")) family += "2sided";
 			part.material = LookupMaterial(shaders_, family, true, mesh.name);
+			part.name = mesh.name;
+			part.water = part.material.vshader == "palskin_water";
+			if (part.water) LogInfo("model water: %s (%s)", mesh.name.c_str(), part.material.fshader.c_str());
 			if (!part.material.map1.empty())
 				part.stage1 = textures.Get(part.material.map1, "");
 			gpu.parts.push_back(std::move(part));
@@ -727,6 +746,31 @@ void EntityRenderer::SetScriptViewModel(int slot, bool viewModel) {
 			"EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
 		return;
 	instances_[slot].viewModel = viewModel;
+}
+
+void EntityRenderer::SetScriptMeshWater(int slot, const std::string& mesh, float refract,
+		float fresnel, const Vec3& reflTint, const Vec3& refrTint) {
+	if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
+			"EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
+		return;
+	Instance& inst = instances_[slot];
+	Instance::MeshWater* w = nullptr;
+	for (Instance::MeshWater& m : inst.water)
+		if (m.mesh == mesh) { w = &m; break; }
+	if (!w) {
+		inst.water.emplace_back();
+		w = &inst.water.back();
+		w->mesh = mesh;
+	}
+	w->refract = refract;
+	w->fresnel = fresnel;
+	w->reflTint = reflTint;
+	w->refrTint = refrTint;
+}
+
+void EntityRenderer::SetLevelCubeMap(const std::string& name, TextureCache& textures) {
+	levelCube_ = BGFX_INVALID_HANDLE;
+	if (!name.empty()) levelCube_ = textures.GetCube(name, "");
 }
 
 void EntityRenderer::SetScriptDemonic(int slot, bool demonic) {
@@ -1246,6 +1290,26 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 					bgfx::isValid(projector_.falloff()) ? projector_.falloff() : white_,
 					4, shadowTex, 5, modelShadowTex, 6, lightShadowTex);
 			BindViewModel(instance.viewModel);
+			// The model water look (palskin_water): its own program, the cube
+			// map at stage 1, MDL.SetMaterialRefractFresnel's numbers per mesh.
+			const bgfx::TextureHandle cubeTex = bgfx::isValid(envCube_) ? envCube_ : levelCube_;
+			if (part.water && !demonDraw && bgfx::isValid(waterProgram_) && bgfx::isValid(cubeTex)) {
+				Instance::MeshWater mw;
+				for (const Instance::MeshWater& w : instance.water)
+					if (w.mesh == part.name) { mw = w; break; }
+				const float entWater[4] = {mw.refract, mw.refract * mw.refract, mw.fresnel,
+						mat.fshader == "skin_dirtywater" ? 1.f : 0.f};
+				const float reflTint[4] = {mw.reflTint[0], mw.reflTint[1], mw.reflTint[2], 0.f};
+				const float refrTint[4] = {mw.refrTint[0], mw.refrTint[1], mw.refrTint[2], 0.f};
+				bgfx::setUniform(uEntWater_, entWater);
+				bgfx::setUniform(uEntWaterRefl_, reflTint);
+				bgfx::setUniform(uEntWaterRefr_, refrTint);
+				bgfx::setTexture(1, sEnvCube_, cubeTex);
+				bgfx::setState(state);
+				bgfx::submit(view, waterProgram_);
+				++drawCalls_;
+				continue;
+			}
 			bgfx::setState(state);
 			if (demonDraw) bgfx::submit(demonView_, demonProgram_);
 			else bgfx::submit(view, program_);

@@ -26,37 +26,41 @@ public:
 	static constexpr bgfx::ViewId kViewModelShadowView = 50;
 	// The water's planar reflection, sky then world, into its own half-size
 	// target before the frame proper (Render/WaterReflection.h).
-	static constexpr bgfx::ViewId kRefractWorldView = 47;
-	static constexpr bgfx::ViewId kReflectSkyView = 48;
-	static constexpr bgfx::ViewId kReflectWorldView = 49;
+	static constexpr bgfx::ViewId kRefractWorldView = 51;
+	static constexpr bgfx::ViewId kReflectSkyView = 52;
+	static constexpr bgfx::ViewId kReflectWorldView = 53;
+	// The live environment cube map a level with RTCubeMap asks for: six
+	// faces, sky then world each (Render/EnvCubeMap.h).
+	static constexpr bgfx::ViewId kEnvCubeViewBase = 54;
+	static constexpr bgfx::ViewId kEnvCubeViewCount = 12;
 	// Sky is drawn next and owns the clear; the world paints over it.
-	static constexpr bgfx::ViewId kSkyView = 51;
-	static constexpr bgfx::ViewId kWorldView = 52;
+	static constexpr bgfx::ViewId kSkyView = 66;
+	static constexpr bgfx::ViewId kWorldView = 67;
 	// The scene's half-size copy (Render/SceneTargets.h), for the passes
 	// that sample the scene small.
 	// The particle_warp sprites: a copy of the scene so far, then the sprites
 	// drawn over the scene reading it (Render/ParticleRenderer.h, DrawWarp).
-	static constexpr bgfx::ViewId kSceneCopyView = 53;
-	static constexpr bgfx::ViewId kParticleWarpView = 54;
+	static constexpr bgfx::ViewId kSceneCopyView = 68;
+	static constexpr bgfx::ViewId kParticleWarpView = 69;
 	// What goes on after the haze so it is not refracted: the view model, the
 	// particles, the coronas. Only used on a frame with haze; otherwise they
 	// draw in the world view as before.
-	static constexpr bgfx::ViewId kAfterWarpView = 55;
-	static constexpr bgfx::ViewId kSceneHalfView = 56;
+	static constexpr bgfx::ViewId kAfterWarpView = 70;
+	static constexpr bgfx::ViewId kSceneHalfView = 71;
 	// Bloom (Render/Bloom.h): the bright pass, the two blurs, then the
 	// composite that lands the scene on the backbuffer.
-	static constexpr bgfx::ViewId kBloomBrightView = 57;
-	static constexpr bgfx::ViewId kBloomBlurHView = 58;
-	static constexpr bgfx::ViewId kBloomBlurVView = 59;
-	static constexpr bgfx::ViewId kCompositeView = 60;
+	static constexpr bgfx::ViewId kBloomBrightView = 72;
+	static constexpr bgfx::ViewId kBloomBlurHView = 73;
+	static constexpr bgfx::ViewId kBloomBlurVView = 74;
+	static constexpr bgfx::ViewId kCompositeView = 75;
 	// Demon Morph (Render/DemonFx.h): the scene to black and white, the
 	// demonic models over it, the warp with the trail, the copy out.
-	static constexpr bgfx::ViewId kDemonGrayView = 61;
-	static constexpr bgfx::ViewId kDemonEntityView = 62;
-	static constexpr bgfx::ViewId kDemonWarpView = 63;
-	static constexpr bgfx::ViewId kDemonCopyView = 64;
+	static constexpr bgfx::ViewId kDemonGrayView = 76;
+	static constexpr bgfx::ViewId kDemonEntityView = 77;
+	static constexpr bgfx::ViewId kDemonWarpView = 78;
+	static constexpr bgfx::ViewId kDemonCopyView = 79;
 	// The 2D layer, drawn over everything: no depth, in submission order.
-	static constexpr bgfx::ViewId kHudView = 65;
+	static constexpr bgfx::ViewId kHudView = 80;
 
 	// A view's transform and rect from the camera, the way WorldRenderer::Draw
 	// sets the world view's - for a view that draws with the same eye later.

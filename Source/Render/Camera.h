@@ -38,6 +38,9 @@ struct Camera {
 	bool clipped = false; // the world clips at y = mirrorY (fs_world u_clip)
 	bool keepAbove = true; // which side of that plane survives
 	float mirrorY = 0.f;
+	// The look-at up hint: +Y, except for the cube-map faces that look
+	// straight up or down.
+	Vec3 up{0.f, 1.f, 0.f};
 
 	// The view and projection every renderer uses (right-handed, the far
 	// plane per caller).

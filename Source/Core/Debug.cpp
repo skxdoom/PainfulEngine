@@ -68,6 +68,7 @@ Row g_rows[] = {
 	{"PAINFUL_DECAL_TRACE", Kind::kFlag, "log what each decal spawn cut"},
 	{"PAINFUL_SPRITE_TRACE",Kind::kFlag, "log every R3D.Spr_Render strip"},
 	{"PAINFUL_WATER_REFLECT",Kind::kInt, "0 turns the water's planar reflection pass off"},
+	{"PAINFUL_ENVCUBE", Kind::kInt, "live cube map face size on RTCubeMap levels (0 off, default 256)"},
 	{"PAINFUL_HKE_DUMP", Kind::kText, "write the decoded .hke text to this file"},
 	{"PAINFUL_VIEW_TRACE", Kind::kFlag, "log the view traces the weapons fire"},
 	{"PAINFUL_MONSTER_TRACE",Kind::kInt, "dump monster ground state at this frame"},

@@ -65,6 +65,8 @@ uint32_t SamplerBits(const std::string& value, std::string* warning) {
 
 MaterialState MaterialState::FromPass(const ShaderPass& pass, std::string* warning) {
 	MaterialState out;
+	out.vshader = pass.Get("vshader").substr(0, pass.Get("vshader").find(" "));
+	out.fshader = pass.Get("fshader").substr(0, pass.Get("fshader").find(" "));
 
 	out.state = BGFX_STATE_WRITE_RGB;
 	if (pass.Get("colorwrite") == "false") out.state &= ~BGFX_STATE_WRITE_RGB;
