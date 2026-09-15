@@ -161,8 +161,7 @@ bool EntityRenderer::Init(const std::string& shaderDir) {
 	uDirColor_ = bgfx::createUniform("u_dirColor", bgfx::UniformType::Vec4);
 	uDirDir_ = bgfx::createUniform("u_dirDir", bgfx::UniformType::Vec4);
 	uEye_ = bgfx::createUniform("u_eye", bgfx::UniformType::Vec4);
-	uSdf_ = bgfx::createUniform("u_sdf", bgfx::UniformType::Vec4);
-	uSh_ = bgfx::createUniform("u_sh", bgfx::UniformType::Vec4, 9);
+	uSdfShade_ = bgfx::createUniform("u_sdfShade", bgfx::UniformType::Vec4);
 	lightUniforms_.Init();
 	return true;
 }
@@ -206,8 +205,7 @@ void EntityRenderer::Shutdown() {
 	if (bgfx::isValid(uDirColor_)) { bgfx::destroy(uDirColor_); uDirColor_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uDirDir_)) { bgfx::destroy(uDirDir_); uDirDir_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uEye_)) { bgfx::destroy(uEye_); uEye_ = BGFX_INVALID_HANDLE; }
-	if (bgfx::isValid(uSdf_)) { bgfx::destroy(uSdf_); uSdf_ = BGFX_INVALID_HANDLE; }
-	if (bgfx::isValid(uSh_)) { bgfx::destroy(uSh_); uSh_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uSdfShade_)) { bgfx::destroy(uSdfShade_); uSdfShade_ = BGFX_INVALID_HANDLE; }
 	lightUniforms_.Shutdown();
 	projector_.Clear();
 }
@@ -1092,10 +1090,10 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 	bgfx::TextureHandle lightShadowTex = BGFX_INVALID_HANDLE;
 	if (lightShadows_ && lightShadows_->ready()) lightShadowTex = lightShadows_->texture();
 
-	// Pf.RendererType 1: how many models may re-trace this frame; the rest keep
-	// their last trace until their turn.
-	int sdfTraces = 64;
+	// Pf.RendererType 1 is all in the shader: the probe grids and the field are
+	// the same for every model. Render/SdfProbes.h
 	static const bool kAmbientView = DebugFlag("PAINFUL_AMBIENTVIEW");
+	const float sdfShade[4] = {sdf_ ? 1.f : 0.f, sdfGain_, kAmbientView ? 1.f : 0.f, 0.f};
 
 	for (Instance& instance : instances_) {
 		if (!instance.alive || !instance.visible) continue;
@@ -1194,60 +1192,6 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 		bgfx::setUniform(uDirDir_, dirDir);
 		bgfx::setUniform(uEye_, eyePos);
 		bgfx::setUniform(uSpecular_, SpecularParams());
-
-		// Pf.RendererType 1: the traced ambient at the model's centre, re-traced
-		// when it moves or a new window arrives. Render/SdfLighting.h
-		float sdfParams[4] = {0.f, sdfGain_, kAmbientView ? 1.f : 0.f, 0.f};
-		if (sdf_ && sdf_->ready()) {
-			constexpr float kRetraceDistance = 0.1f;
-			constexpr float kShEaseSeconds = 0.25f;
-			constexpr float kFadeSeconds = 0.3f;
-			const Vec3 centre = (instance.aabbLo + instance.aabbHi) * 0.5f;
-			const bool stale = !instance.sdfValid || instance.sdfGeneration != sdf_->generation() ||
-					(centre - instance.sdfPos).LengthSq() > kRetraceDistance * kRetraceDistance;
-			if (stale && sdfTraces > 0) {
-				--sdfTraces;
-				if (sdf_->Trace(centre, lit.ambient, instance.sdfSh, instance.sdfWeight)) {
-					instance.sdfSun = lit.dirColor.LengthSq() > 1e-8f
-							? sdf_->SunVisibility(instance.aabbLo, instance.aabbHi, lit.dirDir) : 0.f;
-					if (!instance.sdfValid) {
-						instance.sdfSunShown = instance.sdfSun;
-						std::copy(instance.sdfSh, instance.sdfSh + 27, instance.sdfShShown);
-					}
-					instance.sdfValid = true;
-					instance.sdfGeneration = sdf_->generation();
-					instance.sdfPos = centre;
-				}
-			}
-			if (instance.sdfValid) {
-				instance.sdfFade = std::min(1.f, instance.sdfFade + dt / kFadeSeconds);
-				constexpr float kSunFadeSeconds = 0.2f;
-				instance.sdfSunShown += (instance.sdfSun - instance.sdfSunShown) *
-						std::min(1.f, dt / kSunFadeSeconds);
-				sdfParams[0] = instance.sdfFade * instance.sdfWeight;
-				// Eased toward the last trace: a moving model re-traces in steps.
-				const float ease = std::min(1.f, dt / kShEaseSeconds);
-				float sh[36];
-				for (int k = 0; k < 9; ++k) {
-					for (int c = 0; c < 3; ++c) {
-						float& shown = instance.sdfShShown[k * 3 + c];
-						shown += (instance.sdfSh[k * 3 + c] - shown) * ease;
-						sh[k * 4 + c] = shown;
-					}
-					sh[k * 4 + 3] = 0.f;
-				}
-				bgfx::setUniform(uSh_, sh, 9);
-			}
-		}
-		bgfx::setUniform(uSdf_, sdfParams);
-		// Inside the window the box's directional is a sun, and the model takes
-		// only what it sees of it; outside, the box's directional as before.
-		if (sdfParams[0] > 0.f) {
-			const float keep = 1.f - sdfParams[0] * (1.f - instance.sdfSunShown);
-			const float dirKept[4] = {lit.dirColor[0] * keep, lit.dirColor[1] * keep,
-					lit.dirColor[2] * keep, 1.f};
-			bgfx::setUniform(uDirColor_, dirKept);
-		}
 
 		LightBlock lights;
 		for (int s = 0; s < lit.lightCount; ++s) {
@@ -1350,6 +1294,9 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 					bgfx::isValid(projector_.falloff()) ? projector_.falloff() : white_,
 					4, shadowTex, 5, modelShadowTex, 6, lightShadowTex);
 			BindViewModel(instance.viewModel);
+			// Stages 8-11: the probe grids (shared_sdf.sh).
+			bgfx::setUniform(uSdfShade_, sdfShade);
+			if (sdf_) sdf_->BindShading(8);
 			// The model water look (palskin_water): its own program, the cube
 			// map at stage 1, MDL.SetMaterialRefractFresnel's numbers per mesh.
 			const bgfx::TextureHandle cubeTex = bgfx::isValid(envCube_) ? envCube_ : levelCube_;

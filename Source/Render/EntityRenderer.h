@@ -13,7 +13,7 @@
 #include "Camera.h"
 #include "LightUniforms.h"
 #include "LightShadowAtlas.h"
-#include "SdfLighting.h"
+#include "SdfProbes.h"
 #include "TextureCache.h"
 #include <bgfx/bgfx.h>
 #include <map>
@@ -90,9 +90,9 @@ public:
 	// What a model keeps of the positional lights: 1 is the original,
 	// ModelLightScale under RendererType 1.
 	void SetLightScale(float lights) { lightScale_ = lights; }
-	// Pf.RendererType 1: the ambient traced through `sdf`, times `gain`. Null is
-	// the original's box ambient, untouched.
-	void SetSdf(const SdfLighting* sdf, float gain) {
+	// Pf.RendererType 1: the ambient from `sdf`'s probe grids, times `gain`, and
+	// the directional through its field. Null is the original, untouched.
+	void SetSdf(const SdfProbes* sdf, float gain) {
 		sdf_ = sdf;
 		sdfGain_ = gain;
 	}
@@ -317,18 +317,6 @@ private:
 		// instance because two monks either side of a doorway are at different
 		// points of the same fade.
 		EntityLightFade lightFade;
-		// Pf.RendererType 1: the last trace, where it was taken and against
-		// which window, and the fade in from the box ambient.
-		float sdfSh[27] = {};
-		float sdfShShown[27] = {}; // eased toward sdfSh, so a re-trace does not snap
-		Vec3 sdfPos;
-		uint32_t sdfGeneration = 0;
-		float sdfWeight = 0.f;
-		float sdfFade = 0.f;
-		// How much of the directional's light the model sees (SunVisibility),
-		// and the value shown, easing toward it.
-		float sdfSun = 1.f, sdfSunShown = 1.f;
-		bool sdfValid = false;
 	};
 
 	// Recomputes the instance's world-space bounds from its model's bbox.
@@ -404,10 +392,9 @@ private:
 	bgfx::UniformHandle uVmLight_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle sVmShadow_ = BGFX_INVALID_HANDLE;
 	float lightScale_ = 1.f;
-	const SdfLighting* sdf_ = nullptr; // Pf.RendererType 1
+	const SdfProbes* sdf_ = nullptr; // Pf.RendererType 1
 	float sdfGain_ = 1.f;
-	bgfx::UniformHandle uSdf_ = BGFX_INVALID_HANDLE;
-	bgfx::UniformHandle uSh_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uSdfShade_ = BGFX_INVALID_HANDLE;
 	size_t shadowDrawCalls_ = 0;
 	TextureCache* textures_ = nullptr; // for the projector maps only
 	std::string levelHint_;

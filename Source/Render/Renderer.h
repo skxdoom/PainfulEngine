@@ -68,6 +68,9 @@ public:
 	static constexpr bgfx::ViewId kSkyCaptureBlitView = 82;
 	// The 2D layer, drawn over everything: no depth, in submission order.
 	static constexpr bgfx::ViewId kHudView = 83;
+	// The distance field's probe grids (Render/SdfProbes.h): compute only,
+	// after every view that samples them.
+	static constexpr bgfx::ViewId kSdfProbeView = 84;
 
 	// A view's transform and rect from the camera, the way WorldRenderer::Draw
 	// sets the world view's - for a view that draws with the same eye later.

@@ -31,6 +31,7 @@
 #include "Render/WaterReflection.h"
 #include "Render/EnvCubeMap.h"
 #include "Render/SdfLighting.h"
+#include "Render/SdfProbes.h"
 #include "Render/SdfDebug.h"
 #include "Render/SdfClipmapDebug.h"
 #include "Render/SkyCapture.h"
@@ -434,19 +435,22 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	WaterReflection waterReflection;
 	WaterReflection waterRefraction;
 	EnvCubeMap envCube;
-	// Pf.RendererType 1: the models' ambient traced through a distance field.
+	// Pf.RendererType 1: the models' ambient from probes traced on the GPU
+	// through a distance field the CPU builds.
 	SdfLighting sdf;
+	SdfProbes sdfProbes;
+	const bool sdfProbesInit = sdfProbes.Init(shaderDir);
 	int rendererType = 0;
 	float sdfGain = 1.f;
-	// pfsdfdebuggrid: the field drawn as a lattice of probes.
+	// pfsdfdebuggrid: the probe grids drawn as a lattice of spheres.
 	SdfDebug sdfDebug;
-	const bool sdfDebugInit = sdfDebug.Init(shaderDir);
+	const bool sdfDebugInit = sdfProbesInit && sdfDebug.Init(shaderDir);
 	bool sdfGridOn = false;
 	// pfsdfdebugclipmaps: the field's surfaces raymarched over the frame.
 	SdfClipmapDebug sdfClipmaps;
-	const bool sdfClipmapsInit = sdfClipmaps.Init(shaderDir);
+	const bool sdfClipmapsInit = sdfProbesInit && sdfClipmaps.Init(shaderDir);
 	bool sdfClipmapsOn = false;
-	// The sky as the light a distance field ray takes when it leaves the window.
+	// The sky as the light a probe ray takes when it leaves the level.
 	SkyCapture skyCapture;
 	const bool skyCaptureInit = skyCapture.Init();
 	bool skyHandedOver = false;
@@ -513,16 +517,17 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		}
 		world.SetLightShadowStrength(float(cfg.GetInt("LightShadowWorldStrength", 100)) / 100.f);
 
-		// RendererType: 0 the original model shading; 1 the ambient traced
-		// through a distance field about the camera (Render/SdfLighting.h),
-		// falling back to the box's own terms, unscaled, outside it.
+		// RendererType: 0 the original model shading; 1 the ambient from probe
+		// grids traced through a distance field about the camera
+		// (Render/SdfProbes.h), the box's own terms, unscaled, outside them.
 		rendererType = cfg.GetInt("RendererType", 0);
 		entities.SetLightScale(rendererType == 1 ? float(cfg.GetInt("ModelLightScale", 100)) / 100.f : 1.f);
 		sdfGain = float(cfg.GetInt("SdfGain", 100)) / 100.f;
 		sdf.SetAlbedo(float(std::clamp(cfg.GetInt("SdfAlbedo", 0), 0, 100)) / 100.f);
 		sdf.SetSkyGain(float(std::max(cfg.GetInt("SdfSkyGain", 100), 0)) / 100.f,
 				float(std::max(cfg.GetInt("SdfSkyHighlight", 0), 0)) / 100.f);
-		entities.SetSdf(rendererType == 1 ? &sdf : nullptr, sdfGain);
+		sdfProbes.SetFogGain(float(std::max(cfg.GetInt("SdfFogGain", 100), 0)) / 100.f);
+		entities.SetSdf(rendererType == 1 && sdfProbesInit ? &sdfProbes : nullptr, sdfGain);
 		// The distance field debug views, under either type.
 		sdfGridOn = sdfDebugInit && cfg.GetBool("SdfDebugGrid", false);
 		sdfClipmapsOn = sdfClipmapsInit && cfg.GetBool("SdfDebugClipmaps", false);
@@ -544,8 +549,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		world.Clear();
 		decals.Clear();
 		sdf.Clear();
+		sdfProbes.Clear();
 		sdfDebug.Clear();
-		sdfClipmaps.Clear();
 		skyCapture.Clear();
 		skyHandedOver = false;
 		sky.Unload();
@@ -697,6 +702,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	if (map) {
 		// Read on the first frame of RendererType 1, not here: type 0 pays nothing.
 		sdf.SetLevel(map, info.scale, info.overbright, &textures, MapNameWithoutExtension(info.mapFile));
+		sdfProbes.SetFog(info.fogMode, info.fogStart, info.fogEnd, info.fogDensity, info.fogColor);
 		if (worldInit) {
 			world.Upload(*map, textures, MapNameWithoutExtension(info.mapFile), info,
 					&shaderScripts, /*skipActiveMeshes=*/true);
@@ -721,8 +727,6 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	// Corona line-of-sight traces run against the same solid geometry the
 	// world is drawn from.
 	if (map) collision.Build(*map, ws.scale);
-	// And the distance field's rays test the way to the sky against it.
-	sdf.SetCollision(&collision);
 
 	// The pose the level pushed out through CAM.SetPos/SetAng during load,
 	// captured at the play transition above. Reading Lev.Pos here instead
@@ -1354,9 +1358,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 					cube = envCube.texture();
 				entities.SetEnvCube(cube);
 			}
-			// The distance field window: adopt a finished one, start the next.
-			if (worldReady && (rendererType == 1 || sdfGridOn || sdfClipmapsOn)) {
-				// The sky first, once a level: the light a ray leaving the window takes.
+			// The distance field: adopt what the worker finished, start the next,
+			// upload it and trace the probe grids.
+			if (worldReady && sdfProbesInit && (rendererType == 1 || sdfGridOn || sdfClipmapsOn)) {
+				// The sky first, once a level: the light a ray leaving the level takes.
 				if (skyCaptureInit && !skyCapture.done())
 					skyCapture.Tick(Renderer::kSkyCaptureView, Renderer::kSkyCaptureBlitView,
 							skyReady ? &sky : nullptr, elapsed, renderer.frameNumber());
@@ -1365,6 +1370,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 					skyHandedOver = true;
 				}
 				sdf.Update(camera.pos);
+				sdfProbes.Update(sdf, Renderer::kSdfProbeView);
 			}
 			WorldRenderer::Reflection refl;
 			bgfx::TextureHandle reflTex = BGFX_INVALID_HANDLE;
@@ -1411,10 +1417,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		entities.SetDrawSet(EntityRenderer::kAll);
 		// pfsdfdebuggrid: the probe lattice, opaque, in the world view.
 		if (worldReady && sdfGridOn)
-			sdfDebug.Draw(Renderer::kWorldView, camera, sdf, entities.lighting(), sdfGain);
+			sdfDebug.Draw(Renderer::kWorldView, camera, sdfProbes, entities.lighting(), sdfGain);
 		// pfsdfdebugclipmaps: the field over the finished frame, in a view of its own.
 		if (worldReady && sdfClipmapsOn)
-			sdfClipmaps.Draw(Renderer::kSdfDebugView, camera, window.width(), window.height(), sdf);
+			sdfClipmaps.Draw(Renderer::kSdfDebugView, camera, window.width(), window.height(), sdfProbes);
 		// The casters, after the passes that cull the zones and pose the
 		// models; bgfx orders the views, not the calls.
 		if (shadow.active()) {

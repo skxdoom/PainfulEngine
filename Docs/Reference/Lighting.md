@@ -505,8 +505,8 @@ so the two never agree. The old `ModelLighting = 1` answered it by halving the
 box ambient and directional on every model (`ModelAmbientScale` /
 `ModelDirectionalScale`). `RendererType = 1` took that switch over and dropped
 both scales: it replaces the box terms with the traced ambient and the occluded
-sun ("Distance field ambient"), and where a model falls back to the box, outside
-the window, halving them left it at half of type 0's light (the user's report).
+sun ("Distance field ambient"), and where a model falls back to the box, past
+the probe grids, halving them left it at half of type 0's light (the user's report).
 Only `ModelLightScale` (100 percent) remains, on the positional lights. The
 world is untouched by the type; the flashlight and directional shadows work in
 both. The other half of that seam
@@ -553,21 +553,30 @@ never sees the bright and dark patches, the bounce off a torch-lit wall or the
 open sky that the lightmap and sky show around it. `0` is the original and is
 left untouched: the shader takes the same term it always did.
 
-**What a model gets.** Its ambient becomes the irradiance of the world around
-its bounds centre, as L2 spherical harmonics evaluated at the pixel normal. The
-box's directional is a sun inside the window: a model takes only the share of it
-that three rays toward it see, from a quarter, half and three quarters up its
-bounds' vertical axis, each through the window by the trace's rule (`March`)
-and on through the collision mesh (`SdfLighting::SunVisibility`). It is
-re-measured whenever the model re-traces and eased over 0.2 s, so walking into
-shade does not pop. Outside the window, by the same weight as the ambient, the
-box's directional applies whole as before. (Unoccluded it read as artificial
-next to the traced light - the user's report - and it went; the sky, drawn in
-0..1, could not carry the sun's direction alone, so it came back occluded.) The
+**What a model gets.** Per pixel, its light is the irradiance of the world at
+that point for that normal, read as L2 spherical harmonics from probe grids
+traced on the GPU: one light, the lightmaps' and the sky's together, the sun
+included wherever either holds it. The box's directional fades out by the same
+weight, and past the grids, over their outer two probes, the box's ambient and
+directional come back whole. The directional went twice. Unoccluded it read as
+artificial next to the traced light (the user's report). It came back occluded
+by a ray per pixel through the field, a sun, while the sky was too dim to carry
+one; that went too (2026-09-15), because a box's directional need not point
+where the lightmaps' baked shadows do (the user's report, City on Water), so
+its shadow disagreed with the world's, and the sky now carries the light. The
 lights and their specular are unchanged, and the models' shadows on the world
-still fall from the box's directional. The world's light is
-baked, so what reaches a surface is its lightmap (x2 on an Overbright level)
-and never changes; only the window has to move.
+still fall from the box's directional. The world's light is baked, so what
+reaches a surface is its lightmap (x2 on an Overbright level) and never
+changes; only the cascades have to move.
+
+**Why on the GPU.** The first version traced on the CPU per model: 32 rays from
+its bounds centre, 10-19 µs a trace, re-traced every tenth of a unit it moved,
+64 a frame, the result eased over 0.25 s and the sun visibility over 0.2 s.
+Applied whole, every re-trace of a walking monster was a visible jump (a ray
+changing outcome moves the sum by a thirty-second at once); eased, the user
+found the lag jarring, and a large model was lit from one point. Sampled per
+pixel from a filtered grid, the light varies continuously with position and no
+model keeps any state.
 
 **The field holds the light arriving, not the light leaving.** Storing
 `albedo x lightmap`, what a surface sends, is the physical bounce, and it did
@@ -579,7 +588,7 @@ torch-lit wall went nearly black (the user's report). So a surface voxel holds
 its lightmap by default, what the lightmap says arrives there, the way a light
 grid of the Quake 3 kind is lit: a model beside a wall takes the light the wall
 takes. `SdfAlbedo` (0 percent) tints it back toward the surface's albedo, 100
-being the physical bounce; a change rebuilds the window. An unlightmapped
+being the physical bounce; a change rebuilds every cascade whole. An unlightmapped
 surface is drawn at full albedo and sends its albedo either way. The placed
 lights still reach the model directly, and a lightmap beside a torch already
 holds that torch, so near one it is counted twice.
@@ -587,124 +596,219 @@ holds that torch, so near one it is counted twice.
 **The cascades.** `Render/SdfLighting.cpp`: three cascades about the camera,
 each 128³ voxels and twice the size of the last - 0.25-unit voxels over 32
 units, 0.5 over 64, 1 over 128 - the way light propagation volumes cascade (the
-user's call; one 64-unit window of 0.5 came first). Each is rebuilt on its own
-on a worker thread, finest first, when the camera is a quarter of its size from
-its centre, and snapped to four of its own voxels so the grids line up. Every
-step of a trace reads the finest cascade holding the point and never strides
-past that cascade's face, so a ray from a model starts fine and hands over to
-coarser cascades as it goes out; the full-weight fade runs against the
-outermost cascade holding the model. Below, "the window" is the union.
-Measured on C5L1_City_On_Water's start (2026-09-14): 16,928 / 16,102 / 14,850
-surface voxels, each cascade about 215 ms on the worker (21 / 37 / 41 ms
-voxelizing, the rest distances), so all three are in about 0.65 s after the
-level starts. The surface count stays level across cascades because the area
-per voxel grows as fast as the area covered. The level's size costs only load-time data, built on
-the first frame of type 1: the triangles of the drawn solid world (no helpers,
-bodies, water, `trans` or `decal`), a per-material albedo from the smallest
-mip of the diffuse (both terrains' on a blend), and every lightmap decoded.
-Voxelizing samples each triangle in the window at half a voxel. A surface voxel
-keeps its light in six bins by the facing of what wrote it, so the two sides of
-a wall stay apart and a surface seen from behind sends nothing. Every voxel then
-takes its nearest surface voxel in two sweeps over the 26 neighbours: an
-unsigned distance field that also names the surface.
+user's call; one 64-unit window of 0.5 came first). They are voxelized on a
+worker thread, the missing ones coarsest first, then one at a time, finest
+first, when the camera is a quarter of a cascade's size from its centre, each
+snapped to four of its own voxels so the grids line up. The level's size costs
+only load-time data, built on the first frame of type 1: the triangles of the
+drawn solid world (no helpers, bodies, water, `trans` or `decal`), a
+per-material albedo from the smallest mip of the diffuse (both terrains' on a
+blend), and every lightmap decoded. Voxelizing samples each triangle in a
+cascade at half a voxel. A surface voxel keeps its light in six bins by the
+facing of what wrote it, so the two sides of a wall stay apart and a surface
+seen from behind sends nothing. The surface count stays level across cascades
+because the area per voxel grows as fast as the area covered: 16,928 / 16,102 /
+14,850 on C5L1_City_On_Water's start.
 
-**The trace.** 32 rays in a spherical Fibonacci set, sphere-traced from the
-model's centre, stepping the distance to the nearest surface voxel less one
-voxel (at least half). A hit is a surface voxel within one voxel that is not
-behind the ray's start. A ray that leaves the window takes the sky when nothing
-in the level is in its way, and the model's box ambient when something is (see
-"The sky" below). A model outside the window takes the box ambient: full weight
-from 6 units inside the window's faces, none within 2. The sum reaches `fs_entity` as `u_sh[9]` with the
-cosine lobe applied, and is evaluated per pixel with no texture fetch. A model
-re-traces when it moves a tenth of a unit or a new window arrives, at most 64
-traces a frame, and fades from the box ambient to its first trace over 0.3 s.
-After that the SH it shows eases toward each new trace (0.25 s time constant):
-applied whole, every re-trace of a walking monster was a visible jump in its
-light (the user's report), because a ray changing outcome - surface to sky, one
-voxel's light to the next - moves the sum by a thirty-second at once.
+**Moving a cascade.** The worker keeps each cascade's last surfaces. Since a
+move shifts whole voxels, the ones still inside are carried over and only
+triangles reaching the voxels that entered are sampled again; a triangle wholly
+inside the last build is skipped. What it hands over is a list, seven RGBA8
+texels a surface: its voxel, then the six bins as light / 2 (an Overbright
+lightmap reaches 2). The GPU builds the distance field from that
+(`SdfProbes::StepBuild`), one step a frame: the surface voxels scattered into
+a volume (`cs_sdfclear`, `cs_sdfseed`); an exact Euclidean distance transform,
+one axis a frame (`cs_sdfedt`, the lower envelope of parabolas of Felzenszwalb
+and Huttenlocher), each voxel keeping its nearest surface voxel; then the field
+- per voxel RGBA8, the direction to that voxel's centre and the distance in
+quarter voxels up to 64 (`cs_sdffield`) - and each surface voxel's list index
+(R32F), from which a hit finds its light. A field is written in place in the
+last view of a frame and published with its new origin the frame after. Before
+this the worker built the whole distance field on the CPU (two sweeps over the
+26 neighbours, about 205 ms a cascade) and uploaded 17.4 MB of textures, which
+cost the frame it went up about 10 ms (17-18 ms against 8.3; the user saw a
+hitch at every rebuild). Measured on City on Water's start (2026-09-15, rebuilt
+nonstop under `PAINFUL_SDF_CHURN`, which also moves every other rebuild a
+quarter of the cascade): voxelizing a moved cascade takes 6-37 ms against
+18-41 ms whole; a move back lands on exactly the surface count of a fresh build
+(16,928 / 16,102 / 14,850), so nothing is lost or doubled at the seams; a field
+takes 5 frames on the GPU; and no frame took more than twice the typical but
+for one 40 ms frame that a run without rebuilds shows too.
+
+**The level field.** One coarse field of the whole level, voxelized on the
+worker before the cascades and built on the GPU the same way: the triangles'
+bounds, a voxel spare on each face, at the smallest power of two units from 1
+that keeps every side within 255 voxels. Its surface voxels keep light like a
+cascade's, so a ray that leaves the cascades and hits the level further out
+takes the light there, coarser. It stands in for the collision mesh the CPU
+trace tested the way to the sky against, which could only say blocked. It also
+measures the sky (see "The sky"): the untinted light arriving on its voxels that
+face up with no surface voxel above them. Measured on City on Water (2026-09-15):
+bounds -83 -9 -363 to 152 102 198, 61x30x143 voxels of 4 units, 14,651 surface
+voxels, 3,431 of them open to the sky, about 100 ms on the worker; Cathedral,
+220x59x103 of 2 units, 65,689, 458 ms.
+
+**The probes.** `Render/SdfProbes.cpp` keeps a grid of 32³ probes per cascade,
+one every four voxels (1, 2 and 4 units apart), so a cascade's snap keeps its
+probes in place. `Shaders/cs_sdfprobe.sc` traces up to 2048 probes a frame
+(two layers of a whole grid). Each probe casts 64
+rays in a spherical Fibonacci set. Every step reads the finest volume holding
+the point - the cascades, then the level field - and strides the distance to the
+nearest surface voxel less one voxel (at least half), never past that volume's
+face, at most 256 steps. A hit is the ray passing within half a voxel of its
+nearest surface voxel's centre, ahead of it, or a point within 0.35 of a voxel
+of that centre (`SdfHits`): the surface, a cascade's or the level field's,
+gives its bins facing the ray, weighted by how squarely (a back face sends
+nothing). The CPU trace's rule
+- any surface voxel within one voxel not behind the ray - also stopped a ray
+leaving a floor at a low angle: the sun ray of every pixel within a voxel of
+the ground went dark, a hard line across the foot of every model under a low
+sun (the user's report, on City on Water's barrels), and a probe just above a
+floor saw its upward rays hit the floor's back and was taken for buried. A ray
+that leaves the level takes the sky, or nothing on a level without one; a ray
+out of steps, skimming a surface it never quite hits, takes the mean of that
+surface's lit bins. The light is projected into L2 SH with the cosine lobe. No
+ray takes the box ambient any more: it came in where a ray hit the level field
+or ran out of steps, and on City on Water it was the flat tan the probes showed
+in place of the sky (the user's report). A probe more
+than a quarter of whose rays see back faces sits inside the level, and
+`cs_sdfdilate` gives it the mean of its valid neighbours, so filtering never
+pulls a model's light toward the inside of a wall; with none valid it is left to
+the box ambient, the one place that still enters a grid. A grid is traced into a
+scratch texture, dilated into the one the models read in the last view of a
+frame (`kSdfProbeView`, compute only), and its position is published the frame
+after, so no model reads a half-traced grid. When a cascade's field moves, its
+grid first copies the probes it still covers from the published one
+(`cs_sdfprobecopy`) and traces only the slabs that entered; a finer grid is
+left alone, since only the far end of its rays changed. A field built whole (a
+new `SdfAlbedo`), a new level field or a new sky traces every grid whole. Each
+frame runs one probe step, then one field step, the probe step first so it reads
+the fields as the frame drew them; a probe job always finishes, its probes being
+right in world space even if the field moved meanwhile, and both the grids and
+the field builds are served in turn, oldest first, so a cascade that keeps
+moving starves none of the others (under `PAINFUL_SDF_CHURN` it did, before
+that). Measured on City on Water's start (2026-09-15, Direct3D 11, hidden
+window): a whole grid is published 17 frames after it starts; a grid moved a
+quarter traces 8,192 probes and is published 6 frames after it starts; the GPU
+frame ran 1.3 ms on average and 2.8 ms at most while working.
+
+**What the models sample is eased.** A published trace is its grid's target, not
+what the models read: every frame each grid still easing is written from the
+one the models read toward its target (`cs_sdfprobeease`, between two
+textures), closing `1 - exp(-dt / 0.2 s)` of the gap, and exact once 1.6 s
+have passed; a settled grid costs nothing. When the target has moved, the eased
+grid scrolls by whole probes, and a cell it did not cover starts from the next
+grid out as the models sample it there, so moving fast blends rather than
+steps (the user's report of popping). A fade of the whole grid at publish came
+first and was dropped: it had to wait for one fade to end before the next
+publish, and a quarter move took 35 frames instead of 6. Measured on City on
+Water under `PAINFUL_SDF_CHURN` (2026-09-15): a quarter move publishes 5 frames
+after its job starts, and once settled the ambient view matches the frame
+before easing to 0.09% of its pixels.
+
+**Fog.** Every probe ray gathers the level's fog over the distance it travels,
+by the renderer's own curve (linear from `Fog.Start` to `Fog.End`, or the
+exponentials): what it hits, or where it runs out of steps, is mixed toward the
+fog's colour, which takes the sky's display-to-light scale and `SdfFogGain`
+(100 percent). A ray that leaves the level takes what the frame shows past the
+level: the sky, unfogged, as the renderer draws it; on a level without a sky,
+the clear colour, which `GameApp` sets to the fog's colour when the level has
+fog and to black otherwise. Taking nothing there left Cathedral's probes black
+from above, under the bright fog the open top shows (the user's report). It is ray distance only, the user's choice over a flat fog
+ambient: on Cathedral's start corridor, fog linear from 35 to 90 units, almost
+no ray gets past 35, and the ambient view changed on 0.04% of pixels; it shows
+in large spaces.
+
+**Shading.** `fs_entity` takes, at the pixel moved 0.1 units along its normal,
+the finest published grid holding it: seven trilinear texels, evaluated at the
+normal, full weight from two probes inside the grid's outer probe centres and
+blended into the next grid over those two; the box's directional, diffuse and
+specular, is multiplied by one less that weight. At frame 600 of City on Water's
+start (2026-09-15), under `PAINFUL_AMBIENTVIEW` the model pixels average 240 of
+255 with the unified light, against 210 before it and 136 under the box
+ambient; shaded, the models went from 148 to 126, the directional's share gone.
 
 `SdfGain` (100 percent) scales the traced light. `PAINFUL_AMBIENTVIEW=1`
 draws the models as their ambient term alone, under either type.
 
-`SdfDebugClipmaps` (console `pfsdfdebugclipmaps 1`) draws the window's surfaces
-themselves over the finished frame, under the 2D layer
-(`Render/SdfClipmapDebug.cpp`, view `kSdfDebugView`). Each cascade is uploaded when
-it first shows: the distance per voxel as a 3D R8 texture in quarter voxels (up
-to 64), the nearest surface's index as a 3D R32F texture, and each surface's
-six light bins as an RGBA32F texture. `fs_sdfclipmap` then steps a ray per
-pixel with the CPU trace's own rule and colours a hit with the bin facing the
-eye, so a pixel shows the light a ray from the camera would take there, voxels
-and all. Inside the window a miss is dark blue, outside it near black. It runs
-under either type.
+`SdfDebugClipmaps` (console `pfsdfdebugclipmaps 1`) marches a ray per pixel from
+the eye over the finished frame, under the 2D layer (`Render/SdfClipmapDebug.cpp`,
+view `kSdfDebugView`), with the probes' own march and textures: a surface shows
+the bins facing the eye, voxels and all, the level field's coarser past the
+cascades; a ray leaving the level the sky it would take, scaled as the probes
+take it. Out of steps is dark blue, leaving a level with no sky near black. It
+runs under either type.
 
-`SdfDebugGrid` (console `pfsdfdebuggrid 1`) draws the field as probes: a lattice of
-spheres 2 units apart, 11 x 5 x 11 about the camera's cell and aligned to the
-world, so they stay put as the camera moves (`Render/SdfDebug.cpp`). Each is
-lit per pixel by the trace a model at its centre would take, times the gain,
-and nothing else. A sphere within a voxel of a surface, or outside the window,
-is not drawn, so the lattice's edge is the window's. It runs under either type
-(it keeps the window updating), re-traces when a new window arrives, 256 probes
-a frame.
+`SdfDebugGrid` (console `pfsdfdebuggrid 1`) draws a lattice of spheres 2 units
+apart, 11 x 5 x 11 about the camera's cell and aligned to the world, so they
+stay put as the camera moves (`Render/SdfDebug.cpp`). Each pixel of a sphere
+samples the grids at the sphere's centre for its normal, times the gain, and
+nothing else: what a model's pixel there facing that way takes. A sphere whose
+centre is within its radius of a surface voxel, or outside the grids, is not
+drawn, so the lattice's edge is the grids'. It runs under either type.
 
-The spheres show the ambient at its real brightness, so one with light from
-all sides reads flat. On Cathedral's start corridor a probe in the middle
-varies about 10% from its top to its equator (47.7 to 52 of 255), while probes
-beside the walls carry a first-order term of 32 to 76% of the average - the
-field's directional content is there, the middle of a symmetric corridor just
-has little of it.
+The spheres show the ambient at its real brightness, so one with light from all
+sides reads flat. On Cathedral's start corridor, with the CPU trace (2026-09-14),
+a probe in the middle varied about 10% from its top to its equator (47.7 to 52
+of 255), while probes beside the walls carried a first-order term of 32 to 76%
+of the average - the field's directional content is there, the middle of a
+symmetric corridor just has little of it.
 
-Measured on C1L1_Cathedral from the level start (2026-09-14, Release): the
-surface list builds in 140 ms on the first type 1 frame (282,724 triangles,
-1609 materials, 55 lightmaps holding 44.6 MB). A window takes about 330 ms on
-the worker: 60,061 surface voxels, 133 ms voxelizing, 194 ms of distances. A
-trace costs 19 µs, so the budget of 64 is about 1.2 ms on a frame where that
-many models need one, and nothing on a frame where none moved. Under
-`PAINFUL_AMBIENTVIEW` the pixels that change between the types, the models,
-average 59.5 under the box ambient, 45.2 traced with the light leaving
-(`SdfAlbedo 100`) and 85.6 with the light arriving (`SdfAlbedo 0`, the
-default), 0-255 and none black: the leaving light gave about three quarters of
-the boxes' ambient there, the arriving light about half again more than it.
+Measured on C1L1_Cathedral from the level start (2026-09-14, Release, CPU trace):
+the surface list builds in 140 ms on the first type 1 frame (282,724 triangles,
+1609 materials, 55 lightmaps holding 44.6 MB); a 64-unit cascade of 0.5 took
+about 330 ms on the worker (60,061 surface voxels, 133 ms voxelizing, 194 ms of
+distances). Under `PAINFUL_AMBIENTVIEW` the models averaged 59.5 under the box
+ambient, 45.2 traced with the light leaving (`SdfAlbedo 100`) and 85.6 with the
+light arriving (`SdfAlbedo 0`, the default), 0-255 and none black.
 
-**The sky.** `Render/SkyCapture.cpp` draws the dome once a level, one 32x32
+**The sky.** `Render/SkyCapture.cpp` draws the dome once a level, one 64x64
 face a frame for six frames (`kSkyCaptureView`, blitted for read-back in
 `kSkyCaptureBlitView`), and bins every texel by solid angle into a 64x32
 latitude-longitude map of the light from each direction. Each texel's direction
 comes back through its face's own inverse view-projection, so the face table
-only has to cover the sphere. The sky counts as the light it is drawn with. A
-ray that leaves the window is then tested once against the collision mesh
-(`CollisionMesh::Occluded`, 4000 units on from where it left): clear, it takes
-the sky averaged over its own share of the sphere - the map's cells nearer its
-direction than any other ray's, by solid angle, computed once when the sky
-arrives - so a small bright sun lands whole on the nearest ray instead of
-falling between two; blocked, the box ambient. The trace counts what its rays
-found (hit, sky, blocked by the level, out of steps, no sky) and logs the
-shares with its timing. A courtyard open
-above takes the sky from above and its walls' light from the sides. Until the
-six faces are in, and on a level with no sky, every leaving ray takes the box
-ambient. A new sky bumps the field's generation, so every model re-traces.
-Measured on C5L1_City_On_Water (2026-09-14, 64x64 faces): the map's mean light
-is 0.370 0.259 0.178, its luminance 0.603 over the top eighth of rows, 0.332 at
-the horizon and 0.000 under the dome's rim - the order a read-back flipped
-upside down would reverse - and the sky over each ray's share runs 0.000 to
-0.768. With `pfsdfdebuggrid`'s 605 probes traced against that sky, 59% of the
-rays hit a surface, 37% took the sky, 4% were blocked by the level and none ran
-out of steps, at 10.3 µs a trace. The sky is drawn in 0..1 while an Overbright
-level's lightmap reaches 2, so the sky's share of a model's light, and its
-direction, is small next to the surfaces': the painted sun carries no more than
-white. `SdfSkyGain` (100 percent) scales the sky's light and `SdfSkyHighlight`
-(0) lifts its brightest cells - luminance above 0.6, by up to that percentage at
-white on a square ramp - before each ray's share is averaged; either change
-re-traces every model. On City on Water's start (2026-09-14) the per-ray sky ran
-0.000 to 0.768 at highlight 0 and to 1.249 at 200. Against the frame before the
-occluded sun and the per-ray sky, 6.5% of the pixels changed, the changed ones -
-the models - brightening from 87.5 to 120.4 of 255; highlight 200 moved a
-further 4%, from 130 to 139. Before
-this, the user saw a blue cast from above on every level under type 1; the box
-ambient every upward ray took is the likely cause, not a measured one.
+only has to cover the sphere.
 
-Not handled yet: alpha-tested foliage (solid), a model much larger than a voxel
-lit from one point, the sky below the dome's rim (black, as the capture draws
-it), and nothing re-voxelized when a destructible's intact twin hides.
+The sky is drawn in display colours, 0..1 with a painted sun clipped at white,
+while the lightmaps hold the light arriving, up to 2 on an Overbright level:
+taken as drawn, its share of a model's light, and its direction, was small next
+to the surfaces' (on City on Water the probes read as the box ambient's tan, the
+user's report). So the sky is put on the lightmaps' scale. The level field's
+voxels facing up with no surface voxel above them are open ground, and the
+median of the untinted light the lightmaps say arrives on them is what the open
+sky gives; the sky is multiplied so that its light from above onto such a
+surface - the luminance over the upper hemisphere by the cosine, over pi, the
+SH's unit - is that median (`SdfLighting::BuildSkyCones`). It is an assumption,
+that open ground's lightmap is the sky's work (the baked sun included), and the
+median keeps ground in a building's shadow from pulling it far down. Then each
+cell takes the mean of the sky within the cone one of a probe's 64 rays stands
+for (a 64th of the sphere, by solid angle), so a small bright sun between two
+rays still reaches the nearer, and the result goes up as a texture the rays
+sample by direction. A courtyard open above takes the sky from above and its
+walls' light from the sides. Until the six faces are in, and on a level with no
+sky, a ray leaving the level takes the fog's colour, or nothing without fog
+(see "Fog"); a new sky or a new level field
+re-traces every grid. Measured on C5L1_City_On_Water (2026-09-14): the map's mean
+light is 0.370 0.259 0.178, its luminance 0.603 over the top eighth of rows,
+0.332 at the horizon and 0.000 under the dome's rim - the order a read-back
+flipped upside down would reverse. On 2026-09-15 the sky from above came to
+0.549 against 0.990 on 3,431 open voxels, so it is scaled x1.80, and over the
+cones it runs 0.000 to 1.539. The CPU trace against the unscaled sky (32 rays,
+605 probes) found 59% of rays hitting a surface, 37% taking the sky, 4% blocked
+by the level. `SdfSkyGain` (100 percent) scales the sky's light on top of that
+and `SdfSkyHighlight` (0) lifts its brightest cells - luminance above 0.6, by up
+to that percentage at white on a square ramp - before the cones are averaged;
+either change re-traces every grid. With the CPU trace on City on Water's start
+(2026-09-14), the occluded sun and the per-ray sky brightened the models from
+87.5 to 120.4 of 255, and highlight 200 a further 4%. Before the sky, the user
+saw a blue cast from above on every level under type 1; the box ambient every
+upward ray took is the likely cause, not a measured one.
+
+Not handled yet: alpha-tested foliage (solid), the sky below the dome's rim
+(black, as the capture draws it), openings narrower than the level field's
+voxels (4 units on City on Water) reading as closed to a ray past the cascades,
+light through a wall thinner than a probe spacing, and nothing re-voxelized when
+a destructible's intact twin hides.
 
 ## What the scripts do with them
 

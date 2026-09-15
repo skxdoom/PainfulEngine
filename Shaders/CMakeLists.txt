@@ -16,7 +16,8 @@ set(SHADER_DEF ${CMAKE_CURRENT_SOURCE_DIR}/common.sc)
 # Shared shader code, included by name. Listed so an edit rebuilds every shader
 # that pulls it in - shaderc's own dependency tracking does not reach us.
 set(SHADER_SHARED ${CMAKE_CURRENT_SOURCE_DIR}/shared_lights.sh
-		${CMAKE_CURRENT_SOURCE_DIR}/shared_sh.sh)
+		${CMAKE_CURRENT_SOURCE_DIR}/shared_sh.sh
+		${CMAKE_CURRENT_SOURCE_DIR}/shared_sdf.sh)
 set(SHADER_GEN ${CMAKE_CURRENT_BINARY_DIR}/generated)
 set(PAINFUL_SHADER_GEN_DIR ${SHADER_GEN} PARENT_SCOPE)
 
@@ -46,7 +47,9 @@ set(SHADER_NAMES
 		vs_post fs_bloom_bright fs_bloom_blur fs_bloom_composite
 		fs_demon_gray fs_demon_warp fs_demon_entity fs_post_copy
 		vs_water fs_water fs_entity_water
-		vs_sdfprobe fs_sdfprobe fs_sdfclipmap)
+		vs_sdfprobe fs_sdfprobe fs_sdfclipmap
+		cs_sdfprobe cs_sdfdilate cs_sdfprobecopy cs_sdfprobeease
+		cs_sdfclear cs_sdfseed cs_sdfedt cs_sdffield)
 
 set(SHADER_HEADERS "")
 set(SHADER_SOURCES "")
@@ -54,6 +57,8 @@ foreach(NAME ${SHADER_NAMES})
 	set(TYPE v)
 	if(NAME MATCHES "^fs_")
 		set(TYPE f)
+	elseif(NAME MATCHES "^cs_")
+		set(TYPE c)
 	endif()
 	list(APPEND SHADER_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/${NAME}.sc)
 	foreach(BACKEND ${SHADER_BACKENDS})

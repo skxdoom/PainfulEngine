@@ -1,7 +1,7 @@
-// Real L2 spherical harmonics, in world space: the basis Render/SdfLighting.cpp
-// projects its traces onto (ShBasis there must match this one term for term).
-// The coefficients arrive with the cosine lobe applied, so the sum is
-// irradiance / pi - the ambient a Lambert surface multiplies its albedo by.
+// Real L2 spherical harmonics, in world space: the basis cs_sdfprobe projects
+// its rays onto. The coefficients are stored with the cosine lobe applied, so
+// the sum is irradiance / pi - the ambient a Lambert surface multiplies its
+// albedo by.
 #ifndef PAINFUL_SHARED_SH
 #define PAINFUL_SHARED_SH
 

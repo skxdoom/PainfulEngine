@@ -25,6 +25,7 @@ add_library(Render STATIC
 		WaterReflection.cpp WaterReflection.h
 		EnvCubeMap.cpp EnvCubeMap.h
 		SdfLighting.cpp SdfLighting.h
+		SdfProbes.cpp SdfProbes.h
 		SdfDebug.cpp SdfDebug.h
 		SdfClipmapDebug.cpp SdfClipmapDebug.h
 		SkyCapture.cpp SkyCapture.h
