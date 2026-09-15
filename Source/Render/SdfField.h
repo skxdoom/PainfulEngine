@@ -7,19 +7,19 @@
 namespace painful {
 
 // Pf.RendererType 1, the GPU half of the level's distance field: SdfLighting's
-// volume uploaded a slab a frame, so a level's worth of voxels never lands on
-// one frame, and published once whole; the sky; the fog. Shaders/shared_sdf.sh
-// marches it. Docs/Reference/Lighting.md, "Distance field ambient".
+// brick map, brick atlas and surface list uploaded a slab a frame, so a level's
+// worth never lands on one frame, and published once whole; the sky; the fog.
+// Shaders/shared_sdf.sh marches it. Docs/Reference/Lighting.md, "Distance field ambient".
 class SdfField {
 public:
-	static constexpr int kSlabBytes = 4 << 20; // index texels uploaded a frame, about
+	static constexpr int kSlabBytes = 4 << 20; // texels uploaded a frame, about
 
 	~SdfField() { Shutdown(); }
 	SdfField() = default;
 	SdfField(const SdfField&) = delete;
 	SdfField& operator=(const SdfField&) = delete;
 
-	// False without compute or R32F volumes; type 1 then stays off.
+	// False without compute or R32F and RG8 volumes; type 1 then stays off.
 	bool Init();
 	void Shutdown();
 	// A level went away: its textures go and nothing is published.
@@ -36,26 +36,38 @@ public:
 	// them, colour 0-255. SdfFogGain scales the colour.
 	void SetFog(int mode, float start, float end, float density, const Vec3& color255);
 	void SetFogGain(float gain);
-	// The field, its surface list and the sky, with their uniforms: stages
-	// first..first+2.
+	// The brick map, the brick atlas, the surface list and the sky, with their
+	// uniforms: stages first..first+3.
 	void BindSurfaces(uint8_t first) const;
 
 private:
 	struct Volume {
-		bgfx::TextureHandle index = BGFX_INVALID_HANDLE; // R32F: each voxel's nearest surface voxel
+		bgfx::TextureHandle map = BGFX_INVALID_HANDLE; // R32F: SdfLighting::Volume::map
+		bgfx::TextureHandle bricks = BGFX_INVALID_HANDLE; // RG8: SdfLighting::Volume::atlas
 		bgfx::TextureHandle list = BGFX_INVALID_HANDLE; // RGBA8: SdfLighting::Volume::list
 		Vec3 origin;
 		float voxel = 0.f; // 0 not published
 		int dims[3] = {0, 0, 0};
+		int cells[3] = {0, 0, 0};
+		int atlas[3] = {0, 0, 0};
+		int stored = 0; // bricks, the list's first texels
 		uint32_t id = 0;
+	};
+	// A texture going up a slice at a time: z slices of a volume, rows of a 2D one.
+	struct Upload {
+		bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
+		bool volume = false;
+		int width = 0, height = 0, depth = 1;
+		size_t texelBytes = 0;
+		std::vector<uint8_t> data;
+		int next = 0;
 	};
 	static void Release(Volume& v);
 
 	bool ok_ = false;
 	Volume shown_;
 	Volume loading_;
-	std::vector<int32_t> pending_; // loading_'s index texels still to go up
-	int nextSlice_ = 0;
+	std::vector<Upload> uploads_; // loading_'s, in order
 	bgfx::TextureHandle sky_ = BGFX_INVALID_HANDLE;
 	uint32_t skyGeneration_ = 0;
 	uint32_t lightGeneration_ = 1;
@@ -65,11 +77,14 @@ private:
 	float skyScale_ = 1.f; // SdfLighting::skyScale, which the fog's colour takes too
 	bgfx::TextureHandle empty3D_ = BGFX_INVALID_HANDLE;
 	bgfx::TextureHandle empty2D_ = BGFX_INVALID_HANDLE;
-	bgfx::UniformHandle sIndex_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle sMap_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle sBricks_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle sList_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle sSky_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uVolume_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uExtent_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uCells_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uAtlas_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uSky_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uFog_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uFogColor_ = BGFX_INVALID_HANDLE;

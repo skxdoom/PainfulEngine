@@ -6,7 +6,7 @@ $output v_normal, v_sdfLight
 // traced at its own vertices.
 #include <bgfx_shader.sh>
 
-#define PAINFUL_SDF_VERTEX_STAGE 3
+#define PAINFUL_SDF_VERTEX_STAGE 4
 #include "shared_sdfvertex.sh"
 
 void main()

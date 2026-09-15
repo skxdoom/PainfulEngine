@@ -449,6 +449,11 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	SdfDebug sdfDebug;
 	const bool sdfDebugInit = sdfVertexInit && sdfDebug.Init(shaderDir);
 	bool sdfGridOn = false;
+	// pfsdfdebugmodel: one model in its bind pose ahead of the camera, turning.
+	constexpr float kSdfModelScale = 0.18f; // the Zombie template's Scale 1.8 under the scripts' x0.1
+	constexpr float kSdfModelDistance = 3.f;
+	std::string sdfModelName, sdfModelLoaded;
+	int sdfModelSlot = -1;
 	// pfsdfdebug: the field's surfaces raymarched over the frame.
 	SdfFieldDebug sdfFieldDebug;
 	const bool sdfFieldDebugInit = sdfFieldInit && sdfFieldDebug.Init(shaderDir);
@@ -527,13 +532,17 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		entities.SetLightScale(rendererType == 1 ? float(cfg.GetInt("ModelLightScale", 100)) / 100.f : 1.f);
 		sdfGain = float(cfg.GetInt("SdfGain", 100)) / 100.f;
 		sdf.SetAlbedo(float(std::clamp(cfg.GetInt("SdfAlbedo", 0), 0, 100)) / 100.f);
+		sdf.SetFieldBudget(size_t(std::clamp(cfg.GetInt("SdfFieldMB", 256), 8, 1024)) << 20);
 		sdf.SetSkyGain(float(std::max(cfg.GetInt("SdfSkyGain", 100), 0)) / 100.f,
 				float(std::max(cfg.GetInt("SdfSkyHighlight", 0), 0)) / 100.f);
 		sdfField.SetFogGain(float(std::max(cfg.GetInt("SdfFogGain", 100), 0)) / 100.f);
-		entities.SetSdfVertex(rendererType == 1 && sdfVertexInit ? &sdfVertex : nullptr, sdfGain);
+		entities.SetSdfVertex(rendererType == 1 && sdfVertexInit ? &sdfVertex : nullptr, sdfGain,
+				float(std::max(cfg.GetInt("SdfSheen", 100), 0)) / 100.f,
+				float(std::clamp(cfg.GetInt("SdfSheenF0", 4), 0, 100)) / 100.f);
 		// The distance field debug views, under either type.
 		sdfGridOn = sdfDebugInit && cfg.GetBool("SdfDebugGrid", false);
 		sdfFieldDebugOn = sdfFieldDebugInit && cfg.GetBool("SdfDebug", false);
+		sdfModelName = cfg.GetBool("SdfDebugModel", false) ? "zombie" : "";
 		bloom.SetQuality(cfg.GetInt("BloomScale", 2), cfg.GetInt("BloomKernel", 0));
 	};
 	applySettings();
@@ -555,6 +564,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		sdfField.Clear();
 		sdfVertex.Clear();
 		sdfDebug.Clear();
+		if (sdfModelSlot >= 0) entities.ReleaseScript(sdfModelSlot);
+		sdfModelSlot = -1;
+		sdfModelLoaded.clear();
 		skyCapture.Clear();
 		skyHandedOver = false;
 		sky.Unload();
@@ -1417,6 +1429,23 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		const bool warpPass = warpOn && sceneTargets.active();
 		// pfsdfdebuggrid keeps half the vertex-trace budget from the models.
 		if (sdfGridOn && sdfVertexInit) sdfVertex.Reserve(SdfVertexLight::kTracesPerFrame / 2);
+		// pfsdfdebugmodel: made or swapped when the name changes, placed along the view.
+		if (worldReady && sdfModelName != sdfModelLoaded) {
+			if (sdfModelSlot >= 0) entities.ReleaseScript(sdfModelSlot);
+			sdfModelSlot = sdfModelName.empty() ? -1 : entities.CreateScriptModel(sdfModelName, kSdfModelScale,
+					textures, std::string(dataRoot) + "/Models");
+			if (!sdfModelName.empty() && sdfModelSlot < 0) LogWarn("pfsdfdebugmodel: no model %s", sdfModelName.c_str());
+			sdfModelLoaded = sdfModelName;
+		}
+		if (sdfModelSlot >= 0) {
+			// Its middle on the view (the origin is at its feet), far enough to fit whole.
+			Vec3 size;
+			const float height = entities.GetScriptDimensions(sdfModelSlot, size) ? size.y : 2.f;
+			const float distance = std::max(kSdfModelDistance, height * 1.2f);
+			entities.SetScriptPose(sdfModelSlot,
+					camera.pos + camera.Forward() * distance - Vec3{0.f, height * 0.5f, 0.f},
+					Quat::FromEuler(0.f, elapsed * 0.5f, 0.f));
+		}
 		entities.SetDrawSet(warpPass ? EntityRenderer::kSceneOnly : EntityRenderer::kAll);
 		entities.Draw(Renderer::kWorldView, camera, window.width(), window.height(),
 				info, elapsed);

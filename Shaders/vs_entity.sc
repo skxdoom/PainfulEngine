@@ -1,5 +1,5 @@
 $input a_position, a_normal, a_texcoord0, a_texcoord1
-$output v_texcoord0, v_normal, v_viewdist, v_wpos, v_sdfLight
+$output v_texcoord0, v_normal, v_viewdist, v_wpos, v_sdfLight, v_sdfSheenR, v_sdfSheenG, v_sdfSheenB
 
 // Models. Unlike the world mesh these carry no lightmap - PainEngine lit them
 // at runtime instead, from an ambient, one directional light and up to four
@@ -9,9 +9,12 @@ $output v_texcoord0, v_normal, v_viewdist, v_wpos, v_sdfLight
 // monk reads as faceting rather than as lighting.
 #include <bgfx_shader.sh>
 
-// Pf.RendererType 1: the light traced at this vertex; a_texcoord1.x is the
-// vertex's index in its buffer.
+// Pf.RendererType 1: the light traced at this vertex and its sheen fit;
+// a_texcoord1.x is the vertex's index in its buffer.
 #define PAINFUL_SDF_VERTEX_STAGE 11
+#define PAINFUL_SDF_SHEEN_STAGE_R 12
+#define PAINFUL_SDF_SHEEN_STAGE_G 13
+#define PAINFUL_SDF_SHEEN_STAGE_B 14
 #include "shared_sdfvertex.sh"
 
 void main()
@@ -25,4 +28,7 @@ void main()
 	v_normal = normalize(mul(u_model[0], vec4(a_normal, 0.0)).xyz);
 	v_texcoord0 = a_texcoord0;
 	v_sdfLight = SdfVertexLight(a_texcoord1.x);
+	v_sdfSheenR = SdfVertexSheen(0, a_texcoord1.x);
+	v_sdfSheenG = SdfVertexSheen(1, a_texcoord1.x);
+	v_sdfSheenB = SdfVertexSheen(2, a_texcoord1.x);
 }

@@ -91,12 +91,18 @@ public:
 	// ModelLightScale under RendererType 1.
 	void SetLightScale(float lights) { lightScale_ = lights; }
 	// Pf.RendererType 1: the ambient traced at every vertex through `light`,
-	// times `gain`. Draw queues the vertices due; the caller dispatches after
-	// every Draw of the frame. Null leaves the other types.
-	void SetSdfVertex(SdfVertexLight* light, float gain) {
+	// times `gain`, and the sheen - the world's light along the reflection - times
+	// `sheen`, by fresnel from `sheenF0` facing the eye. Draw queues the vertices
+	// due; the caller dispatches after every Draw of the frame. Null leaves the
+	// other types.
+	void SetSdfVertex(SdfVertexLight* light, float gain, float sheen, float sheenF0) {
 		sdfVertex_ = light;
 		if (light) sdfSlotsFrom_ = light;
+		// Turns chosen under type 1 must not queue into a null light.
+		else for (Instance& in : instances_) in.sdfTraceNow = false;
 		sdfGain_ = gain;
+		sdfSheen_ = sheen;
+		sdfSheenF0_ = sheenF0;
 	}
 
 	// --- the placed lights' shadows ---
@@ -421,7 +427,9 @@ private:
 	bgfx::UniformHandle sVmShadow_ = BGFX_INVALID_HANDLE;
 	float lightScale_ = 1.f;
 	float sdfGain_ = 1.f;
+	float sdfSheen_ = 1.f, sdfSheenF0_ = 0.04f;
 	bgfx::UniformHandle uSdfShade_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uSdfSheen_ = BGFX_INVALID_HANDLE;
 	SdfVertexLight* sdfVertex_ = nullptr; // Pf.RendererType 1
 	SdfVertexLight* sdfSlotsFrom_ = nullptr; // where the instances' history runs came from
 	bgfx::UniformHandle uSdfVertex_ = BGFX_INVALID_HANDLE;

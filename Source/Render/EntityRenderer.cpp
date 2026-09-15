@@ -166,6 +166,7 @@ bool EntityRenderer::Init(const std::string& shaderDir) {
 	uDirDir_ = bgfx::createUniform("u_dirDir", bgfx::UniformType::Vec4);
 	uEye_ = bgfx::createUniform("u_eye", bgfx::UniformType::Vec4);
 	uSdfShade_ = bgfx::createUniform("u_sdfShade", bgfx::UniformType::Vec4);
+	uSdfSheen_ = bgfx::createUniform("u_sdfSheen", bgfx::UniformType::Vec4);
 	uSdfVertex_ = bgfx::createUniform("u_sdfVertex", bgfx::UniformType::Vec4);
 	lightUniforms_.Init();
 	return true;
@@ -211,6 +212,7 @@ void EntityRenderer::Shutdown() {
 	if (bgfx::isValid(uDirDir_)) { bgfx::destroy(uDirDir_); uDirDir_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uEye_)) { bgfx::destroy(uEye_); uEye_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uSdfShade_)) { bgfx::destroy(uSdfShade_); uSdfShade_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uSdfSheen_)) { bgfx::destroy(uSdfSheen_); uSdfSheen_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uSdfVertex_)) { bgfx::destroy(uSdfVertex_); uSdfVertex_ = BGFX_INVALID_HANDLE; }
 	lightUniforms_.Shutdown();
 	projector_.Clear();
@@ -1381,11 +1383,14 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 					4, shadowTex, 5, modelShadowTex, 6, lightShadowTex);
 			BindViewModel(instance.viewModel);
 			// Stage 11: the vertices' traced light (shared_sdfvertex.sh).
+			// Stages 12-14: their sheen fit.
+			const float sdfSheen[4] = {sdfSheen_, sdfSheenF0_, 0.f, 0.f};
 			bgfx::setUniform(uSdfShade_, sdfShade);
+			bgfx::setUniform(uSdfSheen_, sdfSheen);
 			if (sdfVertex_) {
 				const int slot = instance.sdfTraced && partIndex < instance.sdfSlots.size()
 						? instance.sdfSlots[partIndex] : -1;
-				sdfVertex_->Bind(11, slot);
+				sdfVertex_->Bind(11, slot, 12);
 			} else {
 				const float off[4] = {0.f, 0.f, 0.f, 0.f};
 				bgfx::setUniform(uSdfVertex_, off);

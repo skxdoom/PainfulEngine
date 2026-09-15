@@ -35,3 +35,6 @@ vec3 v_wpos : TEXCOORD3;
 vec4 v_clip : TEXCOORD4;
 float v_strength : TEXCOORD5;
 vec4 v_sdfLight : TEXCOORD6;
+vec4 v_sdfSheenR : TEXCOORD7;
+vec4 v_sdfSheenG : TEXCOORD8;
+vec4 v_sdfSheenB : TEXCOORD9;

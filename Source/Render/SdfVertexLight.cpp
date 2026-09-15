@@ -11,6 +11,7 @@ namespace {
 
 constexpr uint64_t kPoint = BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP;
 constexpr int kJobRows = SdfVertexLight::kTracesPerFrame / SdfVertexLight::kJobWidth;
+const char* const kSheenSamplers[3] = {"s_sdfSheenR", "s_sdfSheenG", "s_sdfSheenB"};
 
 void Destroy(bgfx::TextureHandle& t) {
 	if (bgfx::isValid(t)) bgfx::destroy(t);
@@ -27,11 +28,13 @@ void Destroy(bgfx::UniformHandle& u) {
 bool SdfVertexLight::Init(const std::string& shaderDir) {
 	const bgfx::Caps* caps = bgfx::getCaps();
 	const uint32_t r32u = caps->formats[bgfx::TextureFormat::R32U];
+	const uint32_t rgba16f = caps->formats[bgfx::TextureFormat::RGBA16F];
 	const bool compute = (caps->supported & BGFX_CAPS_COMPUTE) != 0;
-	const bool images = (r32u & BGFX_CAPS_FORMAT_TEXTURE_IMAGE_READ) && (r32u & BGFX_CAPS_FORMAT_TEXTURE_IMAGE_WRITE);
+	const bool images = (r32u & BGFX_CAPS_FORMAT_TEXTURE_IMAGE_READ) && (r32u & BGFX_CAPS_FORMAT_TEXTURE_IMAGE_WRITE) &&
+			(rgba16f & BGFX_CAPS_FORMAT_TEXTURE_IMAGE_WRITE);
 	if (!compute || !images) {
-		LogWarn("distance field: per-vertex light needs compute (%s) and R32U images read and written (%s); "
-				"RendererType 1 stays off", compute ? "yes" : "no", images ? "yes" : "no");
+		LogWarn("distance field: per-vertex light needs compute (%s), R32U images read and written and RGBA16F "
+				"images written (%s); RendererType 1 stays off", compute ? "yes" : "no", images ? "yes" : "no");
 		return false;
 	}
 	const bgfx::ShaderHandle cs = LoadShader(shaderDir, "cs_sdfvertex");
@@ -39,6 +42,11 @@ bool SdfVertexLight::Init(const std::string& shaderDir) {
 	const std::vector<uint32_t> zero(size_t(kSide) * size_t(kSide), 0);
 	history_ = bgfx::createTexture2D(uint16_t(kSide), uint16_t(kSide), false, 1, bgfx::TextureFormat::R32U,
 			BGFX_TEXTURE_COMPUTE_WRITE | kPoint, bgfx::copy(zero.data(), uint32_t(zero.size() * sizeof(uint32_t))));
+	for (int c = 0; c < 3; ++c) {
+		sheen_[c] = bgfx::createTexture2D(uint16_t(kSide), uint16_t(kSide), false, 1, bgfx::TextureFormat::RGBA16F,
+				BGFX_TEXTURE_COMPUTE_WRITE | kPoint);
+		sSheen_[c] = bgfx::createUniform(kSheenSamplers[c], bgfx::UniformType::Sampler);
+	}
 	jobPosTexture_ = bgfx::createTexture2D(uint16_t(kJobWidth), uint16_t(kJobRows), false, 1,
 			bgfx::TextureFormat::RGBA32F, kPoint);
 	jobNormalTexture_ = bgfx::createTexture2D(uint16_t(kJobWidth), uint16_t(kJobRows), false, 1,
@@ -53,7 +61,8 @@ bool SdfVertexLight::Init(const std::string& shaderDir) {
 	jobNormal_.assign(size_t(kTracesPerFrame) * 4, 0.f);
 	Clear();
 	ok_ = bgfx::isValid(program_) && bgfx::isValid(history_) && bgfx::isValid(jobPosTexture_) &&
-			bgfx::isValid(jobNormalTexture_);
+			bgfx::isValid(jobNormalTexture_) && bgfx::isValid(sheen_[0]) && bgfx::isValid(sheen_[1]) &&
+			bgfx::isValid(sheen_[2]);
 	if (!ok_) LogWarn("distance field: the per-vertex program or textures did not load; RendererType 1 stays off");
 	return ok_;
 }
@@ -61,8 +70,11 @@ bool SdfVertexLight::Init(const std::string& shaderDir) {
 void SdfVertexLight::Shutdown() {
 	if (bgfx::isValid(program_)) bgfx::destroy(program_);
 	program_ = BGFX_INVALID_HANDLE;
-	for (bgfx::TextureHandle* t : {&history_, &jobPosTexture_, &jobNormalTexture_}) Destroy(*t);
-	for (bgfx::UniformHandle* u : {&sHistory_, &sJobPos_, &sJobNormal_, &uJob_, &uBlend_, &uVertex_}) Destroy(*u);
+	for (bgfx::TextureHandle* t : {&history_, &sheen_[0], &sheen_[1], &sheen_[2], &jobPosTexture_, &jobNormalTexture_})
+		Destroy(*t);
+	for (bgfx::UniformHandle* u : {&sHistory_, &sSheen_[0], &sSheen_[1], &sSheen_[2], &sJobPos_, &sJobNormal_, &uJob_,
+			&uBlend_, &uVertex_})
+		Destroy(*u);
 	ok_ = false;
 }
 
@@ -143,21 +155,26 @@ void SdfVertexLight::Dispatch(const SdfField& field, bgfx::ViewId view) {
 	bgfx::updateTexture2D(jobPosTexture_, 0, 0, 0, 0, uint16_t(kJobWidth), rows, bgfx::copy(jobPos_.data(), bytes));
 	bgfx::updateTexture2D(jobNormalTexture_, 0, 0, 0, 0, uint16_t(kJobWidth), rows,
 			bgfx::copy(jobNormal_.data(), bytes));
-	field.BindSurfaces(3);
+	field.BindSurfaces(6);
 	const float job[4] = {float(jobs), float(kJobWidth), float(kSide), 0.f};
 	const float blend[4] = {kBlend, 0.f, 0.f, 0.f};
 	bgfx::setUniform(uJob_, job);
 	bgfx::setUniform(uBlend_, blend);
 	bgfx::setImage(0, history_, 0, bgfx::Access::ReadWrite, bgfx::TextureFormat::R32U);
-	bgfx::setTexture(1, sJobPos_, jobPosTexture_, kPoint);
-	bgfx::setTexture(2, sJobNormal_, jobNormalTexture_, kPoint);
+	for (int c = 0; c < 3; ++c)
+		bgfx::setImage(uint8_t(1 + c), sheen_[c], 0, bgfx::Access::Write, bgfx::TextureFormat::RGBA16F);
+	bgfx::setTexture(4, sJobPos_, jobPosTexture_, kPoint);
+	bgfx::setTexture(5, sJobNormal_, jobNormalTexture_, kPoint);
 	bgfx::dispatch(view, program_, uint32_t((jobs + 63) / 64), 1, 1);
 }
 
-void SdfVertexLight::Bind(uint8_t stage, int firstSlot) const {
+void SdfVertexLight::Bind(uint8_t stage, int firstSlot, int sheenStage) const {
 	const float vertex[4] = {float(std::max(firstSlot, 0)), ok_ && firstSlot >= 0 ? 1.f : 0.f, float(kSide), 0.f};
 	bgfx::setUniform(uVertex_, vertex);
-	if (ok_) bgfx::setTexture(stage, sHistory_, history_, kPoint);
+	if (!ok_) return;
+	bgfx::setTexture(stage, sHistory_, history_, kPoint);
+	if (sheenStage >= 0)
+		for (int c = 0; c < 3; ++c) bgfx::setTexture(uint8_t(sheenStage + c), sSheen_[c], sheen_[c], kPoint);
 }
 
 } // namespace painful

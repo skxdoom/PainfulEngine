@@ -14,9 +14,10 @@ class SdfField;
 // Pf.RendererType 1: the light at model vertices, traced through SdfField's
 // distance field on the GPU. Every vertex holds a history texel; each frame a
 // budget of vertices is traced along one fixed set of directions and blended in,
-// so a still vertex holds still light. The vertex shader reads its texel by the
-// vertex's index
-// (Shaders/shared_sdfvertex.sh). Docs/Reference/Lighting.md, "Per-vertex tracing".
+// so a still vertex holds still light. Each trace also writes a fit of the light
+// by direction, which the models' sheen reads along the reflection. The vertex
+// shader reads both by the vertex's index (Shaders/shared_sdfvertex.sh).
+// Docs/Reference/Lighting.md, "Per-vertex tracing" and "Sheen".
 class SdfVertexLight {
 public:
 	static constexpr int kSide = 1024; // history texels a side, one a vertex
@@ -29,7 +30,8 @@ public:
 	SdfVertexLight(const SdfVertexLight&) = delete;
 	SdfVertexLight& operator=(const SdfVertexLight&) = delete;
 
-	// False without compute or R32U images to read and write; type 1 then stays off.
+	// False without compute, R32U images to read and write, or RGBA16F images to
+	// write; type 1 then stays off.
 	bool Init(const std::string& shaderDir);
 	void Shutdown();
 	// A level went away: every slot is free again, and generation() changes so
@@ -57,8 +59,9 @@ public:
 	// SdfField::lightGeneration at the last dispatch.
 	uint32_t fieldGeneration() const { return fieldGeneration_; }
 	// For a draw: the history at `stage` and u_sdfVertex, the first slot of the
-	// buffer drawn (negative: read nothing).
-	void Bind(uint8_t stage, int firstSlot) const;
+	// buffer drawn (negative: read nothing); the sheen fit's three textures at
+	// sheenStage..sheenStage+2 when that is not negative.
+	void Bind(uint8_t stage, int firstSlot, int sheenStage = -1) const;
 
 private:
 	bool ok_ = false;
@@ -78,9 +81,12 @@ private:
 	// R32U: rgb as 10 bits each over 0..4 (irradiance / pi), bit 30 set once traced
 	// inside the fields.
 	bgfx::TextureHandle history_ = BGFX_INVALID_HANDLE;
+	// RGBA16F, red, green, blue: the light from direction d is dot(texel, (1, d)).
+	bgfx::TextureHandle sheen_[3] = {BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE};
 	bgfx::TextureHandle jobPosTexture_ = BGFX_INVALID_HANDLE;
 	bgfx::TextureHandle jobNormalTexture_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle sHistory_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle sSheen_[3] = {BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE};
 	bgfx::UniformHandle sJobPos_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle sJobNormal_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uJob_ = BGFX_INVALID_HANDLE;

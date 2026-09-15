@@ -6,9 +6,10 @@ $input v_texcoord0
 // sky or the fog. Render/SdfFieldDebug.h
 #include <bgfx_shader.sh>
 
-#define PAINFUL_SDF_INDEX_STAGE 0
-#define PAINFUL_SDF_LIST_STAGE 1
-#define PAINFUL_SDF_SKY_STAGE 2
+#define PAINFUL_SDF_MAP_STAGE 0
+#define PAINFUL_SDF_BRICKS_STAGE 1
+#define PAINFUL_SDF_LIST_STAGE 2
+#define PAINFUL_SDF_SKY_STAGE 3
 #include "shared_sdf.sh"
 
 uniform mat4 u_sdfInvViewProj;

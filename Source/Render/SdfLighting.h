@@ -14,19 +14,20 @@ namespace painful {
 
 class TextureCache;
 
-// Pf.RendererType 1, the CPU half: one distance field over the whole level,
-// built once on a worker thread for Render/SdfField to upload and the vertex
-// traces to march. The world's light is baked, so nothing about it depends on
-// the camera: every voxel names its nearest surface voxel, and each surface
-// voxel keeps the light arriving on it. Docs/Reference/Lighting.md,
-// "Distance field ambient".
+// Pf.RendererType 1, the CPU half: one sparse distance field over the whole
+// level, built once on a worker thread for Render/SdfField to upload and the
+// vertex traces to march. The level is cut into bricks of kBrick^3 voxels and
+// only bricks holding a surface voxel are stored, each voxel naming the nearest
+// surface voxel in its brick; a map says for every other brick how far the
+// nearest stored one is. Docs/Reference/Lighting.md, "Distance field ambient".
 class SdfLighting {
 public:
 	static constexpr float kVoxelStep = 0.25f; // voxel sizes are multiples of this, world units
-	static constexpr size_t kVoxelBudget = 16000000; // voxels, at most
-	static constexpr int kMaxSide = 1023; // voxels along any axis, at most
-	static constexpr int kListWidth = 1024; // the surface list's texture width
-	static constexpr int kListTexels = 7; // texels a surface in the list
+	static constexpr int kBrick = 8; // voxels a side of a brick
+	static constexpr int kMaxCells = 1023; // bricks along any axis, at most
+	static constexpr int kMaxAtlasBricks = 256; // stored bricks along any axis of the atlas (2048 texels)
+	static constexpr int kListWidth = 4096; // the surface list's texture width
+	static constexpr int kListTexels = 6; // texels a surface in the list
 	static constexpr int kSkyConeRays = 64; // the sky is averaged over a 64th of the sphere a direction
 
 	SdfLighting() = default;
@@ -41,7 +42,7 @@ public:
 	// Stops the worker and forgets the level.
 	void Clear();
 	// Per frame while the field is wanted: builds the surface list on first use,
-	// then the volume once, and again when SdfAlbedo changes.
+	// then the volume once, and again when SdfAlbedo or SdfFieldMB changes.
 	void Update();
 	// The worker has a job, queued or running.
 	bool building() {
@@ -53,6 +54,10 @@ public:
 	// 0 holds the light the lightmap says arrives, 1 what leaves the surface. A
 	// change rebuilds the volume.
 	void SetAlbedo(float k) { albedo_ = k; }
+	// SdfFieldMB: what the field's textures may take, estimated before voxelizing;
+	// the voxel size is the finest multiple of kVoxelStep that fits. A change
+	// rebuilds the volume.
+	void SetFieldBudget(size_t bytes) { fieldBytes_ = bytes; }
 	// The sky as a light (SkyCapture's map, RGB per cell, row 0 straight up)
 	// for a ray that leaves the level: scaled so what it sends onto open ground
 	// facing up is what the lightmaps say arrives there, and each direction
@@ -62,23 +67,32 @@ public:
 	// its brightest cells, the clipped sun, by up to that factor at white.
 	void SetSkyGain(float gain, float highlight);
 
-	// The level's volume as the GPU takes it.
+	// The level's field as the GPU takes it.
 	struct Volume {
 		Vec3 origin; // the corner of voxel (0, 0, 0)
 		float voxel = kVoxelStep;
-		int dims[3] = {0, 0, 0};
+		int dims[3] = {0, 0, 0}; // voxels
+		int cells[3] = {0, 0, 0}; // bricks
 		uint32_t id = 0; // unique per adoption
-		// Per voxel, the list index of its nearest surface voxel stored as a
-		// float's bits (R32F; -1 none). The GPU side moves it out.
-		std::vector<int32_t> nearest;
-		// RGBA8, kListWidth wide, kListTexels a surface: its voxel (the low 8
-		// bits of x, y, z; a: their next 2 bits each), then six light bins as
-		// rgb / 2 (+X -X +Y -Y +Z -Z; a: had light). The GPU side moves it out.
+		// R32F per brick: its slot in the atlas, or for a brick without a surface
+		// voxel -(1 + the distance in bricks from its centre to the nearest stored
+		// brick's). The GPU side moves it out.
+		std::vector<float> map;
+		// RG8, atlasBricks along each axis: per voxel of a stored brick, the
+		// ordinal of the nearest surface voxel in that brick (r + 256 g).
+		std::vector<uint8_t> atlas;
+		int atlasBricks[3] = {0, 0, 0};
+		size_t bricks = 0; // stored
+		// RGBA8, kListWidth wide: a texel per stored brick, the index of its first
+		// surface (rgb, 24 bits); then kListTexels a surface: its voxel in the brick
+		// (rgb) and which bins had light (a, bit k), then six bins as light / 2 (+X
+		// -X +Y -Y +Z -Z), three bytes each running on over five texels.
 		std::vector<uint8_t> list;
 		int listHeight = 0;
 		size_t surfaces = 0;
-		// For the log: 8^3 bricks holding a surface voxel, and those or a neighbour.
-		size_t bricks = 0, bricksNear = 0, bricksTotal = 0;
+		// What the voxel size was chosen by: the budget, and the estimate against it.
+		size_t budgetBytes = 0, estimatedBytes = 0;
+		double estimatedSurfaces = 0.0, estimatedBricks = 0.0;
 		double voxelizeMs = 0.0, distanceMs = 0.0;
 		float albedo = 0.f; // the SdfAlbedo it was voxelized with
 		// The median luminance of the untinted light arriving on surface voxels
@@ -124,7 +138,7 @@ private:
 
 	void BuildScene();
 	void Worker();
-	std::unique_ptr<Volume> BuildVolume(float albedo) const;
+	std::unique_ptr<Volume> BuildVolume(float albedo, size_t budget) const;
 	Vec3 Radiance(const Tri& t, float a, float b, float albedo) const;
 	void BuildSkyCones();
 
@@ -145,7 +159,9 @@ private:
 	std::condition_variable wake_;
 	bool quit_ = false, jobPending_ = false, busy_ = false;
 	float jobAlbedo_ = 0.f;
+	size_t jobBudget_ = 0;
 	float albedo_ = 0.f; // SdfAlbedo, main thread
+	size_t fieldBytes_ = size_t(256) << 20; // SdfFieldMB, main thread
 	std::vector<float> sky_; // SkyCapture's map; empty is no sky
 	std::vector<float> skyCones_;
 	int skyWidth_ = 0, skyHeight_ = 0;

@@ -2,6 +2,7 @@
 #include "../Core/Log.h"
 
 #include <algorithm>
+#include <cstring>
 
 namespace painful {
 
@@ -33,17 +34,21 @@ bool SdfField::Init() {
 	const bgfx::Caps* caps = bgfx::getCaps();
 	const bool compute = (caps->supported & BGFX_CAPS_COMPUTE) != 0;
 	const bool volumes = (caps->supported & BGFX_CAPS_TEXTURE_3D) != 0 &&
-			(caps->formats[bgfx::TextureFormat::R32F] & BGFX_CAPS_FORMAT_TEXTURE_3D) != 0;
+			(caps->formats[bgfx::TextureFormat::R32F] & BGFX_CAPS_FORMAT_TEXTURE_3D) != 0 &&
+			(caps->formats[bgfx::TextureFormat::RG8] & BGFX_CAPS_FORMAT_TEXTURE_3D) != 0;
 	if (!compute || !volumes) {
-		LogWarn("distance field: needs compute (%s) and R32F volumes (%s); RendererType 1 stays off",
+		LogWarn("distance field: needs compute (%s) and R32F and RG8 volumes (%s); RendererType 1 stays off",
 				compute ? "yes" : "no", volumes ? "yes" : "no");
 		return false;
 	}
-	sIndex_ = bgfx::createUniform("s_sdfIndex", bgfx::UniformType::Sampler);
+	sMap_ = bgfx::createUniform("s_sdfMap", bgfx::UniformType::Sampler);
+	sBricks_ = bgfx::createUniform("s_sdfBricks", bgfx::UniformType::Sampler);
 	sList_ = bgfx::createUniform("s_sdfList", bgfx::UniformType::Sampler);
 	sSky_ = bgfx::createUniform("s_sdfSky", bgfx::UniformType::Sampler);
 	uVolume_ = bgfx::createUniform("u_sdfVolume", bgfx::UniformType::Vec4);
 	uExtent_ = bgfx::createUniform("u_sdfExtent", bgfx::UniformType::Vec4);
+	uCells_ = bgfx::createUniform("u_sdfCells", bgfx::UniformType::Vec4);
+	uAtlas_ = bgfx::createUniform("u_sdfAtlas", bgfx::UniformType::Vec4);
 	uSky_ = bgfx::createUniform("u_sdfSky", bgfx::UniformType::Vec4);
 	uFog_ = bgfx::createUniform("u_sdfFog", bgfx::UniformType::Vec4);
 	uFogColor_ = bgfx::createUniform("u_sdfFogColor", bgfx::UniformType::Vec4);
@@ -57,7 +62,8 @@ bool SdfField::Init() {
 
 void SdfField::Shutdown() {
 	Clear();
-	for (bgfx::UniformHandle* u : {&sIndex_, &sList_, &sSky_, &uVolume_, &uExtent_, &uSky_, &uFog_, &uFogColor_})
+	for (bgfx::UniformHandle* u : {&sMap_, &sBricks_, &sList_, &sSky_, &uVolume_, &uExtent_, &uCells_, &uAtlas_,
+			&uSky_, &uFog_, &uFogColor_})
 		Destroy(*u);
 	Destroy(empty3D_);
 	Destroy(empty2D_);
@@ -65,7 +71,8 @@ void SdfField::Shutdown() {
 }
 
 void SdfField::Release(Volume& v) {
-	Destroy(v.index);
+	Destroy(v.map);
+	Destroy(v.bricks);
 	Destroy(v.list);
 	v = Volume();
 }
@@ -73,8 +80,7 @@ void SdfField::Release(Volume& v) {
 void SdfField::Clear() {
 	Release(shown_);
 	Release(loading_);
-	pending_ = std::vector<int32_t>();
-	nextSlice_ = 0;
+	uploads_.clear();
 	Destroy(sky_);
 	++lightGeneration_;
 	// skyGeneration_ stays: SdfLighting's keeps counting across levels.
@@ -122,36 +128,87 @@ void SdfField::Update(SdfLighting& sdf) {
 	// A finished volume starts loading; one still loading gives way to it.
 	if (SdfLighting::Volume* cpu = sdf.volume(); cpu && cpu->id != shown_.id && cpu->id != loading_.id) {
 		Release(loading_);
+		uploads_.clear();
+		loading_.id = cpu->id;
+		const int most = int(bgfx::getCaps()->limits.maxTextureSize);
+		if (cpu->listHeight > most) {
+			LogWarn("distance field: the surface list needs %d rows, more than the %d a texture takes; not loaded",
+					cpu->listHeight, most);
+			return;
+		}
 		loading_.origin = cpu->origin;
 		loading_.voxel = cpu->voxel;
-		for (int a = 0; a < 3; ++a) loading_.dims[a] = cpu->dims[a];
-		loading_.id = cpu->id;
-		loading_.index = bgfx::createTexture3D(uint16_t(cpu->dims[0]), uint16_t(cpu->dims[1]), uint16_t(cpu->dims[2]),
+		for (int a = 0; a < 3; ++a) {
+			loading_.dims[a] = cpu->dims[a];
+			loading_.cells[a] = cpu->cells[a];
+			loading_.atlas[a] = cpu->atlasBricks[a];
+		}
+		loading_.stored = int(cpu->bricks);
+		const int k = SdfLighting::kBrick;
+		loading_.map = bgfx::createTexture3D(uint16_t(cpu->cells[0]), uint16_t(cpu->cells[1]), uint16_t(cpu->cells[2]),
 				false, bgfx::TextureFormat::R32F, kPoint);
+		loading_.bricks = bgfx::createTexture3D(uint16_t(cpu->atlasBricks[0] * k), uint16_t(cpu->atlasBricks[1] * k),
+				uint16_t(cpu->atlasBricks[2] * k), false, bgfx::TextureFormat::RG8, kPoint);
 		loading_.list = bgfx::createTexture2D(uint16_t(SdfLighting::kListWidth), uint16_t(cpu->listHeight), false, 1,
-				bgfx::TextureFormat::RGBA8, kPoint, Take(cpu->list));
-		pending_ = std::move(cpu->nearest);
-		nextSlice_ = 0;
+				bgfx::TextureFormat::RGBA8, kPoint);
+		Upload map;
+		map.texture = loading_.map;
+		map.volume = true;
+		map.width = cpu->cells[0];
+		map.height = cpu->cells[1];
+		map.depth = cpu->cells[2];
+		map.texelBytes = sizeof(float);
+		map.data.resize(cpu->map.size() * sizeof(float));
+		std::memcpy(map.data.data(), cpu->map.data(), map.data.size());
+		cpu->map = std::vector<float>();
+		Upload bricks;
+		bricks.texture = loading_.bricks;
+		bricks.volume = true;
+		bricks.width = cpu->atlasBricks[0] * k;
+		bricks.height = cpu->atlasBricks[1] * k;
+		bricks.depth = cpu->atlasBricks[2] * k;
+		bricks.texelBytes = 2;
+		bricks.data = std::move(cpu->atlas);
+		Upload list;
+		list.texture = loading_.list;
+		list.width = SdfLighting::kListWidth;
+		list.height = cpu->listHeight;
+		list.texelBytes = 4;
+		list.data = std::move(cpu->list);
+		uploads_.push_back(std::move(map));
+		uploads_.push_back(std::move(bricks));
+		uploads_.push_back(std::move(list));
 	}
-	if (!bgfx::isValid(loading_.index)) return;
-	const int nx = loading_.dims[0], ny = loading_.dims[1], nz = loading_.dims[2];
-	if (nextSlice_ < nz) {
-		const size_t sliceBytes = size_t(nx) * size_t(ny) * sizeof(int32_t);
-		const int count = std::min(nz - nextSlice_, std::max(1, int(size_t(kSlabBytes) / sliceBytes)));
-		bgfx::updateTexture3D(loading_.index, 0, 0, 0, uint16_t(nextSlice_), uint16_t(nx), uint16_t(ny),
-				uint16_t(count), bgfx::copy(pending_.data() + size_t(nextSlice_) * size_t(nx) * size_t(ny),
-				uint32_t(sliceBytes * size_t(count))));
-		nextSlice_ += count;
-		return;
+	if (!bgfx::isValid(loading_.map)) return;
+	size_t budget = kSlabBytes;
+	bool sent = false;
+	for (Upload& u : uploads_) {
+		const size_t slice = size_t(u.width) * size_t(u.volume ? u.height : 1) * u.texelBytes;
+		const int slices = u.volume ? u.depth : u.height;
+		while (u.next < slices && budget > 0) {
+			const int count = std::min(slices - u.next, std::max(1, int(budget / slice)));
+			const bgfx::Memory* mem = bgfx::copy(u.data.data() + size_t(u.next) * slice, uint32_t(slice * size_t(count)));
+			if (u.volume)
+				bgfx::updateTexture3D(u.texture, 0, 0, 0, uint16_t(u.next), uint16_t(u.width), uint16_t(u.height),
+						uint16_t(count), mem);
+			else
+				bgfx::updateTexture2D(u.texture, 0, 0, 0, uint16_t(u.next), uint16_t(u.width), uint16_t(count), mem);
+			u.next += count;
+			budget -= std::min(budget, slice * size_t(count));
+			sent = true;
+		}
+		if (u.next < slices) return;
 	}
+	if (sent) return;
 	// Every slab went up in an earlier frame: this frame's traces read it whole.
-	LogInfo("distance field: %dx%dx%d voxels published after uploading %.1f MB in slabs", nx, ny, nz,
-			double(pending_.size() * sizeof(int32_t)) / 1048576.0);
+	size_t bytes = 0;
+	for (const Upload& u : uploads_) bytes += u.data.size();
+	LogInfo("distance field: %dx%dx%d voxels in %d stored bricks published after uploading %.1f MB in slabs",
+			loading_.dims[0], loading_.dims[1], loading_.dims[2], loading_.stored, double(bytes) / 1048576.0);
 	Release(shown_);
 	shown_ = loading_;
 	loading_ = Volume();
-	pending_ = std::vector<int32_t>();
-	nextSlice_ = 0;
+	uploads_.clear();
 	++lightGeneration_;
 }
 
@@ -161,17 +218,23 @@ void SdfField::BindSurfaces(uint8_t first) const {
 	const float volume[4] = {shown_.origin.x, shown_.origin.y, shown_.origin.z, on ? shown_.voxel : 0.f};
 	const float extent[4] = {float(shown_.dims[0]), float(shown_.dims[1]), float(shown_.dims[2]),
 			float(SdfLighting::kListWidth)};
+	const float cells[4] = {float(shown_.cells[0]), float(shown_.cells[1]), float(shown_.cells[2]),
+			float(shown_.atlas[0])};
+	const float atlas[4] = {float(shown_.atlas[1]), float(shown_.stored), 0.f, 0.f};
 	const float sky[4] = {bgfx::isValid(sky_) ? 1.f : 0.f, 0.f, 0.f, 0.f};
 	const float fogScale = fogGain_ * skyScale_;
 	const float fogColor[4] = {fogColor_.x * fogScale, fogColor_.y * fogScale, fogColor_.z * fogScale, 0.f};
 	bgfx::setUniform(uVolume_, volume);
 	bgfx::setUniform(uExtent_, extent);
+	bgfx::setUniform(uCells_, cells);
+	bgfx::setUniform(uAtlas_, atlas);
 	bgfx::setUniform(uSky_, sky);
 	bgfx::setUniform(uFog_, fog_);
 	bgfx::setUniform(uFogColor_, fogColor);
-	bgfx::setTexture(first, sIndex_, on ? shown_.index : empty3D_, kPoint);
-	bgfx::setTexture(uint8_t(first + 1), sList_, on ? shown_.list : empty2D_, kPoint);
-	bgfx::setTexture(uint8_t(first + 2), sSky_, bgfx::isValid(sky_) ? sky_ : empty2D_);
+	bgfx::setTexture(first, sMap_, on ? shown_.map : empty3D_, kPoint);
+	bgfx::setTexture(uint8_t(first + 1), sBricks_, on ? shown_.bricks : empty3D_, kPoint);
+	bgfx::setTexture(uint8_t(first + 2), sList_, on ? shown_.list : empty2D_, kPoint);
+	bgfx::setTexture(uint8_t(first + 3), sSky_, bgfx::isValid(sky_) ? sky_ : empty2D_);
 }
 
 } // namespace painful

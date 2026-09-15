@@ -587,35 +587,57 @@ holds that torch, so near one it is counted twice.
 view wants it: the triangles of the drawn solid world (no helpers, bodies,
 water, `trans` or `decal`), a per-material albedo from the smallest mip of the
 diffuse (both terrains' on a blend), and every lightmap decoded. Then on a
-worker thread, once a level, one volume over the triangles' bounds with a voxel
-spare on each face, at the finest multiple of 0.25 units that keeps it within
-16 million voxels and 1023 a side. Every triangle is sampled at half a voxel. A
-surface voxel keeps its light in six bins by the facing of what wrote it, so the
-two sides of a wall stay apart and a surface seen from behind sends nothing.
-Every voxel then takes its nearest surface voxel by the exact separable
-Euclidean transform of Felzenszwalb and Huttenlocher, an axis at a time, the
-lines of an axis split across threads. The GPU (`Render/SdfField.cpp`) gets
-that surface voxel's list index per voxel (R32F), uploaded about 4 MB a frame
-and published the frame after the last slab so loading never lands on one
-frame, and the list of surface voxels, seven RGBA8 texels each: the voxel in 10
-bits an axis, then the six bins as light / 2 (an Overbright lightmap reaches 2).
-A march measures the distance to the named voxel's centre from those
-coordinates, so no distance texture is stored. Measured on 2026-09-15:
-C5L1_City_On_Water, bounds -83 -9 -363 to 152 102 198, 238x114x563 voxels of 1
-unit, 265,839 surface voxels, voxelized in 836 ms and transformed in 42 ms,
-58.3 MB of index uploaded; C1L1_Cathedral, 438x116x203 of 1 unit, 290,016
-surface voxels, 1,408 ms and 30 ms, 39.3 MB.
+worker thread, once a level, a sparse field over the triangles' bounds with a
+voxel spare on each face: the level cut into bricks of 8³ voxels, and only the
+bricks holding a surface voxel kept - a two-level tree, which a GPU march reads
+in two fixed lookups where a deep octree would be walked. The voxel size is the
+finest multiple of 0.25 units whose textures, estimated from the triangles
+before voxelizing, come within `SdfFieldMB` (256): a surface crosses about area
+x (|nx| + |ny| + |nz|) / size² cells of a grid. On City on Water and Cathedral
+that overestimated the surface voxels by 7-14% and the kept bricks by about 2x,
+so the bricks' share is taken at 0.75, after which the estimate came within 4%
+(184.7 MB against 178.5, 206.8 against 198.3). Every triangle is sampled at half a voxel,
+a slab of bricks along z at a time on every thread, each slab's bricks finished
+before it is let go. A surface voxel keeps its light in six bins by the facing of
+what wrote it, so the two sides of a wall stay apart and a surface seen from
+behind sends nothing. Every voxel of a kept brick names the nearest surface
+voxel in that brick (the separable exact transform, brute force along the
+brick's lines of 8); every other brick holds its distance in bricks to the
+nearest kept one, by the separable exact Euclidean transform of Felzenszwalb and
+Huttenlocher over the brick grid. The GPU (`Render/SdfField.cpp`) gets three
+textures, uploaded about 4 MB a frame and published the frame after the last
+slab so loading never lands on one frame: the brick map (R32F: a kept brick's
+atlas slot, an empty brick's distance), the atlas of kept bricks side by side
+(RG8: each voxel's nearest surface, as an ordinal within the brick), and the list
+(RGBA8): a texel per kept brick with the index of its first surface, then six a
+surface - its voxel within the brick and which bins had light, then the bins as
+light / 2 (an Overbright lightmap reaches 2), three bytes each. A march measures
+the distance to the named voxel's centre, so no distance is stored per voxel.
 
-**A sparse field would be smaller.** Of City on Water's 31,950 bricks of 8³
-voxels, 3,466 hold a surface voxel and 7,331 hold one or border one (22.9%); of
-Cathedral's 21,450, 3,345 and 6,482 (30.2%). An index kept only in those
-bricks, behind a brick map, would take a quarter to a third of the dense one -
-room for finer voxels. Not built.
+The dense field before it held an index for every voxel of the level: at 1 unit,
+58.3 MB for City on Water, where 3,466 of its 31,950 bricks held a surface voxel.
+Measured on 2026-09-15 (Release, hidden window, frame 600 under
+`PAINFUL_AMBIENTVIEW`):
+
+| | voxels | kept bricks | surface voxels | voxelized | textures | GPU frame |
+|---|---|---|---|---|---|---|
+| C5L1_City_On_Water, 0.5 | 474x225x1123 | 14,667 (6.0%) | 1,132,559 | 310 ms | 41.6 MB | 1.2 ms |
+| C5L1_City_On_Water, 0.25 | 945x448x2243 | 63,125 (3.4%) | 4,743,684 | 1,135 ms | 178.5 MB | 2.0 ms |
+| C1L1_Cathedral, 0.5 | 874x230x404 | 15,558 (9.6%) | 1,287,536 | 1,287 ms | 45.4 MB | 1.0 ms |
+| C1L1_Cathedral, 0.25 | 1745x458x805 | 67,728 (5.3%) | 5,498,806 | 3,585 ms | 198.3 MB | 1.0 ms |
+
+The dense field took 836 and 1,408 ms at 1 unit on one thread. Cathedral is long
+along x and short along z, so its slabs are few and uneven, which is the likely
+reason it voxelizes slower; slabs along the longest axis would settle it.
+`SdfFieldMB 64` keeps both levels at 0.5 units.
 
 **The march.** `Shaders/shared_sdf.sh`: from a point along a unit direction,
-each step reads the nearest surface voxel of the voxel it is in and strides the
-distance to that voxel's centre less one voxel (at least half; a cube's corner
-is 0.87 voxels from its centre). A hit is the ray inside that voxel's cube, or
+each step reads the brick it is in. In a kept brick it takes the voxel's nearest
+surface voxel and strides the distance to its centre less one voxel (at least
+half; a cube's corner is 0.87 voxels from its centre), but never past the
+brick's far face, since the next brick may hold a nearer one. Through an empty
+brick it strides at least to the far face, and further by the brick's distance:
+no surface voxel lies within (distance - 0.87) bricks of its centre. A hit is the ray inside that voxel's cube, or
 entering it within half a voxel, from an origin outside it (`SdfHits`): the
 voxel a ray starts in never stops it, so a vertex resting in a floor voxel is not
 shut in by the floor. Two rules came before. Any surface voxel within one voxel
@@ -666,6 +688,23 @@ with the fixed set, against 1.50% without the grid, the animation alone.
 Under `PAINFUL_AMBIENTVIEW` City on Water's models average 135 of 255 against
 125 under the box ambient.
 
+**Sheen.** Type 1 turns the box's directional off, and with it the only
+specular a model had besides the placed lights'. In its place each trace also
+fits the light its rays found as a function of direction, c0 + c1 . d a colour
+channel, by least squares over those rays (a ridge of 0.5 on c1, since they cover
+only the hemisphere about the normal), and writes the fit whole into three
+RGBA16F textures, one a channel. `fs_entity` evaluates it along the reflection of
+the eye about the pixel's normal and adds it over the material, as `specular
+true` adds the lights' highlights: by Schlick's fresnel from `SdfSheenF0` (4
+percent) facing the eye to all of it at the rim, times `SdfSheen` (100 percent)
+and the gain. The world's light comes back off the model, blurred to a
+first-order fit, gathering at the silhouette where the model is backlit - the
+user's ask, with the directional kept to type 0. The view model takes none: a
+weapon held at the eye is seen mostly edge-on, and at full fresnel the sky
+turned City on Water's gun white. Measured on 2026-09-15 (Release, hidden
+window, 600 frames): the fit took City on Water's GPU frame from 2.0-2.3 ms to
+2.9 ms and Cathedral's from 1.0 to 1.3 ms.
+
 `SdfGain` (100 percent) scales the traced light. `PAINFUL_AMBIENTVIEW=1` draws
 the models as their ambient term alone, under either type.
 
@@ -696,8 +735,8 @@ from above under its bright fog, the user's report). Measured on
 C5L1_City_On_Water: the map's mean light is 0.370 0.259 0.178, its luminance
 0.603 over the top eighth of rows, 0.332 at the horizon and 0.000 under the
 dome's rim - the order a read-back flipped upside down would reverse; on
-2026-09-15 the sky from above came to 0.549 against 1.029 on 48,942 open voxels,
-so it is scaled x1.87, and over the cones it runs 0.000 to 1.600. `SdfSkyGain`
+2026-09-15 the sky from above came to 0.549 against 1.030 on 766,685 open voxels of 0.25 units,
+so it is scaled x1.88, and over the cones it runs 0.000 to 1.601. `SdfSkyGain`
 (100 percent) scales the sky's light on top of that and `SdfSkyHighlight` (0)
 lifts its brightest cells - luminance above 0.6, by up to that percentage at
 white on a square ramp - before the cones are averaged.
@@ -727,6 +766,13 @@ field sampled directly. The spheres take half the frame's vertex budget, in
 turn. A sphere whose centre is within its radius of a surface voxel, not traced
 yet, or outside the field is not drawn.
 
+`SdfDebugModel` (console `pfsdfdebugmodel 1`) draws the zombie model with its
+middle on the view, 3 units ahead or 1.2 times its height if
+that is further, at 0.18 scale as the Zombie template is, in its bind pose and
+turning half a radian a second. Its vertices
+are traced as any model's are, so the light on a skinned mesh can be checked
+with no animation or script in the way. A temporary check.
+
 **History.** The first version (2026-09-14) traced 32 rays per model on the CPU
 from its bounds centre, at 10-19 µs a trace, re-traced every tenth of a unit it
 moved and eased over 0.25 s: applied whole, every re-trace of a walking monster
@@ -742,12 +788,14 @@ Two reports ended it: a big model was lit flat and dark from probes 1-4 units
 apart (the bosses), and the light at a spot depended on where the camera was -
 flying fast outran the cascades, and models near the camera fell back to the
 4-unit level field until they caught up, so their light jumped. One static
-volume trades the 0.25-unit detail near the camera for light that does not
-move.
+dense volume followed, at the finest size within 16 million voxels (1 unit on
+both levels measured): light that does not move, but coarser than the cascades
+near the camera. The sparse bricks brought 0.25 units back, over the whole level.
 
 Not handled yet: alpha-tested foliage (solid), the sky below the dome's rim
-(black, as the capture draws it), openings narrower than a voxel (1 unit on both
-levels measured) reading as closed, light through a wall thinner than a voxel,
+(black, as the capture draws it), openings narrower than a voxel (0.25 units on
+both levels measured, at the default budget) reading as closed, light through a
+wall thinner than a voxel,
 models occluding themselves or each other (they are not in the field), and
 nothing re-voxelized when a destructible's intact twin hides.
 

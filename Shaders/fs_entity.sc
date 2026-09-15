@@ -1,4 +1,4 @@
-$input v_texcoord0, v_normal, v_viewdist, v_wpos, v_sdfLight
+$input v_texcoord0, v_normal, v_viewdist, v_wpos, v_sdfLight, v_sdfSheenR, v_sdfSheenG, v_sdfSheenB
 
 // The model lighting path, reproducing skin.shader's `palskinned`:
 //
@@ -51,8 +51,9 @@ uniform vec4 u_stage1; // x: op - 0 off, 1 modulate, 2 add, 3 modulatealphaadd
 
 // Pf.RendererType 1: the light traced through the level's distance field at
 // the vertices (v_sdfLight), in place of the box's ambient and directional
-// (Render/SdfVertexLight.h).
+// (Render/SdfVertexLight.h), and the sheen the vertices fit (v_sdfSheen*).
 uniform vec4 u_sdfShade; // x: 1 for the vertices' traced light, y: SdfGain, z: PAINFUL_AMBIENTVIEW
+uniform vec4 u_sdfSheen; // x: SdfSheen, y: SdfSheenF0
 
 void main()
 {
@@ -102,6 +103,19 @@ void main()
 	vec3 specular = u_dirColor.rgb *
 			pow(max(dot(n, normalize(u_dirDir.xyz + eyeDir)), 0.0), u_specular.x) *
 			u_specular.y * smoothstep(0.0, u_specular.z, ndotl) * dirShadow;
+
+	// Pf.RendererType 1's sheen: the light the vertices' fit says arrives along
+	// the eye's reflection, by Schlick's fresnel, so it gathers at the rim. Not on
+	// the view model, which the eye sees mostly edge-on: the sky whitened it.
+	if (u_sdfShade.x > 0.5 && u_vmParams.x < 0.5)
+	{
+		vec4 along = vec4(1.0, reflect(-eyeDir, n));
+		vec3 reflected = max(vec3(dot(v_sdfSheenR, along), dot(v_sdfSheenG, along), dot(v_sdfSheenB, along)),
+				vec3_splat(0.0));
+		float grazing = 1.0 - clamp(dot(n, eyeDir), 0.0, 1.0);
+		float fresnel = u_sdfSheen.y + (1.0 - u_sdfSheen.y) * grazing * grazing * grazing * grazing * grazing;
+		specular += reflected * (fresnel * u_sdfSheen.x * u_sdfShade.y);
+	}
 
 	// Everything positional, exactly as the world mesh gets it.
 	float lightShadow = 1.0;

@@ -121,7 +121,7 @@ void SdfDebug::Draw(bgfx::ViewId view, const Camera& camera, const SdfField& fie
 		bgfx::setUniform(uProbe_, centre);
 		bgfx::setUniform(uAmbient_, ambient);
 		field.BindSurfaces(0);
-		light.Bind(3, slots_ + int(i) * perProbe);
+		light.Bind(4, slots_ + int(i) * perProbe);
 		bgfx::setTransform(transform);
 		bgfx::setVertexBuffer(0, vbo_);
 		bgfx::setIndexBuffer(ibo_, 0, indexCount_);
