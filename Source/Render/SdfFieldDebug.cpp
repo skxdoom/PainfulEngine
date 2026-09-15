@@ -1,15 +1,15 @@
-#include "SdfClipmapDebug.h"
+#include "SdfFieldDebug.h"
 #include "FullScreenPass.h"
-#include "SdfProbes.h"
+#include "SdfField.h"
 #include "ShaderLoad.h"
 
 #include <bx/math.h>
 
 namespace painful {
 
-bool SdfClipmapDebug::Init(const std::string& shaderDir) {
+bool SdfFieldDebug::Init(const std::string& shaderDir) {
 	bgfx::ShaderHandle vs = LoadShader(shaderDir, "vs_post");
-	bgfx::ShaderHandle fs = LoadShader(shaderDir, "fs_sdfclipmap");
+	bgfx::ShaderHandle fs = LoadShader(shaderDir, "fs_sdffield");
 	if (!bgfx::isValid(vs) || !bgfx::isValid(fs)) {
 		if (bgfx::isValid(vs)) bgfx::destroy(vs);
 		if (bgfx::isValid(fs)) bgfx::destroy(fs);
@@ -23,7 +23,7 @@ bool SdfClipmapDebug::Init(const std::string& shaderDir) {
 	return bgfx::isValid(program_);
 }
 
-void SdfClipmapDebug::Shutdown() {
+void SdfFieldDebug::Shutdown() {
 	for (bgfx::UniformHandle* u : {&uInvViewProj_, &uEye_, &uScreen_}) {
 		if (bgfx::isValid(*u)) bgfx::destroy(*u);
 		*u = BGFX_INVALID_HANDLE;
@@ -32,8 +32,8 @@ void SdfClipmapDebug::Shutdown() {
 	program_ = BGFX_INVALID_HANDLE;
 }
 
-void SdfClipmapDebug::Draw(bgfx::ViewId view, const Camera& camera, int width, int height,
-		const SdfProbes& probes) {
+void SdfFieldDebug::Draw(bgfx::ViewId view, const Camera& camera, int width, int height,
+		const SdfField& field) {
 	if (!bgfx::isValid(program_) || width <= 0 || height <= 0) return;
 	float viewMtx[16], projMtx[16], viewProj[16], inverse[16];
 	camera.ViewProj(width, height, camera.farPlane, viewMtx, projMtx);
@@ -47,7 +47,7 @@ void SdfClipmapDebug::Draw(bgfx::ViewId view, const Camera& camera, int width, i
 	bgfx::setUniform(uInvViewProj_, inverse);
 	bgfx::setUniform(uEye_, eye);
 	bgfx::setUniform(uScreen_, screen);
-	probes.BindSurfaces(0);
+	field.BindSurfaces(0);
 	bgfx::submit(view, program_);
 }
 

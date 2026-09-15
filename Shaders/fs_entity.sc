@@ -1,4 +1,4 @@
-$input v_texcoord0, v_normal, v_viewdist, v_wpos
+$input v_texcoord0, v_normal, v_viewdist, v_wpos, v_sdfLight
 
 // The model lighting path, reproducing skin.shader's `palskinned`:
 //
@@ -49,13 +49,10 @@ uniform vec4 u_eye; // xyz: the camera, for the per-pixel half-vector
 uniform vec4 u_specular; // x: exponent, y: strength, z: N.L gate softening
 uniform vec4 u_stage1; // x: op - 0 off, 1 modulate, 2 add, 3 modulatealphaadd
 
-// Pf.RendererType 1: the ambient from the distance field's probe grids, per
-// pixel, in place of the box's ambient and directional (Render/SdfProbes.h).
-#define PAINFUL_SDF_PROBE_STAGE0 8
-#define PAINFUL_SDF_PROBE_STAGE1 9
-#define PAINFUL_SDF_PROBE_STAGE2 10
-#include "shared_sdf.sh"
-uniform vec4 u_sdfShade; // x: on, y: SdfGain, z: PAINFUL_AMBIENTVIEW
+// Pf.RendererType 1: the light traced through the level's distance field at
+// the vertices (v_sdfLight), in place of the box's ambient and directional
+// (Render/SdfVertexLight.h).
+uniform vec4 u_sdfShade; // x: 1 for the vertices' traced light, y: SdfGain, z: PAINFUL_AMBIENTVIEW
 
 void main()
 {
@@ -82,15 +79,18 @@ void main()
 	// already said whether there is sun to shadow.
 	float dirShadow = 1.0;
 	if (u_vmParams.x > 0.5 && u_vmParams.y > 0.5) dirShadow = VmShadow(v_wpos, n, u_dirDir.xyz);
-	// Pf.RendererType 1 takes the ambient from the probe grids, the box's
-	// filling what they do not cover; 0 leaves u_sdfShade.x off and this is the
-	// original term.
+	// Pf.RendererType 1 takes the light traced at the vertices, interpolated;
+	// its rgb comes weighted, so a vertex not traced leaves the box's. Type 0
+	// leaves u_sdfShade.x off and this is the original term.
 	vec3 ambient = u_ambient.rgb;
 	float sdfWeight = 0.0;
 	if (u_sdfShade.x > 0.5)
-		ambient = SdfAmbient(v_wpos + n * 0.1, n, u_ambient.rgb, u_sdfShade.y, sdfWeight);
+	{
+		sdfWeight = clamp(v_sdfLight.w, 0.0, 1.0);
+		ambient = u_ambient.rgb * (1.0 - sdfWeight) + v_sdfLight.rgb * u_sdfShade.y;
+	}
 	if (u_sdfShade.z > 0.5) { gl_FragColor = vec4(ambient, 1.0); return; }
-	// Inside the grids the sun is in the probes, the sky's and the lightmaps',
+	// Where the light is traced the sun is in it, the sky's and the lightmaps',
 	// so the box's directional - which need agree with neither - fades out.
 	dirShadow *= 1.0 - sdfWeight;
 	vec3 diffuse = ambient + u_dirColor.rgb * ndotl * dirShadow;

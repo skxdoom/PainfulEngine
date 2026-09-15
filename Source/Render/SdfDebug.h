@@ -2,19 +2,21 @@
 #include "Camera.h"
 #include "../Core/Vectors.h"
 #include <bgfx/bgfx.h>
+#include <cstdint>
 #include <string>
 #include <vector>
 
 namespace painful {
 
-class EntityLighting;
-class SdfProbes;
+class SdfField;
+class SdfVertexLight;
 
-// pfsdfdebuggrid: a world-aligned lattice of small spheres about the camera, each
-// shaded per pixel from SdfProbes' grids at its centre, as a model's pixel there
-// would be. A sphere buried in a surface or outside the grids is not drawn, so
-// the lattice also shows where they end.
-// Docs/Reference/Lighting.md, "Distance field ambient".
+// pfsdfdebuggrid: a world-aligned lattice of small spheres about the camera,
+// each lit by the light traced through the distance field at its own vertices
+// (SdfVertexLight), as a model's vertices there would be. The spheres take the
+// trace budget the models leave, in turn; one buried in a surface, outside the
+// fields or not traced yet is not drawn. Docs/Reference/Lighting.md,
+// "Per-vertex tracing".
 class SdfDebug {
 public:
 	static constexpr float kSpacing = 2.f; // world units between probes
@@ -29,20 +31,28 @@ public:
 
 	bool Init(const std::string& shaderDir);
 	void Shutdown();
-	// A level went away: every box ambient is looked up again.
+	// A level went away: the lattice is laid and traced again.
 	void Clear() { probes_.clear(); }
-	// Into `view` with the camera's transform already set (the world view).
-	void Draw(bgfx::ViewId view, const Camera& camera, const SdfProbes& probes,
-			const EntityLighting& lighting, float gain);
+	// Queues the lattice's vertices into `light`, then draws the traced spheres
+	// into `view` (the world view). Before light.Dispatch.
+	void Draw(bgfx::ViewId view, const Camera& camera, const SdfField& field, SdfVertexLight& light,
+			float gain);
 
 private:
 	struct Probe {
 		Vec3 pos;
-		Vec3 ambient; // the box ambient, for the grids' unresolved share
+		uint32_t queuedFrame = 0;
+		bool queued = false;
+		bool traced = false;
 	};
 
 	std::vector<Probe> probes_;
+	std::vector<Vec3> sphere_; // the unit sphere's vertices, which are also its normals
 	int cell_[3] = {0, 0, 0};
+	int slots_ = -1; // the lattice's first history slot, kSphere vertices a probe
+	int slotCount_ = 0;
+	uint32_t generation_ = 0; // SdfVertexLight's when the slots were taken
+	size_t cursor_ = 0; // the next probe to trace
 
 	bgfx::ProgramHandle program_ = BGFX_INVALID_HANDLE;
 	bgfx::VertexBufferHandle vbo_ = BGFX_INVALID_HANDLE;

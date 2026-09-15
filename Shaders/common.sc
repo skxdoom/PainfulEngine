@@ -34,3 +34,4 @@ float v_viewdist : TEXCOORD2;
 vec3 v_wpos : TEXCOORD3;
 vec4 v_clip : TEXCOORD4;
 float v_strength : TEXCOORD5;
+vec4 v_sdfLight : TEXCOORD6;

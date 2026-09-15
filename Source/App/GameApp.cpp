@@ -31,9 +31,10 @@
 #include "Render/WaterReflection.h"
 #include "Render/EnvCubeMap.h"
 #include "Render/SdfLighting.h"
-#include "Render/SdfProbes.h"
+#include "Render/SdfField.h"
+#include "Render/SdfVertexLight.h"
 #include "Render/SdfDebug.h"
-#include "Render/SdfClipmapDebug.h"
+#include "Render/SdfFieldDebug.h"
 #include "Render/SkyCapture.h"
 #include "Render/DecalRenderer.h"
 #include "Render/EntityRenderer.h"
@@ -435,21 +436,23 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	WaterReflection waterReflection;
 	WaterReflection waterRefraction;
 	EnvCubeMap envCube;
-	// Pf.RendererType 1: the models' ambient from probes traced on the GPU
-	// through a distance field the CPU builds.
+	// Pf.RendererType 1: the light traced at every model vertex through one
+	// distance field of the level, built on the CPU and marched on the GPU.
 	SdfLighting sdf;
-	SdfProbes sdfProbes;
-	const bool sdfProbesInit = sdfProbes.Init(shaderDir);
+	SdfField sdfField;
+	const bool sdfFieldInit = sdfField.Init();
+	SdfVertexLight sdfVertex;
+	const bool sdfVertexInit = sdfFieldInit && sdfVertex.Init(shaderDir);
 	int rendererType = 0;
 	float sdfGain = 1.f;
-	// pfsdfdebuggrid: the probe grids drawn as a lattice of spheres.
+	// pfsdfdebuggrid: a lattice of spheres traced at their own vertices.
 	SdfDebug sdfDebug;
-	const bool sdfDebugInit = sdfProbesInit && sdfDebug.Init(shaderDir);
+	const bool sdfDebugInit = sdfVertexInit && sdfDebug.Init(shaderDir);
 	bool sdfGridOn = false;
-	// pfsdfdebugclipmaps: the field's surfaces raymarched over the frame.
-	SdfClipmapDebug sdfClipmaps;
-	const bool sdfClipmapsInit = sdfProbesInit && sdfClipmaps.Init(shaderDir);
-	bool sdfClipmapsOn = false;
+	// pfsdfdebug: the field's surfaces raymarched over the frame.
+	SdfFieldDebug sdfFieldDebug;
+	const bool sdfFieldDebugInit = sdfFieldInit && sdfFieldDebug.Init(shaderDir);
+	bool sdfFieldDebugOn = false;
 	// The sky as the light a probe ray takes when it leaves the level.
 	SkyCapture skyCapture;
 	const bool skyCaptureInit = skyCapture.Init();
@@ -517,20 +520,20 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		}
 		world.SetLightShadowStrength(float(cfg.GetInt("LightShadowWorldStrength", 100)) / 100.f);
 
-		// RendererType: 0 the original model shading; 1 the ambient from probe
-		// grids traced through a distance field about the camera
-		// (Render/SdfProbes.h), the box's own terms, unscaled, outside them.
+		// RendererType: 0 the original model shading; 1 the light traced at every
+		// model vertex through the level's distance field (Render/SdfVertexLight.h),
+		// the box's own terms, unscaled, where a vertex is not traced.
 		rendererType = cfg.GetInt("RendererType", 0);
 		entities.SetLightScale(rendererType == 1 ? float(cfg.GetInt("ModelLightScale", 100)) / 100.f : 1.f);
 		sdfGain = float(cfg.GetInt("SdfGain", 100)) / 100.f;
 		sdf.SetAlbedo(float(std::clamp(cfg.GetInt("SdfAlbedo", 0), 0, 100)) / 100.f);
 		sdf.SetSkyGain(float(std::max(cfg.GetInt("SdfSkyGain", 100), 0)) / 100.f,
 				float(std::max(cfg.GetInt("SdfSkyHighlight", 0), 0)) / 100.f);
-		sdfProbes.SetFogGain(float(std::max(cfg.GetInt("SdfFogGain", 100), 0)) / 100.f);
-		entities.SetSdf(rendererType == 1 && sdfProbesInit ? &sdfProbes : nullptr, sdfGain);
+		sdfField.SetFogGain(float(std::max(cfg.GetInt("SdfFogGain", 100), 0)) / 100.f);
+		entities.SetSdfVertex(rendererType == 1 && sdfVertexInit ? &sdfVertex : nullptr, sdfGain);
 		// The distance field debug views, under either type.
 		sdfGridOn = sdfDebugInit && cfg.GetBool("SdfDebugGrid", false);
-		sdfClipmapsOn = sdfClipmapsInit && cfg.GetBool("SdfDebugClipmaps", false);
+		sdfFieldDebugOn = sdfFieldDebugInit && cfg.GetBool("SdfDebug", false);
 		bloom.SetQuality(cfg.GetInt("BloomScale", 2), cfg.GetInt("BloomKernel", 0));
 	};
 	applySettings();
@@ -549,7 +552,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		world.Clear();
 		decals.Clear();
 		sdf.Clear();
-		sdfProbes.Clear();
+		sdfField.Clear();
+		sdfVertex.Clear();
 		sdfDebug.Clear();
 		skyCapture.Clear();
 		skyHandedOver = false;
@@ -702,7 +706,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	if (map) {
 		// Read on the first frame of RendererType 1, not here: type 0 pays nothing.
 		sdf.SetLevel(map, info.scale, info.overbright, &textures, MapNameWithoutExtension(info.mapFile));
-		sdfProbes.SetFog(info.fogMode, info.fogStart, info.fogEnd, info.fogDensity, info.fogColor);
+		sdfField.SetFog(info.fogMode, info.fogStart, info.fogEnd, info.fogDensity, info.fogColor);
 		if (worldInit) {
 			world.Upload(*map, textures, MapNameWithoutExtension(info.mapFile), info,
 					&shaderScripts, /*skipActiveMeshes=*/true);
@@ -1358,9 +1362,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 					cube = envCube.texture();
 				entities.SetEnvCube(cube);
 			}
-			// The distance field: adopt what the worker finished, start the next,
-			// upload it and trace the probe grids.
-			if (worldReady && sdfProbesInit && (rendererType == 1 || sdfGridOn || sdfClipmapsOn)) {
+			// The distance field: adopt what the worker finished and upload it in
+			// slabs; the vertex traces dispatch after the frame's draws.
+			if (worldReady && sdfFieldInit && (rendererType == 1 || sdfGridOn || sdfFieldDebugOn)) {
 				// The sky first, once a level: the light a ray leaving the level takes.
 				if (skyCaptureInit && !skyCapture.done())
 					skyCapture.Tick(Renderer::kSkyCaptureView, Renderer::kSkyCaptureBlitView,
@@ -1369,8 +1373,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 					sdf.SetSky(skyCapture.map(), SkyCapture::kWidth, SkyCapture::kHeight);
 					skyHandedOver = true;
 				}
-				sdf.Update(camera.pos);
-				sdfProbes.Update(sdf, Renderer::kSdfProbeView);
+				sdf.Update();
+				sdfField.Update(sdf);
 			}
 			WorldRenderer::Reflection refl;
 			bgfx::TextureHandle reflTex = BGFX_INVALID_HANDLE;
@@ -1411,16 +1415,18 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			world.Draw(Renderer::kWorldView, camera, window.width(), window.height(),
 					info, elapsed);
 		const bool warpPass = warpOn && sceneTargets.active();
+		// pfsdfdebuggrid keeps half the vertex-trace budget from the models.
+		if (sdfGridOn && sdfVertexInit) sdfVertex.Reserve(SdfVertexLight::kTracesPerFrame / 2);
 		entities.SetDrawSet(warpPass ? EntityRenderer::kSceneOnly : EntityRenderer::kAll);
 		entities.Draw(Renderer::kWorldView, camera, window.width(), window.height(),
 				info, elapsed);
 		entities.SetDrawSet(EntityRenderer::kAll);
 		// pfsdfdebuggrid: the probe lattice, opaque, in the world view.
 		if (worldReady && sdfGridOn)
-			sdfDebug.Draw(Renderer::kWorldView, camera, sdfProbes, entities.lighting(), sdfGain);
-		// pfsdfdebugclipmaps: the field over the finished frame, in a view of its own.
-		if (worldReady && sdfClipmapsOn)
-			sdfClipmaps.Draw(Renderer::kSdfDebugView, camera, window.width(), window.height(), sdfProbes);
+			sdfDebug.Draw(Renderer::kWorldView, camera, sdfField, sdfVertex, sdfGain);
+		// pfsdfdebug: the field over the finished frame, in a view of its own.
+		if (worldReady && sdfFieldDebugOn)
+			sdfFieldDebug.Draw(Renderer::kSdfDebugView, camera, window.width(), window.height(), sdfField);
 		// The casters, after the passes that cull the zones and pose the
 		// models; bgfx orders the views, not the calls.
 		if (shadow.active()) {
@@ -1667,6 +1673,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 				"red non-colliding, GREEN BOX = no physics body"
 				: "");
 		}
+		// Pf.RendererType 1 and pfsdfdebuggrid: the vertices every draw of the
+		// frame queued, traced after them in the compute view.
+		if (worldReady && sdfVertexInit && (rendererType == 1 || sdfGridOn))
+			sdfVertex.Dispatch(sdfField, Renderer::kSdfTraceView);
 		renderer.EndFrame();
 
 		if (!shotPath.empty()) {

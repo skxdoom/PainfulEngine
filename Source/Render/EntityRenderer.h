@@ -13,7 +13,7 @@
 #include "Camera.h"
 #include "LightUniforms.h"
 #include "LightShadowAtlas.h"
-#include "SdfProbes.h"
+#include "SdfVertexLight.h"
 #include "TextureCache.h"
 #include <bgfx/bgfx.h>
 #include <map>
@@ -90,10 +90,12 @@ public:
 	// What a model keeps of the positional lights: 1 is the original,
 	// ModelLightScale under RendererType 1.
 	void SetLightScale(float lights) { lightScale_ = lights; }
-	// Pf.RendererType 1: the ambient from `sdf`'s probe grids, times `gain`, and
-	// the directional through its field. Null is the original, untouched.
-	void SetSdf(const SdfProbes* sdf, float gain) {
-		sdf_ = sdf;
+	// Pf.RendererType 1: the ambient traced at every vertex through `light`,
+	// times `gain`. Draw queues the vertices due; the caller dispatches after
+	// every Draw of the frame. Null leaves the other types.
+	void SetSdfVertex(SdfVertexLight* light, float gain) {
+		sdfVertex_ = light;
+		if (light) sdfSlotsFrom_ = light;
 		sdfGain_ = gain;
 	}
 
@@ -253,6 +255,10 @@ private:
 		// The mesh this part came from. SetMeshVisibility addresses parts by
 		// name, and cpu is dropped for anything unskinned, so it is kept here.
 		std::string name;
+		// Pf.RendererType 1, the part owning an unskinned buffer: its vertices'
+		// positions and normals, 6 floats each, to trace from. A skinned buffer
+		// traces from `cpu` or its pose.
+		std::vector<float> trace;
 	};
 	struct GpuModel {
 		std::vector<Part> parts;
@@ -317,6 +323,20 @@ private:
 		// instance because two monks either side of a doorway are at different
 		// points of the same fade.
 		EntityLightFade lightFade;
+		// Pf.RendererType 1: one run of history slots for every buffer the model
+		// owns; per part, the first slot of the buffer it draws (-1 none).
+		std::vector<int> sdfSlots;
+		int sdfFirst = -1, sdfCount = 0;
+		uint32_t sdfGeneration = 0; // SdfVertexLight's when the run was taken
+		uint32_t sdfQueuedFrame = 0; // the frame its vertices were last queued under
+		// Turns in a row it stood still unanimated, and where: a still model's
+		// light settles, and it stops tracing.
+		int sdfStillTraces = 0;
+		Mat4 sdfTracedAt;
+		uint32_t sdfFieldGeneration = 0; // SdfVertexLight::fieldGeneration it last settled under
+		bool sdfQueued = false;
+		bool sdfTraced = false; // traced once: its history can be read
+		bool sdfTraceNow = false;
 	};
 
 	// Recomputes the instance's world-space bounds from its model's bbox.
@@ -328,6 +348,14 @@ private:
 	// posed. Shared by every shadow pass.
 	void DrawCaster(bgfx::ViewId view, bgfx::ProgramHandle program, const Instance& instance,
 			const GpuModel& model, float timeSeconds);
+	// Pf.RendererType 1: the vertices of the model's buffers; its history run,
+	// taken when missing (false when the history is full); one buffer's
+	// vertices, model space at `stride` floats each, into the frame's trace; the
+	// run given back.
+	static int TraceVertexCount(const GpuModel& model);
+	bool EnsureSdfSlots(Instance& instance, const GpuModel& model);
+	void QueueTrace(const Instance& instance, size_t part, const float* verts, size_t stride, size_t count);
+	void ReleaseSdfSlots(Instance& instance);
 
 	// Returns an index into models_, loading and uploading on first use.
 	bool GetModel(const std::string& modelName, TextureCache& textures,
@@ -392,9 +420,12 @@ private:
 	bgfx::UniformHandle uVmLight_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle sVmShadow_ = BGFX_INVALID_HANDLE;
 	float lightScale_ = 1.f;
-	const SdfProbes* sdf_ = nullptr; // Pf.RendererType 1
 	float sdfGain_ = 1.f;
 	bgfx::UniformHandle uSdfShade_ = BGFX_INVALID_HANDLE;
+	SdfVertexLight* sdfVertex_ = nullptr; // Pf.RendererType 1
+	SdfVertexLight* sdfSlotsFrom_ = nullptr; // where the instances' history runs came from
+	bgfx::UniformHandle uSdfVertex_ = BGFX_INVALID_HANDLE;
+	std::vector<size_t> sdfTurns_; // scratch: the instances in their order to trace
 	size_t shadowDrawCalls_ = 0;
 	TextureCache* textures_ = nullptr; // for the projector maps only
 	std::string levelHint_;

@@ -1,4 +1,4 @@
-$input v_texcoord0, v_normal, v_viewdist, v_wpos
+$input v_texcoord0, v_normal, v_viewdist, v_wpos, v_sdfLight
 
 // A model's water: skin.shader's palskinned_water / dirtywater, which is
 // palskin_water.vso and skin_water.pso / skin_dirtywater.pso decoded - two

@@ -28,6 +28,10 @@ namespace painful {
 
 namespace {
 
+// Pf.RendererType 1: turns a model that neither moves nor animates traces
+// before its blended light has settled and it stops.
+constexpr int kSdfSettleTraces = 12;
+
 // Mesh names come from the model file; the scripts spell them by hand.
 bool EqualsNoCase(const std::string& a, const std::string& b) {
 	if (a.size() != b.size()) return false;
@@ -162,6 +166,7 @@ bool EntityRenderer::Init(const std::string& shaderDir) {
 	uDirDir_ = bgfx::createUniform("u_dirDir", bgfx::UniformType::Vec4);
 	uEye_ = bgfx::createUniform("u_eye", bgfx::UniformType::Vec4);
 	uSdfShade_ = bgfx::createUniform("u_sdfShade", bgfx::UniformType::Vec4);
+	uSdfVertex_ = bgfx::createUniform("u_sdfVertex", bgfx::UniformType::Vec4);
 	lightUniforms_.Init();
 	return true;
 }
@@ -206,6 +211,7 @@ void EntityRenderer::Shutdown() {
 	if (bgfx::isValid(uDirDir_)) { bgfx::destroy(uDirDir_); uDirDir_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uEye_)) { bgfx::destroy(uEye_); uEye_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uSdfShade_)) { bgfx::destroy(uSdfShade_); uSdfShade_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uSdfVertex_)) { bgfx::destroy(uSdfVertex_); uSdfVertex_ = BGFX_INVALID_HANDLE; }
 	lightUniforms_.Shutdown();
 	projector_.Clear();
 }
@@ -239,7 +245,10 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
 			v.nx = mesh.verts[i * 8 + 3];
 			v.ny = mesh.verts[i * 8 + 4];
 			v.nz = mesh.verts[i * 8 + 5];
-			v.u0 = v.u1 = mesh.verts[i * 8 + 6];
+			// A model's second UV is free: it carries the vertex's index, which
+			// RendererType 1 finds the vertex's traced light by.
+			v.u0 = mesh.verts[i * 8 + 6];
+			v.u1 = float(i);
 			v.v0 = v.v1 = mesh.verts[i * 8 + 7];
 			const Vec3 p{v.x, v.y, v.z};
 			for (int a = 0; a < 3; ++a) {
@@ -280,6 +289,11 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
 				for (const std::vector<SkinInfluence>& v : mesh.skin)
 					for (const SkinInfluence& inf : v)
 						part.maxBone = std::max(part.maxBone, inf.bone);
+			} else if (!mesh.hasSkin() && gpu.parts.size() == ownerIndex) {
+				part.trace.reserve(vertexCount * 6);
+				for (size_t i = 0; i < vertexCount; ++i)
+					part.trace.insert(part.trace.end(), mesh.verts.begin() + ptrdiff_t(i * 8),
+							mesh.verts.begin() + ptrdiff_t(i * 8 + 6));
 			}
 			part.name = mesh.name;
 			part.vbo = vbo;
@@ -404,6 +418,8 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
 		}
 
 		std::vector<MeshVertex> verts(vertexCount);
+		std::vector<float> trace; // Pf.RendererType 1's copy, for the part that owns the buffer
+		trace.reserve(vertexCount * 6);
 		for (size_t i = 0; i < vertexCount; ++i) {
 			Vec3 p, n;
 			float uv[2];
@@ -413,8 +429,10 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
 			MeshVertex& v = verts[i];
 			v.x = p[0] - centre[0]; v.y = p[1] - centre[1]; v.z = p[2] - centre[2];
 			v.nx = n[0]; v.ny = n[1]; v.nz = n[2];
-			v.u0 = v.u1 = uv[0];
+			v.u0 = uv[0];
+			v.u1 = float(i); // the vertex's index, for its traced light
 			v.v0 = v.v1 = uv[1];
+			trace.insert(trace.end(), {v.x, v.y, v.z, v.nx, v.ny, v.nz});
 		}
 		for (int a = 0; a < 3; ++a) {
 			lo[a] = std::min(lo[a], o.bboxMin[a] - centre[a]);
@@ -438,6 +456,7 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
 			part.ibo = ibo;
 			part.ownsVbo = part.ownsIbo = gpu.parts.size() == partsBefore;
 			part.vboOwner = uint32_t(partsBefore);
+			if (part.ownsVbo) part.trace = trace;
 			part.firstIndex = first;
 			part.indexCount = count;
 			part.diffuse = m.diffuse().empty() ? textures.White()
@@ -449,8 +468,10 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
 			Part part;
 			part.vbo = vbo;
 			part.ibo = ibo;
+			part.vboOwner = uint32_t(partsBefore);
 			part.indexCount = uint32_t(o.indices.size());
 			part.diffuse = textures.White();
+			part.trace = std::move(trace);
 			gpu.parts.push_back(part);
 		}
 	}
@@ -613,13 +634,17 @@ int EntityRenderer::CreateWorldObject(const MapObject& o, float worldScale,
 		v.nx = n[0] * t[0] + n[1] * t[4] + n[2] * t[8];
 		v.ny = n[0] * t[1] + n[1] * t[5] + n[2] * t[9];
 		v.nz = n[0] * t[2] + n[1] * t[6] + n[2] * t[10];
-		v.u0 = v.u1 = uv[0];
+		v.u0 = uv[0];
+		v.u1 = float(i); // the vertex's index, for its traced light
 		v.v0 = v.v1 = uv[1];
 		for (int a = 0; a < 3; ++a) {
 			lo[a] = std::min(lo[a], (&v.x)[a]);
 			hi[a] = std::max(hi[a], (&v.x)[a]);
 		}
 	}
+	std::vector<float> trace; // Pf.RendererType 1's copy, for the part that owns the buffer
+	trace.reserve(vertexCount * 6);
+	for (const MeshVertex& v : verts) trace.insert(trace.end(), {v.x, v.y, v.z, v.nx, v.ny, v.nz});
 	const bgfx::VertexBufferHandle vbo = MakeVertexBuffer(
 			verts.data(), uint32_t(verts.size() * sizeof(MeshVertex)), layout_);
 	const bgfx::IndexBufferHandle ibo =
@@ -638,6 +663,7 @@ int EntityRenderer::CreateWorldObject(const MapObject& o, float worldScale,
 		part.diffuse = m.diffuse().empty() ? textures.White()
 				: textures.Get(m.diffuse(), levelHint);
 		part.material = gpu.material;
+		if (part.ownsVbo) part.trace = trace;
 		gpu.parts.push_back(part);
 	}
 	if (gpu.parts.empty()) {
@@ -647,6 +673,7 @@ int EntityRenderer::CreateWorldObject(const MapObject& o, float worldScale,
 		part.indexCount = uint32_t(o.indices.size());
 		part.diffuse = textures.White();
 		part.material = gpu.material;
+		part.trace = std::move(trace);
 		gpu.parts.push_back(part);
 	}
 	for (int a = 0; a < 3; ++a) {
@@ -990,6 +1017,7 @@ void EntityRenderer::ReleaseScript(int slot) {
 	for (bgfx::DynamicVertexBufferHandle h : inst.posed)
 		if (bgfx::isValid(h)) bgfx::destroy(h);
 	inst.posed.clear();
+	ReleaseSdfSlots(inst);
 	inst.alive = false;
 }
 
@@ -1090,10 +1118,56 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 	bgfx::TextureHandle lightShadowTex = BGFX_INVALID_HANDLE;
 	if (lightShadows_ && lightShadows_->ready()) lightShadowTex = lightShadows_->texture();
 
-	// Pf.RendererType 1 is all in the shader: the probe grids and the field are
-	// the same for every model. Render/SdfProbes.h
 	static const bool kAmbientView = DebugFlag("PAINFUL_AMBIENTVIEW");
-	const float sdfShade[4] = {sdf_ ? 1.f : 0.f, sdfGain_, kAmbientView ? 1.f : 0.f, 0.f};
+	const float sdfShade[4] = {sdfVertex_ ? 1.f : 0.f, sdfGain_, kAmbientView ? 1.f : 0.f, 0.f};
+
+	// Pf.RendererType 1: the instances in view whose vertices trace this frame -
+	// never traced first, then the longest waiting - as far as the budget goes.
+	if (sdfVertex_) {
+		sdfTurns_.clear();
+		for (size_t i = 0; i < instances_.size(); ++i) {
+			Instance& in = instances_[i];
+			in.sdfTraceNow = false;
+			if (!in.alive || !in.visible) continue;
+			if (in.sdfGeneration != sdfVertex_->generation()) {
+				in.sdfFirst = -1;
+				in.sdfQueued = in.sdfTraced = false;
+				in.sdfStillTraces = 0;
+			}
+			// A new field, sky or fog: a settled model traces again.
+			if (in.sdfFieldGeneration != sdfVertex_->fieldGeneration()) {
+				in.sdfFieldGeneration = sdfVertex_->fieldGeneration();
+				in.sdfStillTraces = 0;
+			}
+			if (in.sdfQueued && !in.sdfTraced && sdfVertex_->WasTraced(in.sdfQueuedFrame)) in.sdfTraced = true;
+			if (drawSet_ == kSceneOnly ? in.viewModel : (drawSet_ == kViewModelOnly && !in.viewModel)) continue;
+			if (visCulling_ && !frustum.VisibleAabb(in.aabbLo, in.aabbHi)) continue;
+			const bool still = !(models_[in.model].skinned && !in.skin.empty()) &&
+					std::memcmp(in.sdfTracedAt.m, in.transform.m, sizeof(in.transform.m)) == 0;
+			if (!still) in.sdfStillTraces = 0;
+			if (in.sdfTraced && in.sdfStillTraces >= kSdfSettleTraces) continue;
+			sdfTurns_.push_back(i);
+		}
+		std::sort(sdfTurns_.begin(), sdfTurns_.end(), [this](size_t a, size_t b) {
+			const Instance& x = instances_[a];
+			const Instance& y = instances_[b];
+			if (x.sdfTraced != y.sdfTraced) return !x.sdfTraced;
+			return x.sdfQueuedFrame < y.sdfQueuedFrame;
+		});
+		int budget = sdfVertex_->budget();
+		for (size_t i : sdfTurns_) {
+			Instance& in = instances_[i];
+			const GpuModel& model = models_[in.model];
+			const int count = TraceVertexCount(model);
+			if (count <= 0 || count > budget || !EnsureSdfSlots(in, model)) continue;
+			budget -= count;
+			in.sdfTraceNow = true;
+			in.sdfQueued = true;
+			in.sdfQueuedFrame = sdfVertex_->frame();
+			++in.sdfStillTraces;
+			in.sdfTracedAt = in.transform;
+		}
+	}
 
 	for (Instance& instance : instances_) {
 		if (!instance.alive || !instance.visible) continue;
@@ -1149,6 +1223,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 								instance.skin.size());
 				}
 				SkinMeshVertices(part.cpu, instance.skin, vertScratch_);
+				if (instance.sdfTraceNow) QueueTrace(instance, i, vertScratch_.data(), 8, part.cpu.vertexCount());
 				const uint32_t bytes =
 					uint32_t(part.cpu.vertexCount() * sizeof(MeshVertex));
 				if (!bgfx::isValid(instance.posed[i]))
@@ -1166,7 +1241,8 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 					out.nx = vertScratch_[v * 8 + 3];
 					out.ny = vertScratch_[v * 8 + 4];
 					out.nz = vertScratch_[v * 8 + 5];
-					out.u0 = out.u1 = vertScratch_[v * 8 + 6];
+					out.u0 = vertScratch_[v * 8 + 6];
+					out.u1 = float(v); // the vertex's index, for its traced light
 					out.v0 = out.v1 = vertScratch_[v * 8 + 7];
 				}
 				bgfx::update(instance.posed[i], 0,
@@ -1174,6 +1250,16 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			}
 		}
 		if (!inView) continue;
+		// Pf.RendererType 1: the buffers not posed above trace from their bind
+		// pose, a skinned one from its source mesh.
+		if (instance.sdfTraceNow) {
+			for (size_t i = 0; i < model.parts.size(); ++i) {
+				const Part& part = model.parts[i];
+				if (!part.ownsVbo || (posing && part.cpu.hasSkin())) continue;
+				if (part.cpu.hasSkin()) QueueTrace(instance, i, part.cpu.verts.data(), 8, part.cpu.vertexCount());
+				else if (!part.trace.empty()) QueueTrace(instance, i, part.trace.data(), 6, part.trace.size() / 6);
+			}
+		}
 		// This model's lighting. The SELECTION is still made at the origin -
 		// which of the level's lights are worth a slot is a per-model question,
 		// as it is in Entity::AddLight - but the lights themselves are handed
@@ -1294,9 +1380,16 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 					bgfx::isValid(projector_.falloff()) ? projector_.falloff() : white_,
 					4, shadowTex, 5, modelShadowTex, 6, lightShadowTex);
 			BindViewModel(instance.viewModel);
-			// Stages 8-11: the probe grids (shared_sdf.sh).
+			// Stage 11: the vertices' traced light (shared_sdfvertex.sh).
 			bgfx::setUniform(uSdfShade_, sdfShade);
-			if (sdf_) sdf_->BindShading(8);
+			if (sdfVertex_) {
+				const int slot = instance.sdfTraced && partIndex < instance.sdfSlots.size()
+						? instance.sdfSlots[partIndex] : -1;
+				sdfVertex_->Bind(11, slot);
+			} else {
+				const float off[4] = {0.f, 0.f, 0.f, 0.f};
+				bgfx::setUniform(uSdfVertex_, off);
+			}
 			// The model water look (palskin_water): its own program, the cube
 			// map at stage 1, MDL.SetMaterialRefractFresnel's numbers per mesh.
 			const bgfx::TextureHandle cubeTex = bgfx::isValid(envCube_) ? envCube_ : levelCube_;
@@ -1323,6 +1416,67 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			++drawCalls_;
 		}
 	}
+}
+
+int EntityRenderer::TraceVertexCount(const GpuModel& model) {
+	int count = 0;
+	for (const Part& part : model.parts) {
+		if (!part.ownsVbo) continue;
+		count += int(part.cpu.hasSkin() ? part.cpu.vertexCount() : part.trace.size() / 6);
+	}
+	return count;
+}
+
+bool EntityRenderer::EnsureSdfSlots(Instance& instance, const GpuModel& model) {
+	if (instance.sdfFirst >= 0 && instance.sdfGeneration == sdfVertex_->generation()) return true;
+	std::vector<int> offset(model.parts.size(), -1);
+	int total = 0;
+	for (size_t i = 0; i < model.parts.size(); ++i) {
+		const Part& part = model.parts[i];
+		if (!part.ownsVbo) continue;
+		const int count = int(part.cpu.hasSkin() ? part.cpu.vertexCount() : part.trace.size() / 6);
+		if (count <= 0) continue;
+		offset[i] = total;
+		total += count;
+	}
+	const int first = total > 0 ? sdfVertex_->Allocate(total) : -1;
+	if (first < 0) return false;
+	instance.sdfFirst = first;
+	instance.sdfCount = total;
+	instance.sdfGeneration = sdfVertex_->generation();
+	instance.sdfQueued = instance.sdfTraced = false;
+	instance.sdfStillTraces = 0;
+	instance.sdfSlots.assign(model.parts.size(), -1);
+	for (size_t i = 0; i < model.parts.size(); ++i) {
+		const uint32_t owner = model.parts[i].vboOwner;
+		if (owner < offset.size() && offset[owner] >= 0) instance.sdfSlots[i] = first + offset[owner];
+	}
+	return true;
+}
+
+void EntityRenderer::QueueTrace(const Instance& instance, size_t part, const float* verts, size_t stride,
+		size_t count) {
+	const int first = part < instance.sdfSlots.size() ? instance.sdfSlots[part] : -1;
+	if (first < 0) return;
+	const Vec3 origin = instance.transform.TransformPoint(Vec3(0.f));
+	const bool reset = !instance.sdfTraced;
+	for (size_t v = 0; v < count; ++v) {
+		const float* s = verts + v * stride;
+		const Vec3 p = instance.transform.TransformPoint(Vec3{s[0], s[1], s[2]});
+		const Vec3 n = instance.transform.TransformPoint(Vec3{s[3], s[4], s[5]}) - origin;
+		const float length = n.Length();
+		sdfVertex_->Queue(p, length > 1e-8f ? n / length : Vec3{0.f, 1.f, 0.f}, first + int(v), reset);
+	}
+}
+
+void EntityRenderer::ReleaseSdfSlots(Instance& instance) {
+	if (sdfSlotsFrom_ && instance.sdfFirst >= 0 && instance.sdfGeneration == sdfSlotsFrom_->generation())
+		sdfSlotsFrom_->Release(instance.sdfFirst, instance.sdfCount);
+	instance.sdfFirst = -1;
+	instance.sdfCount = 0;
+	instance.sdfSlots.clear();
+	instance.sdfQueued = instance.sdfTraced = false;
+	instance.sdfStillTraces = 0;
 }
 
 } // namespace painful

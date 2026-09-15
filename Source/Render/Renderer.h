@@ -59,7 +59,7 @@ public:
 	static constexpr bgfx::ViewId kDemonEntityView = 77;
 	static constexpr bgfx::ViewId kDemonWarpView = 78;
 	static constexpr bgfx::ViewId kDemonCopyView = 79;
-	// pfsdfdebugclipmaps (Render/SdfClipmapDebug.h): the distance field
+	// pfsdfdebug (Render/SdfFieldDebug.h): the distance field
 	// raymarched over the finished frame, under the 2D layer.
 	static constexpr bgfx::ViewId kSdfDebugView = 80;
 	// The sky for the distance field's rays (Render/SkyCapture.h): one face
@@ -68,9 +68,9 @@ public:
 	static constexpr bgfx::ViewId kSkyCaptureBlitView = 82;
 	// The 2D layer, drawn over everything: no depth, in submission order.
 	static constexpr bgfx::ViewId kHudView = 83;
-	// The distance field's probe grids (Render/SdfProbes.h): compute only,
-	// after every view that samples them.
-	static constexpr bgfx::ViewId kSdfProbeView = 84;
+	// The model vertices traced through the distance field
+	// (Render/SdfVertexLight.h): compute only, after every view that reads them.
+	static constexpr bgfx::ViewId kSdfTraceView = 84;
 
 	// A view's transform and rect from the camera, the way WorldRenderer::Draw
 	// sets the world view's - for a view that draws with the same eye later.

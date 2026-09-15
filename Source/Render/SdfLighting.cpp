@@ -1,6 +1,5 @@
 #include "SdfLighting.h"
 #include "TextureCache.h"
-#include "../Core/Debug.h"
 #include "../Core/FileSystem.h"
 #include "../Core/Log.h"
 
@@ -11,7 +10,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <cstdlib>
+#include <cstring>
 #include <map>
 
 namespace painful {
@@ -21,17 +20,13 @@ extern bx::DefaultAllocator g_allocator;
 namespace {
 
 using Clock = std::chrono::steady_clock;
-constexpr float kBucket = 8.f; // world units, for finding the triangles in a cascade
 constexpr float kSkyHighlightFrom = 0.6f; // sky luminance SdfSkyHighlight starts lifting at
+constexpr int kBrick = 8; // voxels a side of a brick, for the log's sparse estimate
 const Vec3 kAxes[6] = {Vec3{1, 0, 0}, Vec3{-1, 0, 0}, Vec3{0, 1, 0}, Vec3{0, -1, 0},
 		Vec3{0, 0, 1}, Vec3{0, 0, -1}};
 
 double MsSince(Clock::time_point t) {
 	return std::chrono::duration<double, std::milli>(Clock::now() - t).count();
-}
-
-int64_t BucketKey(int x, int y, int z) {
-	return (int64_t(x & 0x1fffff) << 42) | (int64_t(y & 0x1fffff) << 21) | int64_t(z & 0x1fffff);
 }
 
 // One mip as RGBA8: the smallest still 8 texels wide (an average), or the
@@ -66,6 +61,74 @@ uint8_t Unorm(float v) {
 	return uint8_t(std::clamp(v * 255.f + 0.5f, 0.f, 255.f));
 }
 
+// Every voxel's nearest surface voxel, exactly: the separable transform of
+// Felzenszwalb and Huttenlocher ("Distance Transforms of Sampled Functions"), an
+// axis at a time, each voxel taking the feature that minimises (p - q)^2 + f(q),
+// f(q) the squared distance to q's feature over the axes done before. An axis's
+// lines are split across threads. `nearest` holds a surface index or -1.
+void NearestSurfaces(std::vector<int32_t>& nearest, const std::vector<uint32_t>& coords, int nx, int ny,
+		int nz) {
+	const int dims[3] = {nx, ny, nz};
+	const int threads = int(std::max(1u, std::thread::hardware_concurrency()));
+	for (int axis = 0; axis < 3; ++axis) {
+		const int n = dims[axis];
+		const int across = axis == 0 ? 1 : 0, deep = axis == 2 ? 1 : 2;
+		const int lines = dims[across] * dims[deep];
+		auto run = [&](int from, int to) {
+			std::vector<int32_t> feature(size_t(n) + 1);
+			std::vector<double> f(size_t(n) + 1), z(size_t(n) + 2);
+			std::vector<int> v(size_t(n) + 1);
+			int cell[3] = {0, 0, 0};
+			auto index = [&]() {
+				return (size_t(cell[2]) * size_t(ny) + size_t(cell[1])) * size_t(nx) + size_t(cell[0]);
+			};
+			for (int line = from; line < to; ++line) {
+				cell[across] = line % dims[across];
+				cell[deep] = line / dims[across];
+				int k = -1;
+				for (int q = 0; q < n; ++q) {
+					cell[axis] = q;
+					const int32_t s = nearest[index()];
+					feature[size_t(q)] = s;
+					if (s < 0) continue;
+					const uint32_t c = coords[size_t(s)];
+					const double dx = double(int(c & 1023) - cell[0]);
+					const double dy = double(int((c >> 10) & 1023) - cell[1]);
+					const double dz = double(int((c >> 20) & 1023) - cell[2]);
+					f[size_t(q)] = dx * dx + dy * dy + dz * dz + double(q) * double(q);
+					double meet = -1e30;
+					while (k >= 0) {
+						meet = (f[size_t(q)] - f[size_t(v[size_t(k)])]) / (2.0 * double(q - v[size_t(k)]));
+						if (meet > z[size_t(k)]) break;
+						--k;
+					}
+					++k;
+					v[size_t(k)] = q;
+					z[size_t(k)] = k == 0 ? -1e30 : meet;
+					z[size_t(k) + 1] = 1e30;
+				}
+				int j = 0;
+				for (int p = 0; p < n; ++p) {
+					int32_t out = -1;
+					if (k >= 0) {
+						while (j < k && z[size_t(j) + 1] < double(p)) ++j;
+						out = feature[size_t(v[size_t(j)])];
+					}
+					cell[axis] = p;
+					nearest[index()] = out;
+				}
+			}
+		};
+		std::vector<std::thread> pool;
+		const int per = (lines + threads - 1) / threads;
+		for (int t = 0; t < threads; ++t) {
+			const int from = t * per, to = std::min(lines, from + per);
+			if (from < to) pool.emplace_back(run, from, to);
+		}
+		for (std::thread& t : pool) t.join();
+	}
+}
+
 } // namespace
 
 void SdfLighting::SetLevel(const MapMesh* map, float worldScale, bool overbright,
@@ -89,13 +152,10 @@ void SdfLighting::Clear() {
 	}
 	quit_ = jobPending_ = busy_ = false;
 	finished_.reset();
-	for (auto& c : current_) c.reset();
-	for (Cache& c : caches_) c = Cache();
-	level_.reset();
+	volume_.reset();
 	tris_.clear();
 	materials_.clear();
 	lightmaps_.clear();
-	buckets_.clear();
 	sceneBuilt_ = false;
 	map_ = nullptr;
 	textures_ = nullptr;
@@ -212,15 +272,9 @@ void SdfLighting::BuildScene() {
 				if (len < 1e-8f) continue;
 				tri.normal = n / len;
 				tri.material = run.material;
-				const uint32_t index = uint32_t(tris_.size());
 				tris_.push_back(tri);
-				const Vec3 lo = Min(Min(p[0], p[1]), p[2]), hi = Max(Max(p[0], p[1]), p[2]);
-				sceneLo_ = Min(sceneLo_, lo);
-				sceneHi_ = Max(sceneHi_, hi);
-				for (int z = int(std::floor(lo.z / kBucket)); z <= int(std::floor(hi.z / kBucket)); ++z)
-					for (int y = int(std::floor(lo.y / kBucket)); y <= int(std::floor(hi.y / kBucket)); ++y)
-						for (int x = int(std::floor(lo.x / kBucket)); x <= int(std::floor(hi.x / kBucket)); ++x)
-							buckets_[BucketKey(x, y, z)].push_back(index);
+				sceneLo_ = Min(sceneLo_, Min(Min(p[0], p[1]), p[2]));
+				sceneHi_ = Max(sceneHi_, Max(Max(p[0], p[1]), p[2]));
 			}
 		}
 	}
@@ -248,110 +302,62 @@ Vec3 SdfLighting::Radiance(const Tri& t, float a, float b, float albedo) const {
 	return Vec3{tint.x * px[0] * k, tint.y * px[1] * k, tint.z * px[2] * k};
 }
 
-std::unique_ptr<SdfLighting::Volume> SdfLighting::BuildVolume(int cascade, const Vec3& centre,
-		float albedo) {
+std::unique_ptr<SdfLighting::Volume> SdfLighting::BuildVolume(float albedo) const {
 	auto vol = std::make_unique<Volume>();
 	vol->albedo = albedo;
-	vol->cascade = cascade;
-	const bool lit = cascade >= 0;
-	if (lit) {
-		const float voxel = VoxelSize(cascade);
-		vol->voxel = voxel;
-		// Snapped to four of its own voxels, so every cascade's grid lines up,
-		// a move shifts whole voxels and a probe grid's probes keep their places.
-		const float snap = 4.f * voxel;
-		vol->centre = Vec3{std::floor(centre.x / snap) * snap, std::floor(centre.y / snap) * snap,
-				std::floor(centre.z / snap) * snap};
-		vol->origin = vol->centre - Vec3(float(kWindow) * voxel * 0.5f);
-	} else {
-		// The whole level at a power of two units, a voxel spare on every face.
-		const Vec3 ext = sceneHi_ - sceneLo_;
-		const float longest = std::max({ext.x, ext.y, ext.z});
-		float voxel = VoxelSize(kCascades - 1);
-		while (longest / voxel + 2.f > float(kLevelSide)) voxel *= 2.f;
-		vol->voxel = voxel;
-		vol->origin = sceneLo_ - Vec3(voxel);
-		vol->centre = (sceneLo_ + sceneHi_) * 0.5f;
-		vol->dims[0] = std::min(int(std::ceil(ext.x / voxel)) + 2, kLevelSide);
-		vol->dims[1] = std::min(int(std::ceil(ext.y / voxel)) + 2, kLevelSide);
-		vol->dims[2] = std::min(int(std::ceil(ext.z / voxel)) + 2, kLevelSide);
+	// The level's bounds, a voxel spare on every face, at the finest multiple of
+	// kVoxelStep the voxel budget and the side limit allow.
+	const Vec3 ext = sceneHi_ - sceneLo_;
+	float voxel = kVoxelStep;
+	int nx = 0, ny = 0, nz = 0;
+	for (;; voxel += kVoxelStep) {
+		nx = int(std::ceil(ext.x / voxel)) + 2;
+		ny = int(std::ceil(ext.y / voxel)) + 2;
+		nz = int(std::ceil(ext.z / voxel)) + 2;
+		if (size_t(nx) * size_t(ny) * size_t(nz) <= kVoxelBudget && nx <= kMaxSide && ny <= kMaxSide &&
+				nz <= kMaxSide)
+			break;
 	}
-	const float voxel = vol->voxel;
-	const int nx = vol->dims[0], ny = vol->dims[1], nz = vol->dims[2];
+	vol->voxel = voxel;
+	vol->origin = sceneLo_ - Vec3(voxel);
+	vol->dims[0] = nx;
+	vol->dims[1] = ny;
+	vol->dims[2] = nz;
 	const Vec3 lo = vol->origin;
-	const Vec3 hi = lo + Vec3{float(nx) * voxel, float(ny) * voxel, float(nz) * voxel};
 	const size_t total = size_t(nx) * size_t(ny) * size_t(nz);
 	auto voxelIndex = [nx, ny](int x, int y, int z) {
 		return (size_t(z) * size_t(ny) + size_t(y)) * size_t(nx) + size_t(x);
 	};
-	auto inside = [nx, ny, nz](int x, int y, int z) {
-		return x >= 0 && y >= 0 && z >= 0 && x < nx && y < ny && z < nz;
-	};
 
-	// A cascade keeps its last build's surfaces where the two overlap - the
-	// voxels line up - and voxelizes only the voxels that entered it.
-	const Clock::time_point t0 = Clock::now();
-	Cache scratch;
-	Cache& cache = lit ? caches_[cascade] : scratch;
-	int shift[3] = {0, 0, 0}; // a voxel here is voxel + shift in the last build
-	bool reuse = lit && cache.valid && cache.albedo == albedo;
-	if (reuse) {
-		const Vec3 moved = (vol->origin - cache.origin) / voxel;
-		shift[0] = int(std::lround(moved.x));
-		shift[1] = int(std::lround(moved.y));
-		shift[2] = int(std::lround(moved.z));
-		for (int a = 0; a < 3; ++a)
-			if (std::abs(shift[a]) >= kWindow) reuse = false;
-	}
+	// Surfaces: every triangle sampled at half a voxel.
+	Clock::time_point t0 = Clock::now();
+	std::vector<int32_t>& nearest = vol->nearest;
+	nearest.assign(total, -1);
 	std::vector<uint32_t> coords; // per surface, x | y << 10 | z << 20
 	std::vector<Surface> surfaces;
 	struct Up {
 		Vec3 light{0.f, 0.f, 0.f};
 		float weight = 0.f;
 	};
-	std::vector<Up> up; // the level field's, per surface
-	cache.index.assign(total, -1);
-	if (reuse) {
-		for (size_t s = 0; s < cache.coords.size(); ++s) {
-			const uint32_t c = cache.coords[s];
-			const int x = int(c & 1023) - shift[0], y = int((c >> 10) & 1023) - shift[1],
-					z = int((c >> 20) & 1023) - shift[2];
-			if (!inside(x, y, z)) continue;
-			cache.index[voxelIndex(x, y, z)] = int32_t(coords.size());
-			coords.push_back(uint32_t(x) | uint32_t(y) << 10 | uint32_t(z) << 20);
-			surfaces.push_back(cache.surfaces[s]);
-		}
-	}
-	const size_t kept = coords.size();
-	const Vec3 oldLo = cache.origin, oldHi = cache.origin + Vec3(float(kWindow) * voxel);
-
-	auto voxelize = [&](const Tri& t) {
-		const Vec3 p1 = t.p0 + t.e1, p2 = t.p0 + t.e2;
-		const Vec3 tlo = Min(Min(t.p0, p1), p2), thi = Max(Max(t.p0, p1), p2);
-		if (thi.x < lo.x || thi.y < lo.y || thi.z < lo.z || tlo.x > hi.x || tlo.y > hi.y || tlo.z > hi.z)
-			return;
-		// Wholly inside the last build: every sample it has is already there.
-		if (reuse && tlo.x >= oldLo.x && tlo.y >= oldLo.y && tlo.z >= oldLo.z && thi.x < oldHi.x &&
-				thi.y < oldHi.y && thi.z < oldHi.z)
-			return;
+	std::vector<Up> up; // per surface, the untinted light arriving on what faces up
+	for (const Tri& t : tris_) {
 		float facing[6];
 		for (int k = 0; k < 6; ++k) facing[k] = std::max(0.f, Dot(t.normal, kAxes[k]));
 		const float edge = std::max({t.e1.Length(), t.e2.Length(), (t.e2 - t.e1).Length()});
-		const int n = std::clamp(int(std::ceil(edge / (voxel * 0.5f))), 1, 1024);
+		const int n = std::clamp(int(std::ceil(edge / (voxel * 0.5f))), 1, 4096);
 		const float inv = 1.f / float(n);
 		auto splat = [&](float a, float b) {
 			const Vec3 p = t.p0 + t.e1 * a + t.e2 * b;
 			const int x = int(std::floor((p.x - lo.x) / voxel));
 			const int y = int(std::floor((p.y - lo.y) / voxel));
 			const int z = int(std::floor((p.z - lo.z) / voxel));
-			if (!inside(x, y, z)) return;
-			if (reuse && inside(x + shift[0], y + shift[1], z + shift[2])) return;
-			int32_t& s = cache.index[voxelIndex(x, y, z)];
+			if (x < 0 || y < 0 || z < 0 || x >= nx || y >= ny || z >= nz) return;
+			int32_t& s = nearest[voxelIndex(x, y, z)];
 			if (s < 0) {
 				s = int32_t(coords.size());
 				coords.push_back(uint32_t(x) | uint32_t(y) << 10 | uint32_t(z) << 20);
 				surfaces.emplace_back();
-				if (!lit) up.emplace_back();
+				up.emplace_back();
 			}
 			const Vec3 light = Radiance(t, a, b, albedo);
 			Surface& surface = surfaces[size_t(s)];
@@ -362,9 +368,7 @@ std::unique_ptr<SdfLighting::Volume> SdfLighting::BuildVolume(int cascade, const
 				surface.light[k][2] += light.z * facing[k];
 				surface.weight[k] += facing[k];
 			}
-			// The level field also keeps the untinted light arriving on what faces
-			// up, for SetSky to measure the sky against.
-			if (!lit && facing[2] > 0.f) {
+			if (facing[2] > 0.f) {
 				const Vec3 arriving = albedo > 0.f ? Radiance(t, a, b, 0.f) : light;
 				up[size_t(s)].light += arriving * facing[2];
 				up[size_t(s)].weight += facing[2];
@@ -377,38 +381,23 @@ std::unique_ptr<SdfLighting::Volume> SdfLighting::BuildVolume(int cascade, const
 				if (i + j + 1 < n) splat((float(i) + 0.6667f) * inv, (float(j) + 0.6667f) * inv);
 			}
 		}
-	};
-	if (lit) {
-		std::vector<uint8_t> seen(tris_.size(), 0);
-		for (int bz = int(std::floor(lo.z / kBucket)); bz <= int(std::floor(hi.z / kBucket)); ++bz)
-		for (int by = int(std::floor(lo.y / kBucket)); by <= int(std::floor(hi.y / kBucket)); ++by)
-		for (int bx = int(std::floor(lo.x / kBucket)); bx <= int(std::floor(hi.x / kBucket)); ++bx) {
-			const auto bucket = buckets_.find(BucketKey(bx, by, bz));
-			if (bucket == buckets_.end()) continue;
-			for (uint32_t index : bucket->second) {
-				if (seen[index]) continue;
-				seen[index] = 1;
-				voxelize(tris_[index]);
-			}
-		}
-	} else {
-		for (const Tri& t : tris_) voxelize(t);
 	}
-	for (size_t s = kept; s < surfaces.size(); ++s)
+	for (Surface& s : surfaces)
 		for (int k = 0; k < 6; ++k)
-			if (surfaces[s].weight[k] > 0.f)
-				for (int c = 0; c < 3; ++c) surfaces[s].light[k][c] /= surfaces[s].weight[k];
-	if (!lit) {
-		// Surfaces facing up with no surface voxel above them: the median light the
-		// lightmaps say arrives on them is what the open sky gives.
+			if (s.weight[k] > 0.f)
+				for (int c = 0; c < 3; ++c) s.light[k][c] /= s.weight[k];
+	vol->voxelizeMs = MsSince(t0);
+
+	// Surfaces facing up with no surface voxel above them: the median light the
+	// lightmaps say arrives on them is what the open sky gives.
+	{
 		std::vector<float> lum;
 		for (size_t s = 0; s < coords.size(); ++s) {
 			if (up[s].weight <= 0.f) continue;
 			const uint32_t c = coords[s];
 			const int x = int(c & 1023), y = int((c >> 10) & 1023), z = int((c >> 20) & 1023);
 			bool open = true;
-			for (int above = y + 1; above < ny && open; ++above)
-				open = cache.index[voxelIndex(x, above, z)] < 0;
+			for (int above = y + 1; above < ny && open; ++above) open = nearest[voxelIndex(x, above, z)] < 0;
 			if (!open) continue;
 			const Vec3 e = up[s].light / up[s].weight;
 			lum.push_back(0.299f * e.x + 0.587f * e.y + 0.114f * e.z);
@@ -419,61 +408,80 @@ std::unique_ptr<SdfLighting::Volume> SdfLighting::BuildVolume(int cascade, const
 		}
 		vol->openSkyVoxels = lum.size();
 	}
+	// For the log: how much of the volume a sparse layout of bricks would hold.
+	{
+		const int bx = (nx + kBrick - 1) / kBrick, by = (ny + kBrick - 1) / kBrick, bz = (nz + kBrick - 1) / kBrick;
+		std::vector<uint8_t> brick(size_t(bx) * size_t(by) * size_t(bz), 0);
+		for (uint32_t c : coords)
+			brick[(size_t(((c >> 20) & 1023) / kBrick) * size_t(by) + size_t(((c >> 10) & 1023) / kBrick)) *
+					size_t(bx) + size_t((c & 1023) / kBrick)] = 1;
+		for (int z = 0; z < bz; ++z)
+		for (int y = 0; y < by; ++y)
+		for (int x = 0; x < bx; ++x) {
+			bool near = false;
+			for (int dz = -1; dz <= 1 && !near; ++dz)
+			for (int dy = -1; dy <= 1 && !near; ++dy)
+			for (int dx = -1; dx <= 1 && !near; ++dx) {
+				const int ox = x + dx, oy = y + dy, oz = z + dz;
+				if (ox < 0 || oy < 0 || oz < 0 || ox >= bx || oy >= by || oz >= bz) continue;
+				near = brick[(size_t(oz) * size_t(by) + size_t(oy)) * size_t(bx) + size_t(ox)] != 0;
+			}
+			vol->bricks += brick[(size_t(z) * size_t(by) + size_t(y)) * size_t(bx) + size_t(x)];
+			vol->bricksNear += near ? 1 : 0;
+		}
+		vol->bricksTotal = brick.size();
+	}
 
-	// The list the GPU seeds its distance transform from.
+	t0 = Clock::now();
+	NearestSurfaces(nearest, coords, nx, ny, nz);
+	// The GPU reads the index as a float (R32F), exact to 2^24.
+	for (int32_t& s : nearest) {
+		const float f = float(s);
+		std::memcpy(&s, &f, sizeof(f));
+	}
+	vol->distanceMs = MsSince(t0);
+
+	// The list the traces read a hit's light from.
 	vol->surfaces = coords.size();
-	vol->kept = kept;
-	vol->incremental = reuse;
 	const size_t texels = std::max<size_t>(coords.size() * kListTexels, 1);
 	vol->listHeight = int((texels + kListWidth - 1) / kListWidth);
 	vol->list.assign(size_t(kListWidth) * size_t(vol->listHeight) * 4, 0);
 	for (size_t s = 0; s < coords.size(); ++s) {
 		uint8_t* px = &vol->list[s * kListTexels * 4];
 		const uint32_t c = coords[s];
-		px[0] = uint8_t(c & 1023);
-		px[1] = uint8_t((c >> 10) & 1023);
-		px[2] = uint8_t((c >> 20) & 1023);
-		px[3] = 255;
+		const uint32_t x = c & 1023, y = (c >> 10) & 1023, z = (c >> 20) & 1023;
+		px[0] = uint8_t(x & 255);
+		px[1] = uint8_t(y & 255);
+		px[2] = uint8_t(z & 255);
+		px[3] = uint8_t((x >> 8) | (y >> 8) << 2 | (z >> 8) << 4);
 		for (int k = 0; k < 6; ++k) {
 			uint8_t* bin = px + (1 + k) * 4;
 			for (int ch = 0; ch < 3; ++ch) bin[ch] = Unorm(surfaces[s].light[k][ch] * 0.5f);
 			bin[3] = surfaces[s].weight[k] > 0.f ? 255 : 0;
 		}
 	}
-	if (lit) {
-		cache.valid = true;
-		cache.origin = vol->origin;
-		cache.albedo = albedo;
-		cache.coords = std::move(coords);
-		cache.surfaces = std::move(surfaces);
-	}
-	vol->voxelizeMs = MsSince(t0);
 	return vol;
 }
 
 void SdfLighting::Worker() {
 	for (;;) {
-		Vec3 centre;
 		float albedo = 0.f;
-		int cascade = 0;
 		{
 			std::unique_lock<std::mutex> lock(mutex_);
 			wake_.wait(lock, [this] { return quit_ || jobPending_; });
 			if (quit_) return;
-			centre = jobCentre_;
 			albedo = jobAlbedo_;
-			cascade = jobCascade_;
 			jobPending_ = false;
 			busy_ = true;
 		}
-		std::unique_ptr<Volume> vol = BuildVolume(cascade, centre, albedo);
+		std::unique_ptr<Volume> vol = BuildVolume(albedo);
 		std::lock_guard<std::mutex> lock(mutex_);
 		finished_ = std::move(vol);
 		busy_ = false;
 	}
 }
 
-void SdfLighting::Update(const Vec3& camera) {
+void SdfLighting::Update() {
 	if (!map_ || !textures_) return;
 	if (!sceneBuilt_) {
 		// On the main thread: the texture reads go through the VFS.
@@ -488,59 +496,26 @@ void SdfLighting::Update(const Vec3& camera) {
 		adopted = std::move(finished_);
 		idle = !busy_ && !jobPending_;
 	}
-	static const bool kChurn = DebugFlag("PAINFUL_SDF_CHURN");
 	if (adopted) {
 		adopted->id = ++adoptions_;
 		const Volume& v = *adopted;
-		if (v.cascade < 0) {
-			LogInfo("distance field: level field %dx%dx%d at %.2f voxels, %zu surface voxels (%zu facing an open sky, "
-					"median light arriving %.3f), voxelized in %.0f ms", v.dims[0], v.dims[1], v.dims[2], v.voxel,
-					v.surfaces, v.openSkyVoxels, v.openSkyLight, v.voxelizeMs);
-		} else {
-			static unsigned said[kCascades] = {};
-			if (++said[v.cascade] <= 2 || said[v.cascade] % 20 == 0 || kChurn)
-				LogInfo("distance field: cascade %d (%.2f voxels, %.0f units) at %.0f %.0f %.0f, %zu surface voxels "
-						"(%zu kept), voxelized in %.0f ms",
-						v.cascade, v.voxel, float(kWindow) * v.voxel, v.centre.x, v.centre.y, v.centre.z, v.surfaces,
-						v.kept, v.voxelizeMs);
-		}
-		if (v.cascade < 0) {
-			levelSkyLight_ = v.openSkyLight;
-			levelSkyVoxels_ = v.openSkyVoxels;
-			level_ = std::move(adopted);
-			if (!sky_.empty()) BuildSkyCones();
-		} else {
-			current_[v.cascade] = std::move(adopted);
-		}
+		const double mb = double(v.nearest.size() * sizeof(int32_t) + v.list.size()) / 1048576.0;
+		LogInfo("distance field: %dx%dx%d voxels of %.2f units, %zu surface voxels (%zu facing an open sky, median "
+				"light arriving %.3f), voxelized in %.0f ms, distances in %.0f ms, %.1f MB",
+				v.dims[0], v.dims[1], v.dims[2], v.voxel, v.surfaces, v.openSkyVoxels, v.openSkyLight, v.voxelizeMs,
+				v.distanceMs, mb);
+		LogInfo("distance field: %zu of %zu 8^3 bricks hold a surface voxel, %zu with their neighbours (%.1f%%)",
+				v.bricks, v.bricksTotal, v.bricksNear, 100.0 * double(v.bricksNear) / double(std::max<size_t>(v.bricksTotal, 1)));
+		levelSkyLight_ = v.openSkyLight;
+		levelSkyVoxels_ = v.openSkyVoxels;
+		volume_ = std::move(adopted);
+		if (!sky_.empty()) BuildSkyCones();
 	}
 	if (!idle) return;
-	int job = -2;
-	if (!level_) {
-		job = -1;
-	} else {
-		for (int k = kCascades - 1; k >= 0 && job == -2; --k)
-			if (!current_[k]) job = k;
-		for (int k = 0; k < kCascades && job == -2; ++k) {
-			const Volume& v = *current_[k];
-			const float quarter = float(kWindow) * VoxelSize(k) * 0.25f;
-			if (v.albedo != albedo_ || std::fabs(camera.x - v.centre.x) > quarter ||
-					std::fabs(camera.y - v.centre.y) > quarter || std::fabs(camera.z - v.centre.z) > quarter)
-				job = k;
-		}
-	}
-	Vec3 centre = camera;
-	if (job == -2 && kChurn) {
-		// Every other rebuild a quarter of the cascade along x, so the moves and
-		// the carried-over surfaces are exercised with the camera still.
-		job = int(churn_++ % unsigned(kCascades));
-		if ((churnShifted_[job] = !churnShifted_[job])) centre.x += float(kWindow) * VoxelSize(job) * 0.25f;
-	}
-	if (job == -2) return;
+	if (volume_ && volume_->albedo == albedo_) return;
 	{
 		std::lock_guard<std::mutex> lock(mutex_);
-		jobCentre_ = centre;
 		jobAlbedo_ = albedo_;
-		jobCascade_ = job;
 		jobPending_ = true;
 	}
 	wake_.notify_one();
@@ -564,9 +539,8 @@ void SdfLighting::SetSkyGain(float gain, float highlight) {
 	if (!sky_.empty()) BuildSkyCones();
 }
 
-// Each cell takes the sky within the cone a probe ray stands for (a
-// kProbeRays-th of the sphere), by solid angle, so a small bright sun between
-// two rays still reaches the nearer.
+// Each cell takes the sky within a cone of a kSkyConeRays-th of the sphere, by
+// solid angle, so a small bright sun between two rays still reaches the nearer.
 void SdfLighting::BuildSkyCones() {
 	++skyGeneration_;
 	skyCones_.clear();
@@ -576,7 +550,7 @@ void SdfLighting::BuildSkyCones() {
 	const size_t cells = size_t(width) * size_t(height);
 	// The sky is drawn in display colours, the lightmaps hold the light arriving:
 	// it is scaled so what it sends onto open ground facing up (irradiance / pi,
-	// the SH's unit) is what the level field found arriving there.
+	// the traces' unit) is what the volume found arriving there.
 	double fromAbove = 0.0;
 	for (int v = 0; v < height; ++v) {
 		const double lat = kPi * (0.5 - (double(v) + 0.5) / double(height));
@@ -607,7 +581,7 @@ void SdfLighting::BuildSkyCones() {
 			area[i] = cosLat;
 		}
 	}
-	const float cosCone = 1.f - 2.f / float(kProbeRays);
+	const float cosCone = 1.f - 2.f / float(kSkyConeRays);
 	skyCones_.assign(cells * 3, 0.f);
 	float lo = 1e9f, hi = 0.f;
 	for (size_t o = 0; o < cells; ++o) {
@@ -628,7 +602,7 @@ void SdfLighting::BuildSkyCones() {
 	}
 	LogInfo("distance field: sky from above %.3f, open ground %.3f (%zu voxels): scaled x%.2f; over %d-ray cones "
 			"at gain %.2f, highlight %.2f: luminance %.3f to %.3f", fromAbove, levelSkyLight_, levelSkyVoxels_,
-			calibration, kProbeRays, skyGain_, skyHighlight_, lo, hi);
+			calibration, kSkyConeRays, skyGain_, skyHighlight_, lo, hi);
 }
 
 } // namespace painful
