@@ -53,9 +53,12 @@ private:
 	size_t drawCalls_ = 0, triangles_ = 0;
 	bgfx::VertexLayout layout_;
 	bgfx::ProgramHandle program_ = BGFX_INVALID_HANDLE;
+	// The second pass that gives a multiplying decal its fog (fs_decal_fog).
+	bgfx::ProgramHandle fogProgram_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle sDiffuse_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uFog_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uFogColor_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uDecalFog_ = BGFX_INVALID_HANDLE;
 };
 
 } // namespace painful

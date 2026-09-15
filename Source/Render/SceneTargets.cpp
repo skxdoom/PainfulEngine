@@ -38,14 +38,17 @@ void SceneTargets::Shutdown() {
 }
 
 void SceneTargets::ReleaseTargets() {
-	// The framebuffers own their textures (createFrameBuffer's destroy flag).
+	// The colour-only framebuffer borrows the scene's colour, so it goes first;
+	// the others own their textures (createFrameBuffer's destroy flag).
+	if (bgfx::isValid(colorFb_)) bgfx::destroy(colorFb_);
 	if (bgfx::isValid(fb_)) bgfx::destroy(fb_);
 	if (bgfx::isValid(halfFb_)) bgfx::destroy(halfFb_);
 	if (bgfx::isValid(sceneCopyFb_)) bgfx::destroy(sceneCopyFb_);
 	sceneCopyFb_ = BGFX_INVALID_HANDLE;
 	sceneCopy_ = BGFX_INVALID_HANDLE;
-	fb_ = halfFb_ = BGFX_INVALID_HANDLE;
+	fb_ = colorFb_ = halfFb_ = BGFX_INVALID_HANDLE;
 	color_ = depth_ = half_ = BGFX_INVALID_HANDLE;
+	depthReadable_ = false;
 	width_ = height_ = halfW_ = halfH_ = 0;
 }
 
@@ -58,12 +61,18 @@ bool SceneTargets::BuildTargets(int width, int height) {
 	// (no BGFX_TEXTURE_MSAA_SAMPLE), so readers see a plain texture.
 	color_ = bgfx::createTexture2D(w, h, false, 1, bgfx::TextureFormat::RGBA8,
 			BGFX_TEXTURE_RT | msaa | clamp);
+	// The depth readable where the device allows, for SSAO (Render/Ssao.h):
+	// depth does not resolve, so a multisampled one is read per sample.
 	const bgfx::TextureFormat::Enum depthFormats[] = {bgfx::TextureFormat::D24S8,
 			bgfx::TextureFormat::D32F, bgfx::TextureFormat::D16};
-	for (bgfx::TextureFormat::Enum f : depthFormats) {
-		if (bgfx::isValid(depth_)) break;
-		if (!bgfx::isTextureValid(0, false, 1, f, BGFX_TEXTURE_RT_WRITE_ONLY | msaa)) continue;
-		depth_ = bgfx::createTexture2D(w, h, false, 1, f, BGFX_TEXTURE_RT_WRITE_ONLY | msaa);
+	const uint64_t readable = BGFX_TEXTURE_RT | msaa | (msaa != 0 ? BGFX_TEXTURE_MSAA_SAMPLE : 0);
+	for (uint64_t flags : {readable, BGFX_TEXTURE_RT_WRITE_ONLY | msaa}) {
+		for (bgfx::TextureFormat::Enum f : depthFormats) {
+			if (bgfx::isValid(depth_)) break;
+			if (!bgfx::isTextureValid(0, false, 1, f, flags)) continue;
+			depth_ = bgfx::createTexture2D(w, h, false, 1, f, flags);
+			depthReadable_ = flags == readable;
+		}
 	}
 	halfW_ = std::max(1, width / 2);
 	halfH_ = std::max(1, height / 2);
@@ -76,15 +85,17 @@ bool SceneTargets::BuildTargets(int width, int height) {
 	}
 	const bgfx::TextureHandle scene[] = {color_, depth_};
 	fb_ = bgfx::createFrameBuffer(2, scene, true);
+	colorFb_ = bgfx::createFrameBuffer(1, &color_, false);
 	halfFb_ = bgfx::createFrameBuffer(1, &half_, true);
-	if (!bgfx::isValid(fb_) || !bgfx::isValid(halfFb_)) {
+	if (!bgfx::isValid(fb_) || !bgfx::isValid(colorFb_) || !bgfx::isValid(halfFb_)) {
 		LogWarn("scene targets: no framebuffer at %dx%d, post-processing off", width, height);
 		ReleaseTargets();
 		return false;
 	}
 	width_ = width;
 	height_ = height;
-	LogInfo("scene targets: %dx%d msaa x%d, half %dx%d", width, height, msaa_, halfW_, halfH_);
+	LogInfo("scene targets: %dx%d msaa x%d, half %dx%d, depth %s", width, height, msaa_, halfW_, halfH_,
+			depthReadable_ ? "readable" : "write-only");
 	return true;
 }
 

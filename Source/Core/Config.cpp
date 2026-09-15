@@ -57,6 +57,9 @@ const EngineConfig::Known kKnown[] = {
 	{"SdfDebugGrid", "false", true, "a lattice of spheres lit by rays traced at their own vertices, under any type"},
 	{"SdfDebugModel", "false", true, "the zombie drawn in its bind pose ahead of the camera, turning, to check its traced light"},
 	{"SdfDebug", "false", true, "the distance field raymarched over the frame, as the vertex rays see it"},
+	{"SSAO", "false", true, "screen-space ambient occlusion over the scene, under either model shading"},
+	{"SSAOScreenRadius", "40", false, "SSAO radius, thousandths of the screen's height at any distance"},
+	{"SSAOStrength", "100", false, "SSAO strength, percent"},
 	{"BloomScale", "2", false, "bloom is blurred at 1/N of the screen; the original is 2"},
 	{"BloomKernel", "0", false, "bloom blur: 0 the Gaussian to three sigma, 1 the original 13 taps"},
 };

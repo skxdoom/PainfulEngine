@@ -36,41 +36,48 @@ public:
 	// Sky is drawn next and owns the clear; the world paints over it.
 	static constexpr bgfx::ViewId kSkyView = 66;
 	static constexpr bgfx::ViewId kWorldView = 67;
+	// SSAO (Render/Ssao.h): the occlusion at half size from the scene's depth,
+	// the two blurs, then the multiply over the scene - before anything reads
+	// the frame.
+	static constexpr bgfx::ViewId kSsaoView = 68;
+	static constexpr bgfx::ViewId kSsaoBlurHView = 69;
+	static constexpr bgfx::ViewId kSsaoBlurVView = 70;
+	static constexpr bgfx::ViewId kSsaoApplyView = 71;
 	// The scene's half-size copy (Render/SceneTargets.h), for the passes
 	// that sample the scene small.
 	// The particle_warp sprites: a copy of the scene so far, then the sprites
 	// drawn over the scene reading it (Render/ParticleRenderer.h, DrawWarp).
-	static constexpr bgfx::ViewId kSceneCopyView = 68;
-	static constexpr bgfx::ViewId kParticleWarpView = 69;
-	// What goes on after the haze so it is not refracted: the view model, the
-	// particles, the coronas. Only used on a frame with haze; otherwise they
-	// draw in the world view as before.
-	static constexpr bgfx::ViewId kAfterWarpView = 70;
-	static constexpr bgfx::ViewId kSceneHalfView = 71;
+	static constexpr bgfx::ViewId kSceneCopyView = 72;
+	static constexpr bgfx::ViewId kParticleWarpView = 73;
+	// What goes on after the haze so it is not refracted, and after SSAO so it
+	// is not darkened: the view model, the particles, the coronas. Only used on
+	// a frame with haze or SSAO; otherwise they draw in the world view as before.
+	static constexpr bgfx::ViewId kAfterWarpView = 74;
+	static constexpr bgfx::ViewId kSceneHalfView = 75;
 	// Bloom (Render/Bloom.h): the bright pass, the two blurs, then the
 	// composite that lands the scene on the backbuffer.
-	static constexpr bgfx::ViewId kBloomBrightView = 72;
-	static constexpr bgfx::ViewId kBloomBlurHView = 73;
-	static constexpr bgfx::ViewId kBloomBlurVView = 74;
-	static constexpr bgfx::ViewId kCompositeView = 75;
+	static constexpr bgfx::ViewId kBloomBrightView = 76;
+	static constexpr bgfx::ViewId kBloomBlurHView = 77;
+	static constexpr bgfx::ViewId kBloomBlurVView = 78;
+	static constexpr bgfx::ViewId kCompositeView = 79;
 	// Demon Morph (Render/DemonFx.h): the scene to black and white, the
 	// demonic models over it, the warp with the trail, the copy out.
-	static constexpr bgfx::ViewId kDemonGrayView = 76;
-	static constexpr bgfx::ViewId kDemonEntityView = 77;
-	static constexpr bgfx::ViewId kDemonWarpView = 78;
-	static constexpr bgfx::ViewId kDemonCopyView = 79;
+	static constexpr bgfx::ViewId kDemonGrayView = 80;
+	static constexpr bgfx::ViewId kDemonEntityView = 81;
+	static constexpr bgfx::ViewId kDemonWarpView = 82;
+	static constexpr bgfx::ViewId kDemonCopyView = 83;
 	// pfsdfdebug (Render/SdfFieldDebug.h): the distance field
 	// raymarched over the finished frame, under the 2D layer.
-	static constexpr bgfx::ViewId kSdfDebugView = 80;
+	static constexpr bgfx::ViewId kSdfDebugView = 84;
 	// The sky for the distance field's rays (Render/SkyCapture.h): one face
 	// drawn, then blitted for read-back in the view after it.
-	static constexpr bgfx::ViewId kSkyCaptureView = 81;
-	static constexpr bgfx::ViewId kSkyCaptureBlitView = 82;
+	static constexpr bgfx::ViewId kSkyCaptureView = 85;
+	static constexpr bgfx::ViewId kSkyCaptureBlitView = 86;
 	// The 2D layer, drawn over everything: no depth, in submission order.
-	static constexpr bgfx::ViewId kHudView = 83;
+	static constexpr bgfx::ViewId kHudView = 87;
 	// The model vertices traced through the distance field
 	// (Render/SdfVertexLight.h): compute only, after every view that reads them.
-	static constexpr bgfx::ViewId kSdfTraceView = 84;
+	static constexpr bgfx::ViewId kSdfTraceView = 88;
 
 	// A view's transform and rect from the camera, the way WorldRenderer::Draw
 	// sets the world view's - for a view that draws with the same eye later.

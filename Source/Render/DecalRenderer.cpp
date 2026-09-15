@@ -3,6 +3,7 @@
 // the fade factor and submits. Docs/Reference/Decals.md.
 
 #include "DecalRenderer.h"
+#include "../Assets/Emitter.h"
 #include "../Core/Log.h"
 #include "MaterialState.h"
 #include "ShaderLoad.h"
@@ -38,9 +39,19 @@ bool DecalRenderer::Init(const std::string& shaderDir) {
 		return false;
 	}
 	program_ = bgfx::createProgram(vs, fs, true);
+	bgfx::ShaderHandle fogVs = LoadShader(shaderDir, "vs_particle");
+	bgfx::ShaderHandle fogFs = LoadShader(shaderDir, "fs_decal_fog");
+	if (bgfx::isValid(fogVs) && bgfx::isValid(fogFs)) {
+		fogProgram_ = bgfx::createProgram(fogVs, fogFs, true);
+	} else {
+		if (bgfx::isValid(fogVs)) bgfx::destroy(fogVs);
+		if (bgfx::isValid(fogFs)) bgfx::destroy(fogFs);
+		LogWarn("decals: missing fs_decal_fog in %s; multiplying decals fog as the original did", shaderDir.c_str());
+	}
 	sDiffuse_ = bgfx::createUniform("s_diffuse", bgfx::UniformType::Sampler);
 	uFog_ = bgfx::createUniform("u_fog", bgfx::UniformType::Vec4);
 	uFogColor_ = bgfx::createUniform("u_fogColor", bgfx::UniformType::Vec4);
+	uDecalFog_ = bgfx::createUniform("u_decalFog", bgfx::UniformType::Vec4);
 	layout_.begin()
 		.add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
 		.add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Uint8, true)
@@ -50,14 +61,14 @@ bool DecalRenderer::Init(const std::string& shaderDir) {
 }
 
 void DecalRenderer::Shutdown() {
-	if (bgfx::isValid(program_)) bgfx::destroy(program_);
-	if (bgfx::isValid(sDiffuse_)) bgfx::destroy(sDiffuse_);
-	if (bgfx::isValid(uFog_)) bgfx::destroy(uFog_);
-	if (bgfx::isValid(uFogColor_)) bgfx::destroy(uFogColor_);
-	program_ = BGFX_INVALID_HANDLE;
-	sDiffuse_ = BGFX_INVALID_HANDLE;
-	uFog_ = BGFX_INVALID_HANDLE;
-	uFogColor_ = BGFX_INVALID_HANDLE;
+	for (bgfx::ProgramHandle* p : {&program_, &fogProgram_}) {
+		if (bgfx::isValid(*p)) bgfx::destroy(*p);
+		*p = BGFX_INVALID_HANDLE;
+	}
+	for (bgfx::UniformHandle* u : {&sDiffuse_, &uFog_, &uFogColor_, &uDecalFog_}) {
+		if (bgfx::isValid(*u)) bgfx::destroy(*u);
+		*u = BGFX_INVALID_HANDLE;
+	}
 	textures_.clear();
 }
 
@@ -121,8 +132,16 @@ void DecalRenderer::Draw(bgfx::ViewId view, const Camera& camera, const DecalSys
 		}
 
 		const int blend = d.def.blendMode < 0 ? 5 : d.def.blendMode;
-		uint64_t state = BGFX_STATE_WRITE_RGB | BGFX_STATE_MSAA | BGFX_STATE_DEPTH_TEST_LEQUAL |
-				BlendModeState(blend);
+		// A multiplying blend over a fogged wall darkens the wall's fog too: that
+		// decal goes unfogged, and a second pass adds its share of the fog back.
+		int fogPass = -1;
+		if (fog_[0] > 0.5f && bgfx::isValid(fogProgram_)) {
+			if (blend == kBlendInvModulate) fogPass = 0;
+			else if (blend == kBlendModulate || blend == kBlendFilter) fogPass = 1;
+			else if (blend == kBlendModulate2x) fogPass = 2;
+		}
+		const uint64_t depth = BGFX_STATE_MSAA | BGFX_STATE_DEPTH_TEST_LEQUAL;
+		uint64_t state = BGFX_STATE_WRITE_RGB | depth | BlendModeState(blend);
 		if (blend == 0) state |= BGFX_STATE_WRITE_Z;
 		bgfx::setState(state);
 		// On a moving mesh the vertices are in the body's frame.
@@ -130,12 +149,30 @@ void DecalRenderer::Draw(bgfx::ViewId view, const Camera& camera, const DecalSys
 		bgfx::setVertexBuffer(0, &tvb, 0, count);
 		float fogColor[4];
 		FogColorForBlend(blend, fogColor_, fogColor);
-		bgfx::setUniform(uFog_, fog_);
+		const float noFog[4] = {0.f, 0.f, 0.f, 0.f};
+		bgfx::setUniform(uFog_, fogPass >= 0 ? noFog : fog_);
 		bgfx::setUniform(uFogColor_, fogColor);
 		bgfx::setTexture(0, sDiffuse_, frames.frames[frame], FilteredSampler(0));
 		bgfx::submit(view, program_);
 		++drawCalls_;
 		triangles_ += count / 3;
+
+		// modulate2x brightens past the fog as well as darkening it: its share is
+		// added where the decal is under half and taken off where it is over.
+		for (int k = 0; fogPass >= 0 && k < (fogPass == 2 ? 2 : 1); ++k) {
+			const float share[4] = {float(fogPass + k), 0.f, 0.f, 0.f};
+			uint64_t add = BGFX_STATE_WRITE_RGB | depth | BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ONE);
+			if (fogPass + k == 3) add |= BGFX_STATE_BLEND_EQUATION(BGFX_STATE_BLEND_EQUATION_REVSUB);
+			bgfx::setState(add);
+			if (d.attached) bgfx::setTransform(d.transform.m);
+			bgfx::setVertexBuffer(0, &tvb, 0, count);
+			bgfx::setUniform(uFog_, fog_);
+			bgfx::setUniform(uFogColor_, fogColor_);
+			bgfx::setUniform(uDecalFog_, share);
+			bgfx::setTexture(0, sDiffuse_, frames.frames[frame], FilteredSampler(0));
+			bgfx::submit(view, fogProgram_);
+			++drawCalls_;
+		}
 	}
 }
 

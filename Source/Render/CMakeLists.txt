@@ -30,6 +30,7 @@ add_library(Render STATIC
 		SdfDebug.cpp SdfDebug.h
 		SdfFieldDebug.cpp SdfFieldDebug.h
 		SkyCapture.cpp SkyCapture.h
+		Ssao.cpp Ssao.h
 		ShaderLoad.cpp ShaderLoad.h
 		Camera.cpp Camera.h
 		MeshVertex.h

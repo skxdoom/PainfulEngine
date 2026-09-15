@@ -9,7 +9,7 @@ namespace painful {
 // world views draw into this target instead of the backbuffer, and a
 // half-size copy is made once for whoever samples the scene small (the
 // bloom's bright pass, the demon trail). Owned by the app, read by
-// Render/Bloom.h and Render/DemonFx.h. Docs/Reference/Bloom.md, "Targets".
+// Render/Bloom.h, Render/DemonFx.h and Render/Ssao.h. Docs/Reference/Bloom.md, "Targets".
 class SceneTargets {
 public:
 	~SceneTargets() { Shutdown(); }
@@ -46,8 +46,13 @@ public:
 	int msaa() const { return msaa_; }
 	bgfx::TextureHandle color() const { return color_; }
 	bgfx::TextureHandle depth() const { return depth_; }
+	// The depth can be sampled: multisampled, as Texture2DMS, when msaa() is 2
+	// or more. False where the device offers it write-only.
+	bool depthReadable() const { return depthReadable_; }
 	bgfx::TextureHandle half() const { return half_; }
 	bgfx::FrameBufferHandle framebuffer() const { return fb_; }
+	// The colour alone, for a pass that draws over the scene reading its depth.
+	bgfx::FrameBufferHandle colorFramebuffer() const { return colorFb_; }
 	const bgfx::VertexLayout& layout() const { return layout_; }
 	// The plain copy program, for any pass that only moves pixels.
 	bgfx::ProgramHandle copyProgram() const { return copy_; }
@@ -64,8 +69,10 @@ private:
 	bgfx::UniformHandle sScene_ = BGFX_INVALID_HANDLE;
 	bgfx::VertexLayout layout_;
 	bgfx::FrameBufferHandle fb_ = BGFX_INVALID_HANDLE;
+	bgfx::FrameBufferHandle colorFb_ = BGFX_INVALID_HANDLE;
 	bgfx::TextureHandle color_ = BGFX_INVALID_HANDLE;
 	bgfx::TextureHandle depth_ = BGFX_INVALID_HANDLE;
+	bool depthReadable_ = false;
 	bgfx::FrameBufferHandle halfFb_ = BGFX_INVALID_HANDLE;
 	bgfx::TextureHandle half_ = BGFX_INVALID_HANDLE;
 	bgfx::FrameBufferHandle sceneCopyFb_ = BGFX_INVALID_HANDLE;

@@ -25,6 +25,7 @@
 #include "Game/ScriptEngine.h"
 #include "Render/BillboardRenderer.h"
 #include "Render/Bloom.h"
+#include "Render/Ssao.h"
 #include "Render/DebugLines.h"
 #include "Render/DemonFx.h"
 #include "Render/SceneTargets.h"
@@ -467,6 +468,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	// PAINFUL_BLOOM=0 turns it off for an A/B.
 	Bloom bloom;
 	const bool bloomInit = sceneInit && bloom.Init(shaderDir);
+	// Screen-space ambient occlusion over the scene (Render/Ssao.h), under either model shading.
+	Ssao ssao;
+	const bool ssaoInit = sceneInit && ssao.Init(shaderDir);
+	bool ssaoOn = false;
 	bool bloomThisFrame = false;
 	bool warpOn = false;
 	// Demon Morph, WORLD.EnableDemonFX's frame; it replaces the bloom path
@@ -544,6 +549,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		sdfFieldDebugOn = sdfFieldDebugInit && cfg.GetBool("SdfDebug", false);
 		sdfModelName = cfg.GetBool("SdfDebugModel", false) ? "zombie" : "";
 		bloom.SetQuality(cfg.GetInt("BloomScale", 2), cfg.GetInt("BloomKernel", 0));
+		ssaoOn = ssaoInit && cfg.GetBool("SSAO", false);
+		ssao.SetParams(float(std::max(cfg.GetInt("SSAOScreenRadius", 40), 1)) / 1000.f,
+				float(std::clamp(cfg.GetInt("SSAOStrength", 100), 0, 100)) / 100.f);
 	};
 	applySettings();
 	SkyRenderer sky;
@@ -1348,7 +1356,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			// The heat-haze sprites read the frame, so a frame with one keeps the
 			// scene in its target too. Particles.md, "The warp sprites".
 			warpOn = particlesReady && particles.HasWarp();
-			sceneTargets.BeginFrame(window.width(), window.height(), bloomOn || demonOn || warpOn,
+			sceneTargets.BeginFrame(window.width(), window.height(), bloomOn || demonOn || warpOn || ssaoOn,
 					Renderer::kSkyView, Renderer::kWorldView);
 			bloom.SetParams(ws.bloomThreshold, ws.bloomMultiplier, ws.bloomOverlay);
 			bloomThisFrame = bloomOn;
@@ -1427,6 +1435,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			world.Draw(Renderer::kWorldView, camera, window.width(), window.height(),
 					info, elapsed);
 		const bool warpPass = warpOn && sceneTargets.active();
+		// The weapon, the particles and the coronas in a view after the scene's:
+		// past the haze's copy so they are not refracted, past SSAO so they are not darkened.
+		const bool latePass = sceneTargets.active() && (warpOn || ssaoOn);
 		// pfsdfdebuggrid keeps half the vertex-trace budget from the models.
 		if (sdfGridOn && sdfVertexInit) sdfVertex.Reserve(SdfVertexLight::kTracesPerFrame / 2);
 		// pfsdfdebugmodel: made or swapped when the name changes, placed along the view.
@@ -1446,7 +1457,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 					camera.pos + camera.Forward() * distance - Vec3{0.f, height * 0.5f, 0.f},
 					Quat::FromEuler(0.f, elapsed * 0.5f, 0.f));
 		}
-		entities.SetDrawSet(warpPass ? EntityRenderer::kSceneOnly : EntityRenderer::kAll);
+		entities.SetDrawSet(latePass ? EntityRenderer::kSceneOnly : EntityRenderer::kAll);
 		entities.Draw(Renderer::kWorldView, camera, window.width(), window.height(),
 				info, elapsed);
 		entities.SetDrawSet(EntityRenderer::kAll);
@@ -1470,6 +1481,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			decals.SetFog(info.fogMode, info.fogStart, info.fogEnd, info.fogDensity, info.fogColor);
 			decals.Draw(Renderer::kWorldView, camera, engine.decals(), textures);
 		}
+		// SSAO over the scene the world view drew, before anything reads the frame.
+		if (ssaoOn && sceneTargets.active())
+			ssao.Draw(sceneTargets, camera, Renderer::kSsaoView, Renderer::kSsaoBlurHView, Renderer::kSsaoBlurVView,
+					Renderer::kSsaoApplyView);
 		// The heat haze reads the frame BEFORE the fire and the weapon go on:
 		// a copy of the scene, the warp sprites over it, then the view model in
 		// a view of its own after them (bgfx orders views, and within one it
@@ -1480,6 +1495,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			bgfx::setViewFrameBuffer(Renderer::kParticleWarpView, sceneTargets.framebuffer());
 			particles.DrawWarp(Renderer::kParticleWarpView, camera, window.width(), window.height(),
 					sceneTargets.sceneCopy());
+		}
+		// The weapon, the particles and the coronas after the haze and SSAO alike.
+		if (latePass) {
 			bgfx::setViewFrameBuffer(Renderer::kAfterWarpView, sceneTargets.framebuffer());
 			Renderer::SetViewCamera(Renderer::kAfterWarpView, camera, window.width(), window.height());
 			entities.SetDrawSet(EntityRenderer::kViewModelOnly);
@@ -1488,7 +1506,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			entities.SetDrawSet(EntityRenderer::kAll);
 		}
 		if (vmShadows.ready()) entities.DrawViewModelShadows(vmShadows, elapsed);
-		const bgfx::ViewId lateView = warpPass ? Renderer::kAfterWarpView : Renderer::kWorldView;
+		const bgfx::ViewId lateView = latePass ? Renderer::kAfterWarpView : Renderer::kWorldView;
 		// Particles then coronas last, exactly as in the hand-driven loop:
 		// blended, no depth writes, and coronas ignore depth entirely.
 		// Paused stops the SIMULATION but not the drawing, here as everywhere

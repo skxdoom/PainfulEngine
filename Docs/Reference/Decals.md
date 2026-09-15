@@ -221,6 +221,20 @@ so they win the test against the wall they were cut from. Fog uses the
 blend's own fog colour (white for the modulate family), so a far decal fades
 to nothing rather than to the fog.
 
+**Fog under a multiplying blend.** Fading the decal is enough under a blend that
+adds or covers, not under one that multiplies: the wall beneath is already
+fogged, so darkening it darkens its fog as well, and a bloodstain in bright fog
+stayed dark where the wall about it had gone pale (the user's report). The
+original fogs the source before the blend in the same way and has the same flaw.
+So a multiplying decal - `invmodulate`, `modulate`, `filter`, `modulate2x` -
+draws unfogged, and a second pass (`fs_decal_fog`, blend `one, one`) adds back
+its share of the fog colour. With the wall D = Af + F(1 - f) already fogged, f
+the fog's clear share and F its colour: `invmodulate` leaves D(1 - c) where the
+fogged decal is D(1 - c) + cF(1 - f); `modulate` and `filter` leave Dc against
+Dc + (1 - c)F(1 - f); `modulate2x` leaves 2cD against 2cD + (1 - 2c)F(1 - f),
+the negative part taken off by a third pass under a reverse subtract. Exact for
+any wall, whatever A was; it costs one draw more a decal in a fogged level.
+
 ## Checking it without a window
 
 `PAINFUL_DECAL_TRACE=1` logs every spawn with the object count and the

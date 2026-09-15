@@ -799,6 +799,42 @@ wall thinner than a voxel,
 models occluding themselves or each other (they are not in the field), and
 nothing re-voxelized when a destructible's intact twin hides.
 
+## Screen-space ambient occlusion
+
+`Pf.SSAO` (console `pfssao 1`) darkens the scene where its surfaces crowd each
+other - corners, the floor under a monster, a barrel against a wall - from the
+depth the frame already drew, so it takes the models as they stand, under either
+model shading. A deviation with nothing to recover behind it: the lightmaps hold
+the world's own corners, and nothing held what the models add to them
+(`Render/Ssao.cpp`).
+
+It needs the scene in its target (`Render/SceneTargets.h`), which a frame with
+SSAO keeps it in, and a depth it can sample: the target's depth is created
+readable where the device allows, multisampled like the colour, and read at its
+first sample, since depth does not resolve. At half size, each pixel's view-space
+position comes back through the inverse projection and its normal from its
+neighbours - each axis from the side whose depth runs on smoothly - and McGuire's
+Alchemy obscurance is summed over 12 taps on a spiral of seven turns, turned per
+pixel by interleaved gradient noise, within `SSAOScreenRadius` (40 thousandths of
+the screen's height): the same share of the screen at any distance and any
+resolution, its radius in the world growing with the depth. It was a world radius
+of one unit first: from a distance the occlusion shrank to a few noisy pixels
+(the user's report), and at arm's length a wall spread its taps wide and drew a
+dark band across itself. The sky takes none. The estimator is scaled by 2 where
+McGuire's is 5, which took
+Cathedral's corners to black (6.4% of the pixels it changed). Two blurs of seven
+taps follow, a tap weighted down by how far its depth is from
+the centre's; then the result, at `SSAOStrength` (100 percent), multiplies the
+scene's colour before anything reads the frame (views 68-71, ahead of the haze's
+copy and the bloom). The view model, the particles and the coronas draw after
+it, in the view a frame with haze already puts them in: drawn in the world view,
+the dust of a shot at the ground showed the occlusion of the ground behind it
+(the user's report), and the weapon's depth would have occluded the wall. Measured on 2026-09-15 (Release, hidden window,
+1600x900, 4x MSAA, the depth readable), with the screen radius: by Cathedral's
+first monks under type 0 it changed 8.1% of the frame, the mean level 53.1 to
+51.3; on City on Water's start under type 1, 124.2 to 121.5; on Catacombs'
+start, 3.6% of the frame, 68.0 to 67.0.
+
 ## What the scripts do with them
 
 | Who | What |
