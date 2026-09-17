@@ -31,12 +31,6 @@
 #include "Render/SceneTargets.h"
 #include "Render/WaterReflection.h"
 #include "Render/EnvCubeMap.h"
-#include "Render/SdfLighting.h"
-#include "Render/SdfField.h"
-#include "Render/SdfVertexLight.h"
-#include "Render/SdfDebug.h"
-#include "Render/SdfFieldDebug.h"
-#include "Render/SkyCapture.h"
 #include "Render/DecalRenderer.h"
 #include "Render/EntityRenderer.h"
 #include "Render/HudRenderer.h"
@@ -437,38 +431,12 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	WaterReflection waterReflection;
 	WaterReflection waterRefraction;
 	EnvCubeMap envCube;
-	// Pf.RendererType 1: the light traced at every model vertex through one
-	// distance field of the level, built on the CPU and marched on the GPU.
-	SdfLighting sdf;
-	SdfField sdfField;
-	const bool sdfFieldInit = sdfField.Init();
-	SdfVertexLight sdfVertex;
-	const bool sdfVertexInit = sdfFieldInit && sdfVertex.Init(shaderDir);
-	int rendererType = 0;
-	float sdfGain = 1.f;
-	// pfsdfdebuggrid: a lattice of spheres traced at their own vertices.
-	SdfDebug sdfDebug;
-	const bool sdfDebugInit = sdfVertexInit && sdfDebug.Init(shaderDir);
-	bool sdfGridOn = false;
-	// pfsdfdebugmodel: one model in its bind pose ahead of the camera, turning.
-	constexpr float kSdfModelScale = 0.18f; // the Zombie template's Scale 1.8 under the scripts' x0.1
-	constexpr float kSdfModelDistance = 3.f;
-	std::string sdfModelName, sdfModelLoaded;
-	int sdfModelSlot = -1;
-	// pfsdfdebug: the field's surfaces raymarched over the frame.
-	SdfFieldDebug sdfFieldDebug;
-	const bool sdfFieldDebugInit = sdfFieldInit && sdfFieldDebug.Init(shaderDir);
-	bool sdfFieldDebugOn = false;
-	// The sky as the light a probe ray takes when it leaves the level.
-	SkyCapture skyCapture;
-	const bool skyCaptureInit = skyCapture.Init();
-	bool skyHandedOver = false;
 	const bool sceneInit = sceneTargets.Init(shaderDir);
 	// The post-process. Cfg.Bloom and the level's BloomFX gate it per frame;
 	// PAINFUL_BLOOM=0 turns it off for an A/B.
 	Bloom bloom;
 	const bool bloomInit = sceneInit && bloom.Init(shaderDir);
-	// Screen-space ambient occlusion over the scene (Render/Ssao.h), under either model shading.
+	// Screen-space ambient occlusion over the scene (Render/Ssao.h).
 	Ssao ssao;
 	const bool ssaoInit = sceneInit && ssao.Init(shaderDir);
 	bool ssaoOn = false;
@@ -530,24 +498,6 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		}
 		world.SetLightShadowStrength(float(cfg.GetInt("LightShadowWorldStrength", 100)) / 100.f);
 
-		// RendererType: 0 the original model shading; 1 the light traced at every
-		// model vertex through the level's distance field (Render/SdfVertexLight.h),
-		// the box's own terms, unscaled, where a vertex is not traced.
-		rendererType = cfg.GetInt("RendererType", 0);
-		entities.SetLightScale(rendererType == 1 ? float(cfg.GetInt("ModelLightScale", 100)) / 100.f : 1.f);
-		sdfGain = float(cfg.GetInt("SdfGain", 100)) / 100.f;
-		sdf.SetAlbedo(float(std::clamp(cfg.GetInt("SdfAlbedo", 0), 0, 100)) / 100.f);
-		sdf.SetFieldBudget(size_t(std::clamp(cfg.GetInt("SdfFieldMB", 256), 8, 1024)) << 20);
-		sdf.SetSkyGain(float(std::max(cfg.GetInt("SdfSkyGain", 100), 0)) / 100.f,
-				float(std::max(cfg.GetInt("SdfSkyHighlight", 0), 0)) / 100.f);
-		sdfField.SetFogGain(float(std::max(cfg.GetInt("SdfFogGain", 100), 0)) / 100.f);
-		entities.SetSdfVertex(rendererType == 1 && sdfVertexInit ? &sdfVertex : nullptr, sdfGain,
-				float(std::max(cfg.GetInt("SdfSheen", 100), 0)) / 100.f,
-				float(std::clamp(cfg.GetInt("SdfSheenF0", 4), 0, 100)) / 100.f);
-		// The distance field debug views, under either type.
-		sdfGridOn = sdfDebugInit && cfg.GetBool("SdfDebugGrid", false);
-		sdfFieldDebugOn = sdfFieldDebugInit && cfg.GetBool("SdfDebug", false);
-		sdfModelName = cfg.GetBool("SdfDebugModel", false) ? "zombie" : "";
 		bloom.SetQuality(cfg.GetInt("BloomScale", 2), cfg.GetInt("BloomKernel", 0));
 		ssaoOn = ssaoInit && cfg.GetBool("SSAO", false);
 		ssao.SetParams(float(std::max(cfg.GetInt("SSAOScreenRadius", 40), 1)) / 1000.f,
@@ -568,15 +518,6 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		if (!levelUp) return;
 		world.Clear();
 		decals.Clear();
-		sdf.Clear();
-		sdfField.Clear();
-		sdfVertex.Clear();
-		sdfDebug.Clear();
-		if (sdfModelSlot >= 0) entities.ReleaseScript(sdfModelSlot);
-		sdfModelSlot = -1;
-		sdfModelLoaded.clear();
-		skyCapture.Clear();
-		skyHandedOver = false;
 		sky.Unload();
 		collision = CollisionMesh();
 		fallbackMap = MapMesh();
@@ -724,9 +665,6 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		else LogWarn("map failed: %s (%s)", mapPath.c_str(), fallbackMap.error.c_str());
 	}
 	if (map) {
-		// Read on the first frame of RendererType 1, not here: type 0 pays nothing.
-		sdf.SetLevel(map, info.scale, info.overbright, &textures, MapNameWithoutExtension(info.mapFile));
-		sdfField.SetFog(info.fogMode, info.fogStart, info.fogEnd, info.fogDensity, info.fogColor);
 		if (worldInit) {
 			world.Upload(*map, textures, MapNameWithoutExtension(info.mapFile), info,
 					&shaderScripts, /*skipActiveMeshes=*/true);
@@ -1382,20 +1320,6 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 					cube = envCube.texture();
 				entities.SetEnvCube(cube);
 			}
-			// The distance field: adopt what the worker finished and upload it in
-			// slabs; the vertex traces dispatch after the frame's draws.
-			if (worldReady && sdfFieldInit && (rendererType == 1 || sdfGridOn || sdfFieldDebugOn)) {
-				// The sky first, once a level: the light a ray leaving the level takes.
-				if (skyCaptureInit && !skyCapture.done())
-					skyCapture.Tick(Renderer::kSkyCaptureView, Renderer::kSkyCaptureBlitView,
-							skyReady ? &sky : nullptr, elapsed, renderer.frameNumber());
-				if (skyCapture.done() && !skyHandedOver) {
-					sdf.SetSky(skyCapture.map(), SkyCapture::kWidth, SkyCapture::kHeight);
-					skyHandedOver = true;
-				}
-				sdf.Update();
-				sdfField.Update(sdf);
-			}
 			WorldRenderer::Reflection refl;
 			bgfx::TextureHandle reflTex = BGFX_INVALID_HANDLE;
 			if (worldReady && DebugInt("PAINFUL_WATER_REFLECT", 1) > 0 &&
@@ -1438,35 +1362,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		// The weapon, the particles and the coronas in a view after the scene's:
 		// past the haze's copy so they are not refracted, past SSAO so they are not darkened.
 		const bool latePass = sceneTargets.active() && (warpOn || ssaoOn);
-		// pfsdfdebuggrid keeps half the vertex-trace budget from the models.
-		if (sdfGridOn && sdfVertexInit) sdfVertex.Reserve(SdfVertexLight::kTracesPerFrame / 2);
-		// pfsdfdebugmodel: made or swapped when the name changes, placed along the view.
-		if (worldReady && sdfModelName != sdfModelLoaded) {
-			if (sdfModelSlot >= 0) entities.ReleaseScript(sdfModelSlot);
-			sdfModelSlot = sdfModelName.empty() ? -1 : entities.CreateScriptModel(sdfModelName, kSdfModelScale,
-					textures, std::string(dataRoot) + "/Models");
-			if (!sdfModelName.empty() && sdfModelSlot < 0) LogWarn("pfsdfdebugmodel: no model %s", sdfModelName.c_str());
-			sdfModelLoaded = sdfModelName;
-		}
-		if (sdfModelSlot >= 0) {
-			// Its middle on the view (the origin is at its feet), far enough to fit whole.
-			Vec3 size;
-			const float height = entities.GetScriptDimensions(sdfModelSlot, size) ? size.y : 2.f;
-			const float distance = std::max(kSdfModelDistance, height * 1.2f);
-			entities.SetScriptPose(sdfModelSlot,
-					camera.pos + camera.Forward() * distance - Vec3{0.f, height * 0.5f, 0.f},
-					Quat::FromEuler(0.f, elapsed * 0.5f, 0.f));
-		}
 		entities.SetDrawSet(latePass ? EntityRenderer::kSceneOnly : EntityRenderer::kAll);
 		entities.Draw(Renderer::kWorldView, camera, window.width(), window.height(),
 				info, elapsed);
 		entities.SetDrawSet(EntityRenderer::kAll);
-		// pfsdfdebuggrid: the probe lattice, opaque, in the world view.
-		if (worldReady && sdfGridOn)
-			sdfDebug.Draw(Renderer::kWorldView, camera, sdfField, sdfVertex, sdfGain);
-		// pfsdfdebug: the field over the finished frame, in a view of its own.
-		if (worldReady && sdfFieldDebugOn)
-			sdfFieldDebug.Draw(Renderer::kSdfDebugView, camera, window.width(), window.height(), sdfField);
 		// The casters, after the passes that cull the zones and pose the
 		// models; bgfx orders the views, not the calls.
 		if (shadow.active()) {
@@ -1720,10 +1619,6 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 				"red non-colliding, GREEN BOX = no physics body"
 				: "");
 		}
-		// Pf.RendererType 1 and pfsdfdebuggrid: the vertices every draw of the
-		// frame queued, traced after them in the compute view.
-		if (worldReady && sdfVertexInit && (rendererType == 1 || sdfGridOn))
-			sdfVertex.Dispatch(sdfField, Renderer::kSdfTraceView);
 		renderer.EndFrame();
 
 		if (!shotPath.empty()) {
