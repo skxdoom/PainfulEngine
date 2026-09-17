@@ -79,8 +79,10 @@ public:
 	// orthographic map about the camera that only the models cast into.
 	void SetModelShadowMap(const ShadowMap* shadow) { modelShadow_ = shadow; }
 	// A depth pass into `map`: every opaque part of every caster inside its
-	// frustum, from the buffers Draw posed. Called after Draw, once per map.
-	void DrawShadow(bgfx::ViewId view, const ShadowMap& map, float timeSeconds);
+	// frustum, from the buffers Draw posed. Called after Draw, once per map;
+	// `charactersOnly` for the model map.
+	void DrawShadow(bgfx::ViewId view, const ShadowMap& map, float timeSeconds,
+			bool charactersOnly = false);
 	// The environment directional at a point - the direction TO the light
 	// and its colour - as a model standing there would be lit. What aims
 	// the model shadow map.
@@ -100,6 +102,10 @@ public:
 	// Whether an instance casts into the shadow map. Off for the view model:
 	// it sits in front of the flashlight and would black out the beam.
 	void SetScriptCastsShadow(int slot, bool casts);
+	// MDL.CreateShadowMap: a character, the only kind that casts into the model
+	// (directional) map. Lighting.md, "Character shadows"
+	void SetScriptCharacterShadow(int slot, bool on);
+	size_t characterCount() const;
 	// The view model: reads its own fitted maps, and casts into those alone.
 	void SetScriptViewModel(int slot, bool viewModel);
 	// Which instances Draw takes: the view model is drawn in a later pass on a
@@ -298,6 +304,7 @@ private:
 		bool alive = true;
 		bool visible = true;
 		bool castsShadow = true;
+		bool characterShadow = false;
 		bool viewModel = false;
 		bool demonic = false;
 		// MDL.SetMeshVisibility: which of the model's parts this instance hides.

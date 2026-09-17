@@ -208,7 +208,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	// before the level loads, since the scripts create entities as they go.
 	entities.SetShaders(&shaderScripts);
 	// The flashlight's shadow map, from painful_config.ini: FlashlightShadows
-	// switches it, ShadowMapSize sizes it (512 by the user's eye - 2048 read
+	// switches it, FlashlightShadowMapSize sizes it (512 by the user's eye - 2048 read
 	// as too crisp for a torch). PAINFUL_SHADOWMAP overrides both; 0 is off.
 	// Docs/Reference/Lighting.md, "Shadows"
 	// The three are sized and switched by ApplySettings below, from
@@ -449,7 +449,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	// The map's fog and light volumes (Render/VolumeRenderer.h).
 	VolumeRenderer volumes;
 	const bool volumesInit = sceneInit && volumes.Init(shaderDir);
-	bool volumesOn = false, volumesThisFrame = false;
+	bool volumesThisFrame = false;
 	bool bloomThisFrame = false;
 	bool warpOn = false;
 	// Demon Morph, WORLD.EnableDemonFX's frame; it replaces the bloom path
@@ -473,7 +473,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 				: aspect == 1 ? HudRenderer::Aspect::kCentered
 				: HudRenderer::Aspect::kAnchored);
 
-		int size = cfg.GetBool("FlashlightShadows", true) ? cfg.GetInt("ShadowMapSize", 512) : 0;
+		int size = cfg.GetBool("FlashlightShadows", true) ? cfg.GetInt("FlashlightShadowMapSize", 512) : 0;
 		size = DebugInt("PAINFUL_SHADOWMAP", size);
 		if (size != shadowSize) {
 			shadow.Shutdown();
@@ -481,13 +481,14 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			shadowSize = size;
 		}
 
-		size = anyMaps && cfg.GetBool("ModelShadows", true) ? cfg.GetInt("ModelShadowMapSize", 1024) : 0;
+		// Switched by the menu's "Character Shadows" alone (engine.shadowsEnabled()).
+		size = anyMaps ? cfg.GetInt("CharacterShadowMapSize", 1024) : 0;
 		if (size != modelSize) {
 			modelShadow.Shutdown();
 			modelShadow.Init(shaderDir, size);
 			modelSize = size;
 		}
-		modelShadow.SetStrength(float(cfg.GetInt("ModelShadowStrength", 60)) / 100.f);
+		modelShadow.SetStrength(float(cfg.GetInt("CharacterShadowMapStrength", 60)) / 100.f);
 
 		size = anyMaps && cfg.GetBool("LightShadows", true) ? cfg.GetInt("LightShadowMapSize", 256) : 0;
 		const int count = std::min(cfg.GetInt("LightShadowLights", 8),
@@ -510,7 +511,6 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 
 		bloom.SetQuality(cfg.GetInt("BloomScale", 2), cfg.GetInt("BloomKernel", 0));
 		ssaoOn = ssaoInit && cfg.GetBool("SSAO", false);
-		volumesOn = volumesInit && cfg.GetBool("FogVolumes", true);
 		ssao.SetParams(float(std::max(cfg.GetInt("SSAOScreenRadius", 40), 1)) / 1000.f,
 				float(std::clamp(cfg.GetInt("SSAOStrength", 100), 0, 100)) / 100.f);
 		ssao.SetShape(float(std::max(cfg.GetInt("SSAOIntensity", 500), 0)) / 100.f,
@@ -1219,15 +1219,16 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			window.TakeLeftRelease();
 			window.TakeRightRelease();
 		}
-		// The console over everything, and its message strip when it is
-		// down, in window pixels. The frame is the menu's border, drawn in
-		// authoring units, so the menu has to know the canvas even while it
-		// is not up.
+		// The console over everything, and its message strip when it is down,
+		// stretched over the window as the original's W/1024 x H/768 draws it. The
+		// frame is the menu's border, so the menu takes the window size and then the
+		// canvas back. Console.md, "What it draws"
 		if (hudReady) {
-			engine.menu().SetScreenSize(hud.canvasWidth(), hud.canvasHeight());
+			engine.menu().SetScreenSize(window.width(), window.height());
 			hud.UseCanvas(false);
 			con.Draw(hud, engine.menu(), window.width(), window.height(), elapsed);
 			hud.UseCanvas(true);
+			engine.menu().SetScreenSize(hud.canvasWidth(), hud.canvasHeight());
 		}
 		host.CallGlobal("Game_GC", nullptr, 0);
 		// Entities the scripts spawned this frame get their renderer slots.
@@ -1328,7 +1329,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			// scene in its target too. Particles.md, "The warp sprites".
 			warpOn = particlesReady && particles.HasWarp();
 			// The fog and light volumes read the scene's depth, so they keep it too.
-			volumesThisFrame = volumesOn && worldReady && volumes.AnyInView(camera, window.width(), window.height());
+			volumesThisFrame = volumesInit && worldReady && volumes.AnyInView(camera, window.width(), window.height());
 			// Not under wireframe: bgfx's flag reaches the fullscreen present too, which
 			// then draws only its edges and leaves the backbuffer uncleared (a frozen frame).
 			sceneTargets.BeginFrame(window.width(), window.height(),
@@ -1413,7 +1414,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			entities.DrawShadow(Renderer::kShadowView, shadow, elapsed);
 		}
 		if (modelShadow.active())
-			entities.DrawShadow(Renderer::kModelShadowView, modelShadow, elapsed);
+			entities.DrawShadow(Renderer::kModelShadowView, modelShadow, elapsed, true);
 		entities.DrawLightShadows(elapsed);
 		// Decals over the world and the props, before anything blended. Their colour
 		// is albedo, so the lighting-only view goes without them.
@@ -1698,11 +1699,12 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 						bloom.active() ? "on" : "off", bloom.bufferWidth(), bloom.bufferHeight(),
 						bloom.taps(), bloom.threshold(), bloom.multiplier(), renderer.msaaSamples(),
 						demonFx.active() ? "on" : "off");
-				LogInfo("  shadow maps: flashlight %s, models %s, %zu placed lights "
+				LogInfo("  shadow maps: flashlight %s, characters %s (%zu), %zu placed lights "
 						"(%zu baked chunk slots), view model %s; %zu world draws, "
 						"%zu entity draws in all",
 						shadow.active() ? "on" : (shadow.ready() ? "idle" : "OFF"),
-						modelShadow.active() ? "on" : "OFF", entities.shadowLights().size(),
+						modelShadow.active() ? "on" : "OFF", entities.characterCount(),
+						entities.shadowLights().size(),
 						world.bakedShadowSlots(), vmShadows.active() ? "on" : "off",
 						world.shadowDrawCalls(), entities.shadowDrawCalls());
 				LogInfo("  lights: %zu placed, %zu from scripts (%zu of them dynamic), "

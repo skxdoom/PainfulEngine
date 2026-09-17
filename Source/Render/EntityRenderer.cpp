@@ -741,6 +741,19 @@ void EntityRenderer::SetScriptCastsShadow(int slot, bool casts) {
 	instances_[slot].castsShadow = casts;
 }
 
+void EntityRenderer::SetScriptCharacterShadow(int slot, bool on) {
+	if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
+			"EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
+		return;
+	instances_[slot].characterShadow = on;
+}
+
+size_t EntityRenderer::characterCount() const {
+	size_t n = 0;
+	for (const Instance& instance : instances_) n += instance.alive && instance.characterShadow;
+	return n;
+}
+
 void EntityRenderer::SetScriptViewModel(int slot, bool viewModel) {
 	if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
 			"EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
@@ -870,12 +883,14 @@ void EntityRenderer::DrawCaster(bgfx::ViewId view, bgfx::ProgramHandle program,
 	}
 }
 
-void EntityRenderer::DrawShadow(bgfx::ViewId view, const ShadowMap& map, float timeSeconds) {
+void EntityRenderer::DrawShadow(bgfx::ViewId view, const ShadowMap& map, float timeSeconds,
+		bool charactersOnly) {
 	// Counted across the maps drawn this frame; Draw resets it.
 	if (!map.active() || !bgfx::isValid(map.program())) return;
 	const Frustum& frustum = map.frustum();
 	for (Instance& instance : instances_) {
 		if (!instance.alive || !instance.visible || !instance.castsShadow) continue;
+		if (charactersOnly && !instance.characterShadow) continue;
 		if (!frustum.VisibleAabb(instance.aabbLo, instance.aabbHi)) continue;
 		DrawCaster(view, map.program(), instance, models_[instance.model], timeSeconds);
 	}
@@ -1098,7 +1113,8 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 		const bool inView = !visCulling_ || frustum.VisibleAabb(instance.aabbLo, instance.aabbHi);
 		bool inBeam = instance.castsShadow &&
 				((beam && shadow_->frustum().VisibleAabb(instance.aabbLo, instance.aabbHi)) ||
-				(box && modelShadow_->frustum().VisibleAabb(instance.aabbLo, instance.aabbHi)));
+				(box && instance.characterShadow &&
+				modelShadow_->frustum().VisibleAabb(instance.aabbLo, instance.aabbHi)));
 		if (!inView && !inBeam && instance.castsShadow) {
 			const float radius = (instance.aabbHi - instance.aabbLo).Length() * 0.5f;
 			for (const ShadowedLight& s : shadowPicks_) {

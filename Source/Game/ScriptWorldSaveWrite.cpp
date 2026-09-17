@@ -411,7 +411,7 @@ void ScriptEngine::BuildWorldSave(WorldSave& out) {
 			FileRot(e.rot, m.rot);
 			m.f700 = 1.f;
 			m.material = Z(e.materialName);
-			m.shadow = monster ? 1 : 0;
+			m.shadow = e.characterShadow ? 1 : 0;
 			for (const std::string& mesh : meshesOf(e.source)) {
 				const auto it = e.hiddenMeshes.find(mesh);
 				m.meshVisible.push_back(it == e.hiddenMeshes.end() || it->second ? 1 : 0);

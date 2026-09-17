@@ -454,9 +454,10 @@ The ordered work queue, with the evidence behind each item, is
   part is deliberately better than the original, whose model path was four
   per-entity constants on a different falloff curve; the reasons are listed
   under "Deviations". The flashlight casts real shadows - world and models
-  into one depth map, tested per pixel ("Shadows" there); `R3D.EnableShadows`
-  gates it. The models also cast from the environment directional, onto the
-  world and each other, from a second map only they are drawn into. Left:
+  into one depth map, tested per pixel ("Shadows" there). The characters
+  (`MDL.CreateShadowMap`) also cast from the environment directional, onto the
+  world, from a second map only they are drawn into; `R3D.EnableShadows` gates
+  that one. Left:
   `ENTITY.AddLight`, `WORLD.SetDirLight`, `LIGHT.SetLitParentFlag`, and
   shadows from the other dynamic lights - a torch still lights through a wall
   within its range.

@@ -180,6 +180,7 @@ void ScriptEngine::CreateRendererInstance(Entity& e) {
 		for (const auto& kv : e.hiddenMeshes)
 			renderer_->SetScriptMeshVisibility(e.rendererInstance, kv.first, kv.second);
 		renderer_->SetScriptCastsShadow(e.rendererInstance, e.castsShadow);
+		renderer_->SetScriptCharacterShadow(e.rendererInstance, e.characterShadow);
 		renderer_->SetScriptViewModel(e.rendererInstance, e.viewAttached);
 		renderer_->SetScriptDemonic(e.rendererInstance, e.demonic);
 	}

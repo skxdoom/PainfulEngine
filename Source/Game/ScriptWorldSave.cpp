@@ -178,6 +178,7 @@ bool ScriptEngine::LoadWorldSave(const std::vector<uint8_t>& buf, const std::str
 			e.source = WsText(os.resource);
 			e.pos = m.pos;
 			e.rot = FileQuat(m.rot);
+			e.characterShadow = m.shadow != 0;
 			// ASSUMED: the visibility bytes follow the .pkmdl's mesh order; the counts agree.
 			if (const std::vector<std::string>* names = meshesOf(e.source))
 				for (size_t i = 0; i < m.meshVisible.size() && i < names->size(); ++i)

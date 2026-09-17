@@ -33,10 +33,9 @@ const EngineConfig::Known kKnown[] = {
 	{"HudAspect", "2", false, "4:3 interface on a wide screen: 0 stretched, 1 centred, 2 anchored by thirds"},
 	{"WindowMode", "0", false, "0 config.ini's Fullscreen decides, 1 always a window, 2 borderless"},
 	{"FlashlightShadows", "true", true, "the flashlight casts shadows"},
-	{"ShadowMapSize", "512", false, "flashlight shadow map, texels"},
-	{"ModelShadows", "true", true, "models cast shadows from the level's directional light"},
-	{"ModelShadowMapSize", "1024", false, "model shadow map, texels, over 48 units about the camera"},
-	{"ModelShadowStrength", "60", false, "how dark a model's shadow falls on the world, percent"},
+	{"FlashlightShadowMapSize", "512", false, "flashlight shadow map, texels a side; applies while FlashlightShadows is on"},
+	{"CharacterShadowMapSize", "1024", false, "character shadow map (the directional light's), texels, over 48 units about the camera"},
+	{"CharacterShadowMapStrength", "60", false, "how dark a character's shadow falls on the world, percent"},
 	{"LightShadows", "true", true, "the placed lights cast shadows"},
 	{"LightShadowLights", "8", false, "placed lights with a shadow map per frame, up to 8"},
 	{"LightShadowRadius", "40", false, "how far from the camera a placed light gets a map, units"},
@@ -52,9 +51,19 @@ const EngineConfig::Known kKnown[] = {
 	{"SSAOHeight", "40", false, "SSAO: percent of the radius an occluder must stand over a surface to fully count (starts at a quarter)"},
 	{"SSAOFadeStart", "30", false, "SSAO: distance, world units, where the occlusion starts to fade out"},
 	{"SSAOFadeEnd", "60", false, "SSAO: distance, world units, past which there is no occlusion"},
-	{"FogVolumes", "true", true, "the maps' local fog and light volumes (volfog / vollight)"},
 	{"BloomScale", "2", false, "bloom is blurred at 1/N of the screen; the original is 2"},
 	{"BloomKernel", "0", false, "bloom blur: 0 the Gaussian to three sigma, 1 the original 13 taps"},
+};
+
+// Keys a later build renamed: an older file's value is read under the new name.
+// A null `to` means the key was dropped, and the rewrite leaves it out.
+struct Renamed { const char* from; const char* to; };
+const Renamed kRenamed[] = {
+	{"ShadowMapSize", "FlashlightShadowMapSize"},
+	{"FogVolumes", nullptr},
+	{"ModelShadows", nullptr},
+	{"ModelShadowMapSize", "CharacterShadowMapSize"},
+	{"ModelShadowStrength", "CharacterShadowMapStrength"},
 };
 
 const EngineConfig::Known* FindKnown(const std::string& key) {
@@ -112,6 +121,14 @@ bool EngineConfig::Reload() {
 		// An older file said `Key = value` with no prefix.
 		if (Lower(key).rfind(Lower(kPrefix), 0) == 0) key = key.substr(3);
 		else oldStyle = true;
+		const Renamed* renamed = nullptr;
+		for (const Renamed& r : kRenamed)
+			if (Lower(key) == Lower(r.from)) renamed = &r;
+		if (renamed) {
+			oldStyle = true;
+			if (!renamed->to) continue;
+			key = renamed->to;
+		}
 		Set(key, Trim(t.substr(eq + 1)));
 		std::string canonical;
 		seen[Canonical(key, canonical) ? canonical : key] = true;

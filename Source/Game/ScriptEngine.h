@@ -265,6 +265,9 @@ public:
 		// Whether the model casts into the flashlight's shadow map. Off for
 		// the view model, which sits in front of the light.
 		bool castsShadow = true;
+		// MDL.CreateShadowMap with a non-zero size: a character, casting the
+		// directional shadow.
+		bool characterShadow = false;
 		// ENTITY.SetTimeToDie countdown in seconds; negative means no timer.
 		float timeToDie = -1.f;
 		// ENTITY.EnableDeathZoneTest: the byte at Entity+0x11b (0x101361D0).

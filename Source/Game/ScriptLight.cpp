@@ -131,11 +131,18 @@ int LightNatives::L_R3D_EnableShadows(lua_State* L) {
 	return 0;
 }
 
-// MDL.CreateShadowMap(e, size) - the original's per-actor blob: a size x size
-// map under each actor whose template sets `shadow` (128 where it is set, 0
-// by default). Every model already casts into the flashlight's map, so there
-// is nothing to build. Recorded and not acted on.
-int LightNatives::L_MDL_CreateShadowMap(lua_State*) { return 0; }
+// MDL.CreateShadowMap(e, size = 128) - 0x1012e9a0: a model entity's shadow on for
+// any non-zero size, the CActor template's `shadow`. Here it marks the
+// character that casts into the model (directional) map. Lighting.md, "Character shadows"
+int LightNatives::L_MDL_CreateShadowMap(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || e->type != kModel) return 0;
+	e->characterShadow = luaL_optnumber(L, 2, 128) != 0;
+	if (self->renderer_ && e->rendererInstance >= 0)
+		self->renderer_->SetScriptCharacterShadow(e->rendererInstance, e->characterShadow);
+	return 0;
+}
 
 // LIGHT.SetLitParentFlag - bit 0x80 at Entity+0x1a (0x10137a20). Whether the
 // entity this light hangs off is lit by it; nothing here reads it yet, so it

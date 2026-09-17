@@ -324,9 +324,9 @@ recover behind it. The original's shadows are `MDL.CreateShadowMap(e, size)`,
 a `size x size` blob projected under an actor whose template sets `shadow`
 (128 where it is set, 0 in `CActor`'s default), and `WorldMesh::RenderShadowPass`
 draws those; its dynamic lights shine through walls. `R3D.EnableShadows` (the
-menu's "Character Shadows", `Cfg.Shadows`) gates the model shadows below, not
-this map ([`Menu.md`](Menu.md), "Video options"), and `CreateShadowMap` is
-recorded and not acted on because every model already casts.
+menu's "Character Shadows", `Cfg.Shadows`) gates the character shadows below,
+not this map ([`Menu.md`](Menu.md), "Video options"), and `CreateShadowMap`
+picks their casters.
 
 **The pass.** `Render/ShadowMap.h`. One view (`Renderer::kShadowView`, ordered
 before the sky) renders into a depth-only target through `vs_shadow` /
@@ -334,8 +334,8 @@ before the sky) renders into a depth-only target through `vs_shadow` /
 half-fov `acos(coneAngleCos)`, aspect 1, near `0.1`, far `Range`, the same
 frustum the cookie already covers, so the map and the cookie are bounded alike.
 `painful_config.ini` owns it: `FlashlightShadows` (1/0) switches it and
-`ShadowMapSize` sizes it (512 by default - 2048 read as too crisp for a torch
-beam); `PAINFUL_SHADOWMAP=<size>` overrides both for a run, 0 being off. The
+`FlashlightShadowMapSize` sizes it (512 by default - 2048 read as too crisp for
+a torch beam; an older file's `ShadowMapSize` is read under the new name); `PAINFUL_SHADOWMAP=<size>` overrides both for a run, 0 being off. The
 format is
 the first of `D24S8`, `D32F`, `D16` the backend can both render and compare
 against, and a backend without hardware depth compare logs and runs without.
@@ -390,23 +390,34 @@ Off (Type 0, `FlashlightShadows` false, `PAINFUL_SHADOWMAP=0`, or no flashlight 
 the level) costs nothing: the view is not touched and the receivers read
 `on = 0`.
 
-### Model shadows
+### Character shadows
 
-The models also cast from the environment directional - the `DirLight` every
-`CEnvironment` box carries, which is what lights them. A second `ShadowMap`
-(`Renderer::kModelShadowView`, `ShadowMap::BeginOrtho`) is an orthographic box
-48 units wide and deep, pushed half its width ahead of the camera, aimed down
-the directional the camera's own box gives (`EntityRenderer::DirectionalAt`),
-and snapped to its texel grid so it does not shimmer as the camera moves.
-**Only the models cast into it.** The world's shadows are baked into its
-lightmaps; putting the world in the map would double every one of them and
-darken everything under a ceiling.
+The characters also cast from the environment directional - the `DirLight`
+every `CEnvironment` box carries, which is what lights them. A second
+`ShadowMap` (`Renderer::kModelShadowView`, `ShadowMap::BeginOrtho`) is an
+orthographic box 48 units wide and deep, pushed half its width ahead of the
+camera, aimed down the directional the camera's own box gives
+(`EntityRenderer::DirectionalAt`), and snapped to its texel grid so it does not
+shimmer as the camera moves.
 
-**Only the static world receives it.** The models cast and are never darkened
-by each other or by themselves: the original lit a model from its box alone.
+**Only the characters cast into it.** A character is what the original gave a
+shadow: a model entity the scripts passed to `MDL.CreateShadowMap(e, size)`
+with a non-zero size. `CActor:Apply` does, with the template's `shadow` field
+(0 in `CActor`, 128 where a template sets it); props, items and the level's
+placed models never do. The native (`0x1012e9a0`) reads the size with a
+default of 128 and calls `Model::CreateShadowMap(size != 0)`, which keeps the
+flag at `Model+0x6ac` and builds the blob only while render flag 2
+(`R3D.EnableShadows`) is set; `WorldMesh::DrawShadows` (`0x101da8e0`) draws the
+models holding one. `Model::SaveEntity` writes that byte, so the flag comes back
+with a save. The world's shadows are baked into its lightmaps; putting the
+world in the map would double every one of them and darken everything under a
+ceiling. The flashlight's and the placed lights' maps keep every model.
+
+**Only the static world receives it.** The characters cast and no model is
+darkened by them or by itself: the original lit a model from its box alone.
 Receiving was tried twice and judged not worth its artefacts. The world is
 darkened by
-`ModelShadowStrength` percent of its baked light - a synthetic darkening, since
+`CharacterShadowMapStrength` percent of its baked light - a synthetic darkening, since
 the world is not lit by that directional at all, kept because a figure that
 casts nothing floats on the lightmap. That is what the original's
 `MDL.CreateShadowMap` blob was reaching for. The shadows fade out over the last
@@ -429,7 +440,7 @@ already carry lit-versus-shade outdoors: a `CEnvironment` in a building's
 shadow gives the models a weaker or absent `DirLight`. The world has no
 directional term, so `fs_world` blends the same box list the models are lit by
 (`DirectionalFactor`, outermost first, the same edge ramp) and scales
-`ModelShadowStrength` by the directional's strength there relative to the
+`CharacterShadowMapStrength` by the directional's strength there relative to the
 level's brightest (`EntityLighting::DirectionalBoxes`). Two earlier answers to
 a shadow inside a building's shade - fading with the caster-to-receiver gap,
 and gating on the lightmap's own brightness - were tried and dropped, the
@@ -441,12 +452,14 @@ the lights); a level with more hands the nearest to the camera.
 The shipped directions are slanted - `(0.05,-0.05,0.1)` is 66 degrees off
 vertical - so the shadows are long.
 
-`painful_config.ini`: `ModelShadows` (1/0), `ModelShadowMapSize` (1024 over 48
-units, a texel of about 5 cm), `ModelShadowStrength` (60). `PAINFUL_SHADOWMAP=0`
-turns this map off with the flashlight's. `PAINFUL_SHADOWVIEW=1` draws the term
-alone - white lit, black shadowed, models at 0.8 - which is how a sign error
-in the direction or the depth shows up at a glance; the Cemetery spawn's cart,
-bench and cross all throw slanted shadows in it.
+The menu's "Character Shadows" (`R3D.EnableShadows`) is the only switch.
+`painful_config.ini`: `CharacterShadowMapSize` (1024 over 48 units, a texel of
+about 5 cm), `CharacterShadowMapStrength` (60); an older file's `ModelShadowMapSize`
+and `ModelShadowStrength` are read under those names and its `ModelShadows` is
+dropped. `PAINFUL_SHADOWMAP=0` turns this map off with the flashlight's.
+`PAINFUL_SHADOWVIEW=1` draws the term alone - white lit, black shadowed, models
+at 0.8 - which is how a sign error in the direction or the depth shows up at a
+glance.
 
 The volume lights are untouched by any of this and are still shadowless.
 

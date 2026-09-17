@@ -80,6 +80,6 @@ top-left rule gives a shared edge to one side), and a multisampled edge sample
 can have no face at its pixel centre at all.
 
 Depth is the distance along the view axis, which is what clip z is. The volumes
-are not drawn into the water's reflections. `FogVolumes` (true) switches them
-off for an A/B; `FOGVOL.Setup` values are cleared by `WORLD.LoadMap` and applied
+are not drawn into the water's reflections. They are always on - there is no
+setting; `FOGVOL.Setup` values are cleared by `WORLD.LoadMap` and applied
 after the map uploads, like the `.EMesh` overrides.

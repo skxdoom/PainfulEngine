@@ -170,8 +170,9 @@ save. The loop applies a change on the frame after it: setters for the
 strengths, scales and radius, and a map rebuilt only when its size or count
 changed. The file itself is written the way the original writes
 `config.ini` - one `Pf.Key = value` a line, in a fixed order, no prose - and
-a file from an older build (`Key = value`, comment blocks) is read and
-rewritten in that style at the next start.
+a file from an older build (`Key = value`, comment blocks, a key since renamed
+such as `ShadowMapSize` for `FlashlightShadowMapSize`, or dropped such as
+`FogVolumes`) is read and rewritten in that style at the next start.
 
 ## Not carried
 
