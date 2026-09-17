@@ -27,7 +27,10 @@ public:
 	void Shutdown();
 
 	// Returns a valid handle; falls back to a white texture when unresolved.
-	bgfx::TextureHandle Get(const std::string& reference, const std::string& levelHint);
+	// anyLevel false: never a same-named file from another level's folder, the
+	// rule for lightmaps. Formats.md, "Where the engine looks"
+	bgfx::TextureHandle Get(const std::string& reference, const std::string& levelHint,
+			bool anyLevel = true);
 	// Cube maps need their own creation call and their own sampler type in the
 	// shader, so they cannot share Get(). The engine hardcodes exactly one:
 	// special/cube_wenecja, for water reflections.
@@ -43,7 +46,8 @@ public:
 	size_t missing() const { return missing_; }
 
 	// Exposed for diagnostics: which file does a reference map to?
-	std::string Resolve(const std::string& reference, const std::string& levelHint) const;
+	std::string Resolve(const std::string& reference, const std::string& levelHint,
+			bool anyLevel = true) const;
 
 	// The texture's pixel size, for MATERIAL.Size. False when the reference
 	// has not been loaded, or resolved to the white fallback.
@@ -60,6 +64,7 @@ public:
 private:
 
 	std::map<std::string, std::string> index_; // key -> absolute path
+	std::string root_; // lower case, for telling a path key from a base-name one
 	std::map<std::string, bgfx::TextureHandle> cache_; // reference -> handle
 	// Pixel dimensions, kept because MATERIAL.Size is how every HUD script
 	// lays itself out: it asks an image how big it is and scales from there.

@@ -183,17 +183,24 @@ int TexturesCmd(const char* mapPath, const char* dataRoot, const char* hint) {
 		for (const Material& mat : o.materials) {
 			const std::string& d = mat.slots[0].name;
 			if (!d.empty() && !seen.count(d)) seen[d] = cache.Resolve(d, hint);
+			// The lightmap too: its name is per level and collides across them.
+			const std::string& l = mat.lightmap();
+			if (o.uvChannels == 2 && !l.empty() && !seen.count(l)) seen[l] = cache.Resolve(l, hint, false);
 		}
 	}
 	size_t unresolved = 0, wrongLevel = 0, looksLightmap = 0;
-	std::string hintDir = std::string("levels\\") + hint;
+	std::string hintDir = "levels/" + std::string(hint) + "/";
+	std::transform(hintDir.begin(), hintDir.end(), hintDir.begin(),
+			[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 	for (const auto& kv : seen) {
 		std::string lower = kv.second;
 		std::transform(lower.begin(), lower.end(), lower.begin(),
 				[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 		bool bad = false;
+		const bool lightmapRef = kv.first.find("_L_") != std::string::npos ||
+				kv.first.find("_l_") != std::string::npos;
 		if (kv.second.empty()) { ++unresolved; bad = true; }
-		else if (lower.find("_l_") != std::string::npos) { ++looksLightmap; bad = true; }
+		else if (!lightmapRef && lower.find("_l_") != std::string::npos) { ++looksLightmap; bad = true; }
 		else if (lower.find("levels/") != std::string::npos &&
 				lower.find(hintDir) == std::string::npos) { ++wrongLevel; bad = true; }
 		if (bad) LogInfo("  %-28s -> %s", kv.first.c_str(),

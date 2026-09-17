@@ -53,6 +53,7 @@ bool TextureCache::Init(const std::string& texturesRoot, bool createWhite) {
 				BGFX_SAMPLER_NONE, bgfx::copy(&clearPixel, 4));
 	}
 
+	root_ = Lower(texturesRoot);
 	FileSystem& vfs = FileSystem::Get();
 	if (!vfs.IsDirectory(texturesRoot)) {
 		LogWarn("textures root not found: %s", texturesRoot.c_str());
@@ -125,8 +126,11 @@ bool TextureCache::Measure(const std::string& reference, const std::string& leve
 	return true;
 }
 
+// The base-name fallback is the port's own: MaterialSystem::TextureOnDisk (0x10098ef0)
+// tries the name, then items/ and models/ and the current level's folder by base
+// name, never another level's. anyLevel false keeps to that. Formats.md, "Where the engine looks"
 std::string TextureCache::Resolve(const std::string& reference,
-		const std::string& levelHint) const {
+		const std::string& levelHint, bool anyLevel) const {
 	std::string key = StripExtension(Lower(reference));
 	// Normalise Windows separators. The backslash is written by code point so
 	// this line carries no escape sequence.
@@ -138,26 +142,36 @@ std::string TextureCache::Resolve(const std::string& reference,
 		if (it != index_.end()) return it->second;
 	}
 	auto it = index_.find(key);
-	if (it != index_.end()) return it->second;
+	// One map holds both path and base-name keys; the strict lookup takes a path.
+	if (it != index_.end() && (anyLevel || StripExtension(Lower(it->second)) == root_ + "/" + key))
+		return it->second;
 
 	size_t slash = key.find_last_of('/');
+	const std::string base = slash != std::string::npos ? key.substr(slash + 1) : key;
+	if (!anyLevel) {
+		for (const char* dir : {"items/", "models/"}) {
+			const auto b = index_.find(dir + base);
+			if (b != index_.end()) return b->second;
+		}
+		return {};
+	}
 	if (slash != std::string::npos) {
-		auto b = index_.find(key.substr(slash + 1));
+		auto b = index_.find(base);
 		if (b != index_.end()) return b->second;
 	}
 	return {};
 }
 
 bgfx::TextureHandle TextureCache::Get(const std::string& reference,
-		const std::string& levelHint) {
+		const std::string& levelHint, bool anyLevel) {
 	if (reference.empty()) return white_;
 
-	std::string cacheKey = Lower(reference) + "|" + Lower(levelHint);
+	std::string cacheKey = Lower(reference) + "|" + Lower(levelHint) + (anyLevel ? "" : "|level");
 	auto cached = cache_.find(cacheKey);
 	if (cached != cache_.end()) return cached->second;
 
 	bgfx::TextureHandle handle = white_;
-	std::string path = Resolve(reference, levelHint);
+	std::string path = Resolve(reference, levelHint, anyLevel);
 	std::vector<uint8_t> data;
 	if (!path.empty() && ReadFile(path, data) && !data.empty()) {
 		// bimg understands DDS (including the BC formats the game ships), so the

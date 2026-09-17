@@ -727,6 +727,30 @@ path without its extension, with map textures additionally looked up under
 `Textures/Levels/<mapName>/`. `TextureResolver` in PainKit does this and indexes
 14,768 entries across the tree.
 
+### Where the engine looks, and what a miss draws
+
+`WorldMesh::InitializeTextures` (`0x101dbd50`) asks for every world texture as
+`Levels/<mapName>/<name>`, and `MaterialSystem::TextureOnDisk` (`0x10098ef0`)
+tries, each with `.dds`, `.tga`, `.bmp` (`TextureOnDiskExt`): that path, then
+`items/<base name>`, `models/<base name>`, and the current level's folder by
+base name. **Never another level's folder.** A miss answers `special/notex`
+(`MaterialSystem+0x68`, set up in `MaterialSystem::Init`); for the mesh's own
+lightmap `InitializeTextures` swaps that for `special/white` (`+0x6c`).
+
+So a lightmap the level does not ship draws its surface at full texture
+brightness, and some levels rely on it: Cathedral's windows name `Okna_L_0000`,
+which only `C6L1_Orphanage` has, and read as bright glass. The port's
+`TextureCache::Resolve` also falls back to a file of the same base name
+anywhere in the tree - for diffuse textures that finds the art a level forgot
+to ship (Catacombs' `sznurek`, Cemetery's `liscie`), better than `notex` - but
+lightmaps are asked for with `anyLevel` false and keep to the original's
+order. Measured over the 87 shipped maps: 12 lightmap-slot names on 10 maps
+resolved into another level before and now draw white (`Okna_L_0000`,
+`polySurface183_L_0000` on `3X06_Forest`, `gray_L_0000` on three DM maps,
+`sz8`/`sz12_L_0000` on `DM_Trainstation`, City on Water's `lightmap`, and the
+lava shapes' `lawa_dirt` / `lawa__dirt` / `lawaTwins_dirt` on DM and CTF maps);
+`PainfulTools textures <mpk> <DataRoot> <mapName>` lists them.
+
 PainKit includes a small **DDS reader** (DXT1/BC1, DXT3/BC2, DXT5/BC3 and
 uncompressed 24/32-bit) and a dependency-free **PNG writer**, so textures can be
 decoded for export or preview without external libraries.
