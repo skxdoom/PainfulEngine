@@ -504,6 +504,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		ssaoOn = ssaoInit && cfg.GetBool("SSAO", false);
 		ssao.SetParams(float(std::max(cfg.GetInt("SSAOScreenRadius", 40), 1)) / 1000.f,
 				float(std::clamp(cfg.GetInt("SSAOStrength", 100), 0, 100)) / 100.f);
+		ssao.SetShape(float(std::max(cfg.GetInt("SSAOIntensity", 500), 0)) / 100.f,
+				float(std::clamp(cfg.GetInt("SSAOAngle", 30), 0, 85)),
+				float(std::clamp(cfg.GetInt("SSAOHeight", 40), 0, 400)) / 100.f);
 	};
 	applySettings();
 	SkyRenderer sky;

@@ -47,6 +47,9 @@ const EngineConfig::Known kKnown[] = {
 	{"SSAO", "false", true, "screen-space ambient occlusion over the scene"},
 	{"SSAOScreenRadius", "40", false, "SSAO radius, thousandths of the screen's height at any distance"},
 	{"SSAOStrength", "100", false, "SSAO strength, percent"},
+	{"SSAOIntensity", "500", false, "SSAO occlusion gain, percent of the averaged taps (before the strength)"},
+	{"SSAOAngle", "30", false, "SSAO: degrees an occluder must rise over a surface to count; shallower creases stay clear"},
+	{"SSAOHeight", "40", false, "SSAO: percent of the radius an occluder must stand over a surface to fully count (starts at a quarter)"},
 	{"BloomScale", "2", false, "bloom is blurred at 1/N of the screen; the original is 2"},
 	{"BloomKernel", "0", false, "bloom blur: 0 the Gaussian to three sigma, 1 the original 13 taps"},
 };

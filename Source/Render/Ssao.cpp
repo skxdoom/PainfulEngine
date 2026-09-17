@@ -3,6 +3,7 @@
 #include "FullScreenPass.h"
 #include "SceneTargets.h"
 #include "ShaderLoad.h"
+#include "../Core/Debug.h"
 #include "../Core/Log.h"
 
 #include <bx/math.h>
@@ -37,6 +38,7 @@ bool Ssao::Init(const std::string& shaderDir) {
 	uInvProj_ = bgfx::createUniform("u_ssaoInvProj", bgfx::UniformType::Mat4);
 	uScreen_ = bgfx::createUniform("u_ssaoScreen", bgfx::UniformType::Vec4);
 	uParams_ = bgfx::createUniform("u_ssaoParams", bgfx::UniformType::Vec4);
+	uShape_ = bgfx::createUniform("u_ssaoShape", bgfx::UniformType::Vec4);
 	uBlur_ = bgfx::createUniform("u_ssaoBlur", bgfx::UniformType::Vec4);
 	layout_ = PostVertexLayout();
 	const bool ok = bgfx::isValid(ao_) && bgfx::isValid(blur_) && bgfx::isValid(apply_);
@@ -53,7 +55,7 @@ void Ssao::Shutdown() {
 		if (bgfx::isValid(*p)) bgfx::destroy(*p);
 		*p = BGFX_INVALID_HANDLE;
 	}
-	for (bgfx::UniformHandle* u : {&sDepth_, &sAo_, &uInvProj_, &uScreen_, &uParams_, &uBlur_}) {
+	for (bgfx::UniformHandle* u : {&sDepth_, &sAo_, &uInvProj_, &uScreen_, &uParams_, &uShape_, &uBlur_}) {
 		if (bgfx::isValid(*u)) bgfx::destroy(*u);
 		*u = BGFX_INVALID_HANDLE;
 	}
@@ -94,6 +96,14 @@ void Ssao::SetParams(float radius, float strength) {
 	strength_ = strength;
 }
 
+void Ssao::SetShape(float intensity, float angleDegrees, float height) {
+	shape_[0] = intensity;
+	shape_[1] = bx::sin(bx::toRad(angleDegrees));
+	// A tap starts to count at a quarter of the height where it fully counts.
+	shape_[2] = height * 0.25f;
+	shape_[3] = height > 0.f ? height : 0.0001f;
+}
+
 void Ssao::Draw(const SceneTargets& scene, const Camera& camera, bgfx::ViewId aoView, bgfx::ViewId blurHView,
 		bgfx::ViewId blurVView, bgfx::ViewId applyView) {
 	active_ = false;
@@ -117,6 +127,7 @@ void Ssao::Draw(const SceneTargets& scene, const Camera& camera, bgfx::ViewId ao
 	bgfx::setUniform(uInvProj_, inverse);
 	bgfx::setUniform(uScreen_, screen);
 	bgfx::setUniform(uParams_, params);
+	bgfx::setUniform(uShape_, shape_);
 	bgfx::setTexture(0, sDepth_, scene.depth(), kPointClamp);
 	bgfx::submit(aoView, multisampled ? aoMs_ : ao_);
 
@@ -134,10 +145,12 @@ void Ssao::Draw(const SceneTargets& scene, const Camera& camera, bgfx::ViewId ao
 	bgfx::setTexture(0, sAo_, tex_[1], kPointClamp);
 	bgfx::submit(blurVView, blur_);
 
-	// Multiplied over the scene's colour.
+	// Multiplied over the scene's colour; PAINFUL_SSAOVIEW writes it in place of the scene.
+	static const bool kView = DebugFlag("PAINFUL_SSAOVIEW");
 	bgfx::setViewFrameBuffer(applyView, scene.colorFramebuffer());
 	FullScreenTriangle(applyView, layout_, w, h);
-	bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ZERO, BGFX_STATE_BLEND_SRC_COLOR));
+	bgfx::setState(kView ? BGFX_STATE_WRITE_RGB
+			: BGFX_STATE_WRITE_RGB | BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ZERO, BGFX_STATE_BLEND_SRC_COLOR));
 	bgfx::setUniform(uParams_, params);
 	bgfx::setTexture(0, sAo_, tex_[0], kLinearClamp);
 	bgfx::submit(applyView, apply_);

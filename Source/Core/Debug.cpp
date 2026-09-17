@@ -51,6 +51,7 @@ Row g_rows[] = {
 	{"PAINFUL_NEAR", Kind::kFloat, "camera near plane"},
 	{"PAINFUL_WIRE", Kind::kInt, "1 geometry wireframe, 2 collision wireframe"},
 	{"PAINFUL_LIGHTINGONLY", Kind::kFlag, "start in the lighting-only view: grey albedo, lighting kept"},
+	{"PAINFUL_SSAOVIEW", Kind::kFlag, "SSAO's blurred occlusion drawn in place of the scene"},
 	{"PAINFUL_NAMEPLATES", Kind::kFlag, "entity name labels in the world"},
 
 	// Physics and the player

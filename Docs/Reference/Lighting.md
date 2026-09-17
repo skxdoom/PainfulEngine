@@ -553,18 +553,40 @@ SSAO keeps it in, and a depth it can sample: the target's depth is created
 readable where the device allows, multisampled like the colour, and read at its
 first sample, since depth does not resolve. At half size, each pixel's view-space
 position comes back through the inverse projection and its normal from its
-neighbours - each axis from the side whose depth runs on smoothly - and McGuire's
-Alchemy obscurance is summed over 12 taps on a spiral of seven turns, turned per
-pixel by interleaved gradient noise, within `SSAOScreenRadius` (40 thousandths of
-the screen's height): the same share of the screen at any distance and any
-resolution, its radius in the world growing with the depth. It was a world radius
-of one unit first: from a distance the occlusion shrank to a few noisy pixels
-(the user's report), and at arm's length a wall spread its taps wide and drew a
-dark band across itself. The sky takes none. The estimator is scaled by 2 where
-McGuire's is 5, which took
-Cathedral's corners to black (6.4% of the pixels it changed). Two blurs of seven
-taps follow, a tap weighted down by how far its depth is from
-the centre's; then the result, at `SSAOStrength` (100 percent), multiplies the
+neighbours - each axis from the side whose depth runs on smoothly - and 12 taps
+on a spiral of seven turns, turned and pushed out per pixel by a 4x4 Bayer tile, are
+averaged within `SSAOScreenRadius` (40 thousandths of the screen's height): the
+same share of the screen at any distance and any resolution, its radius in the
+world growing with the depth. It was a world radius of one unit first: from a
+distance the occlusion shrank to a few noisy pixels (the user's report), and at
+arm's length a wall spread its taps wide and drew a dark band across itself. The
+sky takes none.
+
+Each tap occludes by three factors, multiplied: its elevation over the surface
+past `SSAOAngle` (30 degrees, ramped to 1 at straight up), its height above the
+surface's plane from a quarter of `SSAOHeight` to all of it (40 percent of the
+radius, smoothstep), and its distance, falling linearly to 0 at the radius; the
+average times `SSAOIntensity` (500 percent, the user's pick in play) comes off. The first estimator was McGuire's Alchemy
+obscurance (scaled by 2; his 5 took Cathedral's corners to black), summing
+(v.n)/(v.v) under a cubic falloff. That sum is 1/length and was never multiplied
+back by the radius, so it grew as the radius shrank toward the camera, and with
+next to no angle bias every facet bend of a low-poly model or rock drew a dark
+line (the user's report, 2026-09-17). Measured in the lighting-only view,
+PAINFUL_NOAI, frame 150, strength 100, intensity 300, against SSAO off: Catacombs' start went
+from 20.6% of the frame darker by over 3% (7.7% by over 10%) to 2.3% (0.4%) -
+the rock's creases clear, the building's recesses and the wall's foot kept;
+Cemetery's from 30.1% (12.5%) to 20.0% (3.2%), most of what remains being the
+clouds moving between runs.
+
+Two blurs of nine taps follow, weighted 1 2 3 4 4 4 3 2 1 and each tap weighted
+down by how far its depth is from the centre's. Every offset modulo 4 sums to the
+same weight, so on a surface the two passes average the 16 turns of the tile out
+exactly. The turn was interleaved gradient noise per pixel under a seven-tap
+Gaussian first: that noise runs nearly constant along steep diagonals (a step of
+one across and two down changes it by 0.06 of a turn), the Gaussian could not
+cancel it, and it showed as diagonal streaks sliding with the camera (the user's
+report, 2026-09-17). `PAINFUL_SSAOVIEW` writes the blurred occlusion in place of
+the scene (with `PAINFUL_BLOOM=0`, or the bloom washes it flat). Then the result, at `SSAOStrength` (100 percent), multiplies the
 scene's colour before anything reads the frame (views 68-71, ahead of the haze's
 copy and the bloom). The view model, the particles and the coronas draw after
 it, in the view a frame with haze already puts them in: drawn in the world view,

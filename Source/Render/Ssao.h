@@ -7,11 +7,10 @@ namespace painful {
 struct Camera;
 class SceneTargets;
 
-// Screen-space ambient occlusion over the scene, under either model shading: the
-// obscurance of each pixel's surroundings (McGuire's Alchemy estimator) from the
-// scene's depth at half size, blurred along depth, and multiplied over the scene
-// before anything reads the frame. A deviation with nothing to recover behind it.
-// Docs/Reference/Lighting.md, "Screen-space ambient occlusion".
+// Screen-space ambient occlusion over the scene: the horizon occlusion of each
+// pixel's surroundings from the scene's depth at half size, blurred along depth, and
+// multiplied over the scene before anything reads the frame. A deviation with
+// nothing to recover behind it. Docs/Reference/Lighting.md, "Screen-space ambient occlusion".
 class Ssao {
 public:
 	~Ssao() { Shutdown(); }
@@ -25,6 +24,8 @@ public:
 
 	// SSAOScreenRadius as a share of the screen's height, SSAOStrength 0..1.
 	void SetParams(float radius, float strength);
+	// SSAOIntensity as a factor, SSAOAngle in degrees, SSAOHeight as a share of the radius.
+	void SetShape(float intensity, float angleDegrees, float height);
 	// After the scene's draws, in views ordered after the world's and before any
 	// pass that reads the frame. Nothing when the scene is not in its target or
 	// its depth cannot be read.
@@ -45,6 +46,7 @@ private:
 	bgfx::UniformHandle uInvProj_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uScreen_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uParams_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uShape_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uBlur_ = BGFX_INVALID_HANDLE;
 	bgfx::VertexLayout layout_;
 	// Half size, RGBA16F: r the occlusion, g the view depth for the blur.
@@ -52,6 +54,7 @@ private:
 	bgfx::TextureHandle tex_[2] = {BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE};
 	int bufW_ = 0, bufH_ = 0;
 	float radius_ = 1.f, strength_ = 1.f;
+	float shape_[4] = {5.f, 0.5f, 0.1f, 0.4f};
 	bool active_ = false;
 };
 
