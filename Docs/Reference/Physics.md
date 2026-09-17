@@ -291,7 +291,7 @@ unit at about a metre. The camera is deliberately three times fatter than that:
 it has no body to watch clipping into a wall, and at player width it slides
 close enough to surfaces for the near plane to cut through them.
 
-`N` toggles noclip, and `--noclip` starts that way. `--shot` is unaffected: a
+`F` toggles noclip, and `--noclip` starts that way. `--shot` is unaffected: a
 still camera never moves, so nothing is cast.
 
 ## Looking at it

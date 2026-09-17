@@ -248,7 +248,7 @@ nothing.
 
 Across all 220 shipped ragdolls: **220 parsed, 0 named bones absent from their
 model, 0 limbs with no vertices weighted.** `painful hitboxes <model>` dumps any
-of them, and **F2** draws them in orange over the collision they replace.
+of them, and **comma** (`-dev`) draws them in orange over the collision they replace.
 
 ### The .rde is a bone list, not a tuning file
 

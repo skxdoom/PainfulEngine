@@ -207,12 +207,18 @@ bool Window::PumpEvents() {
 			}
 			if (e.key.key == SDLK_LEFTBRACKET) levelStep_ = -1;
 			if (e.key.key == SDLK_RIGHTBRACKET) levelStep_ = 1;
-			if (e.key.key == SDLK_N && !e.key.repeat) noclipToggle_ = true;
 			if (e.key.key == SDLK_P && !e.key.repeat) physicsDebugToggle_ = true;
-			if (e.key.key == SDLK_F1 && !e.key.repeat) debugToggles_[0] = true;
-			if (e.key.key == SDLK_F2 && !e.key.repeat) debugToggles_[1] = true;
-			if (e.key.key == SDLK_F3 && !e.key.repeat) debugToggles_[2] = true;
-			if (e.key.key == SDLK_F4 && !e.key.repeat) debugToggles_[3] = true;
+			// The developer keys by position, so M , . / stay neighbours on any layout.
+			if (!e.key.repeat) {
+				switch (e.key.scancode) {
+				case SDL_SCANCODE_F: noclipToggle_ = true; break;
+				case SDL_SCANCODE_M: debugToggles_[0] = true; break;
+				case SDL_SCANCODE_COMMA: debugToggles_[1] = true; break;
+				case SDL_SCANCODE_PERIOD: debugToggles_[2] = true; break;
+				case SDL_SCANCODE_SLASH: debugToggles_[3] = true; break;
+				default: break;
+				}
+			}
 			if (e.key.key == SDLK_ESCAPE && !e.key.repeat) {
 				escapePressed_ = true;
 				// In the script-driven game Escape belongs to the MENU, so the
@@ -349,7 +355,7 @@ bool Window::TakePhysicsDebugToggle() {
 }
 
 bool Window::TakeDebugToggle(int index) {
-	if (index < 0 || index >= 6) return false;
+	if (index < 0 || index >= 4) return false;
 	const bool pressed = debugToggles_[index];
 	debugToggles_[index] = false;
 	return pressed;

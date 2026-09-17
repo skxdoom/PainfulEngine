@@ -33,12 +33,12 @@ public:
 	// Level cycling: returns -1, 0 or +1 and clears itself. Edge triggered, so
 	// holding the key does not scroll through levels.
 	int TakeLevelStep();
-	// True once per press of the noclip key, which lets the camera leave the
+	// True once per press of the noclip key (F), which lets the camera leave the
 	// level again after physics started holding it inside.
 	bool TakeNoclipToggle();
 	// True once per press of the collision-wireframe key.
 	bool TakePhysicsDebugToggle();
-	// True once per press of F1..F6, the in-game debug modes. Indexed 0..5
+	// True once per press of M , . / - the in-game debug modes, indexed 0..3 -
 	// so the game loop can keep its own modes without the window knowing what
 	// any of them mean.
 	bool TakeDebugToggle(int index);
@@ -151,7 +151,7 @@ private:
 	int levelStep_ = 0;
 	bool noclipToggle_ = false;
 	bool physicsDebugToggle_ = false;
-	bool debugToggles_[4] = {false, false, false, false}; // F1..F4
+	bool debugToggles_[4] = {false, false, false, false}; // M , . /
 	bool vkDown_[256] = {};
 	int wheelSteps_ = 0;
 	std::vector<int> keyPresses_;

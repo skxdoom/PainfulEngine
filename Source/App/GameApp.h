@@ -21,7 +21,7 @@ namespace painful {
 
 // shotPath: capture one frame to a .tga and exit. exec: a Lua chunk run once
 // the world is up, or null. devUI: the -dev launch flag - the debug overlay,
-// the F1-F4 toggles and noclip, and it puts the SCRIPTS into their developer
+// the M , . / toggles and noclip on F, and it puts the SCRIPTS into their developer
 // build too (debugMarek, IsFinalBuild). PAINFUL_DEV is the same switch, and
 // there is no way to turn any of it on mid-run: it is a build, not an option.
 int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,

@@ -272,8 +272,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	const bool hudReady = hud.Init(shaderDir, root + "/Fonts");
 	if (hudReady) engine.AttachHud(&hud, &textures);
 
-	// The debug overlays: F1 collision wireframe, F2 the same without the
-	// level, F3 nameplates. Off unless asked for, and each independent - the
+	// The debug overlays: M geometry wireframe, comma collision wireframe,
+	// period nameplates. Off unless asked for, and each independent - the
 	// wireframe and the labels answer different questions.
 	DebugLines& debugLines = boot.debugLines();
 	const bool debugLinesReady = boot.debugLinesReady();
@@ -283,9 +283,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	// Two different questions, so two independent overlays rather than one
 	// mode with three positions:
 	//
-	//   F1  the GEOMETRY - every triangle the renderer draws, world and
+	//   M   the GEOMETRY - every triangle the renderer draws, world and
 	//       entities, in wireframe. What is actually on screen.
-	//   F2  the dynamic COLLISION - what physics thinks is there, level left
+	//   ,   the dynamic COLLISION - what physics thinks is there, level left
 	//       out. What the world can actually be hit by.
 	//
 	// Having them on together is the useful state: where the two disagree is
@@ -302,7 +302,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	bool nameplates = DebugFlag("PAINFUL_NAMEPLATES");
 	constexpr float kNameplateRadius = 20.f;
 
-	// F4 stops the monsters THINKING, which is not the same as stopping them
+	// Slash stops the monsters THINKING, which is not the same as stopping them
 	// ticking. CAiBrain:PreUpdate and OnUpdate are the deciding - target,
 	// approach, attack - while CActor:Tick carries animation, damage
 	// reactions and the ragdoll. Stubbing the brain alone leaves an enemy
@@ -329,7 +329,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	// they distinguished one BUILD from another rather than being options that
 	// could be flipped mid-run. -dev and PAINFUL_DEV are the same switch, and
 	// it is the whole of what makes this a developer build: the overlay, the
-	// F1-F4 toggles, noclip, and these two.
+	// M , . / toggles, noclip on F, and these two.
 	const bool dev = devUI || DebugFlag("PAINFUL_DEV");
 	bool devApplied = false;
 	static const char* const kAiOff =
@@ -893,23 +893,20 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		// Taken either way, so a press without -dev is swallowed rather than
 		// queued up. Free flight is a developer affordance: the scripts' own
 		// is behind `not IsFinalBuild()`, and this is the engine-side twin.
+		// F noclip, M geometry, comma collision, period nameplates, slash AI.
+		// Swallowed while the console or menu takes the keys: they are typed there.
+		const bool devKeys = dev && !engine.console().active() && !engine.menu().active();
 		const bool noclipKey = window.TakeNoclipToggle();
-		if (noclipKey && dev) noclip = !noclip;
-		// F1 cycles the full wireframe on and off; F2 does the same for the
-		// dynamic-only view. Pressing either while the other is up switches
-		// straight to it, so the two are one mode rather than two flags that
-		// can disagree.
-		// Taken either way, so a press without -dev is swallowed rather than
-		// queued up and applied the moment dev mode arrives.
-		const bool f1 = window.TakeDebugToggle(0);
-		const bool f2 = window.TakeDebugToggle(1);
-		const bool f3 = window.TakeDebugToggle(2);
-		const bool f4 = window.TakeDebugToggle(3);
-		if (dev) {
-			if (f1) geoWire = !geoWire;
-			if (f2) collisionWire = !collisionWire;
-			if (f3) nameplates = !nameplates;
-			if (f4) aiDisabled = !aiDisabled;
+		if (noclipKey && devKeys) noclip = !noclip;
+		const bool wireKey = window.TakeDebugToggle(0);
+		const bool collisionKey = window.TakeDebugToggle(1);
+		const bool nameplateKey = window.TakeDebugToggle(2);
+		const bool aiKey = window.TakeDebugToggle(3);
+		if (devKeys) {
+			if (wireKey) geoWire = !geoWire;
+			if (collisionKey) collisionWire = !collisionWire;
+			if (nameplateKey) nameplates = !nameplates;
+			if (aiKey) aiDisabled = !aiDisabled;
 		}
 		// Applied from the state rather than from the keypress, so that
 		// PAINFUL_NOAI takes effect on the first frame - the scripts have to
@@ -1439,7 +1436,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		if (collisionWire && debugLinesReady) {
 			// Dynamic only. The static level is a few hundred thousand
 			// triangles of blue that buries whatever you are looking at, and
-			// F1 already draws the world - as the geometry it really is.
+			// M already draws the world - as the geometry it really is.
 			physics.CollectDebugLines(camera.pos, kPhysicsDebugRadius, debugWireframe,
 					false);
 
@@ -1575,49 +1572,44 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		// The overlay is -dev only; PAINFUL_QUIET drops it there too, for
 		// captures of the menu's top edge.
 		if (dev && !DebugFlag("PAINFUL_QUIET")) {
-		renderer.DebugText(1, "PainfulEngine (script-driven)  -  %s  -  %.1f fps",
-				renderer.BackendName().c_str(), dt > 0.f ? 1.f / dt : 0.f);
-		renderer.DebugText(2, "%s   map %s   %zu script entities (%zu created, %zu released)",
-				levelUp ? currentLevel.c_str() : "(menu)", info.mapFile.c_str(),
-				engine.entities().size(),
-				engine.created(), engine.released());
-		renderer.DebugText(7, "hud: %s, %zu quads in %zu draws, %zu fonts baked",
-				hudReady ? "on" : "OFF", hud.quadsThisFrame(), hud.drawCalls(),
-				hud.fonts().baked());
-		renderer.DebugText(3, "%zu world draws, %zu entity draws (%zu skinned), "
-				"%zu shadow draws, zones %zu/%zu, %zu script lights",
-				worldReady ? world.drawCalls() : 0, entities.drawCalls(),
-				entities.posedInstances(),
-				world.shadowDrawCalls() + entities.shadowDrawCalls(),
-				worldReady ? world.zonesVisible() : 0,
-				worldReady ? world.zoneCount() : 0, scriptLights.size());
-		renderer.DebugText(4, "pos %.1f %.1f %.1f   rot %.2f %.2f   %s", camera.pos[0],
-				camera.pos[1], camera.pos[2], camera.yaw, camera.pitch,
-				walking ? (pawn.onGround() ? "walking" : "airborne")
-				: (engine.playerHandle() ? "flying (N to walk)"
-				: "no player"));
-		renderer.DebugText(5, "physics: %s, %zu static tris, %zu bodies, gravity %.2f   |   "
-				"%zu particles in %zu emitters, %zu/%zu billboards",
-				noclip ? "camera NOCLIP" : "camera collides",
-				physics.staticTriangles(), physics.bodyCount(),
-				physics.settings().gravity,
-				particles.liveParticles(), particles.emitters(),
-				billboards.visible(), billboards.placed());
-		renderer.DebugText(6, "%s - %s, esc for the menu",
-				window.mouseCaptured() ? "mouse captured" : "menu",
-				walking ? "WASD walk, space jump, mouse look, N to fly"
-				: "WASD move, shift fast, space/ctrl up-down, N to walk");
-		renderer.DebugText(8,
-				"F1 geometry: %s   F2 collision: %s   F3 nameplates: %s   "
-				"F4 AI: %s%s",
-				geoWire ? "wireframe" : "off",
-				collisionWire ? "dynamic" : "off",
-				nameplates ? "on (20m)" : "off",
-				aiDisabled ? "DISABLED" : "on",
-				collisionWire
-				? "   |   green awake, yellow asleep, magenta script, "
-				"red non-colliding, GREEN BOX = no physics body"
-				: "");
+		// One fact a row, as the original's overlay; a dev mode's value is green while engaged.
+		uint16_t row = 1;
+		renderer.DebugText(row++, "PainfulEngine - %s", renderer.BackendName().c_str());
+		renderer.DebugText(row++, "FPS: %.1f", dt > 0.f ? 1.f / dt : 0.f);
+		++row;
+		renderer.DebugText(row++, "World draws: %zu", worldReady ? world.drawCalls() : 0);
+		renderer.DebugText(row++, "Entity draws: %zu (%zu skinned)", entities.drawCalls(), entities.posedInstances());
+		renderer.DebugText(row++, "Shadow draws: %zu", world.shadowDrawCalls() + entities.shadowDrawCalls());
+		renderer.DebugText(row++, "Zones: %zu/%zu", worldReady ? world.zonesVisible() : 0,
+				worldReady ? world.zoneCount() : 0);
+		renderer.DebugText(row++, "Script lights: %zu", scriptLights.size());
+		renderer.DebugText(row++, "Particles: %zu in %zu emitters", particles.liveParticles(), particles.emitters());
+		if (hudReady)
+			renderer.DebugText(row++, "HUD: %zu quads in %zu draws, %zu fonts", hud.quadsThisFrame(),
+					hud.drawCalls(), hud.fonts().baked());
+		else
+			renderer.DebugText(row++, "HUD: OFF");
+		++row;
+		renderer.DebugText(row++, "Pos: %.1f %.1f %.1f", camera.pos[0], camera.pos[1], camera.pos[2]);
+		renderer.DebugText(row++, "Rot: %.2f %.2f", camera.yaw, camera.pitch);
+		renderer.DebugText(row++, "Player: %s", walking ? (pawn.onGround() ? "walking" : "airborne")
+				: (engine.playerHandle() ? "flying" : "none"));
+		++row;
+		const auto modeRow = [&](const char* key, const char* name, bool engaged, const char* state) {
+			renderer.DebugText(row++, "[%s] %s: %s%s\x1b[0m", key, name, engaged ? "\x1b[10;0m" : "", state);
+		};
+		modeRow("M", "Geometry", geoWire, geoWire ? "wireframe" : "off");
+		modeRow(",", "Collision", collisionWire, collisionWire ? "dynamic" : "off");
+		modeRow(".", "Nameplates", nameplates, nameplates ? "on (20m)" : "off");
+		modeRow("/", "AI", aiDisabled, aiDisabled ? "off" : "on");
+		modeRow("F", "Fly", noclip, noclip ? "on" : "off");
+		if (collisionWire) {
+			++row;
+			renderer.DebugText(row++, "Collision colours:");
+			renderer.DebugText(row++, "    green awake, yellow asleep");
+			renderer.DebugText(row++, "    magenta script, red non-colliding");
+			renderer.DebugText(row++, "    green box: no physics body");
+		}
 		}
 		renderer.EndFrame();
 

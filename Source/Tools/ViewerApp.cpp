@@ -327,7 +327,7 @@ int RunCmd(const char* levelDir, const char* dataRoot,
 					hi[0], hi[1], hi[2],
 					debugLinesReady ? "" : "   (no vs_debug/fs_debug)");
 		}
-		renderer.DebugText(6, "%s - WASD move, shift fast, space/ctrl up-down, N noclip, P hulls, [ ] change level, esc release",
+		renderer.DebugText(6, "%s - WASD move, shift fast, space/ctrl up-down, F noclip, P hulls, [ ] change level, esc release",
 				window.mouseCaptured() ? "mouse captured" : "click to capture mouse");
 		renderer.EndFrame();
 

@@ -866,7 +866,7 @@ Measured with the pawn disabled mid-run: the camera snaps from head height
 (`ent.y + 2.0`) to the entity origin and then holds it exactly, frame after
 frame, with `MOUSE.IsLocked()` still true throughout.
 
-The engine-side noclip (the `N` key) is the developer twin of that script fly
+The engine-side noclip (the `F` key) is the developer twin of that script fly
 mode and needs `-dev`, for the same reason `IsFinalBuild` guards the other one.
 
 ## `INP.Reset` consumes a press until the key is released
