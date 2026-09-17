@@ -182,6 +182,46 @@ shines forward: `N.L` on the ground ahead is about 0.16. Judge it against a
 wall, not a path — Cemetery, Asylum and Catacombs all spawn you facing open
 ground.
 
+## Environment boxes
+
+A `CEnvironment` is an axis-aligned box that overwrites the ambient and the one
+directional of the ENTITIES inside it; the world mesh keeps its lightmap.
+`CEnvironment:Apply` hands the engine every field whether the level authored it
+or not - `ENVIRONMENT.SetDirLight(e, Overwrite, Dir.X, Dir.Y, Dir.Z,
+Color:Compose(), Intensity, FadeTime)` (`0x1013ac70`: flag 1 at `+0x674`, the
+light at `+0x678`, FadeTime at `+0xeac`) - so an unstated field is the class
+value in `CEnvironment.lua`, not the level's: Ambient `(30,30,30)`, DirLight
+Color `(100,100,100)`, Dir `(-0.7,-0.7,-0.7)`, Intensity 1, FadeTime 1. Of the
+shipped boxes that overwrite the directional, 30 leave Dir to the class and 8
+the colour (Cathedral's `Dark001`: Intensity 0.5 alone). No box authors a
+FadeTime of 0.
+
+**Which box.** `World::CreateEntity` re-sorts the environment list by name
+(`World::SortEnvironmentByNames`, `0x1005da90`: unnamed first, then `stricmp`
+order), and `World::UpdateEntity` (`0x10058f60`) takes the FIRST box whose
+`PointTest` holds the entity. Where boxes overlap, the name decides - not the
+size.
+
+**The fade is in time, per entity.** Entering a box, `Environment::AddEntity`
+sets the entity's fade length to that box's FadeTime and its progress and step to
+0 (`Entity+0xe0/+0xe4/+0xe8`); leaving into no box, `RemoveEntity` does the same
+with the box left. `Entity::Tick` (`0x101d1200`) adds `dt / FadeTime` to the
+progress while the length is above 0. `GetEnvironmentAmbient` /
+`GetEnvironmentDirLight` (`0x101d0ca0` / `0x101d0ec0`) then move the entity's
+own ambient, colour, intensity and direction `step / (1 - progress)` of the
+way to the box's values - a linear fade over FadeTime - and snap once the
+progress reaches 1. An entity's first update snaps. The target is the box's
+light when its Overwrite is set, else the level's (`World+0xdf4`, ambient
+`World+0x1604`). By that arithmetic a FadeTime of 0 would never move at all.
+
+The port keeps that state in `EntityLightFade` (`EntityLighting::UpdateFade`),
+one per model instance, advanced once per frame whether the model is in view or
+not. A character's shadow takes its direction from its own fade block, so the
+shadow turns with the light on the character that throws it ("Character
+shadows"); the view model's maps use one more, kept for the camera
+(`EntityRenderer::CameraDirectional`). The specular on a model follows the same
+faded directional, per model.
+
 ## Which lights reach the world mesh
 
 First, what the world mesh has to offer them: a normal. A 2-UV `.mpk` object
@@ -270,17 +310,6 @@ tests the bounding sphere against the cone; the per-pixel shader then decides
 what is actually lit. `Light::GetAttIntensity` is a point function and is
 kept as one - radius `0` reproduces it exactly. The world's chunks are scored
 the same way, for the same reason at a larger scale.
-
-**The environment boxes blend in space, not in time.** `Entity::GetEnvironment-
-DirLight` snaps to the tightest box the entity is in and lerps toward it over
-`DirLight.FadeTime`, so a doorway is a timed fade - and a model standing still
-on the line still fades. Here every box is applied outermost first, weighted by
-how far inside its faces the point is (`kEnvBlendMargin`, 1 unit - 2 read as
-too wide - capped at the box's half-extent so a thin corridor still reaches
-full weight), and the
-timed fade is gone. `FadeTime` is read and unused. The same blend runs in
-`fs_world` for the model shadows' strength, so a shadow and the light it
-belongs to cross a box edge together.
 
 **The environment directional does not compete for a slot.** `Entity::ResetLights`
 (`0x101D2C70`) `AddLight`s it, so in the original it can be crowded out by four
@@ -392,74 +421,82 @@ the level) costs nothing: the view is not touched and the receivers read
 
 ### Character shadows
 
-The characters also cast from the environment directional - the `DirLight`
-every `CEnvironment` box carries, which is what lights them. A second
-`ShadowMap` (`Renderer::kModelShadowView`, `ShadowMap::BeginOrtho`) is an
-orthographic box 48 units wide and deep, pushed half its width ahead of the
-camera, aimed down the directional the camera's own box gives
-(`EntityRenderer::DirectionalAt`), and snapped to its texel grid so it does not
-shimmer as the camera moves.
+**Who casts.** A character is what the original gave a shadow: a model entity
+the scripts passed to `MDL.CreateShadowMap(e, size)` with a non-zero size.
+`CActor:Apply` does, with the template's `shadow` field (0 in `CActor`, 128
+where a template sets it); props, items and the level's placed models never do.
+The native (`0x1012e9a0`) reads the size with a default of 128 and calls
+`Model::CreateShadowMap(size != 0)`, which keeps the flag at `Model+0x6ac` and
+builds the blob only while render flag 2 (`R3D.EnableShadows`) is set.
+`Model::SaveEntity` writes that byte, so the flag comes back with a save. The
+flashlight's and the placed lights' maps keep every model.
 
-**Only the characters cast into it.** A character is what the original gave a
-shadow: a model entity the scripts passed to `MDL.CreateShadowMap(e, size)`
-with a non-zero size. `CActor:Apply` does, with the template's `shadow` field
-(0 in `CActor`, 128 where a template sets it); props, items and the level's
-placed models never do. The native (`0x1012e9a0`) reads the size with a
-default of 128 and calls `Model::CreateShadowMap(size != 0)`, which keeps the
-flag at `Model+0x6ac` and builds the blob only while render flag 2
-(`R3D.EnableShadows`) is set; `WorldMesh::DrawShadows` (`0x101da8e0`) draws the
-models holding one. `Model::SaveEntity` writes that byte, so the flag comes back
-with a save. The world's shadows are baked into its lightmaps; putting the
-world in the map would double every one of them and darken everything under a
-ceiling. The flashlight's and the placed lights' maps keep every model.
+**What the original draws: a blob per character.** `Model::CreateShadowMap`
+takes a 128-texel texture from a pool (`FUN_1001b180`). Every tick
+`Model::Tick` (`0x101e2630`) fits an orthographic box to the character's bounds,
+aimed down a direction of its own - the level's `DirLight`
+(`World+0x15d8`), unless the character has lights on it, in which case the
+first light's vector, blended toward the second one's by that light's weight.
+`View::RenderShadowmaps` (`0x100b2640`) takes up to 24 casters from the scene;
+`AnimatedMeshMatPal::RenderShadowmap` (`0x10006160`) draws each one flat white
+into its texture over black, a texel of border kept black, and softens it with
+four blended passes (weights 0.25 / 0.75). `RenderWorld` lists, per world mesh,
+the casters whose box it meets (at most 16), and `WorldMesh::RenderShadowPass`
+(`0x101d9f10`) draws that mesh again with the silhouette projected on,
+darkening. The fade is a plane through the bounds' max corner along the
+caster's direction, scaled by `1 / (0.5 x height x 8)`: the shadow is gone four
+heights beyond the character (constants `0.5` at `0x102ae5b0`, `8` at
+`0x102c8698`).
 
-**Only the static world receives it.** The characters cast and no model is
-darkened by them or by itself: the original lit a model from its box alone.
-Receiving was tried twice and judged not worth its artefacts. The world is
-darkened by
-`CharacterShadowMapStrength` percent of its baked light - a synthetic darkening, since
-the world is not lit by that directional at all, kept because a figure that
-casts nothing floats on the lightmap. That is what the original's
-`MDL.CreateShadowMap` blob was reaching for. The shadows fade out over the last
-`kEdgeFade` (15 percent) of the box at every edge, so they do not stop on a
-line where the box ends in view.
+**What this port draws: a depth slot per character**
+(`Render/CharacterShadows.h`). The same shape - a box per character, the
+nearest `CharacterShadowCasters` (24) whose reach is in view, a fade along the
+light over `kFadeHeights` (4) heights from the bounds' corner nearest the light
+- with three decisions of its own:
+
+- **Depth, not a silhouette.** A white mask also darkens whatever lies between
+  the light and the character - the ceiling over it, the wall behind the light.
+  The slot stores depth and the receiver compares it, filtered 3x3.
+- **The direction is the character's own environment directional**, faded as
+  its lighting is ("Environment boxes"), and nothing else. The original's
+  steering by the nearest placed light is not kept: the placed lights already
+  cast real shadows of their own ("Shadows from the placed lights").
+- **The strength is the caster's.** `CharacterShadowMapStrength` (60 percent)
+  of the darkening, scaled by the character's directional against the level's
+  brightest (`EntityLighting::DirectionalReference`), so a character standing in
+  a box that says "shade" throws a weaker shadow.
+
+All the slots live in one square depth atlas drawn in one view
+(`Renderer::kCharacterShadowView`): each caster's draw carries its slot's whole
+view-projection and crop in the transform, and a scissor keeps it in its cell.
+The box is the bounding sphere (radius quantised to a quarter unit, so animation
+does not rescale it) snapped to its texel grid. `Add` checks that the caster's
+own centre lands inside its cell in front of the far plane (a `PAINFUL_CHECK`).
+A world chunk takes up to `PAINFUL_MAX_CHAR_SHADOWS` (8, top-level CMakeLists,
+the one-number rule) of the casters whose reach overlaps it, nearest the camera
+first; `fs_world` multiplies what each leaves.
+
+**Only the static world receives them.** No model is darkened by them or by
+itself: the original lit a model from its box alone, and receiving was tried and
+judged not worth its artefacts. The world is darkened, a synthetic darkening
+since it is not lit by that directional at all, kept because a figure that casts
+nothing floats on the lightmap - which is what the blob was for.
 
 **The world's own occlusion is not consulted.** A figure standing in a
-building's baked shade still throws a shadow, and one on a balcony throws it
-through the floor onto the wall beneath, the world not being among the
-casters. That is how the original's blobs and Half-Life 2's dynamic shadows
-behaved, and it is accepted. A third depth map holding the world's own depth
-from the light - a gate saying where the light reaches at all - was built and
-worked, and was taken out again as a pass too many for what it bought; the
-lightmap has no separate shadow term (no shadowmask) that could gate it for
-free. The `CEnvironment` factor below is what remains of "is this place in
-the sun".
-
-**The shadow is as strong as the boxes say the directional is.** The levels
-already carry lit-versus-shade outdoors: a `CEnvironment` in a building's
-shadow gives the models a weaker or absent `DirLight`. The world has no
-directional term, so `fs_world` blends the same box list the models are lit by
-(`DirectionalFactor`, outermost first, the same edge ramp) and scales
-`CharacterShadowMapStrength` by the directional's strength there relative to the
-level's brightest (`EntityLighting::DirectionalBoxes`). Two earlier answers to
-a shadow inside a building's shade - fading with the caster-to-receiver gap,
-and gating on the lightmap's own brightness - were tried and dropped, the
-second because it varied wildly from map to map, and so was the world-depth
-gate above. The box list reaches the shader as
-`PAINFUL_MAX_ENV_BOXES` (64, top-level CMakeLists, the same one-number rule as
-the lights); a level with more hands the nearest to the camera.
-
-The shipped directions are slanted - `(0.05,-0.05,0.1)` is 66 degrees off
-vertical - so the shadows are long.
+building's baked shade still throws a shadow, as the original's blobs did. A
+depth map of the world from the light, as a gate, was built once and taken out
+as a pass too many; the lightmap has no shadow term that could gate it for free.
 
 The menu's "Character Shadows" (`R3D.EnableShadows`) is the only switch.
-`painful_config.ini`: `CharacterShadowMapSize` (1024 over 48 units, a texel of
-about 5 cm), `CharacterShadowMapStrength` (60); an older file's `ModelShadowMapSize`
-and `ModelShadowStrength` are read under those names and its `ModelShadows` is
-dropped. `PAINFUL_SHADOWMAP=0` turns this map off with the flashlight's.
+`painful_config.ini`: `CharacterShadowMapSize` (256 texels a side per character,
+32 to 1024), `CharacterShadowMapStrength` (60), `CharacterShadowCasters` (24, up
+to 64). An older file's `ModelShadowStrength` is read as the strength; its
+`ModelShadows`, `ModelShadowMapSize` (which sized one map about the camera) and
+the short-lived `CharacterShadowFadeStart` / `End` are dropped.
+`PAINFUL_SHADOWMAP=0` turns the atlas off with the flashlight's map.
 `PAINFUL_SHADOWVIEW=1` draws the term alone - white lit, black shadowed, models
-at 0.8 - which is how a sign error in the direction or the depth shows up at a
-glance.
+at 0.8. The `--shot` report lists each caster: where its shadow reaches, how far
+from the eye, its direction and strength.
 
 The volume lights are untouched by any of this and are still shadowless.
 

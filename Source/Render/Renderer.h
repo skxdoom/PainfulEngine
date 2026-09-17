@@ -16,8 +16,8 @@ public:
 	// The flashlight's depth pass goes first, into its own target, so the
 	// world and the models can sample it. Render/ShadowMap.h owns the view.
 	static constexpr bgfx::ViewId kShadowView = 0;
-	// The models' shadows from the environment directional, likewise.
-	static constexpr bgfx::ViewId kModelShadowView = 1;
+	// The characters' shadow atlas, one view for every slot (Render/CharacterShadows.h).
+	static constexpr bgfx::ViewId kCharacterShadowView = 1;
 	// The placed lights' shadow atlas: six faces per light, up to eight
 	// lights (Render/LightShadowAtlas.h).
 	static constexpr bgfx::ViewId kLightShadowViewBase = 2;

@@ -7,6 +7,10 @@ namespace painful {
 
 class TextureCache;
 class ShadowMap;
+class CharacterShadows;
+
+// PAINFUL_SHADOWVIEW: 0 off, 1 the shadow terms alone, 2 the placed lights' alone.
+float ShadowViewMode();
 
 // The dynamic lights as both shaders read them.
 //
@@ -35,13 +39,15 @@ struct LightBlock {
 	float shadowMtx[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f,
 			0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
 	float shadowParams[4] = {0.f, 0.f, 0.f, 0.f};
-	// The model shadows' orthographic map: matrix, (strength, normal offset,
-	// light offset, 1/size), (to the light, the PAINFUL_SHADOWVIEW flag).
-	float dirShadowMtx[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f,
-			0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
-	float dirShadowParams[4] = {0.f, 0.f, 0.f, 0.f};
-	float dirShadowDir[4] = {0.f, 1.f, 0.f, 0.f};
-	float dirShadowFade[4] = {0.f, 0.f, 0.f, 0.f}; // x: edge fade width (uv)
+	// The character shadows reaching this draw (shared_lights.sh, CharacterShadows):
+	// (count, atlas texel, 0, the PAINFUL_SHADOWVIEW mode), then per caster the
+	// receiver matrix, (to the light, strength), the slot rect and (fade start,
+	// 1/fade length, normal offset, light offset).
+	float charInfo[4] = {0.f, 0.f, 0.f, ShadowViewMode()};
+	float charMtx[kMaxCharacterShadows * 16] = {};
+	float charDir[kMaxCharacterShadows][4] = {};
+	float charRect[kMaxCharacterShadows][4] = {};
+	float charFade[kMaxCharacterShadows][4] = {};
 	// Per slot, the placed light's shadow in the atlas: (atlas slot or -1,
 	// A, B, fade) - LightShadowAtlas::ReceiverParams plus the pick's fade.
 	// PackLight writes -1.
@@ -56,8 +62,10 @@ void PackLight(LightBlock& block, int slot, const LightSource& light,
 // Writes the shadow map's matrix and offsets; null or inactive leaves the
 // block reading "no shadow".
 void PackShadow(LightBlock& block, const ShadowMap* shadow);
-// Same for the model shadows' orthographic map.
-void PackDirShadow(LightBlock& block, const ShadowMap* shadow);
+// The character shadows whose reach overlaps lo..hi, nearest the camera first,
+// up to kMaxCharacterShadows. Null or not ready leaves the count at 0.
+void PackCharacterShadows(LightBlock& block, const CharacterShadows* shadows,
+		const Vec3& lo, const Vec3& hi);
 // Gives slot `slot` a placed-light shadow: params from
 // LightShadowAtlas::ReceiverParams, info from LightShadowAtlas::info.
 void PackLightShadow(LightBlock& block, int slot, const float params[4], const float info[4],
@@ -85,7 +93,7 @@ public:
 	void Submit(const LightBlock& block, int projStage, int projFallStage,
 			bgfx::TextureHandle proj, bgfx::TextureHandle projFall,
 			int shadowStage, bgfx::TextureHandle shadow,
-			int dirShadowStage, bgfx::TextureHandle dirShadow,
+			int charShadowStage, bgfx::TextureHandle charShadow,
 			int lightShadowStage, bgfx::TextureHandle lightShadow) const;
 
 private:
@@ -101,11 +109,12 @@ private:
 	bgfx::UniformHandle shadowMtx_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle shadowParams_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle sShadow_ = BGFX_INVALID_HANDLE;
-	bgfx::UniformHandle dirShadowMtx_ = BGFX_INVALID_HANDLE;
-	bgfx::UniformHandle dirShadowParams_ = BGFX_INVALID_HANDLE;
-	bgfx::UniformHandle dirShadowDir_ = BGFX_INVALID_HANDLE;
-	bgfx::UniformHandle dirShadowFade_ = BGFX_INVALID_HANDLE;
-	bgfx::UniformHandle sDirShadow_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle charInfo_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle charMtx_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle charDir_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle charRect_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle charFade_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle sCharShadow_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle dynShadow_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle lightShadowInfo_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle sLightShadow_ = BGFX_INVALID_HANDLE;

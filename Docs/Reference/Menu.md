@@ -746,8 +746,8 @@ The port reads the same fields in `ScriptEngine::ReadVideoCfg` - from
 the world state, and `GameApp` hands them to the renderers every frame so an
 Apply reaches the level already loaded. Two choices: the world keeps every
 dynamic light per pixel at both 1 and 2 (it has no per-vertex path to fall back
-to), and "Character Shadows" gates the character shadow map - the port's
-stand-in for the actors' blobs, cast by the same actors
+to), and "Character Shadows" gates the character shadow maps - the port's
+depth-mapped stand-in for the actors' blobs, one per actor
 ([`Lighting.md`](Lighting.md), "Character shadows") - while the flashlight's and the placed lights' maps
 keep their own `painful_config.ini` switches.
 

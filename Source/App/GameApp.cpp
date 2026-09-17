@@ -41,6 +41,7 @@
 #include "Render/ShadowMap.h"
 #include "Render/TextureFilter.h"
 #include "Render/ViewModelShadows.h"
+#include "Render/CharacterShadows.h"
 #include "Render/SkyRenderer.h"
 #include "Render/TextureCache.h"
 #include "Render/Window.h"
@@ -214,10 +215,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	// The three are sized and switched by ApplySettings below, from
 	// painful_config.ini, and again whenever the console's `pf` changes it.
 	ShadowMap shadow;
-	// The models' shadows from the environment directional: an orthographic
-	// box about the camera that only the models cast into.
-	ShadowMap modelShadow;
-	entities.SetModelShadowMap(&modelShadow);
+	// The characters' shadows, each down its own environment directional.
+	CharacterShadows characterShadows;
 	// The placed lights' shadows.
 	LightShadowAtlas lightShadows;
 	lightShadows.SetBaseView(Renderer::kLightShadowViewBase);
@@ -227,8 +226,6 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	ViewModelShadows vmShadows;
 	vmShadows.SetView(Renderer::kViewModelShadowView);
 	entities.SetViewModelShadows(&vmShadows);
-	constexpr float kModelShadowExtent = 24.f; // half-width of the box, world units
-	constexpr float kModelShadowDepth = 24.f; // half-depth along the light
 	entities.SetShadowMap(&shadow);
 
 	ParticleRenderer particles;
@@ -429,7 +426,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	WorldRenderer world;
 	const bool worldInit = world.Init(shaderDir);
 	world.SetShadowMap(&shadow);
-	world.SetModelShadowMap(&modelShadow);
+	world.SetCharacterShadows(&characterShadows);
 	bool worldReady = false;
 	// The scene as a texture, whenever a post-process wants the frame, with
 	// its half-size copy (Render/SceneTargets.h).
@@ -461,7 +458,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	// console's `pf` changed a value. Maps are rebuilt only when their size
 	// changed; everything else is a setter. PAINFUL_SHADOWMAP still overrides
 	// the flashlight's size, 0 turning every map off.
-	int shadowSize = -1, modelSize = -1, atlasSize = -1, atlasCount = -1, vmSize = -1;
+	int shadowSize = -1, characterSize = -1, characterSlots = -1, atlasSize = -1, atlasCount = -1,
+			vmSize = -1;
+	float characterStrength = 0.6f;
 	unsigned appliedSettings = 0;
 	auto applySettings = [&]() {
 		appliedSettings = Settings().generation();
@@ -482,13 +481,15 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		}
 
 		// Switched by the menu's "Character Shadows" alone (engine.shadowsEnabled()).
-		size = anyMaps ? cfg.GetInt("CharacterShadowMapSize", 1024) : 0;
-		if (size != modelSize) {
-			modelShadow.Shutdown();
-			modelShadow.Init(shaderDir, size);
-			modelSize = size;
+		size = anyMaps ? std::clamp(cfg.GetInt("CharacterShadowMapSize", 256), 32, 1024) : 0;
+		const int casters = std::clamp(cfg.GetInt("CharacterShadowCasters", 24), 1, 64);
+		if (size != characterSize || casters != characterSlots) {
+			characterShadows.Shutdown();
+			characterShadows.Init(shaderDir, size, casters);
+			characterSize = size;
+			characterSlots = casters;
 		}
-		modelShadow.SetStrength(float(cfg.GetInt("CharacterShadowMapStrength", 60)) / 100.f);
+		characterStrength = float(std::clamp(cfg.GetInt("CharacterShadowMapStrength", 60), 0, 100)) / 100.f;
 
 		size = anyMaps && cfg.GetBool("LightShadows", true) ? cfg.GetInt("LightShadowMapSize", 256) : 0;
 		const int count = std::min(cfg.GetInt("LightShadowLights", 8),
@@ -601,14 +602,6 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			// The ambient the scripts actually set (CLevel:Apply -> WORLD.AmbientColor),
 			// class default 50,50,50 included - the level file alone may omit it.
 			entities.SetLevelAmbient(engine.world().ambient);
-			// The boxes' directional, for the world's share of the model
-			// shadows: the world blends the same list the models do.
-			{
-				std::vector<EntityLighting::DirBox> boxes;
-				float levelFactor = 1.f;
-				entities.lighting().DirectionalBoxes(boxes, levelFactor);
-				world.SetEnvironmentBoxes(boxes, levelFactor);
-			}
 			// The CEnvironment boxes with a Water block of their own: the
 			// surfaces inside them draw with it (ENVIRONMENT.SetWater), and a
 			// Reflect* key is what turns the planar reflection on. Water.md.
@@ -1285,21 +1278,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			float vmRadius = 0.f;
 			if (vmShadows.ready() && entities.ViewModelBounds(vmCentre, vmRadius)) {
 				Vec3 toLight, dirColor;
-				entities.DirectionalAt(camera.pos, toLight, dirColor);
+				entities.CameraDirectional(camera.pos, elapsed, toLight, dirColor);
 				if (dirColor[0] + dirColor[1] + dirColor[2] > 0.003f)
 					vmShadows.Begin(toLight, vmCentre, vmRadius);
 			}
-		}
-		// Cfg.Shadows, the menu's "Character Shadows": the directional model shadows.
-		if (modelShadow.ready() && engine.shadowsEnabled()) {
-			Vec3 toLight, dirColor;
-			entities.DirectionalAt(camera.pos, toLight, dirColor);
-			const Vec3 forward = camera.Forward();
-			const Vec3 centre = camera.pos + forward * (kModelShadowExtent * 0.5f);
-			modelShadow.BeginOrtho(Renderer::kModelShadowView, toLight, centre,
-					kModelShadowExtent, kModelShadowDepth, kModelShadowDepth);
-		} else {
-			modelShadow.End();
 		}
 
 		// Cfg.FOV is a horizontal angle; the projection wants the vertical
@@ -1392,6 +1374,11 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			world.SetRefractionTexture(refrTex);
 			world.SetReflectionTexture(reflTex);
 		}
+		// Cfg.Shadows, the menu's "Character Shadows": each character's shadow down its
+		// own box directional. Picked before the world and the models draw.
+		characterShadows.BeginFrame(Renderer::kCharacterShadowView);
+		entities.PickCharacterShadows(camera, window.width(), window.height(), elapsed,
+				engine.shadowsEnabled() ? characterStrength : 0.f, characterShadows);
 		if (skyReady)
 			sky.Draw(Renderer::kSkyView, camera, window.width(), window.height(), elapsed);
 		if (worldReady)
@@ -1413,8 +1400,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			if (worldReady) world.DrawShadow(Renderer::kShadowView, shadow, elapsed);
 			entities.DrawShadow(Renderer::kShadowView, shadow, elapsed);
 		}
-		if (modelShadow.active())
-			entities.DrawShadow(Renderer::kModelShadowView, modelShadow, elapsed, true);
+		entities.DrawCharacterShadows(characterShadows, elapsed);
 		entities.DrawLightShadows(elapsed);
 		// Decals over the world and the props, before anything blended. Their colour
 		// is albedo, so the lighting-only view goes without them.
@@ -1699,14 +1685,22 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 						bloom.active() ? "on" : "off", bloom.bufferWidth(), bloom.bufferHeight(),
 						bloom.taps(), bloom.threshold(), bloom.multiplier(), renderer.msaaSamples(),
 						demonFx.active() ? "on" : "off");
-				LogInfo("  shadow maps: flashlight %s, characters %s (%zu), %zu placed lights "
+				LogInfo("  shadow maps: flashlight %s, characters %s (%zu of %zu cast), %zu placed lights "
 						"(%zu baked chunk slots), view model %s; %zu world draws, "
 						"%zu entity draws in all",
 						shadow.active() ? "on" : (shadow.ready() ? "idle" : "OFF"),
-						modelShadow.active() ? "on" : "OFF", entities.characterCount(),
+						characterShadows.ready() ? "on" : "OFF", characterShadows.casters().size(),
+						entities.characterCount(),
 						entities.shadowLights().size(),
 						world.bakedShadowSlots(), vmShadows.active() ? "on" : "off",
 						world.shadowDrawCalls(), entities.shadowDrawCalls());
+				for (const CharacterShadows::Caster& c : characterShadows.casters()) {
+					const Vec3 mid = (c.reachLo + c.reachHi) * 0.5f;
+					LogInfo("    character shadow: reach centre (%.1f, %.1f, %.1f), %.1f from the eye, "
+							"to light (%.2f, %.2f, %.2f), strength %.2f", mid[0], mid[1], mid[2],
+							(mid - camera.pos).Length(), c.toLight[0], c.toLight[1], c.toLight[2],
+							c.strength);
+				}
 				LogInfo("  lights: %zu placed, %zu from scripts (%zu of them dynamic), "
 						"%zu environment boxes", entities.lightCount(), scriptLights.size(),
 						size_t(std::count_if(scriptLights.begin(), scriptLights.end(),

@@ -34,8 +34,9 @@ const EngineConfig::Known kKnown[] = {
 	{"WindowMode", "0", false, "0 config.ini's Fullscreen decides, 1 always a window, 2 borderless"},
 	{"FlashlightShadows", "true", true, "the flashlight casts shadows"},
 	{"FlashlightShadowMapSize", "512", false, "flashlight shadow map, texels a side; applies while FlashlightShadows is on"},
-	{"CharacterShadowMapSize", "1024", false, "character shadow map (the directional light's), texels, over 48 units about the camera"},
-	{"CharacterShadowMapStrength", "60", false, "how dark a character's shadow falls on the world, percent"},
+	{"CharacterShadowMapSize", "256", false, "character shadow map, texels a side per character (32 to 1024)"},
+	{"CharacterShadowMapStrength", "60", false, "how dark a character's shadow falls on the world at the level's brightest directional, percent"},
+	{"CharacterShadowCasters", "24", false, "characters with a shadow map per frame, nearest first (the original's cap is 24; up to 64)"},
 	{"LightShadows", "true", true, "the placed lights cast shadows"},
 	{"LightShadowLights", "8", false, "placed lights with a shadow map per frame, up to 8"},
 	{"LightShadowRadius", "40", false, "how far from the camera a placed light gets a map, units"},
@@ -62,8 +63,11 @@ const Renamed kRenamed[] = {
 	{"ShadowMapSize", "FlashlightShadowMapSize"},
 	{"FogVolumes", nullptr},
 	{"ModelShadows", nullptr},
-	{"ModelShadowMapSize", "CharacterShadowMapSize"},
+	// Sized one map about the camera; the key now sizes a map per character.
+	{"ModelShadowMapSize", nullptr},
 	{"ModelShadowStrength", "CharacterShadowMapStrength"},
+	{"CharacterShadowFadeStart", nullptr},
+	{"CharacterShadowFadeEnd", nullptr},
 };
 
 const EngineConfig::Known* FindKnown(const std::string& key) {

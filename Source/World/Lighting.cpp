@@ -15,10 +15,8 @@ void Normalize(Vec3& d) {
 
 float Dist(const Vec3& a, const Vec3& b) { return Distance(AsVec3(a), AsVec3(b)); }
 
-// Colours are authored 0..255 in Color:New(...). Returns false when nothing in
-// the chain declares the key, which matters for CEnvironment: "Dark001" sets
-// DirLight.Overwrite and DirLight.Intensity but no colour, and means "the
-// level's light at half strength", not "black".
+// Colours are authored 0..255 in Color:New(...). Returns false, leaving out
+// untouched, when nothing in the chain declares the key.
 bool ReadColor(TemplateCache& templates, const Properties& props, const std::string& base,
 		const std::string& key, Vec3& out) {
 	Vec3 raw = out * 255.f;
@@ -181,6 +179,7 @@ void EntityLighting::Build(const Level& level, TemplateCache& templates,
 		if (e.type != "CEnvironment") continue;
 
 		Environment env;
+		env.name = e.name;
 		Vec3 centre = e.pos;
 		e.props.Vector3("Pos", centre);
 		const float w = float(templates.ResolveNumber(e.props, e.baseObj, "Size.Width", 0.0));
@@ -192,103 +191,112 @@ void EntityLighting::Build(const Level& level, TemplateCache& templates,
 			env.lo[i] = centre[i] - half[i];
 			env.hi[i] = centre[i] + half[i];
 		}
-		env.volume = w * h * d;
 		env.ambientOverwrite = e.props.Bool("Ambient.Overwrite", false);
 		env.dirOverwrite = e.props.Bool("DirLight.Overwrite", false);
-		// Overwrite means "my values win", not "everything I did not mention is
-		// black": Cathedral's "Dark001" sets DirLight.Overwrite and
-		// DirLight.Intensity 0.5 and no colour, meaning the level's light at
-		// half strength. So each field is applied only where it was authored.
-		env.hasAmbient = ReadColor(templates, e.props, e.baseObj, "Ambient.Color", env.ambient);
-		env.hasDirColor = ReadColor(templates, e.props, e.baseObj, "DirLight.Color", env.dirColor);
-		env.hasDirDir = ReadVector(templates, e.props, e.baseObj, "DirLight.Dir", env.dirDir);
+		// An unstated field keeps the class value the struct starts with.
+		ReadColor(templates, e.props, e.baseObj, "Ambient.Color", env.ambient);
+		ReadColor(templates, e.props, e.baseObj, "DirLight.Color", env.dirColor);
+		ReadVector(templates, e.props, e.baseObj, "DirLight.Dir", env.dirDir);
 		Normalize(env.dirDir);
 		env.dirIntensity = float(
 				templates.ResolveNumber(e.props, e.baseObj, "DirLight.Intensity", 1.0));
 		env.fadeTime = float(
-				templates.ResolveNumber(e.props, e.baseObj, "DirLight.FadeTime", 0.0));
-		// A box thinner than two margins would never reach full weight.
-		env.margin = std::min(kEnvBlendMargin, std::min(half[0], std::min(half[1], half[2])));
+				templates.ResolveNumber(e.props, e.baseObj, "DirLight.FadeTime", 1.0));
 		environments_.push_back(env);
 	}
-	// Outermost first: Evaluate applies them in this order, so a dark alcove
-	// inside a dark hall overrides the hall, weighted by its own edge ramp.
-	std::sort(environments_.begin(), environments_.end(),
-			[](const Environment& a, const Environment& b) { return a.volume > b.volume; });
+	// World::SortEnvironmentByNames (0x1005da90), run by World::CreateEntity:
+	// unnamed first, then case-insensitive name order. The first box holding
+	// an entity is the one it takes.
+	const auto lower = [](std::string s) {
+		for (char& c : s) c = char(std::tolower(static_cast<unsigned char>(c)));
+		return s;
+	};
+	std::stable_sort(environments_.begin(), environments_.end(),
+			[&](const Environment& a, const Environment& b) {
+				if (a.name.empty() != b.name.empty()) return a.name.empty();
+				return lower(a.name) < lower(b.name);
+			});
+}
+
+int EntityLighting::EnvironmentAt(const Vec3& pos) const {
+	for (size_t i = 0; i < environments_.size(); ++i) {
+		const Environment& env = environments_[i];
+		if (pos[0] >= env.lo[0] && pos[0] <= env.hi[0] && pos[1] >= env.lo[1] &&
+				pos[1] <= env.hi[1] && pos[2] >= env.lo[2] && pos[2] <= env.hi[2])
+			return int(i);
+	}
+	return -1;
 }
 
 namespace {
-
-// 0 outside the box, rising to 1 `margin` inside its nearest face.
-float BoxWeight(const Vec3& lo, const Vec3& hi, float margin, const Vec3& p) {
-	float inside = 1e9f;
-	for (int i = 0; i < 3; ++i)
-		inside = std::min(inside, std::min(p[i] - lo[i], hi[i] - p[i]));
-	if (inside <= 0.f) return 0.f;
-	return margin > 1e-6f ? std::min(1.f, inside / margin) : 1.f;
-}
 
 float Luminance(const Vec3& c) { return 0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2]; }
 
 } // namespace
 
-void EntityLighting::DirectionalBoxes(std::vector<DirBox>& out, float& levelFactor) const {
-	// Each box's directional on its own, against the brightest in the level.
-	std::vector<float> strength;
+float EntityLighting::DirectionalReference() const {
 	float reference = Luminance(levelDirColor_) * levelDirIntensity_;
-	for (const Environment& env : environments_) {
-		if (!env.dirOverwrite) { strength.push_back(-1.f); continue; }
-		const float s = Luminance(env.hasDirColor ? env.dirColor : levelDirColor_) *
-				env.dirIntensity;
-		strength.push_back(s);
-		reference = std::max(reference, s);
-	}
-	out.clear();
-	if (reference <= 1e-6f) { levelFactor = 0.f; return; }
-	levelFactor = Luminance(levelDirColor_) * levelDirIntensity_ / reference;
-	for (size_t i = 0; i < environments_.size(); ++i) {
-		if (strength[i] < 0.f) continue;
-		const Environment& env = environments_[i];
-		out.push_back({env.lo, env.hi, env.margin, strength[i] / reference});
-	}
+	for (const Environment& env : environments_)
+		if (env.dirOverwrite) reference = std::max(reference, Luminance(env.dirColor) * env.dirIntensity);
+	return reference;
 }
 
-void EntityLighting::Evaluate(const Vec3& pos, float radius, float dt,
-		EntityLightFade& fade, EntityLightState& out) const {
-	// --- ambient and the one directional, per environment ---
-	// Outermost box first, each weighted by how far inside its faces the
-	// point is (kEnvBlendMargin), so a doorway is a ramp in space. The
-	// original snaps to the tightest box and lerps over DirLight.FadeTime;
-	// fs_world blends the same list the same way for the model shadows.
-	(void)dt;
-	Vec3 ambient = levelAmbient_;
-	Vec3 dirColor = levelDirColor_; // intensity applied below
-	Vec3 dirDir = levelDirDir_;
-	float intensity = levelDirIntensity_;
-	for (const Environment& env : environments_) {
-		const float w = BoxWeight(env.lo, env.hi, env.margin, pos);
-		if (w <= 0.f) continue;
-		if (env.ambientOverwrite && env.hasAmbient)
-			ambient += (env.ambient - ambient) * w;
-		if (env.dirOverwrite) {
-			// Intensity always applies; colour and direction only where stated.
-			intensity += (env.dirIntensity - intensity) * w;
-			if (env.hasDirColor) dirColor += (env.dirColor - dirColor) * w;
-			if (env.hasDirDir) {
-				dirDir += (-env.dirDir - dirDir) * w;
-				Normalize(dirDir);
-			}
-		}
+void EntityLighting::UpdateFade(const Vec3& pos, float timeSeconds, EntityLightFade& fade) const {
+	if (fade.env >= int(environments_.size())) fade.primed = false; // the boxes were rebuilt
+	if (fade.primed && timeSeconds == fade.clock) return; // this frame's step is taken
+	float dt = fade.primed ? timeSeconds - fade.clock : 0.f;
+	if (dt < 0.f || dt > 0.5f) dt = 0.f;
+	fade.clock = timeSeconds;
+
+	// World::UpdateEntity (0x10058f60): a change of box restarts the fade with
+	// the entered box's FadeTime, or the left one's when entering none
+	// (Environment::AddEntity / RemoveEntity). The first update snaps.
+	const int env = EnvironmentAt(pos);
+	if (fade.primed && env != fade.env) {
+		fade.fadeTime = environments_[size_t(env >= 0 ? env : fade.env)].fadeTime;
+		fade.progress = 0.f;
+		fade.step = 0.f;
 	}
-	// The intensity multiplies whichever colour won.
-	dirColor *= intensity;
-	fade.ambient = ambient;
-	fade.dirColor = dirColor;
-	fade.dirDir = dirDir;
+	fade.env = env;
+	// Entity::Tick (0x101d1200).
+	if (fade.primed && fade.fadeTime > 0.f) {
+		fade.step = dt / fade.fadeTime;
+		fade.progress += fade.step;
+	}
+
+	const Environment* box = env >= 0 ? &environments_[size_t(env)] : nullptr;
+	const Vec3 ambient = box && box->ambientOverwrite ? box->ambient : levelAmbient_;
+	const bool dirBox = box && box->dirOverwrite;
+	const Vec3 dirColor = dirBox ? box->dirColor : levelDirColor_;
+	const float intensity = dirBox ? box->dirIntensity : levelDirIntensity_;
+	const Vec3 dirDir = dirBox ? -box->dirDir : levelDirDir_;
+
+	// Entity::GetEnvironmentAmbient / GetEnvironmentDirLight (0x101d0ca0 /
+	// 0x101d0ec0): each call closes step / (1 - progress) of what is left, a
+	// linear fade over FadeTime; done, or never started, it snaps.
+	const float k = fade.progress < 1.f ? fade.step / (1.f - fade.progress) : 1.f;
+	if (fade.primed && fade.progress < 1.f && k < 1.f) {
+		fade.ambient += (ambient - fade.ambient) * k;
+		fade.dirColor += (dirColor - fade.dirColor) * k;
+		fade.intensity += (intensity - fade.intensity) * k;
+		fade.dirDir += (dirDir - fade.dirDir) * k;
+		Normalize(fade.dirDir);
+	} else {
+		fade.ambient = ambient;
+		fade.dirColor = dirColor;
+		fade.intensity = intensity;
+		fade.dirDir = dirDir;
+	}
 	fade.primed = true;
-	out.ambient = ambient;
-	out.dirColor = dirColor;
-	out.dirDir = dirDir;
+}
+
+void EntityLighting::Evaluate(const Vec3& pos, float radius, float timeSeconds,
+		EntityLightFade& fade, EntityLightState& out) const {
+	// --- ambient and the one directional, faded per entity ---
+	UpdateFade(pos, timeSeconds, fade);
+	out.ambient = fade.ambient;
+	out.dirColor = fade.dirColor * fade.intensity;
+	out.dirDir = fade.dirDir;
 
 	// --- the positional lights ---
 	// Entity::AddLight keeps its list sorted by attenuated intensity,

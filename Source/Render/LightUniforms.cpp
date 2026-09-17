@@ -1,4 +1,5 @@
 #include "LightUniforms.h"
+#include "CharacterShadows.h"
 #include "ShadowMap.h"
 #include "../Core/Debug.h"
 #include "TextureCache.h"
@@ -65,22 +66,33 @@ void PackLightShadow(LightBlock& block, int slot, const float params[4], const f
 	block.shadow[slot][3] = fade;
 }
 
-void PackDirShadow(LightBlock& block, const ShadowMap* shadow) {
-	if (!shadow || !shadow->active() || shadow->strength() <= 0.f) return;
-	block.dirShadowFade[0] = ShadowMap::kEdgeFade;
-	std::memcpy(block.dirShadowMtx, shadow->matrix(), sizeof(block.dirShadowMtx));
-	// Orthographic: a texel is the same size everywhere, so the offsets are
-	// resolved to world units here rather than per pixel.
-	const float texel = shadow->texelWorld();
-	block.dirShadowParams[0] = shadow->strength();
-	block.dirShadowParams[1] = ShadowMap::kNormalOffset * texel;
-	block.dirShadowParams[2] = ShadowMap::kLightOffset * texel;
-	block.dirShadowParams[3] = 1.f / float(shadow->size());
-	shadow->toLight().Store(block.dirShadowDir);
-	// PAINFUL_SHADOWVIEW: the receivers draw the terms alone; 2 leaves the
-	// directional out on the models, so a placed light's shadow stands alone.
-	static const int kView = DebugInt("PAINFUL_SHADOWVIEW", 0);
-	block.dirShadowDir[3] = float(kView);
+float ShadowViewMode() {
+	static const float kView = float(DebugInt("PAINFUL_SHADOWVIEW", 0));
+	return kView;
+}
+
+void PackCharacterShadows(LightBlock& block, const CharacterShadows* shadows,
+		const Vec3& lo, const Vec3& hi) {
+	block.charInfo[0] = 0.f;
+	if (!shadows || !shadows->ready()) return;
+	block.charInfo[1] = shadows->texelUv();
+	int n = 0;
+	for (const CharacterShadows::Caster& c : shadows->casters()) {
+		if (n >= kMaxCharacterShadows) break;
+		if (c.reachLo[0] > hi[0] || c.reachHi[0] < lo[0] || c.reachLo[1] > hi[1] ||
+				c.reachHi[1] < lo[1] || c.reachLo[2] > hi[2] || c.reachHi[2] < lo[2])
+			continue;
+		std::memcpy(block.charMtx + n * 16, c.receiverMatrix, sizeof(c.receiverMatrix));
+		c.toLight.Store(block.charDir[n]);
+		block.charDir[n][3] = c.strength;
+		std::memcpy(block.charRect[n], c.rect, sizeof(c.rect));
+		block.charFade[n][0] = c.fadeStart;
+		block.charFade[n][1] = c.fadeRate;
+		block.charFade[n][2] = c.normalOffset;
+		block.charFade[n][3] = c.lightOffset;
+		++n;
+	}
+	block.charInfo[0] = float(n);
 }
 
 void LightUniforms::Init() {
@@ -97,11 +109,12 @@ void LightUniforms::Init() {
 	shadowMtx_ = bgfx::createUniform("u_shadowMtx", bgfx::UniformType::Mat4);
 	shadowParams_ = bgfx::createUniform("u_shadowParams", bgfx::UniformType::Vec4);
 	sShadow_ = bgfx::createUniform("s_shadow", bgfx::UniformType::Sampler);
-	dirShadowMtx_ = bgfx::createUniform("u_dirShadowMtx", bgfx::UniformType::Mat4);
-	dirShadowParams_ = bgfx::createUniform("u_dirShadowParams", bgfx::UniformType::Vec4);
-	dirShadowDir_ = bgfx::createUniform("u_dirShadowDir", bgfx::UniformType::Vec4);
-	dirShadowFade_ = bgfx::createUniform("u_dirShadowFade", bgfx::UniformType::Vec4);
-	sDirShadow_ = bgfx::createUniform("s_dirShadow", bgfx::UniformType::Sampler);
+	charInfo_ = bgfx::createUniform("u_charShadowInfo", bgfx::UniformType::Vec4);
+	charMtx_ = bgfx::createUniform("u_charShadowMtx", bgfx::UniformType::Mat4, kMaxCharacterShadows);
+	charDir_ = bgfx::createUniform("u_charShadowDir", bgfx::UniformType::Vec4, kMaxCharacterShadows);
+	charRect_ = bgfx::createUniform("u_charShadowRect", bgfx::UniformType::Vec4, kMaxCharacterShadows);
+	charFade_ = bgfx::createUniform("u_charShadowFade", bgfx::UniformType::Vec4, kMaxCharacterShadows);
+	sCharShadow_ = bgfx::createUniform("s_charShadow", bgfx::UniformType::Sampler);
 	dynShadow_ = bgfx::createUniform("u_dynShadow", bgfx::UniformType::Vec4, kMaxDynamicLights);
 	lightShadowInfo_ = bgfx::createUniform("u_lightShadowInfo", bgfx::UniformType::Vec4);
 	sLightShadow_ = bgfx::createUniform("s_lightShadow", bgfx::UniformType::Sampler);
@@ -124,11 +137,12 @@ void LightUniforms::Shutdown() {
 	drop(shadowMtx_);
 	drop(shadowParams_);
 	drop(sShadow_);
-	drop(dirShadowMtx_);
-	drop(dirShadowParams_);
-	drop(dirShadowDir_);
-	drop(dirShadowFade_);
-	drop(sDirShadow_);
+	drop(charInfo_);
+	drop(charMtx_);
+	drop(charDir_);
+	drop(charRect_);
+	drop(charFade_);
+	drop(sCharShadow_);
 	drop(dynShadow_);
 	drop(lightShadowInfo_);
 	drop(sLightShadow_);
@@ -137,7 +151,7 @@ void LightUniforms::Shutdown() {
 void LightUniforms::Submit(const LightBlock& block, int projStage, int projFallStage,
 		bgfx::TextureHandle proj, bgfx::TextureHandle projFall,
 		int shadowStage, bgfx::TextureHandle shadow,
-		int dirShadowStage, bgfx::TextureHandle dirShadow,
+		int charShadowStage, bgfx::TextureHandle charShadow,
 		int lightShadowStage, bgfx::TextureHandle lightShadow) const {
 	if (!bgfx::isValid(count_)) return;
 	bgfx::setUniform(count_, block.count);
@@ -153,11 +167,12 @@ void LightUniforms::Submit(const LightBlock& block, int projStage, int projFallS
 	bgfx::setUniform(shadowParams_, block.shadowParams);
 	// Default flags: the compare mode is baked into the depth texture.
 	bgfx::setTexture(uint8_t(shadowStage), sShadow_, shadow);
-	bgfx::setUniform(dirShadowMtx_, block.dirShadowMtx);
-	bgfx::setUniform(dirShadowParams_, block.dirShadowParams);
-	bgfx::setUniform(dirShadowDir_, block.dirShadowDir);
-	bgfx::setUniform(dirShadowFade_, block.dirShadowFade);
-	bgfx::setTexture(uint8_t(dirShadowStage), sDirShadow_, dirShadow);
+	bgfx::setUniform(charInfo_, block.charInfo);
+	bgfx::setUniform(charMtx_, block.charMtx, kMaxCharacterShadows);
+	bgfx::setUniform(charDir_, block.charDir, kMaxCharacterShadows);
+	bgfx::setUniform(charRect_, block.charRect, kMaxCharacterShadows);
+	bgfx::setUniform(charFade_, block.charFade, kMaxCharacterShadows);
+	bgfx::setTexture(uint8_t(charShadowStage), sCharShadow_, charShadow);
 	bgfx::setUniform(dynShadow_, block.shadow, kMaxDynamicLights);
 	bgfx::setUniform(lightShadowInfo_, block.lightShadowInfo);
 	if (bgfx::isValid(lightShadow))

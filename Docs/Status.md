@@ -266,8 +266,9 @@ Details, the numbers, and the sizeable list of what is still missing are in
 
 Models carry no lightmap and are lit at runtime instead, as
 `Entity::ComputeVSLights` does it: level ambient overwritten by whichever
-`CEnvironment` box the entity stands in (blended at the box edges here, where
-the original cross-fades in time), one directional from
+`CEnvironment` box the entity stands in (cross-faded over the box's FadeTime,
+as the original does; [`Lighting.md`](Reference/Lighting.md), "Environment
+boxes"), one directional from
 `o.DirLight`, and the nearest four `CLight`s by attenuated intensity — all
 evaluated once at the entity origin, including the specular half-vector. That
 coarse, per-entity half-vector is why the original's sheen is low-frequency,
@@ -455,9 +456,9 @@ The ordered work queue, with the evidence behind each item, is
   per-entity constants on a different falloff curve; the reasons are listed
   under "Deviations". The flashlight casts real shadows - world and models
   into one depth map, tested per pixel ("Shadows" there). The characters
-  (`MDL.CreateShadowMap`) also cast from the environment directional, onto the
-  world, from a second map only they are drawn into; `R3D.EnableShadows` gates
-  that one. Left:
+  (`MDL.CreateShadowMap`) also cast onto the world, each from a depth slot of
+  its own down its own environment directional, faded along the light as the
+  original's blobs were; `R3D.EnableShadows` gates those. Left:
   `ENTITY.AddLight`, `WORLD.SetDirLight`, `LIGHT.SetLitParentFlag`, and
   shadows from the other dynamic lights - a torch still lights through a wall
   within its range.

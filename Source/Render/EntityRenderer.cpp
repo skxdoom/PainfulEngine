@@ -1,6 +1,7 @@
 #include "EntityRenderer.h"
 #include "ShaderLoad.h"
 #include "ShadowMap.h"
+#include "CharacterShadows.h"
 #include "LightShadowAtlas.h"
 #include "ViewModelShadows.h"
 #include "../Core/Vectors.h"
@@ -470,6 +471,7 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
 void EntityRenderer::BuildLighting(const Level& level, TemplateCache& templates,
 		bool lightsFromScripts) {
 	lighting_.Build(level, templates, lightsFromScripts);
+	cameraFade_ = EntityLightFade();
 }
 
 void EntityRenderer::Build(const Level& level, TemplateCache& templates,
@@ -838,16 +840,16 @@ void EntityRenderer::DrawViewModelShadows(const ViewModelShadows& vm, float time
 	}
 }
 
-void EntityRenderer::DirectionalAt(const Vec3& pos, Vec3& toLight, Vec3& color) const {
-	EntityLightFade snap;
-	EntityLightState lit;
-	lighting_.Evaluate(pos, 0.f, 0.f, snap, lit);
-	toLight = lit.dirDir;
-	color = lit.dirColor;
+void EntityRenderer::CameraDirectional(const Vec3& pos, float timeSeconds, Vec3& toLight,
+		Vec3& color) {
+	lighting_.UpdateFade(pos, timeSeconds, cameraFade_);
+	toLight = cameraFade_.dirDir;
+	color = cameraFade_.dirColor * cameraFade_.intensity;
 }
 
 void EntityRenderer::DrawCaster(bgfx::ViewId view, bgfx::ProgramHandle program,
-		const Instance& instance, const GpuModel& model, float timeSeconds) {
+		const Instance& instance, const GpuModel& model, float timeSeconds,
+		const float* transform, const uint16_t* scissor) {
 	const float identityUv[4] = {1.f, 1.f, 0.f, 0.f};
 	static const bool kNoATest = DebugFlag("PAINFUL_NOATEST");
 	const bool posing = model.skinned && !instance.skin.empty();
@@ -869,7 +871,8 @@ void EntityRenderer::DrawCaster(bgfx::ViewId view, bgfx::ProgramHandle program,
 		bgfx::setUniform(uUvAnim_, uvAnim);
 		bgfx::setUniform(uUv0_, identityUv);
 		bgfx::setUniform(uTile_, tile);
-		bgfx::setTransform(instance.transform.m);
+		bgfx::setTransform(transform ? transform : instance.transform.m);
+		if (scissor) bgfx::setScissor(scissor[0], scissor[1], scissor[2], scissor[3]);
 		const uint32_t owner = part.vboOwner;
 		const bool usePosed = posing && owner < instance.posed.size() &&
 				bgfx::isValid(instance.posed[owner]);
@@ -883,16 +886,68 @@ void EntityRenderer::DrawCaster(bgfx::ViewId view, bgfx::ProgramHandle program,
 	}
 }
 
-void EntityRenderer::DrawShadow(bgfx::ViewId view, const ShadowMap& map, float timeSeconds,
-		bool charactersOnly) {
+void EntityRenderer::DrawShadow(bgfx::ViewId view, const ShadowMap& map, float timeSeconds) {
 	// Counted across the maps drawn this frame; Draw resets it.
 	if (!map.active() || !bgfx::isValid(map.program())) return;
 	const Frustum& frustum = map.frustum();
 	for (Instance& instance : instances_) {
 		if (!instance.alive || !instance.visible || !instance.castsShadow) continue;
-		if (charactersOnly && !instance.characterShadow) continue;
 		if (!frustum.VisibleAabb(instance.aabbLo, instance.aabbHi)) continue;
 		DrawCaster(view, map.program(), instance, models_[instance.model], timeSeconds);
+	}
+}
+
+void EntityRenderer::PickCharacterShadows(const Camera& camera, int width, int height,
+		float timeSeconds, float strength, CharacterShadows& shadows) {
+	for (Instance& instance : instances_) instance.hasCharacterSlot = false;
+	const float reference = lighting_.DirectionalReference();
+	if (!shadows.ready() || strength <= 0.f || reference <= 1e-6f) return;
+
+	float viewMtx[16], projMtx[16];
+	camera.ViewProj(width, height, camera.farPlane, viewMtx, projMtx);
+	const Frustum frustum = Frustum::FromViewProj(viewMtx, projMtx);
+	// View::RenderShadowmaps takes up to 24 of the scene's casters; here the
+	// nearest first, as many as there are slots.
+	struct Pick { float dist2; size_t index; float strength; };
+	std::vector<Pick> picks;
+	for (size_t i = 0; i < instances_.size(); ++i) {
+		Instance& instance = instances_[i];
+		if (!instance.alive || !instance.visible || !instance.castsShadow ||
+				!instance.characterShadow || instance.viewModel)
+			continue;
+		// The character's own light, faded as its lighting is (UpdateFade steps
+		// once per frame, so Draw's Evaluate will not step it again).
+		lighting_.UpdateFade(instance.pos, timeSeconds, instance.lightFade);
+		const EntityLightFade& fade = instance.lightFade;
+		const Vec3 c = fade.dirColor;
+		const float lum = (0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2]) * fade.intensity;
+		const float s = std::min(strength * lum / reference, 1.f);
+		if (s <= 0.003f) continue;
+		Vec3 reachLo, reachHi;
+		CharacterShadows::Reach(instance.aabbLo, instance.aabbHi, fade.dirDir, reachLo, reachHi);
+		if (!frustum.VisibleAabb(reachLo, reachHi)) continue;
+		picks.push_back({(instance.pos - camera.pos).LengthSq(), i, s});
+	}
+	std::sort(picks.begin(), picks.end(), [](const Pick& a, const Pick& b) { return a.dist2 < b.dist2; });
+	for (const Pick& p : picks) {
+		Instance& instance = instances_[p.index];
+		if (!shadows.Add(int(p.index), instance.aabbLo, instance.aabbHi, instance.lightFade.dirDir,
+				p.strength))
+			break;
+		instance.hasCharacterSlot = true;
+	}
+}
+
+void EntityRenderer::DrawCharacterShadows(const CharacterShadows& shadows, float timeSeconds) {
+	if (!shadows.ready() || !bgfx::isValid(shadows.program())) return;
+	for (const CharacterShadows::Caster& c : shadows.casters()) {
+		if (c.instance < 0 || size_t(c.instance) >= instances_.size()) continue;
+		const Instance& instance = instances_[size_t(c.instance)];
+		if (!instance.alive) continue;
+		float transform[16];
+		bx::mtxMul(transform, instance.transform.m, c.drawMatrix);
+		DrawCaster(shadows.view(), shadows.program(), instance, models_[instance.model], timeSeconds,
+				transform, c.scissor);
 	}
 }
 
@@ -1087,18 +1142,9 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 		for (const LightSource& l : lighting_.dynamicLights())
 			if (projector_.Resolve(l.projector, *textures_, levelHint_)) break;
 
-	// Frame time, for the CEnvironment cross-fade. Draw is the only per-frame
-	// hook this renderer has, and a level reload rewinds the clock.
-	float dt = timeSeconds - lastTime_;
-	if (dt < 0.f || dt > 0.5f) dt = 0.f;
-	lastTime_ = timeSeconds;
-
 	const bool beam = shadow_ && shadow_->active();
-	const bool box = modelShadow_ && modelShadow_->active();
 	bgfx::TextureHandle shadowTex = BGFX_INVALID_HANDLE;
 	if (shadow_ && shadow_->ready()) shadowTex = shadow_->texture();
-	bgfx::TextureHandle modelShadowTex = BGFX_INVALID_HANDLE;
-	if (modelShadow_ && modelShadow_->ready()) modelShadowTex = modelShadow_->texture();
 
 	bgfx::TextureHandle lightShadowTex = BGFX_INVALID_HANDLE;
 	if (lightShadows_ && lightShadows_->ready()) lightShadowTex = lightShadows_->texture();
@@ -1113,8 +1159,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 		const bool inView = !visCulling_ || frustum.VisibleAabb(instance.aabbLo, instance.aabbHi);
 		bool inBeam = instance.castsShadow &&
 				((beam && shadow_->frustum().VisibleAabb(instance.aabbLo, instance.aabbHi)) ||
-				(box && instance.characterShadow &&
-				modelShadow_->frustum().VisibleAabb(instance.aabbLo, instance.aabbHi)));
+				instance.hasCharacterSlot);
 		if (!inView && !inBeam && instance.castsShadow) {
 			const float radius = (instance.aabbHi - instance.aabbLo).Length() * 0.5f;
 			for (const ShadowedLight& s : shadowPicks_) {
@@ -1122,7 +1167,11 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 				if ((instance.pos - s.light->pos).LengthSq() <= reach * reach) { inBeam = true; break; }
 			}
 		}
-		if (!inView && !inBeam) continue;
+		if (!inView && !inBeam) {
+			// Entity::Tick runs out of view too, so the environment fade does.
+			lighting_.UpdateFade(instance.pos, timeSeconds, instance.lightFade);
+			continue;
+		}
 		const GpuModel& model = models_[instance.model];
 
 		// Pose it, if it is playing something. This is CPU skinning: the
@@ -1182,7 +1231,10 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 						bgfx::copy(posedVerts_.data(), bytes));
 			}
 		}
-		if (!inView) continue;
+		if (!inView) {
+			lighting_.UpdateFade(instance.pos, timeSeconds, instance.lightFade);
+			continue;
+		}
 		// This model's lighting. The SELECTION is still made at the origin -
 		// which of the level's lights are worth a slot is a per-model question,
 		// as it is in Entity::AddLight - but the lights themselves are handed
@@ -1193,7 +1245,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 		// posed skeleton - so a light reaching an outstretched arm still wins
 		// a slot for the model.
 		const float lightRadius = (instance.aabbHi - instance.aabbLo).Length() * 0.5f;
-		lighting_.Evaluate(instance.pos, lightRadius, dt, instance.lightFade, lit);
+		lighting_.Evaluate(instance.pos, lightRadius, timeSeconds, instance.lightFade, lit);
 		const float dirColor[4] = {lit.dirColor[0], lit.dirColor[1], lit.dirColor[2], 1.f};
 		const float dirDir[4] = {lit.dirDir[0], lit.dirDir[1], lit.dirDir[2], 0.f};
 		const float eyePos[4] = {camera.pos[0], camera.pos[1], camera.pos[2], 0.f};
@@ -1215,7 +1267,6 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			}
 		}
 		PackShadow(lights, shadow_);
-		PackDirShadow(lights, modelShadow_);
 
 
 		const float detail[4] = {1.f, 1.f, 0.f, 0.f};
@@ -1302,7 +1353,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			lightUniforms_.Submit(lights, 2, 3,
 					bgfx::isValid(projector_.cookie()) ? projector_.cookie() : white_,
 					bgfx::isValid(projector_.falloff()) ? projector_.falloff() : white_,
-					4, shadowTex, 5, modelShadowTex, 6, lightShadowTex);
+					4, shadowTex, 5, BGFX_INVALID_HANDLE, 6, lightShadowTex);
 			BindViewModel(instance.viewModel);
 			// The model water look (palskin_water): its own program, the cube
 			// map at stage 1, MDL.SetMaterialRefractFresnel's numbers per mesh.

@@ -19,6 +19,7 @@
 namespace painful {
 
 class ShadowMap;
+class CharacterShadows;
 
 // Draws a level's static world mesh.
 //
@@ -71,14 +72,9 @@ public:
 	// The flashlight's shadow map, read by Draw and written by DrawShadow.
 	// Null for the viewer, which has no flashlight.
 	void SetShadowMap(const ShadowMap* shadow) { shadow_ = shadow; }
-	// The models' shadows from the environment directional, read by Draw and
-	// laid over the lightmap. The world casts nothing into it.
-	void SetModelShadowMap(const ShadowMap* shadow) { modelShadow_ = shadow; }
-	// The CEnvironment boxes that overwrite the directional, outermost first,
-	// and the factor outside them all: what scales a model's shadow on the
-	// world. Docs/Reference/Lighting.md, "Shadows"
-	void SetEnvironmentBoxes(const std::vector<EntityLighting::DirBox>& boxes,
-			float levelFactor);
+	// The character shadows picked this frame, laid over the lightmap; each chunk
+	// takes the few whose reach overlaps it. The world casts nothing into them.
+	void SetCharacterShadows(const CharacterShadows* shadows) { characterShadows_ = shadows; }
 	// The placed lights with a shadow map this frame. A light the lightmap
 	// already holds adds nothing here and only takes away what a model
 	// occludes of it; a dynamic one in a chunk's slots just gets its map.
@@ -237,22 +233,13 @@ private:
 	std::vector<LightSource> dynamicLights_;
 	std::vector<int> chunkLights_; // scratch: the picked slots, reused per chunk
 	const ShadowMap* shadow_ = nullptr;
-	const ShadowMap* modelShadow_ = nullptr;
+	const CharacterShadows* characterShadows_ = nullptr;
 	const std::vector<ShadowedLight>* shadowedLights_ = nullptr;
 	const LightShadowAtlas* lightAtlas_ = nullptr;
 	float lightShadowStrength_ = 1.f;
 	bool lightingOnly_ = false;
 	size_t shadowDrawCalls_ = 0;
 	size_t bakedShadowSlots_ = 0;
-	std::vector<EntityLighting::DirBox> envBoxes_;
-	float envLevelFactor_ = 1.f;
-	// The boxes packed for the shader, the nearest kMaxEnvBoxes when there
-	// are more, rebuilt per frame.
-	std::vector<float> envLoPacked_, envHiPacked_;
-	std::vector<size_t> envPick_; // scratch
-	bgfx::UniformHandle uEnvCount_ = BGFX_INVALID_HANDLE;
-	bgfx::UniformHandle uEnvLo_ = BGFX_INVALID_HANDLE;
-	bgfx::UniformHandle uEnvHi_ = BGFX_INVALID_HANDLE;
 	bgfx::TextureHandle detailTex_ = BGFX_INVALID_HANDLE;
 	float detailTile_[2] = {8.2f, 7.1f};
 	bool detailOn_ = false;

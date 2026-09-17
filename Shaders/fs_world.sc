@@ -20,35 +20,12 @@ SAMPLER2D(s_mask2, 4);
 #define PAINFUL_PROJ_STAGE 5
 #define PAINFUL_PROJFALL_STAGE 6
 #define PAINFUL_SHADOW_STAGE 7
-#define PAINFUL_DIRSHADOW_STAGE 8
+#define PAINFUL_CHARSHADOW_STAGE 8
 // The placed lights' atlas: what a model occludes of a baked light comes off
 // the lightmap here.
 #define PAINFUL_LIGHTSHADOW_STAGE 9
 #include "shared_lights.sh"
 
-// The CEnvironment boxes that overwrite the directional, outermost first, as
-// the models blend them (EntityLighting::Evaluate): how strong the
-// directional is HERE against the level's brightest, which is what a model's
-// shadow on the world is scaled by. A box that says "shade" weakens both the
-// term on the model and the shadow it throws, together.
-uniform vec4 u_envCount; // x: how many, y: the factor outside every box
-uniform vec4 u_envLo[PAINFUL_MAX_ENV]; // xyz: box min, w: blend margin
-uniform vec4 u_envHi[PAINFUL_MAX_ENV]; // xyz: box max, w: the factor inside
-
-float DirectionalFactor(vec3 p)
-{
-	float f = u_envCount.y;
-	for (int i = 0; i < PAINFUL_MAX_ENV; ++i)
-	{
-		if (float(i) >= u_envCount.x) break;
-		vec3 dlo = p - u_envLo[i].xyz;
-		vec3 dhi = u_envHi[i].xyz - p;
-		float inside = min(min(min(dlo.x, dlo.y), dlo.z), min(min(dhi.x, dhi.y), dhi.z));
-		float w = clamp(inside / max(u_envLo[i].w, 0.0001), 0.0, 1.0);
-		f = mix(f, u_envHi[i].w, w);
-	}
-	return f;
-}
 
 uniform vec4 u_params; // x: has lightmap, y: alpha-test ref (<0 off), z: terrain blend, w: lighting-only view
 uniform vec4 u_uvanim; // xy: stage-0 scroll offset, zw: stage-1 scroll offset
@@ -122,8 +99,6 @@ void main()
 	// Unlightmapped objects are defaultNTU - vertex-lit like a model - and are
 	// left at full albedo rather than going black; only the dynamic lights
 	// below reach them.
-	// The model shadows, laid over the baked light. The world's own shadows
-	// are in the lightmap already, so this only darkens, by the strength set.
 	// The dynamic lights, added over the lightmap - the same call the models
 	// make, with no specular, because the world's light passes have none -
 	// and, from the placed lights the lightmap already holds, what a model's
@@ -136,17 +111,13 @@ void main()
 			lit, unusedSpec, unusedShadow, occluded);
 	vec3 lightShadowed = max(light - occluded, vec3_splat(0.0));
 
-	// The model shadows over the baked light, as strong as the boxes say the
-	// directional is here. The world's own shadows are in the lightmap
+	// The character shadows over the baked light, each as strong as its own
+	// caster's directional. The world's own shadows are in the lightmap
 	// already, so this only darkens.
 	float modelShadow = 1.0;
-	if (u_dirShadowParams.x > 0.0)
-	{
-		modelShadow = mix(1.0, ModelShadow(v_wpos, normalize(v_normal)),
-				u_dirShadowParams.x * DirectionalFactor(v_wpos));
-	}
+	if (u_charShadowInfo.x > 0.0) modelShadow = CharacterShadows(v_wpos, normalize(v_normal));
 	// PAINFUL_SHADOWVIEW: the terms alone, as applied.
-	if (u_dirShadowDir.w > 0.5)
+	if (u_charShadowInfo.w > 0.5)
 	{
 		float kept = dot(lightShadowed, vec3(0.299, 0.587, 0.114)) /
 				max(dot(light, vec3(0.299, 0.587, 0.114)), 0.0001);

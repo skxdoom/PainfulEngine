@@ -1,6 +1,7 @@
 #include "WorldRenderer.h"
 #include "ShaderLoad.h"
 #include "ShadowMap.h"
+#include "CharacterShadows.h"
 #include "../Core/Vectors.h"
 #include "../Core/Log.h"
 #include "GpuBuffers.h"
@@ -122,17 +123,8 @@ bool WorldRenderer::Init(const std::string& shaderDir) {
 	uUv0_ = bgfx::createUniform("u_uv0", bgfx::UniformType::Vec4);
 	uUv1_ = bgfx::createUniform("u_uv1", bgfx::UniformType::Vec4);
 	uTile_ = bgfx::createUniform("u_tile", bgfx::UniformType::Vec4);
-	uEnvCount_ = bgfx::createUniform("u_envCount", bgfx::UniformType::Vec4);
-	uEnvLo_ = bgfx::createUniform("u_envLo", bgfx::UniformType::Vec4, kMaxEnvBoxes);
-	uEnvHi_ = bgfx::createUniform("u_envHi", bgfx::UniformType::Vec4, kMaxEnvBoxes);
 	lightUniforms_.Init();
 	return true;
-}
-
-void WorldRenderer::SetEnvironmentBoxes(const std::vector<EntityLighting::DirBox>& boxes,
-		float levelFactor) {
-	envBoxes_ = boxes;
-	envLevelFactor_ = levelFactor;
 }
 
 // Drops the LEVEL and keeps the programs: what a level switch wants. Upload
@@ -160,8 +152,6 @@ void WorldRenderer::Clear() {
 	dynamicLights_.clear();
 	projector_.Clear();
 	textures_ = nullptr;
-	envBoxes_.clear();
-	envLevelFactor_ = 1.f;
 }
 
 void WorldRenderer::Shutdown() {
@@ -182,9 +172,6 @@ void WorldRenderer::Shutdown() {
 	if (bgfx::isValid(uUv0_)) { bgfx::destroy(uUv0_); uUv0_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uUv1_)) { bgfx::destroy(uUv1_); uUv1_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uTile_)) { bgfx::destroy(uTile_); uTile_ = BGFX_INVALID_HANDLE; }
-	if (bgfx::isValid(uEnvCount_)) { bgfx::destroy(uEnvCount_); uEnvCount_ = BGFX_INVALID_HANDLE; }
-	if (bgfx::isValid(uEnvLo_)) { bgfx::destroy(uEnvLo_); uEnvLo_ = BGFX_INVALID_HANDLE; }
-	if (bgfx::isValid(uEnvHi_)) { bgfx::destroy(uEnvHi_); uEnvHi_ = BGFX_INVALID_HANDLE; }
 	lightUniforms_.Shutdown();
 	if (bgfx::isValid(waterProgram_)) { bgfx::destroy(waterProgram_); waterProgram_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(sNormal_)) { bgfx::destroy(sNormal_); sNormal_ = BGFX_INVALID_HANDLE; }
@@ -658,43 +645,10 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 			bgfx::isValid(projector_.falloff()) ? projector_.falloff() : fallback;
 	bgfx::TextureHandle shadowTex = BGFX_INVALID_HANDLE;
 	if (shadow_ && shadow_->ready()) shadowTex = shadow_->texture();
-	bgfx::TextureHandle modelShadowTex = BGFX_INVALID_HANDLE;
-	if (modelShadow_ && modelShadow_->ready()) modelShadowTex = modelShadow_->texture();
+	bgfx::TextureHandle characterTex = BGFX_INVALID_HANDLE;
+	if (characterShadows_ && characterShadows_->ready()) characterTex = characterShadows_->texture();
 	bgfx::TextureHandle lightAtlasTex = BGFX_INVALID_HANDLE;
 	if (lightAtlas_ && lightAtlas_->ready()) lightAtlasTex = lightAtlas_->texture();
-
-	// The environment boxes for the model shadows' strength: all of them, or
-	// the nearest kMaxEnvBoxes to the camera, in their outermost-first order.
-	envPick_.clear();
-	for (size_t i = 0; i < envBoxes_.size(); ++i) envPick_.push_back(i);
-	if (envPick_.size() > size_t(kMaxEnvBoxes)) {
-		auto dist2 = [&](size_t i) {
-			const EntityLighting::DirBox& b = envBoxes_[i];
-			float d2 = 0.f;
-			for (int a = 0; a < 3; ++a) {
-				const float v = camera.pos[a] < b.lo[a] ? b.lo[a] - camera.pos[a]
-						: (camera.pos[a] > b.hi[a] ? camera.pos[a] - b.hi[a] : 0.f);
-				d2 += v * v;
-			}
-			return d2;
-		};
-		std::partial_sort(envPick_.begin(), envPick_.begin() + kMaxEnvBoxes, envPick_.end(),
-				[&](size_t a, size_t b) { return dist2(a) < dist2(b); });
-		envPick_.resize(kMaxEnvBoxes);
-		std::sort(envPick_.begin(), envPick_.end());
-	}
-	envLoPacked_.assign(size_t(kMaxEnvBoxes) * 4, 0.f);
-	envHiPacked_.assign(size_t(kMaxEnvBoxes) * 4, 0.f);
-	for (size_t n = 0; n < envPick_.size(); ++n) {
-		const EntityLighting::DirBox& b = envBoxes_[envPick_[n]];
-		for (int a = 0; a < 3; ++a) {
-			envLoPacked_[n * 4 + a] = b.lo[a];
-			envHiPacked_[n * 4 + a] = b.hi[a];
-		}
-		envLoPacked_[n * 4 + 3] = b.margin;
-		envHiPacked_[n * 4 + 3] = b.factor;
-	}
-	const float envCount[4] = {float(envPick_.size()), envLevelFactor_, 0.f, 0.f};
 
 	for (const Chunk& c : chunks_) {
 		if (c.hidden) continue;
@@ -870,7 +824,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 			}
 		}
 		PackShadow(lights, shadow_);
-		PackDirShadow(lights, modelShadow_);
+		PackCharacterShadows(lights, characterShadows_, c.aabbLo, c.aabbHi);
 
 		// Blended materials (glass, glow, smoke) keep their texture in the lighting-only view.
 		const bool greyAlbedo = lightingOnly_ && !(state & BGFX_STATE_BLEND_MASK);
@@ -886,10 +840,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 			bgfx::setUniform(uUv1_, b.uvBlend);
 			bgfx::setUniform(uTile_, tile);
 			lightUniforms_.Submit(lights, 5, 6, projTex, projFall, 7, shadowTex,
-					8, modelShadowTex, 9, lightAtlasTex);
-			bgfx::setUniform(uEnvCount_, envCount);
-			bgfx::setUniform(uEnvLo_, envLoPacked_.data(), uint16_t(kMaxEnvBoxes));
-			bgfx::setUniform(uEnvHi_, envHiPacked_.data(), uint16_t(kMaxEnvBoxes));
+					8, characterTex, 9, lightAtlasTex);
 			// Every stage takes Cfg.TextureFiltering, as the engine's
 			// MaterialSystem::SetTexFiltering applies it (Render/TextureFilter.h).
 			bgfx::setTexture(2, sDetail_, detailOn_ ? detailTex_ : b.diffuse,

@@ -8,6 +8,7 @@ add_library(Render STATIC
 		LightUniforms.cpp LightUniforms.h
 		ShadowMap.cpp ShadowMap.h
 		LightShadowAtlas.cpp LightShadowAtlas.h
+		CharacterShadows.cpp CharacterShadows.h
 		ViewModelShadows.cpp ViewModelShadows.h
 		MaterialState.cpp MaterialState.h
 		TextureFilter.cpp TextureFilter.h

@@ -23,6 +23,7 @@
 namespace painful {
 
 class ShadowMap;
+class CharacterShadows;
 class ViewModelShadows;
 
 // Draws the models placed in a level.
@@ -75,18 +76,21 @@ public:
 	// Set BEFORE Draw: an instance inside the beam is posed even when the
 	// camera cannot see it, so its shadow is not in last frame's pose.
 	void SetShadowMap(const ShadowMap* shadow) { shadow_ = shadow; }
-	// The models' own shadows from the environment directional: an
-	// orthographic map about the camera that only the models cast into.
-	void SetModelShadowMap(const ShadowMap* shadow) { modelShadow_ = shadow; }
 	// A depth pass into `map`: every opaque part of every caster inside its
-	// frustum, from the buffers Draw posed. Called after Draw, once per map;
-	// `charactersOnly` for the model map.
-	void DrawShadow(bgfx::ViewId view, const ShadowMap& map, float timeSeconds,
-			bool charactersOnly = false);
-	// The environment directional at a point - the direction TO the light
-	// and its colour - as a model standing there would be lit. What aims
-	// the model shadow map.
-	void DirectionalAt(const Vec3& pos, Vec3& toLight, Vec3& color) const;
+	// frustum, from the buffers Draw posed. Called after Draw, once per map.
+	void DrawShadow(bgfx::ViewId view, const ShadowMap& map, float timeSeconds);
+	// The character shadows: the nearest characters whose shadow can reach the
+	// view each take a slot, down their own faded environment directional, at
+	// `strength` of their directional against the level's brightest. Before Draw,
+	// so a caster out of view is still posed; its fade steps here if it had not.
+	void PickCharacterShadows(const Camera& camera, int width, int height, float timeSeconds,
+			float strength, CharacterShadows& shadows);
+	// Their depth, each into its slot. After Draw.
+	void DrawCharacterShadows(const CharacterShadows& shadows, float timeSeconds);
+	// The environment directional at the camera - the direction TO the light
+	// and its colour - faded over the boxes' FadeTime as an entity's is. What
+	// aims the view model's shadow maps.
+	void CameraDirectional(const Vec3& pos, float timeSeconds, Vec3& toLight, Vec3& color);
 
 	// --- the placed lights' shadows ---
 	void SetLightShadowAtlas(const LightShadowAtlas* atlas) { lightShadows_ = atlas; }
@@ -305,6 +309,7 @@ private:
 		bool visible = true;
 		bool castsShadow = true;
 		bool characterShadow = false;
+		bool hasCharacterSlot = false; // picked this frame; Draw poses it out of view
 		bool viewModel = false;
 		bool demonic = false;
 		// MDL.SetMeshVisibility: which of the model's parts this instance hides.
@@ -323,9 +328,11 @@ private:
 	// weapon, off for everything else.
 	void BindViewModel(bool isViewModel);
 	// One instance's opaque parts into a depth view, from the buffers Draw
-	// posed. Shared by every shadow pass.
+	// posed. Shared by every shadow pass. `transform` replaces the instance's
+	// own (a slot's whole view-projection folded in), `scissor` keeps it in its slot.
 	void DrawCaster(bgfx::ViewId view, bgfx::ProgramHandle program, const Instance& instance,
-			const GpuModel& model, float timeSeconds);
+			const GpuModel& model, float timeSeconds, const float* transform = nullptr,
+			const uint16_t* scissor = nullptr);
 
 	// Returns an index into models_, loading and uploading on first use.
 	bool GetModel(const std::string& modelName, TextureCache& textures,
@@ -382,7 +389,6 @@ private:
 	LightUniforms lightUniforms_;
 	ProjectorMaps projector_;
 	const ShadowMap* shadow_ = nullptr;
-	const ShadowMap* modelShadow_ = nullptr;
 	const LightShadowAtlas* lightShadows_ = nullptr;
 	std::vector<ShadowedLight> shadowPicks_;
 	const ViewModelShadows* viewModelShadows_ = nullptr;
@@ -404,7 +410,7 @@ private:
 	bgfx::TextureHandle envCube_ = BGFX_INVALID_HANDLE; // the live one, when there is one
 	bgfx::TextureHandle levelCube_ = BGFX_INVALID_HANDLE; // o.CubeMap.Tex
 	EntityLighting lighting_;
-	float lastTime_ = 0.f;
+	EntityLightFade cameraFade_;
 	bgfx::TextureHandle white_ = BGFX_INVALID_HANDLE;
 	size_t unresolved_ = 0, packed_ = 0, hidden_ = 0, drawCalls_ = 0, posedInstances_ = 0;
 	std::set<std::string> posedModels_;

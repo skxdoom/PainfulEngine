@@ -26,7 +26,7 @@ SAMPLER2D(s_stage1, 1);
 #define PAINFUL_PROJ_STAGE 2
 #define PAINFUL_PROJFALL_STAGE 3
 #define PAINFUL_SHADOW_STAGE 4
-#define PAINFUL_DIRSHADOW_STAGE 5
+#define PAINFUL_CHARSHADOW_STAGE 5
 // The placed lights' shadow atlas: models only, so only this shader has it.
 #define PAINFUL_LIGHTSHADOW_STAGE 6
 // The view model's own maps.
@@ -91,8 +91,8 @@ void main()
 			unusedOccluded);
 	// PAINFUL_SHADOWVIEW: models grey, darkened by the shadows they take;
 	// 2 shows the placed lights' term alone.
-	if (u_dirShadowDir.w > 1.5) { gl_FragColor = vec4(vec3_splat(0.8 * lightShadow), 1.0); return; }
-	if (u_dirShadowDir.w > 0.5) { gl_FragColor = vec4(vec3_splat(0.8 * lightShadow * dirShadow), 1.0); return; }
+	if (u_charShadowInfo.w > 1.5) { gl_FragColor = vec4(vec3_splat(0.8 * lightShadow), 1.0); return; }
+	if (u_charShadowInfo.w > 0.5) { gl_FragColor = vec4(vec3_splat(0.8 * lightShadow * dirShadow), 1.0); return; }
 
 	// `texture modulate diffuse`, then `specular true` adds on top - the
 	// specular is NOT modulated by the texture, which is what makes it read as

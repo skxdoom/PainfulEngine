@@ -12,9 +12,9 @@ namespace painful {
 //
 //   ambient          from the level's o.Ambient, overwritten by whichever
 //                    CEnvironment box the entity stands in
-//   one directional  from o.DirLight, likewise overwritten. The original
-//                    cross-fades over DirLight.FadeTime at a boundary; here
-//                    the boxes blend in SPACE (kEnvBlendMargin) instead
+//   one directional  from o.DirLight, likewise overwritten, and cross-faded
+//                    over the box's DirLight.FadeTime when the entity
+//                    changes box
 //   the nearest      picked by attenuated intensity and handed to the shader
 //   positional ones  as positions, so they are evaluated PER PIXEL
 //
@@ -44,18 +44,12 @@ namespace painful {
 #endif
 constexpr int kMaxDynamicLights = PAINFUL_MAX_DYN_LIGHTS;
 
-// The CEnvironment boxes the WORLD shader blends for the model shadows'
-// strength, in the order and with the weights the models blend them. Same
+// The character shadows one world chunk takes, nearest the camera first. Same
 // one-number rule: set in the top-level CMakeLists, nowhere else.
-#ifndef PAINFUL_MAX_ENV_BOXES
-#error "PAINFUL_MAX_ENV_BOXES comes from CMake - it must match the shaders'."
+#ifndef PAINFUL_MAX_CHAR_SHADOWS
+#error "PAINFUL_MAX_CHAR_SHADOWS comes from CMake - it must match the shaders'."
 #endif
-constexpr int kMaxEnvBoxes = PAINFUL_MAX_ENV_BOXES;
-// How far inside a box's face its values reach full weight, in world units:
-// a doorway is a ramp in SPACE. The original lerps over DirLight.FadeTime
-// instead, which fades even a model standing still on the line.
-// Docs/Reference/Lighting.md, "Deviations".
-constexpr float kEnvBlendMargin = 1.f;
+constexpr int kMaxCharacterShadows = PAINFUL_MAX_CHAR_SHADOWS;
 
 // One light, level-placed or created at runtime by LIGHT.Setup. The runtime
 // ones are the flashlight, the torches monsters carry and the flashes an
@@ -122,14 +116,18 @@ struct EntityLightState {
 	int lightCount = 0;
 };
 
-// The per-entity fade state. An entity keeps one of these because
-// Entity::GetEnvironmentDirLight lerps colour, intensity and direction toward
-// the environment it is entering rather than snapping.
+// The per-entity fade state, Entity+0xdc..0x104: the box it is in, the fade
+// (FadeTime, progress, step) and the values faded so far. Lighting.md,
+// "Environment boxes"
 struct EntityLightFade {
 	bool primed = false;
+	int env = -1; // index into the name-sorted boxes; -1 is the level's own
+	float fadeTime = 0.f, progress = 1.f, step = 0.f;
+	float clock = 0.f; // the time of the last update: one step per frame
 	Vec3 ambient;
-	Vec3 dirColor;
-	Vec3 dirDir{0, 1, 0};
+	Vec3 dirColor; // before the intensity
+	float intensity = 1.f;
+	Vec3 dirDir{0, 1, 0}; // direction TO the light
 };
 
 class EntityLighting {
@@ -156,11 +154,14 @@ public:
 	// Picks the lighting for a model at pos, `radius` being its bounding
 	// sphere - a light that touches any part of it has to win a slot, or the
 	// whole model goes dark at once. fade carries the environment cross-fade
-	// between calls; dt is the frame time in seconds. Pass a fade block per
-	// entity, or a throwaway one to snap. The eye is not needed: the
+	// between calls, advanced once per distinct timeSeconds. Pass a fade block
+	// per entity, or a throwaway one to snap. The eye is not needed: the
 	// half-vector is per pixel now, so the shader takes it from the real one.
-	void Evaluate(const Vec3& pos, float radius, float dt, EntityLightFade& fade,
+	void Evaluate(const Vec3& pos, float radius, float timeSeconds, EntityLightFade& fade,
 			EntityLightState& out) const;
+	// The environment part alone: picks the box at pos and advances the fade.
+	// For an entity out of view, whose fade still runs, and for the camera.
+	void UpdateFade(const Vec3& pos, float timeSeconds, EntityLightFade& fade) const;
 
 	// The lights the scripts made this frame, replaced wholesale: LIGHT.Setup
 	// is called every tick by everything that owns one, so tracking edits
@@ -171,16 +172,10 @@ public:
 
 	const std::vector<LightSource>& dynamicLights() const { return dynamic_; }
 
-	// The boxes that overwrite the directional, outermost first, for the
-	// world shader: bounds, blend margin, and the directional's strength
-	// relative to the brightest in the level (0..1). levelFactor applies
-	// outside every box. What scales a model's shadow on the world.
-	struct DirBox {
-		Vec3 lo, hi;
-		float margin;
-		float factor;
-	};
-	void DirectionalBoxes(std::vector<DirBox>& out, float& levelFactor) const;
+	// The brightest directional the level can give, its own or a box's, as
+	// luminance x intensity: what a character's shadow strength is measured
+	// against.
+	float DirectionalReference() const;
 
 	size_t lightCount() const { return lights_.size(); }
 	size_t environmentCount() const { return environments_.size(); }
@@ -193,21 +188,20 @@ private:
 	static constexpr int kSpot = LightSource::kSpot;
 
 	// A CEnvironment: an axis-aligned box that overwrites the lighting of
-	// entities inside it. Cathedral places 50.
+	// entities inside it. Unstated fields take CEnvironment.lua's class values,
+	// which is what CEnvironment:Apply hands ENVIRONMENT.SetDirLight.
 	struct Environment {
+		std::string name; // World::SortEnvironmentByNames orders by it
 		Vec3 lo, hi;
 		bool ambientOverwrite = false, dirOverwrite = false;
-		// Which fields the file actually declared - see the Overwrite note in
-		// Build. Anything unstated keeps the level's own value.
-		bool hasAmbient = false, hasDirColor = false, hasDirDir = false;
-		Vec3 ambient;
-		Vec3 dirColor;
-		Vec3 dirDir{0, -1, 0};
+		Vec3 ambient{30.f / 255.f, 30.f / 255.f, 30.f / 255.f};
+		Vec3 dirColor{100.f / 255.f, 100.f / 255.f, 100.f / 255.f};
+		Vec3 dirDir{-0.57735f, -0.57735f, -0.57735f}; // as authored: FROM the light
 		float dirIntensity = 1.f;
-		float fadeTime = 0.f; // authored; the blend is spatial now (kEnvBlendMargin)
-		float volume = 0.f; // sorted descending: the tighter box applies last
-		float margin = 0.f; // kEnvBlendMargin, capped at the box's half-extent
+		float fadeTime = 1.f;
 	};
+	// The first box, in name order, that holds pos; -1 for none.
+	int EnvironmentAt(const Vec3& pos) const;
 
 	std::vector<Light> lights_;
 	std::vector<Light> dynamic_;

@@ -22,5 +22,5 @@ target_link_libraries(World PUBLIC Assets Jolt)
 # both build uniform arrays against it. The shaders take the same number
 # through shaderc --define. Set in the top-level CMakeLists.
 target_compile_definitions(World PUBLIC PAINFUL_MAX_DYN_LIGHTS=${PAINFUL_MAX_DYN_LIGHTS}
-		PAINFUL_MAX_ENV_BOXES=${PAINFUL_MAX_ENV_BOXES})
+		PAINFUL_MAX_CHAR_SHADOWS=${PAINFUL_MAX_CHAR_SHADOWS})
 painful_layer(World)

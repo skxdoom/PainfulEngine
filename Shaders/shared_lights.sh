@@ -7,7 +7,7 @@
 //     #define PAINFUL_PROJ_STAGE     5
 //     #define PAINFUL_PROJFALL_STAGE 6
 //     #define PAINFUL_SHADOW_STAGE   7
-//     #define PAINFUL_DIRSHADOW_STAGE 8
+//     #define PAINFUL_CHARSHADOW_STAGE 8
 //     #include "shared_lights.sh"
 //
 // The original ran two entirely different paths - a projected cookie on the
@@ -102,15 +102,16 @@ float ShadowTerm(vec3 p, vec3 dpdx, vec3 dpdy, float tanOuter)
 	return Pcf3x3Plane(s_shadow, c.xy, c.z - 0.5 * t * (abs(dz.x) + abs(dz.y)), t, dz);
 }
 
-// The models' shadows from the environment directional: an orthographic map
-// about the camera with ONLY the models in it. Laid wherever the map says,
-// baked shade included - the original's blobs and HL2's did the same, and
-// the world's own occlusion is not consulted. Docs/Reference/Lighting.md
-uniform mat4 u_dirShadowMtx;
-uniform vec4 u_dirShadowParams; // x: strength (0 off), y: normal offset, z: light offset (world), w: 1/size
-uniform vec4 u_dirShadowDir; // xyz: to the light, w: PAINFUL_SHADOWVIEW
-uniform vec4 u_dirShadowFade; // x: edge fade width (uv)
-SAMPLER2DSHADOW(s_dirShadow, PAINFUL_DIRSHADOW_STAGE);
+// The characters' shadows, each down its own environment directional
+// (Render/CharacterShadows.h): a depth slot per character in one atlas, the few
+// that reach this draw. Laid wherever the map says, baked shade included, as the
+// original's blobs were. Docs/Reference/Lighting.md, "Character shadows"
+uniform vec4 u_charShadowInfo; // x: how many, y: one atlas texel (uv), w: PAINFUL_SHADOWVIEW
+uniform mat4 u_charShadowMtx[PAINFUL_MAX_CHAR]; // world -> atlas uv and depth
+uniform vec4 u_charShadowDir[PAINFUL_MAX_CHAR]; // xyz: to the light, w: strength
+uniform vec4 u_charShadowRect[PAINFUL_MAX_CHAR]; // the slot in uv, inset for the filter
+uniform vec4 u_charShadowFade[PAINFUL_MAX_CHAR]; // x: fade start along the light, y: 1/fade length, z: normal offset, w: light offset
+SAMPLER2DSHADOW(s_charShadow, PAINFUL_CHARSHADOW_STAGE);
 
 // The placed lights' shadows. Per slot: (atlas slot or -1, A, B, fade), the
 // depth a point `dist` along its face has in the map being A + B / dist, and
@@ -218,19 +219,25 @@ float VmShadow(vec3 wpos, vec3 n, vec3 l)
 }
 #endif
 
-float ModelShadow(vec3 wpos, vec3 n)
+// What is left of the light after every caster's shadow, each faded along its
+// light from the caster's near side over kFadeHeights of its height.
+float CharacterShadows(vec3 wpos, vec3 n)
 {
-	if (u_dirShadowParams.x <= 0.0) return 1.0;
-	vec3 p = wpos + n * u_dirShadowParams.y + u_dirShadowDir.xyz * u_dirShadowParams.z;
-	vec3 c = mul(u_dirShadowMtx, vec4(p, 1.0)).xyz;
-	if (c.x < 0.0 || c.x > 1.0 || c.y < 0.0 || c.y > 1.0 || c.z < 0.0 || c.z > 1.0)
-		return 1.0;
-	float models = Pcf3x3(s_dirShadow, c.xy, c.z, u_dirShadowParams.w);
-	// The box ends somewhere in view, so the shadows fade out over its last
-	// stretch rather than stopping on a line.
-	float edge = min(min(c.x, 1.0 - c.x), min(c.y, 1.0 - c.y));
-	float keep = clamp(edge / max(u_dirShadowFade.x, 0.0001), 0.0, 1.0);
-	return 1.0 - (1.0 - models) * keep;
+	float kept = 1.0;
+	for (int i = 0; i < PAINFUL_MAX_CHAR; ++i)
+	{
+		if (float(i) >= u_charShadowInfo.x) break;
+		vec4 fade = u_charShadowFade[i];
+		vec3 l = u_charShadowDir[i].xyz;
+		float along = clamp((fade.x - dot(wpos, l)) * fade.y, 0.0, 1.0);
+		vec3 p = wpos + n * fade.z + l * fade.w;
+		vec3 c = mul(u_charShadowMtx[i], vec4(p, 1.0)).xyz;
+		vec4 r = u_charShadowRect[i];
+		if (along >= 1.0 || c.x < r.x || c.x > r.z || c.y < r.y || c.y > r.w || c.z > 1.0) continue;
+		float lit = Pcf3x3(s_charShadow, c.xy, c.z, u_charShadowInfo.y);
+		kept *= 1.0 - (1.0 - lit) * (1.0 - along) * u_charShadowDir[i].w;
+	}
+	return kept;
 }
 
 // diffuse and spec accumulate; multiply DIFFUSE by the albedo afterwards, the
