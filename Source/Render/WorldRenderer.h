@@ -57,6 +57,12 @@ public:
 	// lightmap, and adding them again would double every torch alcove.
 	// Docs/Reference/Lighting.md
 	void SetDynamicLights(const std::vector<LightSource>& lights);
+	// The Video Options (Menu.md, "Video options"): Cfg.DynamicLights 0 keeps only
+	// spots and important lights of those; WaterFX 0 draws the reflecting water
+	// families as water_ntu; the detail map as MESH.SetDefaultDetailMaps last set it.
+	void SetDrawDynLights(int n) { drawDynLights_ = n; }
+	void SetWaterQuality(int q) { waterQuality_ = q; }
+	void SetDetailMap(const std::string& texture, float tileU, float tileV);
 
 	// ambient/fogColor are 0-255 as stored in the level file.
 	void Draw(bgfx::ViewId view, const Camera& camera, int width, int height,
@@ -250,6 +256,9 @@ private:
 	bgfx::TextureHandle detailTex_ = BGFX_INVALID_HANDLE;
 	float detailTile_[2] = {8.2f, 7.1f};
 	bool detailOn_ = false;
+	std::string detailName_;
+	int drawDynLights_ = 2;
+	int waterQuality_ = 1;
 	size_t drawCalls_ = 0, triangles_ = 0, zonesVisible_ = 0, litChunks_ = 0;
 	ZoneGraph zoneGraph_;
 	float worldScale_ = 1.f;

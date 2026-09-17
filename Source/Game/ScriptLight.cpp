@@ -120,8 +120,9 @@ int LightNatives::L_LIGHT_SetImportant(lua_State* L) {
 }
 
 // R3D.EnableShadows(on) - the menu's Shadows option. PainMenu:SetShadowsQuality
-// passes Cfg.Shadows, a 0/1 NUMBER, so a number is read as one. Here it gates
-// the flashlight's shadow map. Docs/Reference/Lighting.md, "Shadows"
+// passes Cfg.Shadows, a 0/1 NUMBER, so a number is read as one. Render flag 2
+// (0x10123730), the actors' shadows: here the directional model shadows.
+// Docs/Reference/Menu.md, "Video options"
 int LightNatives::L_R3D_EnableShadows(lua_State* L) {
 	bool on = true;
 	if (lua_isnumber(L, 1)) on = lua_tonumber(L, 1) != 0;

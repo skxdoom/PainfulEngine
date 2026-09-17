@@ -323,10 +323,10 @@ depth map, tested per pixel by both. This is a deviation with nothing to
 recover behind it. The original's shadows are `MDL.CreateShadowMap(e, size)`,
 a `size x size` blob projected under an actor whose template sets `shadow`
 (128 where it is set, 0 in `CActor`'s default), and `WorldMesh::RenderShadowPass`
-draws those; its dynamic lights shine through walls. Both natives are kept as
-switches only: `R3D.EnableShadows` (the menu's Shadows option, called with
-`Cfg.Shadows`, a 0/1 number) gates the map, and `CreateShadowMap` is recorded
-and not acted on because every model already casts.
+draws those; its dynamic lights shine through walls. `R3D.EnableShadows` (the
+menu's "Character Shadows", `Cfg.Shadows`) gates the model shadows below, not
+this map ([`Menu.md`](Menu.md), "Video options"), and `CreateShadowMap` is
+recorded and not acted on because every model already casts.
 
 **The pass.** `Render/ShadowMap.h`. One view (`Renderer::kShadowView`, ordered
 before the sky) renders into a depth-only target through `vs_shadow` /
@@ -386,7 +386,7 @@ applied (y flipped unless `originBottomLeft`, z remapped when
 1/size)`. Both go through `LightUniforms` so the world and the models cannot
 disagree.
 
-Off (Type 0, `R3D.EnableShadows(0)`, `PAINFUL_SHADOWMAP=0`, or no flashlight in
+Off (Type 0, `FlashlightShadows` false, `PAINFUL_SHADOWMAP=0`, or no flashlight in
 the level) costs nothing: the view is not touched and the receivers read
 `on = 0`.
 

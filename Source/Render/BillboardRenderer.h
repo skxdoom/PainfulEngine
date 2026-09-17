@@ -91,6 +91,9 @@ public:
 	// RGB multiplier on placed coronas and billboards: the level's
 	// BloomFX.DimScale while bloom is on (Billboard::Draw). Particles.md, "Bloom dims".
 	void SetColorScale(float k) { colorScale_ = k; }
+	// Cfg.Coronas (Renderer+0x5d6be8): off, Billboard::Draw treats every corona as
+	// past its OffDistance and it fades out. Menu.md, "Video options"
+	void SetCoronasEnabled(bool on) { coronasEnabled_ = on; }
 	// The level fog, applied to sprite colour as the original's vertex fog did.
 	void SetFog(int mode, float start, float end, float density, const Vec3& color255) {
 		fog_[0] = float(mode); fog_[1] = start; fog_[2] = end; fog_[3] = density;
@@ -165,6 +168,7 @@ private:
 	std::vector<Sprite> sprites_;
 	float scaleMultiplier_ = 1.f;
 	float colorScale_ = 1.f;
+	bool coronasEnabled_ = true;
 	float fog_[4] = {0, 0, 90.f, 0};
 	float fogColor_[4] = {0, 0, 0, 1.f};
 	bgfx::UniformHandle uFog_ = BGFX_INVALID_HANDLE;

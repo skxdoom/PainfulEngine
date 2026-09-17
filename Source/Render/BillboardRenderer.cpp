@@ -320,7 +320,7 @@ void BillboardRenderer::Update(const Camera& camera, float dt, const Occluder& o
 		s.distance = std::sqrt(delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]);
 
 		bool nowVisible = false;
-		if (s.distance < s.offDistance) {
+		if (coronasEnabled_ && s.distance < s.offDistance) {
 			s.traceTimer -= dt;
 			if (s.traceTimer <= 0.f) {
 				s.traceTimer = kTraceInterval;

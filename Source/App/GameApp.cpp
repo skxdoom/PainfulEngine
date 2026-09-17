@@ -413,6 +413,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	// Cfg.TextureFiltering likewise: the original's material loader reads it
 	// per stage; here one setting serves every bind (Render/TextureFilter.h).
 	ApplyTextureFilterName(host.GetTextField("Cfg", "TextureFiltering"));
+	// And the rest of the Video Options the engine reads at start-up, as the
+	// menu's R3D.ApplyVideoSettings reads them later.
+	engine.ReadVideoCfg(host.state());
 
 	// --- the level session ------------------------------------------------
 	//
@@ -1236,13 +1239,23 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		// world mesh takes only the ones flagged dynamic, since the rest are
 		// in its lightmap. Docs/Reference/Lighting.md
 		engine.CollectLights(scriptLights);
+		// The Video Options the engine reads (Menu.md, "Video options"): applied
+		// every frame, so the menu's Apply reaches a level already loaded.
+		{
+			const ScriptEngine::WorldState& vs = engine.world();
+			world.SetDrawDynLights(vs.drawDynLights);
+			world.SetWaterQuality(vs.waterQuality);
+			world.SetDetailMap(vs.detailTex, vs.detailTileU, vs.detailTileV);
+			particles.SetDetail(vs.particlesDetail);
+			billboards.SetCoronasEnabled(vs.coronas);
+		}
 		world.SetDynamicLights(scriptLights);
 		entities.SetDynamicLights(scriptLights);
 		// The flashlight is the one light with a projector. Its shadow pass is
 		// aimed before the world and the models draw, and only while it is
 		// on: at Type 0 it does not collect at all.
 		const LightSource* flashlight = nullptr;
-		if (shadow.ready() && engine.shadowsEnabled())
+		if (shadow.ready())
 			for (const LightSource& l : scriptLights)
 				if (!l.projector.empty() && l.type == LightSource::kSpot && l.dynamic) {
 					flashlight = &l;
@@ -1276,7 +1289,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 					vmShadows.Begin(toLight, vmCentre, vmRadius);
 			}
 		}
-		if (modelShadow.ready()) {
+		// Cfg.Shadows, the menu's "Character Shadows": the directional model shadows.
+		if (modelShadow.ready() && engine.shadowsEnabled()) {
 			Vec3 toLight, dirColor;
 			entities.DirectionalAt(camera.pos, toLight, dirColor);
 			const Vec3 forward = camera.Forward();

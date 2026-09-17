@@ -223,13 +223,8 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
 	waterNormal_ = textures.Get("special/ripples_00", levelHint);
 	waterCube_ = textures.GetCube("special/cube_wenecja", levelHint);
 
-	detailOn_ = false;
-	if (!info.detailTex.empty() && !textures.Resolve(info.detailTex, "").empty()) {
-		detailTex_ = textures.Get(info.detailTex, "");
-		detailTile_[0] = info.detailTileU;
-		detailTile_[1] = info.detailTileV;
-		detailOn_ = true;
-	}
+	detailName_.clear();
+	SetDetailMap(info.detailTex, info.detailTileU, info.detailTileV);
 
 	for (size_t objectIndex = 0; objectIndex < map.objects.size(); ++objectIndex) {
 		const MapObject& o = map.objects[objectIndex];
@@ -521,7 +516,7 @@ bool WorldRenderer::WaterReflection(const Camera& camera, Reflection& out) {
 	float bestDist = 0.f;
 	for (size_t i = 0; i < chunks_.size(); ++i) {
 		const Chunk& c = chunks_[i];
-		if (!c.isWater || c.hidden || c.waterFamily < 2) continue;
+		if (!c.isWater || c.hidden || c.waterFamily < 2 || waterQuality_ == 0) continue;
 		// Distance from the eye to the surface's box, against the environment's
 		// ReflectDist (TWater's default 256 without one).
 		float d2 = 0.f;
@@ -558,9 +553,25 @@ void WorldRenderer::DrawReflection(bgfx::ViewId view, const Camera& clipped, int
 
 void WorldRenderer::SetDynamicLights(const std::vector<LightSource>& lights) {
 	dynamicLights_.clear();
-	for (const LightSource& l : lights)
-		if (l.dynamic && !l.fakeSpecular && l.type != LightSource::kDirectional)
-			dynamicLights_.push_back(l);
+	for (const LightSource& l : lights) {
+		if (!l.dynamic || l.fakeSpecular || l.type == LightSource::kDirectional) continue;
+		// WorldMesh::Draw (0x101daa70): with the setting at 0 a dynamic light still
+		// passes when it is a spot (the flashlight) or marked important.
+		if (drawDynLights_ == 0 && l.type != LightSource::kSpot && !l.important) continue;
+		dynamicLights_.push_back(l);
+	}
+}
+
+// CLevel:ReloadDetailMaps passes "" while Cfg.DetailTextures is off.
+void WorldRenderer::SetDetailMap(const std::string& texture, float tileU, float tileV) {
+	detailTile_[0] = tileU;
+	detailTile_[1] = tileV;
+	if (texture == detailName_) return;
+	detailName_ = texture;
+	detailOn_ = false;
+	if (!textures_ || texture.empty() || textures_->Resolve(texture, "").empty()) return;
+	detailTex_ = textures_->Get(texture, "");
+	detailOn_ = true;
 }
 
 namespace {
@@ -745,6 +756,8 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 			const bool haveRefr = thisFrame && bgfx::isValid(refractionTex_);
 			// Without its target a reflecting family draws as the cube one.
 			int family = c.waterFamily;
+			// Cfg.WaterFX 0: SetDefaultMaterial (0x101db3a0) draws refl and rr as water_ntu.
+			if (waterQuality_ == 0 && family >= 2) family = 1;
 			if (family == 3 && !haveRefr) family = 2;
 			if (family == 2 && !haveRefl) family = 1;
 			const float eye[4] = {camera.pos[0], camera.pos[1], camera.pos[2], 0.f};

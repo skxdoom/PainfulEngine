@@ -723,6 +723,33 @@ same sample count and resolved by bgfx before the composite reads it
 Every 3D draw already sets `BGFX_STATE_MSAA`. `PAINFUL_MSAA=N` pins the
 count for a comparison.
 
+### Video options
+
+`R3D.ApplyVideoSettings` (0x1013f610) takes fifteen arguments and uses only the
+first two: everything else it reads back out of `Cfg` by name (the strings in the
+function: Shadows, ParticlesDetail, DecalsStayTime, Bloom, WarpEffects, WaterFX),
+and the `R3D.SetResolution` it runs reads Multisample and Coronas. The menu also
+calls the single natives on Apply, and `CLevel` handles the detail maps itself.
+Only these reach the engine; `CharacterShadow` in `Cfg.lua` is read by nothing.
+
+| Option | Native, field | Effect |
+|---|---|---|
+| Character Shadows (`Cfg.Shadows`, 0/1) | `R3D.EnableShadows` 0x10123730, render flag 2 | the actors' shadows on the world (`WorldMesh::DrawShadows`) |
+| Dynamic Lights (`Cfg.DynamicLights`, 0/1/2) | `WORLD.SetDrawDynLights` 0x10120f50, `World+0x18f8`; `+0x18fc` = 2 on a device tier >= 5 | `WorldMesh::Draw` passes a light flagged dynamic (0x400000) only if the setting is not 0, or it is a spot (type 3), or `LIGHT.SetImportant` set it; 2 switches to the per-pixel "uber" passes and specular. Read nowhere else: the models keep their lights |
+| Water FX (`Cfg.WaterFX`, 0/1) | `R3D.SetWaterQuality` 0x10123860, `World+0x1900` | 0: `SetDefaultMaterial` (0x101db3a0) and `SetupShaders` (0x101d6850) draw `water_ntu_refl` / `water_ntu_rr` as `water_ntu` - no planar reflection or refraction |
+| Particles (`Cfg.ParticlesDetail`, 1/2) | `R3D.SetParticlesDetail` 0x10123a20, `Renderer+0xc` | `ParticleEmitter::Tick` (0x100a1fc0): 1 halves an emitter's MaxParticles; 0 would spawn nothing |
+| Coronas (`Cfg.Coronas`) | `R3D.SetResolution` 0x101429d0, `Renderer+0x5d6be8` | off: `Billboard::Draw` sets a corona's distance to its OffDistance, so every corona fades out; plain billboards stay |
+| Detail Textures (`Cfg.DetailTextures`) | `CLevel:ReloadDetailMaps` -> `MESH.SetDefaultDetailMaps("")` | off clears the level's detail map; the menu's Apply reloads it |
+
+The port reads the same fields in `ScriptEngine::ReadVideoCfg` - from
+`ApplyVideoSettings`, and once at boot - and through the single natives, into
+the world state, and `GameApp` hands them to the renderers every frame so an
+Apply reaches the level already loaded. Two choices: the world keeps every
+dynamic light per pixel at both 1 and 2 (it has no per-vertex path to fall back
+to), and "Character Shadows" gates the model shadow map - the port's stand-in
+for the actors' shadows - while the flashlight's and the placed lights' maps
+keep their own `painful_config.ini` switches.
+
 ### Deferred
 
 Multiplayer and the server browser (~20 natives, and there is no networking

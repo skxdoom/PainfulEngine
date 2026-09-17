@@ -298,9 +298,15 @@ void ParticleRenderer::InitParticle(const Emitter& e, Particle& p) const {
 	}
 }
 
+// ParticleEmitter::Tick (0x100a1fc0): low detail halves the cap, 0 spawns nothing.
+int ParticleRenderer::Cap(const EmitterParams& params) const {
+	const int cap = std::max(1, params.maxParticles);
+	return detail_ == 1 && cap > 1 ? cap / 2 : cap;
+}
+
 void ParticleRenderer::TickEmitter(Emitter& e, float dt) {
 	const EmitterParams& src = *e.params;
-	const int maxParticles = std::max(1, src.maxParticles);
+	const int maxParticles = Cap(src);
 
 	// ---------------------------------------------------------------- spawn
 	//
@@ -312,7 +318,7 @@ void ParticleRenderer::TickEmitter(Emitter& e, float dt) {
 	// burning whatever its .ini says.
 	int count = 0;
 	const bool exhausted = !e.evolve && e.spawnedTotal >= maxParticles;
-	if (!exhausted && src.spawnInterval > 0.f) {
+	if (!exhausted && src.spawnInterval > 0.f && detail_ != 0) {
 		e.spawnAccum += dt;
 		if (e.spawnAccum >= src.spawnInterval) {
 			count = static_cast<int>(e.spawnAccum / src.spawnInterval + 0.5f);
@@ -472,8 +478,7 @@ bool ParticleRenderer::ScriptEmitterFinished(int slot) const {
 	const Emitter& e = emitters_[slot];
 	if (!e.alive) return true;
 	if (e.evolve) return false; // still emitting
-	const int cap = std::max(1, e.params->maxParticles);
-	return e.spawnedTotal >= cap && e.particles.empty();
+	return e.spawnedTotal >= Cap(*e.params) && e.particles.empty();
 }
 
 void ParticleRenderer::SetScriptEmitterEvolve(int slot, bool evolve) {

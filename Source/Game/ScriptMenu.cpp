@@ -131,6 +131,9 @@ struct MenuNatives : ScriptNativesBase {
 	static int L_R3D_ApplyVideoSettings(lua_State* L);
 	static int L_R3D_SetTexFiltering(lua_State* L);
 	static int L_R3D_EnableBloom(lua_State* L);
+	static int L_R3D_SetWaterQuality(lua_State* L);
+	static int L_R3D_SetParticlesDetail(lua_State* L);
+	static int L_WORLD_SetDrawDynLights(lua_State* L);
 	static int L_R3D_GetAvailableResolutions(lua_State* L);
 };
 
@@ -1186,9 +1189,8 @@ int MenuNatives::L_R3D_GetCameraFOV(lua_State* L) {
 // shadows, textureQuality, weatherEffects, viewWeaponModel, textureFiltering,
 // dynamicLights, projectors, coronas, decals, decalsStay) - what
 // PainMenu:ApplyVideoSettings hands over after the Video Options screen.
-// The mode is the part that reaches anything here; textureFiltering goes
-// through SetTexFiltering, which the script calls right after, and the rest
-// is recorded in Cfg and waits for the renderer features it names.
+// The native ignores its other arguments and reads Cfg itself (ReadVideoCfg);
+// textureFiltering goes through SetTexFiltering, which the script calls after.
 int MenuNatives::L_R3D_ApplyVideoSettings(lua_State* L) {
 	ScriptEngine* self = From(L);
 	const std::string res = luaL_optstring(L, 1, "");
@@ -1196,32 +1198,56 @@ int MenuNatives::L_R3D_ApplyVideoSettings(lua_State* L) {
 	int w = 0, h = 0;
 	if (std::sscanf(res.c_str(), "%d%*[xX]%d", &w, &h) == 2 && w > 0 && h > 0 && self->setVideoMode_)
 		self->setVideoMode_(w, h, fullscreen);
-	// The engine's version (0x1013F610) reads Cfg.Bloom into render flag 8.
+	self->ReadVideoCfg(L);
+	return 0;
+}
+
+// What ApplyVideoSettings (0x1013f610) and the SetResolution it runs (0x101429d0)
+// read out of Cfg: Shadows (flag 2), ParticlesDetail (Renderer+0xc), DecalsStayTime,
+// Bloom (flag 8), WaterFX (World+0x1900), Multisample, Coronas (Renderer+0x5d6be8);
+// DynamicLights as WORLD.SetDrawDynLights. Menu.md, "Video options".
+void ScriptEngine::ReadVideoCfg(lua_State* L) {
 	lua_pushstring(L, "Cfg");
 	lua_gettable(L, LUA_GLOBALSINDEX);
-	if (lua_istable(L, -1)) {
-		lua_pushstring(L, "Bloom");
-		lua_gettable(L, -2);
-		if (!lua_isnil(L, -1)) self->world_.bloom = lua_toboolean(L, -1) != 0;
+	if (!lua_istable(L, -1)) {
 		lua_pop(L, 1);
-		// Cfg.Multisample "xN", as R3D.SetResolution (0x101429d0) reads it with
-		// sscanf("x%d") for GraphicsDevice::SetRes. Menu.md, "Multisample".
-		lua_pushstring(L, "Multisample");
+		return;
+	}
+	const auto field = [L](const char* key) {
+		lua_pushstring(L, key);
 		lua_gettable(L, -2);
-		if (lua_isstring(L, -1) && self->setMsaa_) {
-			int samples = 0;
-			if (std::sscanf(lua_tostring(L, -1), "x%d", &samples) == 1) self->setMsaa_(samples);
-		}
-		lua_pop(L, 1);
-		// And Cfg.DecalsStayTime into the decal ageing rate (Renderer+0x5d6b50):
-		// 1000 = off, 2.0 = x1 ... 0.2 = x5 by the menu's own comment.
-		lua_pushstring(L, "DecalsStayTime");
-		lua_gettable(L, -2);
-		if (lua_isnumber(L, -1)) self->decals_.SetSpeed(float(lua_tonumber(L, -1)));
-		lua_pop(L, 1);
+	};
+	// Cfg.Shadows is a 0/1 number; lua_toboolean would call 0 true.
+	const auto flag = [L]() { return lua_isnumber(L, -1) ? lua_tonumber(L, -1) != 0 : lua_toboolean(L, -1) != 0; };
+	field("Bloom");
+	if (!lua_isnil(L, -1)) world_.bloom = flag();
+	lua_pop(L, 1);
+	field("Multisample");
+	if (lua_isstring(L, -1) && setMsaa_) {
+		int samples = 0;
+		if (std::sscanf(lua_tostring(L, -1), "x%d", &samples) == 1) setMsaa_(samples);
 	}
 	lua_pop(L, 1);
-	return 0;
+	// 1000 = off, 2.0 = x1 ... 0.2 = x5 by the menu's own comment.
+	field("DecalsStayTime");
+	if (lua_isnumber(L, -1)) decals_.SetSpeed(float(lua_tonumber(L, -1)));
+	lua_pop(L, 1);
+	field("Shadows");
+	if (!lua_isnil(L, -1)) shadowsEnabled_ = flag();
+	lua_pop(L, 1);
+	field("ParticlesDetail");
+	if (lua_isnumber(L, -1)) world_.particlesDetail = int(lua_tonumber(L, -1));
+	lua_pop(L, 1);
+	field("WaterFX");
+	if (lua_isnumber(L, -1)) world_.waterQuality = int(lua_tonumber(L, -1));
+	lua_pop(L, 1);
+	field("Coronas");
+	if (!lua_isnil(L, -1)) world_.coronas = flag();
+	lua_pop(L, 1);
+	field("DynamicLights");
+	if (lua_isnumber(L, -1)) world_.drawDynLights = int(lua_tonumber(L, -1));
+	lua_pop(L, 1);
+	lua_pop(L, 1);
 }
 
 // R3D.SetTexFiltering() - MaterialSystem::SetTexFiltering (0x100986d0) takes
@@ -1245,6 +1271,27 @@ int MenuNatives::L_R3D_SetTexFiltering(lua_State* L) {
 // R3D.EnableBloom(on) - render flag 8 (0x101237C0); Cfg.Bloom defaults to true.
 int MenuNatives::L_R3D_EnableBloom(lua_State* L) {
 	From(L)->world_.bloom = lua_toboolean(L, 1) != 0;
+	return 0;
+}
+
+// R3D.SetWaterQuality(n) - World+0x1900 (0x10123860): 0 draws water_ntu_refl and
+// water_ntu_rr as water_ntu. Menu.md, "Video options".
+int MenuNatives::L_R3D_SetWaterQuality(lua_State* L) {
+	From(L)->world_.waterQuality = int(luaL_optnumber(L, 1, 0));
+	return 0;
+}
+
+// R3D.SetParticlesDetail(n) - Renderer+0xc (0x10123a20): 1 halves an emitter's
+// MaxParticles, 0 stops spawning (ParticleEmitter::Tick).
+int MenuNatives::L_R3D_SetParticlesDetail(lua_State* L) {
+	From(L)->world_.particlesDetail = int(luaL_optnumber(L, 1, 0));
+	return 0;
+}
+
+// WORLD.SetDrawDynLights(n) - World+0x18f8 (0x10120f50): 0 keeps a dynamic light
+// off the world mesh unless it is a spot or important (WorldMesh::Draw).
+int MenuNatives::L_WORLD_SetDrawDynLights(lua_State* L) {
+	From(L)->world_.drawDynLights = int(luaL_optnumber(L, 1, 0));
 	return 0;
 }
 
@@ -1330,6 +1377,9 @@ void BindMenu(ScriptEngine& engine, LuaHost& host) {
 		{"R3D", "ApplyVideoSettings", MenuNatives::L_R3D_ApplyVideoSettings},
 		{"R3D", "SetTexFiltering", MenuNatives::L_R3D_SetTexFiltering},
 		{"R3D", "EnableBloom", MenuNatives::L_R3D_EnableBloom},
+		{"R3D", "SetWaterQuality", MenuNatives::L_R3D_SetWaterQuality},
+		{"R3D", "SetParticlesDetail", MenuNatives::L_R3D_SetParticlesDetail},
+		{"WORLD", "SetDrawDynLights", MenuNatives::L_WORLD_SetDrawDynLights},
 		{"PMENU", "LaunchURL", MenuNatives::L_PMENU_LaunchURL},
 		{"PMENU", "AddKeyControl", MenuNatives::L_PMENU_AddKeyControl},
 		{"PMENU", "AddSimpleKeyConf", MenuNatives::L_PMENU_AddSimpleKeyConf},

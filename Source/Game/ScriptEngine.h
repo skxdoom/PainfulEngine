@@ -460,6 +460,13 @@ public:
 		// > 0 every particle and corona is drawn at DimScale. Particles.md.
 		bool bloom = true;
 		float bloomThreshold = 0.25f, bloomMultiplier = 1.f, bloomDimScale = 0.8f;
+		// The Video Options the engine reads itself (Menu.md, "Video options"):
+		// Cfg.DynamicLights (World+0x18f8), WaterFX (+0x1900), ParticlesDetail
+		// (Renderer+0xc) and Coronas (Renderer+0x5d6be8).
+		int drawDynLights = 2;
+		int waterQuality = 1;
+		int particlesDetail = 2;
+		bool coronas = true;
 		uint32_t bloomOverlay = 0x808080;
 		// Demon Morph: WORLD.EnableDemonFX / EnableSuperDemonFX (World+0x6dc,
 		// +0x6dd), DemonFXParams (+0x6e0..) and DemonFXWarp (+0x6e8), the
@@ -534,9 +541,12 @@ public:
 	// Whether the simulation is frozen. The game loop skips the actor tick and
 	// the physics step while this holds, and keeps drawing.
 	bool gamePaused() const { return gamePaused_; }
-	// R3D.EnableShadows - the menu's Shadows option. Gates the flashlight's
-	// shadow map. Docs/Reference/Lighting.md, "Shadows"
+	// R3D.EnableShadows / Cfg.Shadows, the menu's "Character Shadows": render flag
+	// 2, the actors' shadows on the world - here the directional model shadows.
+	// Menu.md, "Video options"
 	bool shadowsEnabled() const { return shadowsEnabled_; }
+	// The Cfg values ApplyVideoSettings and SetResolution read, once at boot too.
+	void ReadVideoCfg(lua_State* L);
 	// Developer mode: the two switches the shipped scripts gate their own debug
 	// tooling on. IsFinalBuild answers false while this is set, and the game
 	// loop sets the global debugMarek alongside it.

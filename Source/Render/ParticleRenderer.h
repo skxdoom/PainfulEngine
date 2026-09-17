@@ -87,6 +87,9 @@ public:
 	// RGB multiplier on every packed particle colour: the level's
 	// BloomFX.DimScale while bloom is on (FUN_101e4080). Particles.md, "Bloom dims".
 	void SetColorScale(float k) { colorScale_ = k; }
+	// Cfg.ParticlesDetail (Renderer+0xc): 1 halves an emitter's MaxParticles, 0
+	// spawns nothing. Menu.md, "Video options"
+	void SetDetail(int detail) { detail_ = detail; }
 	// The level fog, applied to sprite colour the way D3D vertex fog did with
 	// the original's `simple` vertex shader. Colour is 0-255 as authored.
 	void SetFog(int mode, float start, float end, float density, const Vec3& color255) {
@@ -173,11 +176,13 @@ private:
 	// Rebuilds the scaled ranges from params, the way SetScale does.
 	void ApplyScale(Emitter& e, float scale) const;
 	void TickEmitter(Emitter& e, float dt);
+	int Cap(const EmitterParams& params) const; // MaxParticles under the detail setting
 	void InitParticle(const Emitter& e, Particle& p) const;
 
 	std::vector<Emitter> emitters_;
 	float scaleMultiplier_ = 1.f;
 	float colorScale_ = 1.f;
+	int detail_ = 2;
 	float fog_[4] = {0, 0, 90.f, 0};
 	float fogColor_[4] = {0, 0, 0, 1.f};
 	bgfx::UniformHandle uFog_ = BGFX_INVALID_HANDLE;
