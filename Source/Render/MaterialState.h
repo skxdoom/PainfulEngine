@@ -1,6 +1,7 @@
 #pragma once
 #include "../Assets/Emitter.h"
 #include "../Assets/ShaderScript.h"
+#include <bgfx/bgfx.h>
 #include <cstdint>
 #include <string>
 
@@ -14,6 +15,10 @@ struct MaterialState {
 	uint64_t state = 0;
 	// Per-stage sampler flags from texenv[N] (wrap/clamp, filter).
 	uint32_t sampler[4] = {0, 0, 0, 0};
+	// The texenv of the stage whose map is $lightmap, which is not always stage 1
+	// (0 on nv20 water, 2 under a detail map, 3 on terrain). Every shipped one is
+	// clamp, so clamp stands in where no stage names it.
+	uint32_t lightmapSampler = BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
 	// Alpha-test reference for "alphafunc greater", 0..1; negative = disabled.
 	// Modern APIs dropped fixed-function alpha test, so the fragment shader
 	// discards below this value.

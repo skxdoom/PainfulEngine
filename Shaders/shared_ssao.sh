@@ -10,6 +10,8 @@ uniform vec4 u_ssaoParams; // x: radius as a share of the screen's height, y: st
 // x: intensity, y: sin of the elevation a tap must pass (SSAOAngle), z/w: the height
 // over the surface, as shares of the radius, where a tap starts and fully counts (SSAOHeight).
 uniform vec4 u_ssaoShape;
+uniform vec4 u_ssaoFog; // the level fog: x mode (0 none, 1 exp, 2 exp2, 3 linear), y start, z end, w density
+uniform vec4 u_ssaoFade; // x: distance the occlusion starts to fade, y: where it is gone (SSAOFadeStart/End)
 
 #define SSAO_SAMPLES 12
 #define SSAO_TURNS 7.0
@@ -38,6 +40,22 @@ void main()
 	vec3 P = SsaoPosition(p);
 	float depth = abs(P.z);
 	if (SsaoDepth(p) >= 0.99999)
+	{
+		gl_FragColor = vec4(1.0, depth, 0.0, 1.0);
+		return;
+	}
+
+	// Kept as much as the scene is: under the fog by the world shaders' own curve
+	// over the view distance, and faded out far off, where a tap spans less than
+	// a pixel of geometry and the occlusion flickers.
+	float dist = length(P);
+	float fog = 1.0;
+	if (u_ssaoFog.x > 2.5) fog = (u_ssaoFog.z - dist) / max(u_ssaoFog.z - u_ssaoFog.y, 0.001);
+	else if (u_ssaoFog.x > 1.5) fog = exp(-(u_ssaoFog.w * dist) * (u_ssaoFog.w * dist));
+	else if (u_ssaoFog.x > 0.5) fog = exp(-u_ssaoFog.w * dist);
+	float visible = clamp(fog, 0.0, 1.0) *
+			(1.0 - smoothstep(u_ssaoFade.x, max(u_ssaoFade.y, u_ssaoFade.x + 0.001), dist));
+	if (visible <= 0.0)
 	{
 		gl_FragColor = vec4(1.0, depth, 0.0, 1.0);
 		return;
@@ -81,7 +99,7 @@ void main()
 		float height = smoothstep(u_ssaoShape.z * radius, u_ssaoShape.w * radius, h);
 		sum += elevation * height * max(1.0 - vv / r2, 0.0);
 	}
-	float kept = max(0.0, 1.0 - sum * u_ssaoShape.x / float(SSAO_SAMPLES));
+	float kept = max(0.0, 1.0 - sum * u_ssaoShape.x / float(SSAO_SAMPLES) * visible);
 	gl_FragColor = vec4(kept, depth, 0.0, 1.0);
 }
 

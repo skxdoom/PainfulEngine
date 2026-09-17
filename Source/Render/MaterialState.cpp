@@ -90,6 +90,8 @@ MaterialState MaterialState::FromPass(const ShaderPass& pass, std::string* warni
 	for (int i = 0; i < 4; ++i) {
 		const std::string env = pass.Get("texenv[" + std::to_string(i) + "]");
 		if (!env.empty()) out.sampler[i] = SamplerBits(env, warning);
+		if (pass.Get("map[" + std::to_string(i) + "]").rfind("$lightmap", 0) == 0 && !env.empty())
+			out.lightmapSampler = out.sampler[i];
 	}
 
 	// The lightmap combine: "texture modulate previous" is x1,

@@ -362,7 +362,18 @@ off its surface by `1.5` texels along the normal and `1.0` texel toward the
 light, **in world units at that depth** - a shadow texel is
 `2 * zAxial * tan(outer) / size` wide, so the bias grows with the beam and
 stays the same fraction of a texel near and far, where a constant depth bias
-would be far too large at the lens and useless at range. Nine hardware-compared
+would be far too large at the lens and useless at range. Both lifts are scaled
+by N.L: a lift slides the lookup along the surface by lift x tan(angle between
+the normal and the light), so unscaled they detached a grazing surface's
+shadows by 14 texels at 80 degrees and 29 at 85 (peter panning, the user's
+report, 2026-09-17); scaled, the slide is lift x sin(angle), under the lift at
+any angle. What the lifts no longer cover at grazing angles, the receiver
+plane does: the shadow-map depth per uv comes from the position's screen
+derivatives (taken before the light loop - D3D has no gradients in flow
+control), each of the nine taps compares at the depth the surface has under
+it, and half a texel of that slope is taken off for the bilinear compare. The
+slope is capped at the depth a slope of 20 gives, `40 * tan(outer) * (1 - z)`
+per uv, because at a silhouette the derivatives straddle two surfaces. Nine hardware-compared
 taps a texel apart (`Pcf3x3`) give a continuous edge: each tap is bilinear and
 ramps over one texel, so a texel apart the ramps overlap. Four taps two texels
 apart read as four visible steps, on this map and the models' alike. Outside
@@ -586,7 +597,16 @@ Gaussian first: that noise runs nearly constant along steep diagonals (a step of
 one across and two down changes it by 0.06 of a turn), the Gaussian could not
 cancel it, and it showed as diagonal streaks sliding with the camera (the user's
 report, 2026-09-17). `PAINFUL_SSAOVIEW` writes the blurred occlusion in place of
-the scene (with `PAINFUL_BLOOM=0`, or the bloom washes it flat). Then the result, at `SSAOStrength` (100 percent), multiplies the
+the scene (with `PAINFUL_BLOOM=0`, or the bloom washes it flat).
+
+The occlusion is multiplied over a scene the world shaders already fogged, so
+it has to thin as they do: the occlusion pass takes the level fog (mode,
+start, end, density) and the world shaders' own curve over the view distance,
+`length` of the view-space position like `v_viewdist`, and scales the darkening
+by it. It also fades out between `SSAOFadeStart` and `SSAOFadeEnd` (30 and 60
+units): far off, the taps span less than a pixel of geometry and the occlusion
+flickered on buildings (the user's report, 2026-09-17). A pixel with nothing
+left to show skips its taps. Then the result, at `SSAOStrength` (100 percent), multiplies the
 scene's colour before anything reads the frame (views 68-71, ahead of the haze's
 copy and the bloom). The view model, the particles and the coronas draw after
 it, in the view a frame with haze already puts them in: drawn in the world view,

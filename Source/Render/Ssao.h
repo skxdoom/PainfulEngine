@@ -26,6 +26,12 @@ public:
 	void SetParams(float radius, float strength);
 	// SSAOIntensity as a factor, SSAOAngle in degrees, SSAOHeight as a share of the radius.
 	void SetShape(float intensity, float angleDegrees, float height);
+	// SSAOFadeStart/End in world units: the occlusion is gone past the end.
+	void SetFade(float start, float end) { fade_[0] = start; fade_[1] = end; }
+	// The level fog, as the world shaders get it: the occlusion thins with it.
+	void SetFog(int mode, float start, float end, float density) {
+		fog_[0] = float(mode); fog_[1] = start; fog_[2] = end; fog_[3] = density;
+	}
 	// After the scene's draws, in views ordered after the world's and before any
 	// pass that reads the frame. Nothing when the scene is not in its target or
 	// its depth cannot be read.
@@ -47,6 +53,8 @@ private:
 	bgfx::UniformHandle uScreen_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uParams_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uShape_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uFog_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uFade_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uBlur_ = BGFX_INVALID_HANDLE;
 	bgfx::VertexLayout layout_;
 	// Half size, RGBA16F: r the occlusion, g the view depth for the blur.
@@ -55,6 +63,8 @@ private:
 	int bufW_ = 0, bufH_ = 0;
 	float radius_ = 1.f, strength_ = 1.f;
 	float shape_[4] = {5.f, 0.5f, 0.1f, 0.4f};
+	float fog_[4] = {0.f, 0.f, 0.f, 0.f};
+	float fade_[4] = {30.f, 60.f, 0.f, 0.f};
 	bool active_ = false;
 };
 

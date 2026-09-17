@@ -386,21 +386,21 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
 			b.lightmap = textures.White();
 			chunk.batches.push_back(b);
 		} else {
+			// A slot's UV transform is the $blendxform/$alphaxform context, read only
+			// by terraintu2 (a 2-UV mesh whose LAST material names slot 3); defaultTU2
+			// and NTU draw the diffuse at $identity. TextureTransforms.md, "Slot transforms".
+			const bool terrain = o.uvChannels == 2 && !o.materials.back().slots[3].empty();
 			for (const Material& m : o.materials) {
 				Batch b;
 				b.firstIndex = m.firstIndex;
 				b.indexCount = uint32_t(m.triangleCount) * 3;
 				if (b.indexCount == 0) continue;
 				b.diffuse = textures.Get(m.diffuse(), levelHint);
-				// Every slot carries its own UV transform, and honouring it is
-				// not optional: Enclave's terrain tiles its ground textures
-				// 30x and 20x, so sampling at 1x shows one magnified texel
-				// patch instead of the surface.
 				auto slotUv = [](const TextureSlot& s, float out[4]) {
 					out[0] = s.scaleU; out[1] = s.scaleV;
 					out[2] = s.offsetU; out[3] = s.offsetV;
 				};
-				slotUv(m.slots[0], b.uvDiffuse);
+				if (terrain) slotUv(m.slots[0], b.uvDiffuse);
 
 				// All four slots filled = a terrain blend: two TILED textures
 				// mixed by a mask. The tiled pair (large scale) are the
@@ -418,6 +418,7 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
 						b.mask = textures.Get(m.slots[maskSlot].name, levelHint);
 						b.lightmap = textures.Get(m.slots[lightSlot].name, levelHint);
 						b.hasLightmap = true;
+						slotUv(m.slots[0], b.uvDiffuse);
 						slotUv(m.slots[blendSlot], b.uvBlend);
 						chunk.batches.push_back(b);
 						continue;
@@ -768,7 +769,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 				bgfx::setTexture(0, sNormal_, normal, FilteredSampler(0));
 				bgfx::setTexture(1, sCube_, cube);
 				bgfx::setTexture(2, sLightmap_, b.lightmap,
-						FilteredSampler(c.material.sampler[1]));
+						FilteredSampler(c.material.lightmapSampler));
 				bgfx::setTexture(3, sRefl_, family >= 2 ? reflectionTex_ : fallback);
 				bgfx::setTexture(4, sRefr_, family == 3 ? refractionTex_ : fallback);
 				bgfx::setState(state);
@@ -873,7 +874,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 			bgfx::setTexture(0, sDiffuse_, b.diffuse,
 					FilteredSampler(c.material.sampler[0]));
 			bgfx::setTexture(1, sLightmap_, b.lightmap,
-					FilteredSampler(c.material.sampler[1]));
+					FilteredSampler(c.material.lightmapSampler));
 			bgfx::setState(state);
 			bgfx::submit(view, program_);
 			++drawCalls_;

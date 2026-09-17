@@ -162,3 +162,51 @@ transposed u/v (tried; it breaks the walls and leaves the strip unchanged). The
 strip is also too *bright*, which points at its lightmap: `texcoord1` spans
 u 0.34–0.94, v 0.63–0.87 into an atlas whose upper region is a pale machine
 panel and whose lower band is dark.
+
+## The lightmap's sampler
+
+`texenv[N]` is the stage's addressing and filter, and the lightmap's stage is
+whichever one names `$lightmap`, not stage 1: stage 0 on `water` (nv20, the
+lightmap pass), 2 under a detail map (`defaultTU2detail`, `defaultTU2x2detail`),
+3 on `terraintu2`, `sky` and the nv30/r200 water. Every one of the 24 shipped
+lightmap stages is `clamp` (`bilinear_nomips` on most). The port read `texenv[1]`
+for every world material, so terrain, sky, detail and water lightmaps wrapped -
+a big plane's baked shadows repeated past the atlas edge (Monastery's sea in the
+lighting-only view, the user's report, 2026-09-17). `MaterialState` now keeps
+`lightmapSampler`, the texenv of the `$lightmap` stage, clamp where no stage
+names it, and both the world and the water draws bind the lightmap with it.
+
+## Slot transforms
+
+Each `.mpk` material carries four texture slots, each a name plus an offset
+and a scale (`TextureSlot`). They are **not** the diffuse's texture matrix.
+`WorldMesh::LoadMesh` (`0x101dce70`) reads the four slot structs per material
+and copies them whole: slot 0 into the material record at `+0x28`
+(`0x101dd229`), slot 2 at `+0x4c` (`0x101dd239`), slot 3 onto the mesh at
+`+0x69c` (`0x101dd21c`, every material, so the last one wins); slot 0's name is
+the colormap and the first non-empty slot 1 name the lightmap.
+`SimpleMesh::Render` (`0x100577c0`) hands the pass exactly those three as its
+xform contexts: `$blendxform` = record `+0x28`, `$alphaxform` = record `+0x4c`,
+`$detailxform` = the mesh's own detail tiling. So a slot's scale and offset
+reach a stage only when the script names that context:
+
+| script | stage 0 xform |
+|---|---|
+| `defaultTU2`, `defaultTU2x2`, `defaultNTU` (every ordinary world mesh) | `$identity` |
+| `terraintu2` (nv20, tnl), `sky`, the `*_blend` light passes | `$blendxform` |
+
+`WorldMesh::SetupFlags` (`0x101d7050`) sets flag `0x4000000` when the mesh is
+not single-UV (`0x400`) and its slot-3 name is non-empty, and
+`WorldMesh::SetupMaterials` (`0x101db660`) gives that flag `terraintu2`
+(`terraintu2trans` when translucent) unless a material is named after the mesh.
+
+The port applied slot 0's transform to every world material. On a mesh whose
+texcoord0 already tiles, that multiplied the tiling: Monastery's
+`wyspapasshape` (`DSC01970_olafa`, scale 24 x 36 over UVs spanning 49.6 x 25.7)
+repeated 1190 x 925 times instead of 50 x 26, and Orphanage's trees
+(`drzewkowateshape*`, `orph_indoor_drzewo1`, 20 x 20) 12 x 96 instead of
+0.6 x 4.8 (the user's report, 2026-09-17). `WorldRenderer::Upload` now applies
+slot 0 to the diffuse only on that terrain condition (and on the batches its
+blend heuristic already treats as terrain); everything else draws at identity.
+The earlier note that Enclave's terrain needs its 30x/20x slot tiling stands:
+that is terrain, and keeps it.

@@ -507,6 +507,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		ssao.SetShape(float(std::max(cfg.GetInt("SSAOIntensity", 500), 0)) / 100.f,
 				float(std::clamp(cfg.GetInt("SSAOAngle", 30), 0, 85)),
 				float(std::clamp(cfg.GetInt("SSAOHeight", 40), 0, 400)) / 100.f);
+		ssao.SetFade(float(std::max(cfg.GetInt("SSAOFadeStart", 30), 0)),
+				float(std::max(cfg.GetInt("SSAOFadeEnd", 60), 0)));
 	};
 	applySettings();
 	SkyRenderer sky;
@@ -1391,9 +1393,11 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			decals.Draw(Renderer::kWorldView, camera, engine.decals(), textures);
 		}
 		// SSAO over the scene the world view drew, before anything reads the frame.
-		if (ssaoOn && sceneTargets.active())
+		if (ssaoOn && sceneTargets.active()) {
+			ssao.SetFog(info.fogMode, info.fogStart, info.fogEnd, info.fogDensity);
 			ssao.Draw(sceneTargets, camera, Renderer::kSsaoView, Renderer::kSsaoBlurHView, Renderer::kSsaoBlurVView,
 					Renderer::kSsaoApplyView);
+		}
 		// The heat haze reads the frame BEFORE the fire and the weapon go on:
 		// a copy of the scene, the warp sprites over it, then the view model in
 		// a view of its own after them (bgfx orders views, and within one it

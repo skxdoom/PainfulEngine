@@ -39,6 +39,8 @@ bool Ssao::Init(const std::string& shaderDir) {
 	uScreen_ = bgfx::createUniform("u_ssaoScreen", bgfx::UniformType::Vec4);
 	uParams_ = bgfx::createUniform("u_ssaoParams", bgfx::UniformType::Vec4);
 	uShape_ = bgfx::createUniform("u_ssaoShape", bgfx::UniformType::Vec4);
+	uFog_ = bgfx::createUniform("u_ssaoFog", bgfx::UniformType::Vec4);
+	uFade_ = bgfx::createUniform("u_ssaoFade", bgfx::UniformType::Vec4);
 	uBlur_ = bgfx::createUniform("u_ssaoBlur", bgfx::UniformType::Vec4);
 	layout_ = PostVertexLayout();
 	const bool ok = bgfx::isValid(ao_) && bgfx::isValid(blur_) && bgfx::isValid(apply_);
@@ -55,7 +57,7 @@ void Ssao::Shutdown() {
 		if (bgfx::isValid(*p)) bgfx::destroy(*p);
 		*p = BGFX_INVALID_HANDLE;
 	}
-	for (bgfx::UniformHandle* u : {&sDepth_, &sAo_, &uInvProj_, &uScreen_, &uParams_, &uShape_, &uBlur_}) {
+	for (bgfx::UniformHandle* u : {&sDepth_, &sAo_, &uInvProj_, &uScreen_, &uParams_, &uShape_, &uFog_, &uFade_, &uBlur_}) {
 		if (bgfx::isValid(*u)) bgfx::destroy(*u);
 		*u = BGFX_INVALID_HANDLE;
 	}
@@ -128,6 +130,8 @@ void Ssao::Draw(const SceneTargets& scene, const Camera& camera, bgfx::ViewId ao
 	bgfx::setUniform(uScreen_, screen);
 	bgfx::setUniform(uParams_, params);
 	bgfx::setUniform(uShape_, shape_);
+	bgfx::setUniform(uFog_, fog_);
+	bgfx::setUniform(uFade_, fade_);
 	bgfx::setTexture(0, sDepth_, scene.depth(), kPointClamp);
 	bgfx::submit(aoView, multisampled ? aoMs_ : ao_);
 

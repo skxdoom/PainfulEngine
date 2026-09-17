@@ -63,15 +63,43 @@ float Pcf3x3v(sampler2DShadow s, vec2 uv, float z, vec2 t)
 	return sum / 9.0;
 }
 
+// The same over the receiver's plane: each tap compares at the depth the
+// surface has under it, dz being depth per uv.
+float Pcf3x3Plane(sampler2DShadow s, vec2 uv, float z, float t, vec2 dz)
+{
+	float sum = 0.0;
+	for (int y = -1; y <= 1; ++y)
+		for (int x = -1; x <= 1; ++x)
+		{
+			vec2 o = vec2(float(x), float(y)) * t;
+			sum += shadow2D(s, vec3(uv + o, z + dot(dz, o)));
+		}
+	return sum / 9.0;
+}
+
 // Outside the map is lit: the cookie is black past the cone rim anyway, and
-// the ramp is zero past range.
-float ShadowTerm(vec3 p)
+// the ramp is zero past range. dpdx/dpdy are the receiver's screen derivatives
+// and tanOuter the beam's half-angle tangent (Lighting.md, "The receiver").
+float ShadowTerm(vec3 p, vec3 dpdx, vec3 dpdy, float tanOuter)
 {
 	vec4 sc = mul(u_shadowMtx, vec4(p, 1.0));
 	if (sc.w <= 0.0) return 1.0;
 	vec3 c = sc.xyz / sc.w;
 	if (c.x < 0.0 || c.x > 1.0 || c.y < 0.0 || c.y > 1.0 || c.z > 1.0) return 1.0;
-	return Pcf3x3(s_shadow, c.xy, c.z, u_shadowParams.w);
+	// Receiver plane depth bias: the map-space depth slope from the derivatives,
+	// capped near a slope of 20 (a silhouette's derivatives straddle two
+	// surfaces), plus half a texel of it for the bilinear compare.
+	vec4 sx = mul(u_shadowMtx, vec4(dpdx, 0.0));
+	vec4 sy = mul(u_shadowMtx, vec4(dpdy, 0.0));
+	vec3 cx = (sx.xyz - c * sx.w) / sc.w;
+	vec3 cy = (sy.xyz - c * sy.w) / sc.w;
+	float det = cx.x * cy.y - cy.x * cx.y;
+	vec2 dz = vec2_splat(0.0);
+	if (abs(det) > 1e-14) dz = vec2(cy.y * cx.z - cx.y * cy.z, cx.x * cy.z - cy.x * cx.z) / det;
+	float cap = 40.0 * tanOuter * max(1.0 - c.z, 0.0);
+	dz = clamp(dz, vec2_splat(-cap), vec2_splat(cap));
+	float t = u_shadowParams.w;
+	return Pcf3x3Plane(s_shadow, c.xy, c.z - 0.5 * t * (abs(dz.x) + abs(dz.y)), t, dz);
 }
 
 // The models' shadows from the environment directional: an orthographic map
@@ -217,6 +245,9 @@ float ModelShadow(vec3 wpos, vec3 n)
 void DynamicLights(vec3 wpos, vec3 n, vec3 eye, vec3 specular,
 		inout vec3 diffuse, inout vec3 spec, inout float shadowMin, inout vec3 occluded)
 {
+	// Taken before the loop: D3D allows no gradients inside flow control.
+	vec3 dpdx = dFdx(wpos);
+	vec3 dpdy = dFdy(wpos);
 	for (int i = 0; i < PAINFUL_MAX_DYN; ++i)
 	{
 		if (float(i) >= u_dynCount.x) break;
@@ -285,13 +316,16 @@ void DynamicLights(vec3 wpos, vec3 n, vec3 eye, vec3 specular,
 				// its surface along the normal and toward the light by a
 				// texel or so IN WORLD UNITS: a shadow texel grows with the
 				// distance down the beam, so the bias follows it and stays
-				// the same fraction of a texel near and far.
+				// the same fraction of a texel near and far. A lift slides the
+				// lookup along the surface by lift x tan(angle to the light), so
+				// it is scaled by N.L (the slide stays under a lift at any angle)
+				// and the receiver plane in ShadowTerm covers a grazing slope.
 				if (u_shadowParams.x > 0.5)
 				{
 					float texel = 2.0 * zAxial * u_dynCone[i].y * u_shadowParams.w;
-					vec3 p = wpos + n * (texel * u_shadowParams.y) +
-							l * (texel * u_shadowParams.z);
-					att *= ShadowTerm(p);
+					vec3 p = wpos + (n * (texel * u_shadowParams.y) +
+							l * (texel * u_shadowParams.z)) * ndotl;
+					att *= ShadowTerm(p, dpdx, dpdy, u_dynCone[i].y);
 				}
 			}
 			else if (u_dynAxis[i].w > -1.0)
