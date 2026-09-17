@@ -45,6 +45,8 @@ struct WorldNatives : ScriptNativesBase {
 	static int L_MESH_SetCubeMap(lua_State* L);
 	static int L_MESH_SetNormalMap(lua_State* L);
 	static ScriptEngine::MeshOverride* MeshOverrideFor(ScriptEngine* self, lua_State* L);
+	static int L_FOGVOL_Setup(lua_State* L);
+	static int L_FOGVOL_GetProperties(lua_State* L);
 	static int L_ENTITY_EnableDeathZoneTest(lua_State* L);
 	static int L_WORLD_EnableDeathZone(lua_State* L);
 	static int L_WORLD_CheckStartGlass(lua_State* L);
@@ -560,6 +562,8 @@ int WorldNatives::L_WORLD_LoadMap(lua_State* L) {
 	// without a world, not an error.
 	self->world_.loadRequested =
 		!self->world_.mapPath.empty() && self->world_.mapPath.back() != '/';
+	// The map's .EVolumetric entities apply after this, to its own objects.
+	self->volumeParams_.clear();
 
 	// With physics attached the static world is built HERE, synchronously:
 	// the entity bodies follow through PO_Create later in this same level
@@ -884,6 +888,33 @@ int WorldNatives::L_MESH_SetNormalMap(lua_State* L) {
 	return 0;
 }
 
+// FOGVOL.Setup(e, color, end) - 0x1013b4b0: Volume+0x864 the composed colour,
+// +0x86c End. Recorded by object name for the renderer. FogVolumes.md
+int WorldNatives::L_FOGVOL_Setup(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const auto it = self->entities_.find(int(luaL_optnumber(L, 1, 0)));
+	if (it == self->entities_.end() || !it->second.worldObject) return 0;
+	ScriptEngine::VolumeParams& v = self->volumeParams_[it->second.name];
+	v.color = uint32_t(int64_t(luaL_optnumber(L, 2, 0)));
+	v.end = float(luaL_optnumber(L, 3, 0));
+	return 0;
+}
+
+// FOGVOL.GetProperties(e) -> r, g, b, end - 0x1013b560.
+int WorldNatives::L_FOGVOL_GetProperties(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const auto it = self->entities_.find(int(luaL_optnumber(L, 1, 0)));
+	if (it == self->entities_.end() || !it->second.worldObject) return 0;
+	const auto found = self->volumeParams_.find(it->second.name);
+	const ScriptEngine::VolumeParams v = found != self->volumeParams_.end() ? found->second
+			: ScriptEngine::VolumeParams();
+	lua_pushnumber(L, (v.color >> 16) & 0xff);
+	lua_pushnumber(L, (v.color >> 8) & 0xff);
+	lua_pushnumber(L, v.color & 0xff);
+	lua_pushnumber(L, v.end);
+	return 4;
+}
+
 void BindWorld(ScriptEngine& engine, LuaHost& host) {
 	const ScriptNative natives[] = {
 		{"WORLD", "Init", WorldNatives::L_WORLD_Init},
@@ -917,6 +948,8 @@ void BindWorld(ScriptEngine& engine, LuaHost& host) {
 		{"MESH", "SetDefaultCubeMaps", WorldNatives::L_MESH_SetDefaultCubeMaps},
 		{"MESH", "SetCubeMap", WorldNatives::L_MESH_SetCubeMap},
 		{"MESH", "SetNormalMap", WorldNatives::L_MESH_SetNormalMap},
+		{"FOGVOL", "Setup", WorldNatives::L_FOGVOL_Setup},
+		{"FOGVOL", "GetProperties", WorldNatives::L_FOGVOL_GetProperties},
 		{"ENTITY", "EnableDeathZoneTest", WorldNatives::L_ENTITY_EnableDeathZoneTest},
 		{"WORLD", "EnableDeathZone", WorldNatives::L_WORLD_EnableDeathZone},
 		{"WORLD", "CheckStartGlass", WorldNatives::L_WORLD_CheckStartGlass},

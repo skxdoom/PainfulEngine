@@ -25,6 +25,7 @@ add_library(Render STATIC
 		WaterReflection.cpp WaterReflection.h
 		EnvCubeMap.cpp EnvCubeMap.h
 		Ssao.cpp Ssao.h
+		VolumeRenderer.cpp VolumeRenderer.h
 		ShaderLoad.cpp ShaderLoad.h
 		Camera.cpp Camera.h
 		MeshVertex.h

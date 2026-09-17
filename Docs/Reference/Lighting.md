@@ -609,7 +609,7 @@ flickered on buildings (the user's report, 2026-09-17). A pixel with nothing
 left to show skips its taps. Then the result, at `SSAOStrength` (100 percent), multiplies the
 scene's colour before anything reads the frame (views 68-71, ahead of the haze's
 copy and the bloom). The view model, the particles and the coronas draw after
-it, in the view a frame with haze already puts them in: drawn in the world view,
+it, in the late views (Particles.md, "The warp sprites"): drawn in the world view,
 the dust of a shot at the ground showed the occlusion of the ground behind it
 (the user's report), and the weapon's depth would have occluded the wall. Measured on 2026-09-15 (Release, hidden window,
 1600x900, 4x MSAA, the depth readable), with the screen radius: by Cathedral's

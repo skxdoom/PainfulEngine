@@ -130,7 +130,13 @@ whole reason the timer exists.
 **Coronas do not depth-test.** That is one bit of the render state handed to
 D3Dev, taken straight from the corona flag: set for a plain billboard, cleared
 for a corona. Occlusion is the line trace and nothing else, so once the trace
-says the light is in view the sprite draws over whatever is in front of it.
+says the light is in view the sprite draws over whatever is in front of it -
+except the weapon in hand, which covers coronas in the original (the user's
+report, 2026-09-17; the view model is not in the physics world, so it is draw
+order). Coronas go in `Renderer::kCoronaView`, the view before the view model's
+`kAfterWarpView`: within one bgfx view the opaque weapon sorts ahead of every
+blended sprite, so sharing a view drew coronas over it. Plain billboards and the
+immediate sprites (a muzzle flash) stay after the weapon.
 
 ### The script can hide one, and that has to fade too
 
@@ -148,20 +154,24 @@ The fade machinery itself was already right — this was only a missing input.
 
 ## The line trace
 
-The original asks Havok: `PhysicsWorld::LineTraceFirstHit`. The physics world
-holds the collidable map objects — the ones `MapObject::isCollidable` accepts,
-excluding portals, zones, volumetric-light helpers and anything named `noclip`.
+The original asks Havok: `PhysicsWorld::LineTraceFirstHit` (`0x10196c00`), a
+first-hit ray cast into the whole world with filter info `0xffffffff` - no
+filter. The world mesh (the objects `MapObject::isCollidable` accepts) blocks a
+corona, and so does every body in it: monsters, physics props, active meshes,
+ragdoll limbs. The ray starts `0.3` in front of the eye, inside the player's own
+body, which a Havok cast from inside a convex shape does not report. Before it,
+`FUN_100af200` tests the traced point against a plane set and hides the corona
+when it lies outside one.
 
-This port has no physics engine yet, so `World/CollisionMesh` builds a small BVH
-over exactly those triangles at level load, in rendered space (raw mesh
-coordinates times the level `o.Scale`). It answers only "does this segment hit
-anything", which is all a corona needs and much cheaper than finding the nearest
-hit. It is deliberately not billboard-specific: line of sight, projectile hits
-and AI visibility all want the same query.
-
-Measured: 275k–341k triangles per level, BVH built in 100–170 ms at load, and
-the whole billboard update costs 2–11 µs per frame (Cathedral 46 coronas /
-338 traces per 300 frames; Oriental Castle 112 coronas / 999 traces).
+The game casts through `PhysicsWorld::RayCast` with its defaults (script
+bodies and ragdolls in, the player out). It first used `World/CollisionMesh`,
+a BVH over the collidable triangles alone built when the port had no physics, so
+nothing moving ever hid a corona (the user's report, 2026-09-17). That BVH stays
+the fallback before the physics world is up, and the `run` viewer's only trace.
+Measured then: 275k–341k triangles per level, built in 100–170 ms, and the
+billboard update at 2–11 µs per frame (Cathedral 46 coronas / 338 traces per
+300 frames; Oriental Castle 112 coronas / 999 traces). The plane test is not
+ported: a corona off screen is not drawn either way, only its fade differs.
 
 ## Immediate sprites, and the one with an axis
 

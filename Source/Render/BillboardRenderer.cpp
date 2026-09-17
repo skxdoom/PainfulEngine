@@ -301,7 +301,7 @@ void BillboardRenderer::RemoveScriptSprite(int slot) {
 	sprites_[slot].alive = false;
 }
 
-void BillboardRenderer::Update(const Camera& camera, float dt, const CollisionMesh& collision) {
+void BillboardRenderer::Update(const Camera& camera, float dt, const Occluder& occluded) {
 	visible_ = 0;
 	traces_ = 0;
 	// A long hitch would otherwise complete a whole fade in one step.
@@ -335,7 +335,7 @@ void BillboardRenderer::Update(const Camera& camera, float dt, const CollisionMe
 				const Vec3 to{s.pos[0] - dir[0] * s.traceMargin,
 						s.pos[1] - dir[1] * s.traceMargin,
 						s.pos[2] - dir[2] * s.traceMargin};
-				s.blocked = collision.Occluded(from, to);
+				s.blocked = occluded && occluded(from, to);
 			}
 			nowVisible = !s.blocked;
 		}
@@ -391,7 +391,7 @@ void BillboardRenderer::DrawStripImmediate(std::vector<Vec3> points, float width
 	strips_.push_back(std::move(strip));
 }
 
-void BillboardRenderer::Draw(bgfx::ViewId view, const Camera& camera) {
+void BillboardRenderer::Draw(bgfx::ViewId view, bgfx::ViewId coronaView, const Camera& camera) {
 	drawCalls_ = 0;
 	if (!bgfx::isValid(program_) || (sprites_.empty() && immediate_.empty() && strips_.empty())) {
 		immediate_.clear();
@@ -460,7 +460,7 @@ void BillboardRenderer::Draw(bgfx::ViewId view, const Camera& camera) {
 		bgfx::setUniform(uFog_, fog_);
 		bgfx::setUniform(uFogColor_, fogColor);
 		bgfx::setTexture(0, sDiffuse_, s.texture);
-		bgfx::submit(view, program_);
+		bgfx::submit(s.corona ? coronaView : view, program_);
 		++drawCalls_;
 	}
 

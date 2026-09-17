@@ -383,9 +383,10 @@ over a copy the scene targets take just before it (`SceneTargets::CopyScene`),
 so a warp sprite reads the frame and writes into it. What must NOT be
 refracted goes on afterwards: the copy is taken after the world, the props
 and the decals, and the view model, the particles and the coronas are drawn
-in a view after the haze (`kAfterWarpView`; the weapon through
-`EntityRenderer::SetDrawSet`). Drawn before it, the weapon and the flame
-itself rippled, which the original does not show. The targets are switched on
+in views after the haze (`kCoronaView`, then `kAfterWarpView`; the weapon through
+`EntityRenderer::SetDrawSet`), on every frame, into the backbuffer when the scene
+is not in its target. Drawn before it, the weapon and the flame itself rippled,
+which the original does not show. The targets are switched on
 for a frame that has a live warp emitter even with bloom and the demon effect
 off, and `SceneTargets::Present` then lands the scene on the backbuffer where
 bloom or the demon pass would.

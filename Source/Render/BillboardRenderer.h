@@ -7,6 +7,7 @@
 #include "TextureCache.h"
 #include <bgfx/bgfx.h>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -74,10 +75,14 @@ public:
 
 	// Distance, occlusion tracing and fading, all of which the original does
 	// inside Draw. Split out so the frame's simulation and its submission stay
-	// separate, as they are for particles.
-	void Update(const Camera& camera, float dt, const CollisionMesh& collision);
+	// separate, as they are for particles. `occluded` answers the segment trace:
+	// the physics world in the game, the static mesh in the viewer.
+	using Occluder = std::function<bool(const Vec3& from, const Vec3& to)>;
+	void Update(const Camera& camera, float dt, const Occluder& occluded);
 
-	void Draw(bgfx::ViewId view, const Camera& camera);
+	// Coronas into `coronaView`, which the game orders before the view model's so
+	// the weapon covers them (they ignore depth); everything else into `view`.
+	void Draw(bgfx::ViewId view, bgfx::ViewId coronaView, const Camera& camera);
 
 	// The level o.Scale multiplier, applied to positions and sizes the same
 	// way EntityRenderer applies it to placed models.

@@ -581,6 +581,14 @@ public:
 		std::string material, cube, normal;
 	};
 	const std::unordered_map<std::string, MeshOverride>& meshOverrides() const { return meshOverrides_; }
+	// FOGVOL.Setup on a volfog/vollight object (a MapEntities .EVolumetric): its
+	// colour, Color:Compose's 0xAARRGGBB, and End, by object name; cleared by
+	// WORLD.LoadMap. Docs/Reference/FogVolumes.md
+	struct VolumeParams {
+		uint32_t color = 0xffffff;
+		float end = 20.f;
+	};
+	const std::unordered_map<std::string, VolumeParams>& volumeParams() const { return volumeParams_; }
 	void SetWorldObjectVisibility(std::function<void(size_t, bool)> handler) {
 		worldObjectVisible_ = std::move(handler);
 	}
@@ -999,6 +1007,7 @@ private:
 	};
 	std::unordered_map<int, SpriteLine> spriteLines_;
 	std::unordered_map<std::string, MeshOverride> meshOverrides_;
+	std::unordered_map<std::string, VolumeParams> volumeParams_;
 	std::unordered_map<int, std::vector<Vec3>> vertexArrays_;
 	int nextScratch_ = 1;
 	PlayerPawn* pawn_ = nullptr;

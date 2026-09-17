@@ -154,6 +154,8 @@ All parse and are cross-checked against a second implementation.
   identified by which slots carry tiling rather than by assumption.
 - Fog modes 0/1/2/3 exactly as `CLevel.lua` defines them, per-level
   `FarClipDist`, and the void cleared to the fog colour.
+- Local fog and light volumes (`volfog` / `vollight` objects, their
+  `.EVolumetric` colour and End); see [`FogVolumes.md`](Reference/FogVolumes.md).
 - UV panning (`pan[N]`) in units per second and the detail map sized by the
   level's `DetailMap.TileU/TileV` - both confirmed against the engine rather
   than inferred, in [`TextureTransforms.md`](Reference/TextureTransforms.md).

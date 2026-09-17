@@ -43,31 +43,37 @@ public:
 	static constexpr bgfx::ViewId kSsaoBlurHView = 69;
 	static constexpr bgfx::ViewId kSsaoBlurVView = 70;
 	static constexpr bgfx::ViewId kSsaoApplyView = 71;
+	// Fog and light volumes (Render/VolumeRenderer.h): two views a volume, its
+	// faces then its colour over the scene, farthest first.
+	static constexpr bgfx::ViewId kVolumeViewBase = 72;
+	static constexpr bgfx::ViewId kVolumeViewCount = 32;
 	// The scene's half-size copy (Render/SceneTargets.h), for the passes
 	// that sample the scene small.
 	// The particle_warp sprites: a copy of the scene so far, then the sprites
 	// drawn over the scene reading it (Render/ParticleRenderer.h, DrawWarp).
-	static constexpr bgfx::ViewId kSceneCopyView = 72;
-	static constexpr bgfx::ViewId kParticleWarpView = 73;
-	// What goes on after the haze so it is not refracted, and after SSAO so it
-	// is not darkened: the view model, the particles, the coronas. Only used on
-	// a frame with haze or SSAO; otherwise they draw in the world view as before.
-	static constexpr bgfx::ViewId kAfterWarpView = 74;
-	static constexpr bgfx::ViewId kSceneHalfView = 75;
+	static constexpr bgfx::ViewId kSceneCopyView = 104;
+	static constexpr bgfx::ViewId kParticleWarpView = 105;
+	// After the haze so they are not refracted, and after SSAO and the volumes so
+	// they are not darkened or fogged twice: the coronas, which ignore depth, in a
+	// view before the view model's so the weapon covers them; then the view model,
+	// the particles and the other sprites.
+	static constexpr bgfx::ViewId kCoronaView = 106;
+	static constexpr bgfx::ViewId kAfterWarpView = 107;
+	static constexpr bgfx::ViewId kSceneHalfView = 108;
 	// Bloom (Render/Bloom.h): the bright pass, the two blurs, then the
 	// composite that lands the scene on the backbuffer.
-	static constexpr bgfx::ViewId kBloomBrightView = 76;
-	static constexpr bgfx::ViewId kBloomBlurHView = 77;
-	static constexpr bgfx::ViewId kBloomBlurVView = 78;
-	static constexpr bgfx::ViewId kCompositeView = 79;
+	static constexpr bgfx::ViewId kBloomBrightView = 109;
+	static constexpr bgfx::ViewId kBloomBlurHView = 110;
+	static constexpr bgfx::ViewId kBloomBlurVView = 111;
+	static constexpr bgfx::ViewId kCompositeView = 112;
 	// Demon Morph (Render/DemonFx.h): the scene to black and white, the
 	// demonic models over it, the warp with the trail, the copy out.
-	static constexpr bgfx::ViewId kDemonGrayView = 80;
-	static constexpr bgfx::ViewId kDemonEntityView = 81;
-	static constexpr bgfx::ViewId kDemonWarpView = 82;
-	static constexpr bgfx::ViewId kDemonCopyView = 83;
+	static constexpr bgfx::ViewId kDemonGrayView = 113;
+	static constexpr bgfx::ViewId kDemonEntityView = 114;
+	static constexpr bgfx::ViewId kDemonWarpView = 115;
+	static constexpr bgfx::ViewId kDemonCopyView = 116;
 	// The 2D layer, drawn over everything: no depth, in submission order.
-	static constexpr bgfx::ViewId kHudView = 84;
+	static constexpr bgfx::ViewId kHudView = 117;
 
 	// A view's transform and rect from the camera, the way WorldRenderer::Draw
 	// sets the world view's - for a view that draws with the same eye later.

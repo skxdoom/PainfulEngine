@@ -444,6 +444,21 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
 	AssignWaterZones();
 }
 
+void WorldRenderer::ZonesForBox(const Vec3& lo, const Vec3& hi, std::vector<uint16_t>& out) const {
+	std::vector<int> overlapping;
+	zoneGraph_.ZonesForBox(lo, hi, overlapping);
+	out.clear();
+	for (int z : overlapping) out.push_back(uint16_t(z));
+}
+
+// The chunks' rule: culled only when the box overlaps zones and none is visible.
+bool WorldRenderer::ZonesVisible(const std::vector<uint16_t>& zones) const {
+	if (!visCulling_ || zones.empty() || zoneVisible_.empty()) return true;
+	for (uint16_t z : zones)
+		if (z < zoneVisible_.size() && zoneVisible_[z]) return true;
+	return false;
+}
+
 // Only the dynamic ones. A placed CLight is in the lightmap already, and
 // WorldMesh::Draw agrees: the legacy branch of its light loop tests flag
 // 0x400000 - Light::EnableDynamic's - before issuing a pass.

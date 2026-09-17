@@ -103,6 +103,10 @@ public:
 	size_t litChunks() const { return litChunks_; }
 	size_t zonesVisible() const { return zonesVisible_; }
 	size_t zoneCount() const { return zoneGraph_.zoneCount(); }
+	// For geometry drawn beside the chunks (Render/VolumeRenderer.h): the zones a
+	// raw-mesh-space box overlaps, and whether any of them passed this frame's Draw.
+	void ZonesForBox(const Vec3& lo, const Vec3& hi, std::vector<uint16_t>& out) const;
+	bool ZonesVisible(const std::vector<uint16_t>& zones) const;
 	// Disables zone and frustum culling (the --novis flag).
 	void SetVisibilityCulling(bool on) { visCulling_ = on; }
 

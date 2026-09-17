@@ -271,8 +271,9 @@ int RunCmd(const char* levelDir, const char* dataRoot,
 		// Coronas last of all: they ignore depth entirely, so anything drawn
 		// after them would be wrong regardless of where it sits in the world.
 		if (billboards && !skyOnly) {
-			billboards->Update(camera, dt, collision);
-			billboards->Draw(Renderer::kWorldView, camera);
+			billboards->Update(camera, dt,
+					[&](const Vec3& from, const Vec3& to) { return collision.Occluded(from, to); });
+			billboards->Draw(Renderer::kWorldView, Renderer::kWorldView, camera);
 		}
 		// The collision wireframe goes over everything, since the whole point
 		// of it is to be compared against what was drawn underneath.

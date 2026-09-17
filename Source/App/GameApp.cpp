@@ -26,6 +26,7 @@
 #include "Render/BillboardRenderer.h"
 #include "Render/Bloom.h"
 #include "Render/Ssao.h"
+#include "Render/VolumeRenderer.h"
 #include "Render/DebugLines.h"
 #include "Render/DemonFx.h"
 #include "Render/SceneTargets.h"
@@ -442,6 +443,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	Ssao ssao;
 	const bool ssaoInit = sceneInit && ssao.Init(shaderDir);
 	bool ssaoOn = false;
+	// The map's fog and light volumes (Render/VolumeRenderer.h).
+	VolumeRenderer volumes;
+	const bool volumesInit = sceneInit && volumes.Init(shaderDir);
+	bool volumesOn = false, volumesThisFrame = false;
 	bool bloomThisFrame = false;
 	bool warpOn = false;
 	// Demon Morph, WORLD.EnableDemonFX's frame; it replaces the bloom path
@@ -502,6 +507,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 
 		bloom.SetQuality(cfg.GetInt("BloomScale", 2), cfg.GetInt("BloomKernel", 0));
 		ssaoOn = ssaoInit && cfg.GetBool("SSAO", false);
+		volumesOn = volumesInit && cfg.GetBool("FogVolumes", true);
 		ssao.SetParams(float(std::max(cfg.GetInt("SSAOScreenRadius", 40), 1)) / 1000.f,
 				float(std::clamp(cfg.GetInt("SSAOStrength", 100), 0, 100)) / 100.f);
 		ssao.SetShape(float(std::max(cfg.GetInt("SSAOIntensity", 500), 0)) / 100.f,
@@ -525,6 +531,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		if (!levelUp) return;
 		world.Clear();
 		decals.Clear();
+		volumes.Clear();
 		sky.Unload();
 		collision = CollisionMesh();
 		fallbackMap = MapMesh();
@@ -680,6 +687,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			// while the scripts loaded; the chunks exist only now.
 			for (const auto& kv : engine.meshOverrides())
 				world.SetMeshOverride(kv.first, kv.second.material, kv.second.cube, kv.second.normal);
+			// The volumes, and their .EVolumetric FOGVOL.Setup values, the same way.
+			volumes.Upload(*map, info.scale, world);
+			for (const auto& kv : engine.volumeParams())
+				volumes.SetParams(kv.first, kv.second.color, kv.second.end);
 			entities.SetLevelCubeMap(info.cubeMap, textures);
 			engine.SetWorldObjectVisibility(
 					[&world](size_t object, bool visible) { world.SetObjectVisible(object, visible); });
@@ -1302,10 +1313,12 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			// The heat-haze sprites read the frame, so a frame with one keeps the
 			// scene in its target too. Particles.md, "The warp sprites".
 			warpOn = particlesReady && particles.HasWarp();
+			// The fog and light volumes read the scene's depth, so they keep it too.
+			volumesThisFrame = volumesOn && worldReady && volumes.AnyInView(camera, window.width(), window.height());
 			// Not under wireframe: bgfx's flag reaches the fullscreen present too, which
 			// then draws only its edges and leaves the backbuffer uncleared (a frozen frame).
 			sceneTargets.BeginFrame(window.width(), window.height(),
-					(bloomOn || demonOn || warpOn || ssaoOn) && !wireframe,
+					(bloomOn || demonOn || warpOn || ssaoOn || volumesThisFrame) && !wireframe,
 					Renderer::kSkyView, Renderer::kWorldView);
 			bloom.SetParams(ws.bloomThreshold, ws.bloomMultiplier, ws.bloomOverlay);
 			bloomThisFrame = bloomOn;
@@ -1370,10 +1383,12 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			world.Draw(Renderer::kWorldView, camera, window.width(), window.height(),
 					info, elapsed);
 		const bool warpPass = warpOn && sceneTargets.active();
-		// The weapon, the particles and the coronas in a view after the scene's:
-		// past the haze's copy so they are not refracted, past SSAO so they are not darkened.
-		const bool latePass = sceneTargets.active() && (warpOn || ssaoOn);
-		entities.SetDrawSet(latePass ? EntityRenderer::kSceneOnly : EntityRenderer::kAll);
+		// The coronas, the weapon and the particles in views after the scene's, every
+		// frame: past the haze's copy, SSAO and the volumes, and the coronas before the
+		// weapon so it covers them. Into the scene's target when it has one.
+		const bgfx::FrameBufferHandle lateTarget =
+				sceneTargets.active() ? sceneTargets.framebuffer() : bgfx::FrameBufferHandle(BGFX_INVALID_HANDLE);
+		entities.SetDrawSet(EntityRenderer::kSceneOnly);
 		entities.Draw(Renderer::kWorldView, camera, window.width(), window.height(),
 				info, elapsed);
 		entities.SetDrawSet(EntityRenderer::kAll);
@@ -1398,6 +1413,13 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			ssao.Draw(sceneTargets, camera, Renderer::kSsaoView, Renderer::kSsaoBlurHView, Renderer::kSsaoBlurVView,
 					Renderer::kSsaoApplyView);
 		}
+		// The fog and light volumes over the finished opaque scene, dimmed while the
+		// bloom is on as RenderWorld does (BloomFX's fourth value). FogVolumes.md
+		if (volumesThisFrame && sceneTargets.active()) {
+			const ScriptEngine::WorldState& ws = engine.world();
+			volumes.Draw(sceneTargets, camera, world, Renderer::kVolumeViewBase, Renderer::kVolumeViewCount,
+					ws.bloomMultiplier > 0.f ? ws.bloomDimScale : 1.f, info.farClip);
+		}
 		// The heat haze reads the frame BEFORE the fire and the weapon go on:
 		// a copy of the scene, the warp sprites over it, then the view model in
 		// a view of its own after them (bgfx orders views, and within one it
@@ -1409,17 +1431,16 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			particles.DrawWarp(Renderer::kParticleWarpView, camera, window.width(), window.height(),
 					sceneTargets.sceneCopy());
 		}
-		// The weapon, the particles and the coronas after the haze and SSAO alike.
-		if (latePass) {
-			bgfx::setViewFrameBuffer(Renderer::kAfterWarpView, sceneTargets.framebuffer());
-			Renderer::SetViewCamera(Renderer::kAfterWarpView, camera, window.width(), window.height());
-			entities.SetDrawSet(EntityRenderer::kViewModelOnly);
-			entities.Draw(Renderer::kAfterWarpView, camera, window.width(), window.height(),
-					info, elapsed);
-			entities.SetDrawSet(EntityRenderer::kAll);
+		for (bgfx::ViewId late : {Renderer::kCoronaView, Renderer::kAfterWarpView}) {
+			bgfx::setViewFrameBuffer(late, lateTarget);
+			Renderer::SetViewCamera(late, camera, window.width(), window.height());
 		}
+		entities.SetDrawSet(EntityRenderer::kViewModelOnly);
+		entities.Draw(Renderer::kAfterWarpView, camera, window.width(), window.height(),
+				info, elapsed);
+		entities.SetDrawSet(EntityRenderer::kAll);
 		if (vmShadows.ready()) entities.DrawViewModelShadows(vmShadows, elapsed);
-		const bgfx::ViewId lateView = latePass ? Renderer::kAfterWarpView : Renderer::kWorldView;
+		const bgfx::ViewId lateView = Renderer::kAfterWarpView;
 		// Particles then coronas last, exactly as in the hand-driven loop:
 		// blended, no depth writes, and coronas ignore depth entirely.
 		// Paused stops the SIMULATION but not the drawing, here as everywhere
@@ -1443,8 +1464,14 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			particles.Draw(lateView, camera, window.width(), window.height());
 		}
 		if (billboardsReady) {
-			billboards.Update(camera, simDt, collision);
-			billboards.Draw(lateView, camera);
+			// Billboard::Draw's trace is PhysicsWorld::LineTraceFirstHit with no filter
+			// (0x10196c00): monsters, props and ragdolls block a corona as the walls do.
+			billboards.Update(camera, simDt, [&](const Vec3& from, const Vec3& to) {
+				if (!physics.loaded()) return collision.Occluded(from, to);
+				PhysicsWorld::RayHit hit;
+				return physics.RayCast(from, to, hit);
+			});
+			billboards.Draw(lateView, Renderer::kCoronaView, camera);
 		}
 
 		// The collision wireframe, drawn over the finished world so it reads

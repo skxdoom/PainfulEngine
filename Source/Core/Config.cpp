@@ -52,6 +52,7 @@ const EngineConfig::Known kKnown[] = {
 	{"SSAOHeight", "40", false, "SSAO: percent of the radius an occluder must stand over a surface to fully count (starts at a quarter)"},
 	{"SSAOFadeStart", "30", false, "SSAO: distance, world units, where the occlusion starts to fade out"},
 	{"SSAOFadeEnd", "60", false, "SSAO: distance, world units, past which there is no occlusion"},
+	{"FogVolumes", "true", true, "the maps' local fog and light volumes (volfog / vollight)"},
 	{"BloomScale", "2", false, "bloom is blurred at 1/N of the screen; the original is 2"},
 	{"BloomKernel", "0", false, "bloom blur: 0 the Gaussian to three sigma, 1 the original 13 taps"},
 };
