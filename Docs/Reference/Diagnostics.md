@@ -154,6 +154,28 @@ Two disagreements the table forced into the open:
 `Check.cpp`: the check facility cannot call the switch table while the switch
 table reports its own errors through the check facility.
 
+## The developer views
+
+Under `-dev` (or `PAINFUL_DEV`) the overlay lists its keys: `M` view, `,`
+collision, `.` nameplates, `/` AI, `F` noclip. They are read by scancode and
+ignored while the console or the menu is open, where they are typed.
+
+`M` cycles lit, wireframe, lighting only (`PAINFUL_WIRE=1`,
+`PAINFUL_LIGHTINGONLY=1` start there).
+
+- **Wireframe** is bgfx's `BGFX_DEBUG_WIREFRAME`, which reaches every draw
+  of the frame, the fullscreen present included. With the scene in its target
+  (bloom, SSAO, the haze, Demon Morph) the present drew only its triangle's
+  edges and nothing cleared the backbuffer, so the screen froze on the last
+  lit frame. A wireframe frame now skips the scene target and draws straight
+  to the backbuffer, which the sky view clears; the post passes are off.
+- **Lighting only** gives the world and the models 0.8 grey albedo through
+  `u_params.w` and keeps the rest: lightmaps, the box light, the dynamic
+  lights and their specular, fog, bloom and the post passes. The texture's
+  alpha still tests. Blended materials (glass, glow, smoke) keep their
+  texture, a model's second stage is dropped, and decals are not drawn - all
+  three are colour, not light.
+
 ## Layering
 
 `CMake/Layering.cmake` checks, at configure time, that no layer includes one

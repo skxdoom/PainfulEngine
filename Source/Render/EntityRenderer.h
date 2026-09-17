@@ -106,6 +106,8 @@ public:
 	// frame with heat-haze sprites, so the haze reads a frame without it.
 	enum DrawSet { kAll, kSceneOnly, kViewModelOnly };
 	void SetDrawSet(DrawSet s) { drawSet_ = s; }
+	// The M key's lighting-only view: unblended materials take 0.8 grey for albedo.
+	void SetLightingOnly(bool on) { lightingOnly_ = on; }
 	// ENTITY.EnableDemonic: drawn by the demon pass while it is on.
 	void SetScriptDemonic(int slot, bool demonic);
 	// MDL.SetMaterialRefractFresnel: one mesh's water look on one instance.
@@ -338,6 +340,7 @@ private:
 	bgfx::UniformHandle uDemonFresnel_ = BGFX_INVALID_HANDLE;
 	bool demonOn_ = false;
 	DrawSet drawSet_ = kAll;
+	bool lightingOnly_ = false;
 	bgfx::ViewId demonView_ = 0;
 	bgfx::TextureHandle demonDetail_ = BGFX_INVALID_HANDLE;
 	bgfx::TextureHandle demonRamp_ = BGFX_INVALID_HANDLE;

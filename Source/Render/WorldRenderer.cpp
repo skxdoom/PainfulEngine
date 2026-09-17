@@ -841,10 +841,12 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 		PackShadow(lights, shadow_);
 		PackDirShadow(lights, modelShadow_);
 
+		// Blended materials (glass, glow, smoke) keep their texture in the lighting-only view.
+		const bool greyAlbedo = lightingOnly_ && !(state & BGFX_STATE_BLEND_MASK);
 		for (const Batch& b : c.batches) {
 			const float params[4] = {b.hasLightmap ? 1.f : 0.f,
 					c.material.alphaRef,
-					b.blended ? 1.f : 0.f, 0.f};
+					b.blended ? 1.f : 0.f, greyAlbedo ? 1.f : 0.f};
 			bgfx::setUniform(uAmbient_, ambientValue);
 			bgfx::setUniform(uParams_, params);
 			bgfx::setUniform(uUvAnim_, uvAnim);

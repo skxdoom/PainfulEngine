@@ -33,7 +33,7 @@ SAMPLER2D(s_stage1, 1);
 #define PAINFUL_VM_STAGE 7
 #include "shared_lights.sh"
 
-uniform vec4 u_params; // y: alpha-test ref (<0 off)
+uniform vec4 u_params; // y: alpha-test ref (<0 off), w: lighting-only view
 uniform vec4 u_uvanim; // xy: stage-0 scroll offset
 uniform vec4 u_uv0; // slot UV transform: scale xy, offset zw
 uniform vec4 u_tile; // xy: stage-0 tiling
@@ -97,12 +97,14 @@ void main()
 	// `texture modulate diffuse`, then `specular true` adds on top - the
 	// specular is NOT modulated by the texture, which is what makes it read as
 	// a sheen sitting over the material rather than part of it.
-	vec3 color = base.rgb * diffuse + specular;
+	// The M key's lighting-only view: grey albedo and no second stage.
+	bool greyAlbedo = u_params.w > 0.5;
+	vec3 color = (greyAlbedo ? vec3_splat(0.8) : base.rgb) * diffuse + specular;
 
 	// The second stage combines with what is already there ("previous"), which
 	// is why it sits after the lighting rather than being mixed into the
 	// albedo: blood on a gib darkens the lit skin, it is not part of it.
-	if (u_stage1.x > 0.5)
+	if (u_stage1.x > 0.5 && !greyAlbedo)
 	{
 		vec4 s1 = texture2D(s_stage1, v_texcoord0);
 		if (u_stage1.x < 1.5) color *= s1.rgb; // modulate

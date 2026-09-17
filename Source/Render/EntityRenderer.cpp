@@ -1231,7 +1231,9 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			// PAINFUL_NOATEST disables the alpha test, to tell "the texture alpha
 			// is discarding this" apart from "this is not being drawn".
 			static const bool kNoATest = DebugFlag("PAINFUL_NOATEST");
-			const float params[4] = {0.f, kNoATest ? -1.f : mat.alphaRef, 0.f, 0.f};
+			// w: the lighting-only view's grey albedo, blended materials excepted.
+			const bool greyAlbedo = lightingOnly_ && !(mat.state & BGFX_STATE_BLEND_MASK);
+			const float params[4] = {0.f, kNoATest ? -1.f : mat.alphaRef, 0.f, greyAlbedo ? 1.f : 0.f};
 			// Animated materials pan their diffuse UVs; no detail maps here.
 			const float uvAnim[4] = {mat.pan0[0] * timeSeconds, mat.pan0[1] * timeSeconds,
 					mat.pan1[0] * timeSeconds, mat.pan1[1] * timeSeconds};

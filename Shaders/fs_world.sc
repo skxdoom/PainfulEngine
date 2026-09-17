@@ -50,7 +50,7 @@ float DirectionalFactor(vec3 p)
 	return f;
 }
 
-uniform vec4 u_params; // x: has lightmap, y: alpha-test ref (<0 off), z: terrain blend, w: unused
+uniform vec4 u_params; // x: has lightmap, y: alpha-test ref (<0 off), z: terrain blend, w: lighting-only view
 uniform vec4 u_uvanim; // xy: stage-0 scroll offset, zw: stage-1 scroll offset
 uniform vec4 u_detail; // xy: detail tiling, z: detail on/off
 uniform vec4 u_uv0; // diffuse slot UV transform: scale xy, offset zw
@@ -113,6 +113,8 @@ void main()
 		vec3 grain = texture2D(s_detail, v_texcoord0 * u_detail.xy).rgb;
 		albedo = clamp(albedo + grain - vec3_splat(0.5), 0.0, 1.0);
 	}
+	// The M key's lighting-only view: grey albedo, the texture's alpha still tests.
+	if (u_params.w > 0.5) albedo = vec3_splat(0.8);
 
 	// No ambient: defaultTU2 is `lighting false`, so the lightmap is the only
 	// light term. o.Ambient drives the vertex lighting the MODELS use (c11).

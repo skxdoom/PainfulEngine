@@ -83,6 +83,8 @@ public:
 	}
 	// How much of the occluded light comes off, 0..1 (LightShadowWorldStrength).
 	void SetLightShadowStrength(float k) { lightShadowStrength_ = k; }
+	// The M key's lighting-only view: unblended materials take 0.8 grey for albedo.
+	void SetLightingOnly(bool on) { lightingOnly_ = on; }
 	// A depth pass into `map`: every opaque chunk inside its frustum. Called
 	// AFTER Draw. The flashlight's map also reuses Draw's zone set - the
 	// light sits at the camera, so the camera's rooms are the beam's rooms.
@@ -229,6 +231,7 @@ private:
 	const std::vector<ShadowedLight>* shadowedLights_ = nullptr;
 	const LightShadowAtlas* lightAtlas_ = nullptr;
 	float lightShadowStrength_ = 1.f;
+	bool lightingOnly_ = false;
 	size_t shadowDrawCalls_ = 0;
 	size_t bakedShadowSlots_ = 0;
 	std::vector<EntityLighting::DirBox> envBoxes_;

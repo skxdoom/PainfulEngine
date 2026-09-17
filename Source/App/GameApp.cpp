@@ -284,19 +284,21 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	// mode with three positions:
 	//
 	//   M   the GEOMETRY - every triangle the renderer draws, world and
-	//       entities, in wireframe. What is actually on screen.
+	//       entities, in wireframe. What is actually on screen. A second press
+	//       gives the lighting-only view: 0.8 grey albedo, everything else kept.
 	//   ,   the dynamic COLLISION - what physics thinks is there, level left
 	//       out. What the world can actually be hit by.
 	//
 	// Having them on together is the useful state: where the two disagree is
 	// where the bug is.
 	//
-	// PAINFUL_WIRE=1|2 and PAINFUL_NAMEPLATES=1 start one already on, which is
-	// how an automated capture can see it - a keypress is not available there.
-	bool geoWire = false;
+	// PAINFUL_WIRE=1|2, PAINFUL_LIGHTINGONLY=1 and PAINFUL_NAMEPLATES=1 start one
+	// already on, which is how an automated capture can see it.
+	enum class ViewMode { kLit, kWireframe, kLightingOnly };
+	ViewMode viewMode = DebugFlag("PAINFUL_LIGHTINGONLY") ? ViewMode::kLightingOnly : ViewMode::kLit;
 	bool collisionWire = false;
 	if (const int mode = DebugInt("PAINFUL_WIRE", 0); mode > 0) {
-		geoWire = mode == 1;
+		if (mode == 1) viewMode = ViewMode::kWireframe;
 		collisionWire = mode == 2;
 	}
 	bool nameplates = DebugFlag("PAINFUL_NAMEPLATES");
@@ -903,7 +905,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		const bool nameplateKey = window.TakeDebugToggle(2);
 		const bool aiKey = window.TakeDebugToggle(3);
 		if (devKeys) {
-			if (wireKey) geoWire = !geoWire;
+			if (wireKey) viewMode = ViewMode((int(viewMode) + 1) % 3);
 			if (collisionKey) collisionWire = !collisionWire;
 			if (nameplateKey) nameplates = !nameplates;
 			if (aiKey) aiDisabled = !aiDisabled;
@@ -930,7 +932,11 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			devApplied = dev;
 			LogInfo("developer mode ON (debugMarek, IsFinalBuild -> false)");
 		}
-		renderer.SetWireframe(geoWire);
+		const bool wireframe = viewMode == ViewMode::kWireframe;
+		const bool lightingOnly = viewMode == ViewMode::kLightingOnly;
+		renderer.SetWireframe(wireframe);
+		world.SetLightingOnly(lightingOnly);
+		entities.SetLightingOnly(lightingOnly);
 		// Who steers the view. While a player exists it is the SCRIPTS:
 		// Game:Tick2 calls UpdateViewFromPlayer, which reads MOUSE.GetDelta,
 		// accumulates onto CAM.GetRawRotation and writes back through
@@ -1291,7 +1297,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			// The heat-haze sprites read the frame, so a frame with one keeps the
 			// scene in its target too. Particles.md, "The warp sprites".
 			warpOn = particlesReady && particles.HasWarp();
-			sceneTargets.BeginFrame(window.width(), window.height(), bloomOn || demonOn || warpOn || ssaoOn,
+			// Not under wireframe: bgfx's flag reaches the fullscreen present too, which
+			// then draws only its edges and leaves the backbuffer uncleared (a frozen frame).
+			sceneTargets.BeginFrame(window.width(), window.height(),
+					(bloomOn || demonOn || warpOn || ssaoOn) && !wireframe,
 					Renderer::kSkyView, Renderer::kWorldView);
 			bloom.SetParams(ws.bloomThreshold, ws.bloomMultiplier, ws.bloomOverlay);
 			bloomThisFrame = bloomOn;
@@ -1372,8 +1381,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		if (modelShadow.active())
 			entities.DrawShadow(Renderer::kModelShadowView, modelShadow, elapsed);
 		entities.DrawLightShadows(elapsed);
-		// Decals over the world and the props, before anything blended.
-		if (decalsReady) {
+		// Decals over the world and the props, before anything blended. Their colour
+		// is albedo, so the lighting-only view goes without them.
+		if (decalsReady && !lightingOnly) {
 			decals.SetFog(info.fogMode, info.fogStart, info.fogEnd, info.fogDensity, info.fogColor);
 			decals.Draw(Renderer::kWorldView, camera, engine.decals(), textures);
 		}
@@ -1598,7 +1608,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		const auto modeRow = [&](const char* key, const char* name, bool engaged, const char* state) {
 			renderer.DebugText(row++, "[%s] %s: %s%s\x1b[0m", key, name, engaged ? "\x1b[10;0m" : "", state);
 		};
-		modeRow("M", "Geometry", geoWire, geoWire ? "wireframe" : "off");
+		modeRow("M", "View", viewMode != ViewMode::kLit,
+				wireframe ? "wireframe" : lightingOnly ? "lighting only" : "lit");
 		modeRow(",", "Collision", collisionWire, collisionWire ? "dynamic" : "off");
 		modeRow(".", "Nameplates", nameplates, nameplates ? "on (20m)" : "off");
 		modeRow("/", "AI", aiDisabled, aiDisabled ? "off" : "on");
