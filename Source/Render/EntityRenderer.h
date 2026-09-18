@@ -133,6 +133,16 @@ public:
 	// and power (rgb 0-1, power), or all back to 0.5 at 20. Lighting.md, "Model specular"
 	void SetScriptMaterialSpecular(int slot, const std::string& mesh, const float rgbPower[4]);
 	void ResetScriptMaterialSpecular(int slot);
+	// MESH.SetLighting / MDL.SetMeshLighting ("*" = every mesh): unlit parts take
+	// no light and no specular, only the colour. Lighting.md, "Which entities glint"
+	void SetScriptLighting(int slot, bool on);
+	void SetScriptMeshLighting(int slot, const std::string& mesh, bool on, const Vec3& color);
+	// WORLD.SetDynamicSpecular's colour and power for the pack and map meshes, and
+	// Cfg.DynamicLights, which decides which lights glint on them.
+	void SetWorldMeshSpecular(const float rgbPower[4]) {
+		for (int i = 0; i < 4; ++i) worldMeshSpecular_[i] = rgbPower[i];
+	}
+	void SetDrawDynLights(int n) { drawDynLights_ = n; }
 	// MDL.SetMaterialRefractFresnel: one mesh's water look on one instance.
 	void SetScriptMeshWater(int slot, const std::string& mesh, float refract, float fresnel,
 			const Vec3& reflTint, const Vec3& refrTint);
@@ -286,6 +296,10 @@ private:
 		// Whether any part carries skin weights, so a pose pushed at this
 		// model can be used. The skeleton itself belongs to the script side.
 		bool skinned = false;
+		// A pack or map mesh: a WorldMesh in the original, lit by RenderNTU, whose
+		// specular is the level's and not the mesh's. Lighting.md, "Which entities glint"
+		bool worldMesh = false;
+		bool mapObject = false; // one of the level map's objects (CreateWorldObject)
 	};
 	struct Instance {
 		size_t model = 0;
@@ -341,6 +355,14 @@ private:
 		std::vector<uint8_t> hiddenParts;
 		// MDL.SetMaterialSpecular per part: rgb, power. Empty = the load default.
 		std::vector<std::array<float, 4>> partSpecular;
+		// MESH.SetLighting(false): the whole instance unlit, white. MDL.SetMeshLighting:
+		// the parts marked unlit, in unlitColor.
+		bool unlit = false;
+		std::vector<uint8_t> partUnlit;
+		Vec3 unlitColor{1.f, 1.f, 1.f};
+		// A map object's vertices were re-based on this; its entity in the original
+		// sits at the map's origin, where the specular half-vectors are built.
+		Vec3 meshOrigin;
 		// The environment cross-fade this instance is in the middle of. Per
 		// instance because two monks either side of a doorway are at different
 		// points of the same fade.
@@ -419,6 +441,8 @@ private:
 	bgfx::UniformHandle uSpecular_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uSpecColor_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uSpecOrigin_ = BGFX_INVALID_HANDLE;
+	float worldMeshSpecular_[4] = {0.5f, 0.5f, 0.5f, 20.f};
+	int drawDynLights_ = 2;
 	LightUniforms lightUniforms_;
 	ProjectorMaps projector_;
 	const ShadowMap* shadow_ = nullptr;

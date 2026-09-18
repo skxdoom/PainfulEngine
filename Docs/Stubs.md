@@ -276,24 +276,12 @@ cheapest possible fix list — most of them are one query each.
 
 Ranked by calls per 900 combat frames:
 
-- ~~**Dynamic lights**~~ — done. `LIGHT.Setup` / `SetFalloff` (1002 each), the
-  five flag setters (102 each) and `ENVIRONMENT.RemoveLight(s)` are
-  implemented ([`Lighting.md`](Reference/Lighting.md)). Still stubs in the same
-  area: `WORLD.SetDirLight`, `ENVIRONMENT.SetFog` / `SetWater` /
+- **Lights** — `WORLD.SetDirLight`, `ENVIRONMENT.SetFog` / `SetWater` /
   `ResetReflectList`, `ENTITY.AddLight`.
-- **Model and mesh materials** — `MESH.SetDetailMap` (245; `SetNormalMap`,
-  `SetCubeMap` and `SetDefaultMaterial` are answered for world-mesh objects,
-  where they pick the water, Water.md) /
-  `SetCubeMap` (245 each), `MATERIAL.Replace` (44 sites), `MDL.SetTexture`
-  (32). `MDL.EnableNormalMaps` (7) is answered: the weapons' object-space normal
-  maps ([`Lighting.md`](Reference/Lighting.md), "Weapon normal maps"). So are
-  `MESH.SetSpecular` / `AddSpecularLight` / `ResetSpecularLights` (~110), the
-  world's gloss ("World specular"), and `MDL.SetMaterialSpecular` /
-  `ResetMaterialSpecular` ("Model specular").
-  `MDL.CreateShadowMap` (38) is answered:
-  it marks the characters that cast the directional shadow, and the per-actor
-  blob it asked for is not built ([`Lighting.md`](Reference/Lighting.md),
-  "Shadows").
+- **Model and mesh materials** — `MESH.SetDetailMap` (245), `MATERIAL.Replace`
+  (44 sites), `MDL.SetTexture` (32). `MESH.SetNormalMap` / `SetCubeMap` /
+  `SetDefaultMaterial` act on world-mesh objects only, where they pick the
+  water (Water.md).
 - **Acoustics** — `WORLD.FindEnvironmentAtPoint` (450), `SOUND3D.SetObstructed`
   / `SetIntensity` (135 each), `SOUND.PreloadFile` (214), `SOUND.SetRoomType`
   (31).

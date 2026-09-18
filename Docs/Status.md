@@ -447,8 +447,10 @@ The ordered work queue, with the evidence behind each item, is
   or pack meshes. Trails (`AttachTrailToBones`) are still stubs.
 - Specular is the original's on both sides: models take their meshes' colour
   and power and the per-model half-vectors, the world its gloss maps under the
-  `.EMesh` fake-specular lights and the point lights, with Dynamic Lights at 2
-  ([`Lighting.md`](Reference/Lighting.md), "Model specular", "World specular").
+  `.EMesh` fake-specular lights and the point lights, with Dynamic Lights at 2;
+  pack meshes take the level's `DynamicLighting` specular, and unlit meshes
+  none ([`Lighting.md`](Reference/Lighting.md), "Model specular", "World
+  specular", "Which entities glint").
 - Script-driven dynamic lights are in: the whole `LIGHT.*` family, so the
   flashlight (cookie, cone and flicker), the torches monsters carry and the
   flashes an action fires off all light both models and the world mesh

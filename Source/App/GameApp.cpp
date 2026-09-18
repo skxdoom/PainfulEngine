@@ -1245,6 +1245,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		{
 			const ScriptEngine::WorldState& vs = engine.world();
 			world.SetDrawDynLights(vs.drawDynLights);
+			entities.SetDrawDynLights(vs.drawDynLights);
+			entities.SetWorldMeshSpecular(vs.dynamicSpecular.data());
 			world.SetWaterQuality(vs.waterQuality);
 			world.SetDetailMap(vs.detailTex, vs.detailTileU, vs.detailTileV);
 			particles.SetDetail(vs.particlesDetail);

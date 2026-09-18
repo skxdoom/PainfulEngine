@@ -8,6 +8,8 @@
 #include "ScriptEngineInternal.h"
 #include "../World/Lighting.h"
 
+#include <algorithm>
+
 namespace painful {
 
 struct LightNatives : ScriptNativesBase {
@@ -26,6 +28,9 @@ struct LightNatives : ScriptNativesBase {
 	static int L_MDL_EnableNormalMaps(lua_State* L);
 	static int L_MDL_ResetMaterialSpecular(lua_State* L);
 	static int L_MDL_SetMaterialSpecular(lua_State* L);
+	static int L_MDL_SetMeshLighting(lua_State* L);
+	static int L_MESH_SetLighting(lua_State* L);
+	static int L_WORLD_SetDynamicSpecular(lua_State* L);
 	// The light an entity IS. Every LIGHT.* native but Setup acts on one that
 	// already exists, and Setup is what makes it: CLight:Apply calls Setup
 	// first and the rest in a row after it, and CreateLight does the same.
@@ -188,6 +193,49 @@ int LightNatives::L_MDL_SetMaterialSpecular(lua_State* L) {
 	return 0;
 }
 
+// MDL.SetMeshLighting(e, mesh, on = true, r, g, b) - 0x1013c870, Model::SetMeshLighting
+// (0x101df3d0): the mesh's lit byte (+0x16c; "*" = every mesh) and the model's unlit
+// colour (+0x6a0), 0-255, white without all three. Lighting.md, "Which entities glint"
+int LightNatives::L_MDL_SetMeshLighting(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || e->type != kModel) return 0;
+	const std::string mesh = lua_isstring(L, 2) ? lua_tostring(L, 2) : "";
+	const bool on = lua_isnone(L, 3) || lua_toboolean(L, 3) != 0;
+	e->meshLightColor = Vec3{1.f, 1.f, 1.f};
+	if (!lua_isnone(L, 6))
+		for (int c = 0; c < 3; ++c) e->meshLightColor[c] = float(luaL_optnumber(L, 4 + c, 0)) / 255.f;
+	if (mesh == "*") e->meshLighting.clear();
+	auto it = std::find_if(e->meshLighting.begin(), e->meshLighting.end(),
+			[&](const std::pair<std::string, bool>& p) { return p.first == mesh; });
+	if (it != e->meshLighting.end()) e->meshLighting.erase(it);
+	e->meshLighting.emplace_back(mesh, on);
+	if (self->renderer_ && e->rendererInstance >= 0)
+		self->renderer_->SetScriptMeshLighting(e->rendererInstance, mesh, on, e->meshLightColor);
+	return 0;
+}
+
+// MESH.SetLighting(e, on = false) - 0x1012ede0: flag 0x10 at Entity+0x1a, which
+// RenderNTU reads as unlit - white c11, no lights, no specular. CItem's DontLighting.
+int LightNatives::L_MESH_SetLighting(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e) return 0;
+	e->unlit = !(lua_toboolean(L, 2) != 0);
+	if (self->renderer_ && e->rendererInstance >= 0)
+		self->renderer_->SetScriptLighting(e->rendererInstance, !e->unlit);
+	return 0;
+}
+
+// WORLD.SetDynamicSpecular(r, g, b, power) - 0x10120380: World+0x17d0, rgb/255 and
+// the power, the c10 RenderNTU gives every pack and map mesh. CLevel.DynamicLighting.
+int LightNatives::L_WORLD_SetDynamicSpecular(lua_State* L) {
+	std::array<float, 4>& s = From(L)->world_.dynamicSpecular;
+	for (int c = 0; c < 3; ++c) s[c] = float(luaL_optnumber(L, 1 + c, 0)) / 255.f;
+	s[3] = float(luaL_optnumber(L, 4, 0));
+	return 0;
+}
+
 // LIGHT.SetLitParentFlag - bit 0x80 at Entity+0x1a (0x10137a20). Whether the
 // entity this light hangs off is lit by it; nothing here reads it yet, so it
 // is recorded and not acted on.
@@ -253,6 +301,9 @@ void BindLight(ScriptEngine& engine, LuaHost& host) {
 		{"MDL", "EnableNormalMaps", LightNatives::L_MDL_EnableNormalMaps},
 		{"MDL", "ResetMaterialSpecular", LightNatives::L_MDL_ResetMaterialSpecular},
 		{"MDL", "SetMaterialSpecular", LightNatives::L_MDL_SetMaterialSpecular},
+		{"MDL", "SetMeshLighting", LightNatives::L_MDL_SetMeshLighting},
+		{"MESH", "SetLighting", LightNatives::L_MESH_SetLighting},
+		{"WORLD", "SetDynamicSpecular", LightNatives::L_WORLD_SetDynamicSpecular},
 	};
 	RegisterFamily(engine, host, natives);
 }

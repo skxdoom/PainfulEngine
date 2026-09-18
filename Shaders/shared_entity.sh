@@ -52,7 +52,7 @@ uniform vec4 u_fog; // x: mode, y: start, z: end, w: density
 uniform vec4 u_dirColor;
 uniform vec4 u_dirDir;
 uniform vec4 u_eye; // xyz: the camera
-uniform vec4 u_specular; // x: exponent, y: strength, z: N.L gate softening
+uniform vec4 u_specular; // x: exponent, y: strength, z: N.L gate softening, w: slots that glint
 uniform vec4 u_specColor; // rgb: the mesh's specular colour (palskin's c10)
 uniform vec4 u_specOrigin; // xyz: the model's position, where its half-vectors are built
 uniform vec4 u_stage1; // x: op - 0 off, 1 modulate, 2 add, 3 modulatealphaadd
@@ -70,7 +70,7 @@ void main()
 	// as inverted next to it.
 	vec3 n = normalize(v_normal);
 	vec3 shadowNormal = n;
-	vec3 specParams = u_specular.xyz;
+	vec4 specParams = u_specular;
 	vec3 specMask = u_specColor.rgb;
 #ifdef PAINFUL_ENTITY_NM
 	// The map holds normals in the model's bind space; v_bone0..2 carry that
@@ -78,7 +78,7 @@ void main()
 	vec4 bump = texture2D(s_normalMap, uv);
 	vec3 t = bump.xyz * 2.0 - 1.0;
 	n = normalize(t.x * v_bone0 + t.y * v_bone1 + t.z * v_bone2);
-	specParams = vec3(10.0, 1.0, u_specular.z);
+	specParams = vec4(10.0, 1.0, u_specular.z, u_specular.w);
 	specMask = vec3_splat(bump.a);
 #endif
 

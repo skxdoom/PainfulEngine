@@ -666,6 +666,66 @@ contour where the original's per-vertex interpolation smeared it. The
 normal-mapped weapons take the same half-vectors with their own power (10) and
 the map's alpha in place of the colour.
 
+## Which entities glint
+
+Not every entity does. Every lit vertex shader (`palskin*.vso`, `ntu.vso`) ends
+in `mul oD1, r5, c10`, so what decides it is the `c10` a draw hands over, and
+which lights reach it.
+
+**Skinned models** (`AnimatedMeshMatPal::RenderDefault`, `0x100041d0`): every
+mesh starts lit (`MeshShape`'s constructor, `0x100086f0`, writes `+0x16c = 1`)
+and glints from all four of its lights in its own colour ("Model specular").
+`MDL.SetMeshLighting(e, mesh, on = true, r, g, b)` (`0x1013c870`,
+`Model::SetMeshLighting` `0x101df3d0`) sets that byte for one mesh by name, or
+for every mesh with `"*"`, and writes the model's unlit colour (`+0x6a0`,
+0-255, white unless all three are given). An unlit mesh gets `c10 = 0`,
+`c11` = that colour and no lights (`0x10004603`): flat, no sheen. The Giant's
+tornado meshes use it, and GameMP's team colours. The effect materials whose
+shaders write no `oD1` at all: `palskin_fresnel`, `_embm`, `_freeze`, `_water`,
+`_shadow`.
+
+**Pack meshes** - `ETypes.Mesh` from a `Data/Items` `.dat` (189 `CItem`
+templates: props, ammo, treasures, weapon pickups) - and the map objects the
+port draws as entities are WorldMesh objects, drawn by `RenderNTU`
+(`0x101d7570`) with `ntu.vso`:
+
+- `c10` is the LEVEL's: `World+0x17d0`, which `WORLD.SetDynamicSpecular(r, g,
+  b, power)` (`0x10120380`) sets from `CLevel.DynamicLighting` (class values 128
+  grey at power 20; the World constructor's 0.5 at 20). Seven levels set 0 -
+  Opera, Town, Swamp, LoonyPark, DM_ExMortis, DM_Mine, DM_Sacred - and
+  Cemetery 55, Ruins 65, Alastor 88; the power is 60 on PCFHQ, Lab and
+  Pentagon, 40 on LoonyPark, 30 on Alastor.
+- The lights its additive passes draw are zeroed out of the vertex lights: the
+  dynamic ones, and at Dynamic Lights 2 every one but the directional. Those
+  passes add no glint to a pack mesh, whose gloss map is only ever set by
+  `MESH.SetSpecular`. So at 2 only the directional glints on it.
+- `MESH.SetLighting(e, false)` (`0x1012ede0`, flag `0x10` at `+0x1a`): `c10 = 0`,
+  `c11` white, no lights - full albedo, no sheen. `CItem`'s `DontLighting`
+  (`FSpotlight`) and the objects the Leper, Flying Nun and Panzer Spider pick
+  up to throw.
+
+**Map objects sit at the map's origin.** The physics objects and destructibles
+(`phys`, `pinned`, `statdest`, `physdest` ...) are the level map's own meshes.
+`LoadMeshPakFile` (`0x1005dd40`) makes each an entity without ever placing it,
+and leaves its vertices in map space (`CenterGeometry`, `0x101d6f80`, runs only
+for `ENTITY.Create`'s packs); `AddMesh` builds the body at that entity position.
+So the position `ComputeVSLights` builds the half-vector from is the map's
+origin, moved only as the body moves. The camera term is then the camera's
+distance from the map's origin - tens of units - and the half-vector points
+from there at the camera: only a face turned that way glints, which is why
+most physics objects and destructibles show no sheen and a few do. Their
+point lights are attenuated at the same origin, out of reach, so only the
+directional can glint on them. A pack mesh is placed at its own position and
+glints like a model. The port hands the shader that origin
+(`Instance::meshOrigin`, the body's pose less its rotated rest offset); the
+Catacombs coffin at the spawn (`phys_wood_actgrp20`) is the case that showed
+it.
+
+In the port: `GpuModel::worldMesh` marks the pack and map meshes, and
+`u_specular.w` carries a bitmask of the slots allowed to glint. An unlit part
+takes no light at all; whether the original's additive passes still reach a
+`MESH.SetLighting(false)` mesh is not checked.
+
 ## World specular
 
 With **Dynamic Lights at 2** (`World+0x18fc`, Menu.md, "Video options") the

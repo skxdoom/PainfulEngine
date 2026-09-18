@@ -116,7 +116,7 @@ void main()
 	vec3 unusedSpec = vec3_splat(0.0);
 	float unusedShadow = 1.0;
 	vec3 occluded = vec3_splat(0.0);
-	DynamicLights(v_wpos, normalize(v_normal), vec3_splat(0.0), vec3_splat(0.0), vec3_splat(0.0),
+	DynamicLights(v_wpos, normalize(v_normal), vec3_splat(0.0), vec3_splat(0.0), vec4_splat(0.0),
 			lit, unusedSpec, unusedShadow, occluded);
 	vec3 lightShadowed = max(light - occluded, vec3_splat(0.0));
 

@@ -243,15 +243,15 @@ float CharacterShadows(vec3 wpos, vec3 n)
 
 // diffuse and spec accumulate; multiply DIFFUSE by the albedo afterwards, the
 // way `mul_x2 r0.rgb, r0, t3` closes both shipped light shaders. specular is
-// (exponent, strength, N.L gate width); strength 0 skips it, which is what the
-// world mesh passes - its gloss is a pass of its own. `origin` is the model's
-// position, where the half-vectors are built (see the loop).
+// (exponent, strength, N.L gate width, bitmask of the slots that may glint);
+// strength 0 skips it, which is what the world mesh passes - its gloss is a pass
+// of its own. `origin` is the model's position, where the half-vectors are built.
 // shadowMin collects the darkest placed-light shadow term at the pixel, for
 // PAINFUL_SHADOWVIEW, and `occluded` what a BAKED light (u_dynCone.z, the
 // world's lightmap already holds it) loses to a model's shadow - to be taken
 // off the lightmap, in the same units as `diffuse`. Both are only written
 // where the caller defined PAINFUL_LIGHTSHADOW_STAGE.
-void DynamicLights(vec3 wpos, vec3 n, vec3 eye, vec3 origin, vec3 specular,
+void DynamicLights(vec3 wpos, vec3 n, vec3 eye, vec3 origin, vec4 specular,
 		inout vec3 diffuse, inout vec3 spec, inout float shadowMin, inout vec3 occluded)
 {
 	// Taken before the loop: D3D allows no gradients inside flow control.
@@ -368,7 +368,7 @@ void DynamicLights(vec3 wpos, vec3 n, vec3 eye, vec3 origin, vec3 specular,
 		vec3 energy = u_dynColor[i].rgb * tint * (gain * att);
 		diffuse += energy * ndotl;
 
-		if (specular.y > 0.0)
+		if (specular.y > 0.0 && mod(floor(specular.w / exp2(float(i))), 2.0) > 0.5)
 		{
 			// ComputeVSLights' half-vector: ONE per model, from its origin -
 			// the unnormalised (camera - origin) plus the unit direction to

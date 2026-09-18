@@ -402,6 +402,7 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
 		if (clo[0] <= chi[0]) centre = (clo + chi) * 0.5f;
 	}
 	GpuModel gpu;
+	gpu.worldMesh = true;
 	bool materialSet = false;
 	Vec3 lo(1e30f), hi(-1e30f);
 	for (const MapObject& o : pack.objects) {
@@ -604,6 +605,8 @@ int EntityRenderer::CreateWorldObject(const MapObject& o, float worldScale,
 	if (vertexCount == 0 || o.indices.empty()) return -1;
 
 	GpuModel gpu;
+	gpu.worldMesh = true;
+	gpu.mapObject = true;
 	// The same shader families the world uses for these names; winding is
 	// the world exporter's, so no clockwise fallback (as for .dat packs).
 	std::string shaderName = "defaultNTU";
@@ -683,6 +686,7 @@ int EntityRenderer::CreateWorldObject(const MapObject& o, float worldScale,
 	instance.scale = 1.f;
 	instance.entity = SIZE_MAX;
 	for (int c = 0; c < 3; ++c) instance.pos[c] = origin[c];
+	instance.meshOrigin = origin;
 	instance.transform = MakeTransform(instance.pos, instance.rot9, 1.f);
 	UpdateBounds(instance, models_[model]);
 	instances_.push_back(instance);
@@ -1095,6 +1099,27 @@ void EntityRenderer::ResetScriptMaterialSpecular(int slot) {
 	instances_[slot].partSpecular.clear();
 }
 
+void EntityRenderer::SetScriptLighting(int slot, bool on) {
+	if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
+			"EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
+		return;
+	instances_[slot].unlit = !on;
+}
+
+void EntityRenderer::SetScriptMeshLighting(int slot, const std::string& mesh, bool on,
+		const Vec3& color) {
+	if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
+			"EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
+		return;
+	Instance& inst = instances_[slot];
+	if (inst.model >= models_.size()) return;
+	const GpuModel& model = models_[inst.model];
+	inst.unlitColor = color;
+	if (inst.partUnlit.size() != model.parts.size()) inst.partUnlit.assign(model.parts.size(), 0);
+	for (size_t i = 0; i < model.parts.size(); ++i)
+		if (mesh == "*" || model.parts[i].name == mesh) inst.partUnlit[i] = on ? 0 : 1;
+}
+
 void EntityRenderer::ReleaseScript(int slot) {
 	if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
 			"EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
@@ -1327,7 +1352,12 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 		bgfx::setUniform(uDirColor_, dirColor);
 		bgfx::setUniform(uDirDir_, dirDir);
 		bgfx::setUniform(uEye_, eyePos);
-		const float specOrigin[4] = {instance.pos[0], instance.pos[1], instance.pos[2], 0.f};
+		// The original's entity position: for a map object LoadMeshPakFile leaves
+		// it at the map's origin, moved only as its body moves - pose less the
+		// rotated rest offset. Lighting.md, "Which entities glint"
+		float specOrigin[4] = {instance.pos[0], instance.pos[1], instance.pos[2], 0.f};
+		for (int c = 0; c < 3; ++c)
+			for (int r = 0; r < 3; ++r) specOrigin[c] -= instance.meshOrigin[r] * instance.rot9[r * 3 + c];
 		bgfx::setUniform(uSpecOrigin_, specOrigin);
 
 		LightBlock lights;
@@ -1343,7 +1373,16 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			}
 		}
 		PackShadow(lights, shadow_);
-
+		// The slots that may glint (a bitmask): all of them on a model. RenderNTU
+		// zeroes, on a pack or map mesh, the lights its additive passes draw - the
+		// dynamic ones, and at Dynamic Lights 2 every one but the directional. A
+		// map object's lights are attenuated at the map's origin: none reach.
+		float specSlots = 0.f;
+		for (int s = 0; s < lit.lightCount; ++s)
+			if (!model.worldMesh ||
+					(!model.mapObject && drawDynLights_ < 2 && !lit.lights[s]->dynamic))
+				specSlots += float(1 << s);
+		static const LightBlock unlitLights;
 
 		const float detail[4] = {1.f, 1.f, 0.f, 0.f};
 		// Identity UV transform: entity meshes carry no per-slot xform.
@@ -1369,8 +1408,14 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			// The ambient is THIS MODEL'S, not the level's: the CEnvironment it
 			// stands in may have overwritten it, which is the whole reason
 			// those boxes exist.
-			const float ambientValue[4] = {lit.ambient[0], lit.ambient[1],
-					lit.ambient[2], mat.lightScale};
+			// Unlit (MESH.SetLighting, MDL.SetMeshLighting): c11 = the flat colour,
+			// no lights, c10 = 0 (RenderNTU; RenderDefault at 0x10004603).
+			const bool unlit = instance.unlit ||
+					(partIndex < instance.partUnlit.size() && instance.partUnlit[partIndex]);			const Vec3 flat = instance.unlit ? Vec3{1.f, 1.f, 1.f} : instance.unlitColor;
+			const float ambientValue[4] = {unlit ? flat[0] : lit.ambient[0],
+					unlit ? flat[1] : lit.ambient[1], unlit ? flat[2] : lit.ambient[2], mat.lightScale};
+			const float noDir[4] = {0.f, 0.f, 0.f, 1.f};
+			bgfx::setUniform(uDirColor_, unlit ? noDir : dirColor);
 			// PAINFUL_NOATEST disables the alpha test, to tell "the texture alpha
 			// is discarding this" apart from "this is not being drawn".
 			static const bool kNoATest = DebugFlag("PAINFUL_NOATEST");
@@ -1396,10 +1441,15 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			const float stage1[4] = {
 				bgfx::isValid(stage1Tex) ? float(mat.stage1Op) : 0.f, 0.f, 0.f, 0.f};
 			bgfx::setUniform(uStage1_, stage1);
-			// palskin's c10: this mesh's specular colour, its power in w.
-			const std::array<float, 4>& spec = partIndex < instance.partSpecular.size()
+			// c10: this mesh's specular colour, its power in w - the level's
+			// DynamicLighting on a pack or map mesh.
+			std::array<float, 4> spec = partIndex < instance.partSpecular.size()
 					? instance.partSpecular[partIndex] : kDefaultSpecular;
-			const float specParams[4] = {spec[3], 1.f, kSpecularGate, 0.f};
+			if (model.worldMesh)
+				spec = {worldMeshSpecular_[0], worldMeshSpecular_[1], worldMeshSpecular_[2],
+						worldMeshSpecular_[3]};
+			if (unlit) spec = {0.f, 0.f, 0.f, 1.f};
+			const float specParams[4] = {spec[3], 1.f, kSpecularGate, specSlots};
 			const float specColor[4] = {spec[0], spec[1], spec[2], 0.f};
 			bgfx::setUniform(uSpecular_, specParams);
 			bgfx::setUniform(uSpecColor_, specColor);
@@ -1433,7 +1483,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			// Stages 2 and 3 are the projector pair, 4 the flashlight's
 			// shadow map, 5 the model shadow map, 6 the placed lights'
 			// atlas; models sample no detail map, so nothing else wants them.
-			lightUniforms_.Submit(lights, 2, 3,
+			lightUniforms_.Submit(unlit ? unlitLights : lights, 2, 3,
 					bgfx::isValid(projector_.cookie()) ? projector_.cookie() : white_,
 					bgfx::isValid(projector_.falloff()) ? projector_.falloff() : white_,
 					4, shadowTex, 5, BGFX_INVALID_HANDLE, 6, lightShadowTex);

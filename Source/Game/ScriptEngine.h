@@ -182,6 +182,12 @@ public:
 		std::string materialName;
 		// MDL.SetMaterialSpecular since the last reset: mesh -> rgb, power.
 		std::map<std::string, std::array<float, 4>> materialSpecular;
+		// MESH.SetLighting(e, false): a pack mesh drawn unlit, at full albedo.
+		bool unlit = false;
+		// MDL.SetMeshLighting calls in order ("*" first clears), and the colour
+		// the last one gave the model's unlit meshes.
+		std::vector<std::pair<std::string, bool>> meshLighting;
+		Vec3 meshLightColor{1.f, 1.f, 1.f};
 		// What this entity is bound to, and where on it.
 		//
 		// ENTITY.RegisterChild names the parent; PARTICLE.SetParentOffset gives
@@ -471,6 +477,9 @@ public:
 		// Cfg.DynamicLights (World+0x18f8), WaterFX (+0x1900), ParticlesDetail
 		// (Renderer+0xc) and Coronas (Renderer+0x5d6be8).
 		int drawDynLights = 2;
+		// WORLD.SetDynamicSpecular (World+0x17d0): the specular of every pack and
+		// map mesh - CLevel.DynamicLighting, rgb 0-1 and power.
+		std::array<float, 4> dynamicSpecular = {0.5f, 0.5f, 0.5f, 20.f};
 		int waterQuality = 1;
 		int particlesDetail = 2;
 		bool coronas = true;

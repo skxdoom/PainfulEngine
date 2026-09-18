@@ -186,6 +186,9 @@ void ScriptEngine::CreateRendererInstance(Entity& e) {
 		renderer_->SetScriptNormalMaps(e.rendererInstance, e.normalMaps);
 		for (const auto& kv : e.materialSpecular)
 			renderer_->SetScriptMaterialSpecular(e.rendererInstance, kv.first, kv.second.data());
+		renderer_->SetScriptLighting(e.rendererInstance, !e.unlit);
+		for (const auto& kv : e.meshLighting)
+			renderer_->SetScriptMeshLighting(e.rendererInstance, kv.first, kv.second, e.meshLightColor);
 	}
 	if (e.rendererInstance >= 0) SyncPose(e);
 }
