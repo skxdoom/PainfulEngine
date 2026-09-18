@@ -125,6 +125,9 @@ public:
 	void SetLightingOnly(bool on) { lightingOnly_ = on; }
 	// ENTITY.EnableDemonic: drawn by the demon pass while it is on.
 	void SetScriptDemonic(int slot, bool demonic);
+	// MDL.EnableNormalMaps: the palskinnedperpixel look on the parts that have a
+	// normal map. Lighting.md, "Weapon normal maps"
+	void SetScriptNormalMaps(int slot, bool on);
 	// MDL.SetMaterialRefractFresnel: one mesh's water look on one instance.
 	void SetScriptMeshWater(int slot, const std::string& mesh, float refract, float fresnel,
 			const Vec3& reflTint, const Vec3& refrTint);
@@ -243,6 +246,11 @@ private:
 		bool water = false; // palskin_water: the model water look (Water.md, "Swamp")
 		// The material's stage-1 texture, when it has one (blood, freeze).
 		bgfx::TextureHandle stage1 = BGFX_INVALID_HANDLE;
+		// The mesh's object-space normal map, when it names one that loads, and
+		// (on the part that owns the vertices) the bind pose's identity rotations
+		// for the second stream when the instance is not posed.
+		bgfx::TextureHandle normalMap = BGFX_INVALID_HANDLE;
+		bgfx::VertexBufferHandle bindRot = BGFX_INVALID_HANDLE;
 		uint32_t firstIndex = 0;
 		uint32_t indexCount = 0;
 		bool ownsVbo = true; // parts of one pack object share a vbo
@@ -307,6 +315,11 @@ private:
 		// One posed buffer per part. A pose is per INSTANCE, so these cannot
 		// be shared with the model the way the bind-pose buffers are.
 		std::vector<bgfx::DynamicVertexBufferHandle> posed;
+		// The normal-mapped parts' second stream when posed: each vertex's first
+		// bone rotation (three rows), per part like `posed`.
+		std::vector<bgfx::DynamicVertexBufferHandle> posedRot;
+		// MDL.EnableNormalMaps: the parts that name a normal map draw with it.
+		bool normalMaps = false;
 		// Script-driven instances are created and released at runtime; slots
 		// stay put so handles remain stable, and Draw skips the dead and the
 		// hidden.
@@ -354,6 +367,12 @@ private:
 
 	bgfx::VertexLayout layout_;
 	bgfx::ProgramHandle program_ = BGFX_INVALID_HANDLE;
+	// The normal-mapped variant (vs_entity_nm / fs_entity_nm), its sampler and
+	// the rotation stream's layout: three rows, TEXCOORD2..4.
+	bgfx::ProgramHandle programNm_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle sNormalMap_ = BGFX_INVALID_HANDLE;
+	bgfx::VertexLayout rotLayout_;
+	std::vector<float> rotScratch_;
 	// The demon pass (SetDemonPass): vs_entity + fs_demon_entity.
 	bgfx::ProgramHandle demonProgram_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uDemonFresnel_ = BGFX_INVALID_HANDLE;

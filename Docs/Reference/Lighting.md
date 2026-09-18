@@ -611,6 +611,36 @@ the map, with the bias in texels as everywhere else.
 `painful_config.ini`: `ViewModelShadows` (1/0), `ViewModelShadowMapSize`
 (512). `PAINFUL_SHADOWVIEW` darkens the weapon by these terms.
 
+## Weapon normal maps
+
+Every weapon template ends its setup with `MDL.EnableNormalMaps(self._Entity,
+Cfg.WeaponNormalMap)` - the menu's "Hi-Res Weapon Model" writes that key. The
+native (`0x1012e500`) sets a flag on the model's mesh (`+0xa4`) and rebuilds its
+materials; `AnimatedMeshMatPal`'s setup then gives each mesh that names a
+normal map - the `.pkmdl` stores one per mesh, after its name (Formats.md) - the
+material `palskinnedperpixel`, unless the texture does not load. 158 meshes
+across the weapon models name one (`ASG_PB`, `PKW_PB`, `KK2_2_PB` ...).
+
+**The map is in OBJECT space, not tangent space.** `Skin.fxo`'s `FXSkinBump_30`
+vertex shader reads no normal and no tangent: it turns the light and half
+directions by the transpose of the vertex's FIRST bone's rotation - into the
+model's bind space - and the pixel shader compares them with the map's
+`2t - 1` directly. So the port carries the other way round: each posed vertex's
+first-bone rotation rows go to the GPU as a second vertex stream
+(`vs_entity_nm`), turned into world space there, and `fs_entity_nm` builds the
+normal as `t.x * row0 + t.y * row1 + t.z * row2`. An unposed instance takes the
+identity.
+
+**The shading** (`FXSkinBump_30`'s pixel shader, up to two lights): per light
+`N.L` into the diffuse and `pow(sat(N.H), 10) x sat(N.L) x colour` into the
+specular, then `albedo x (ambient + diffuse) + map.alpha x specular`. The
+specular mask is the normal map's alpha - which is why `Cfg.WeaponSpecular`
+off swaps the normal map itself for `..._pb_no_specular` through
+`MATERIAL.Replace` (still a stub here, so that switch does nothing yet). In the
+port the directional takes exactly that; the dynamic lights run through the
+shared per-pixel path with the same exponent, and all specular is masked by the
+map's alpha. The half vector is per pixel from the real eye, as on every model.
+
 ## Screen-space ambient occlusion
 
 `Pf.SSAO` (console `pfssao 1`) darkens the scene where its surfaces crowd each

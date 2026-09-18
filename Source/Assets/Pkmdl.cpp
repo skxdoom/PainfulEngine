@@ -226,37 +226,57 @@ bool Model::Load(const std::string& path, Model& out) {
 			// start from - drzwi3.pkmdl put its first header behind the bone
 			// table, where a forward scan never reached it.
 			const size_t scanFrom = headerEnd > 8192 ? headerEnd - 8192 : 0;
+			// The material list at q0, accepted only if its runs tile the index
+			// array and it ends exactly on the geometry.
+			const auto parseMaterials = [&](size_t q0, std::vector<ModelMaterial>& mats) {
+				if (q0 + 4 > data.size()) return false;
+				const uint32_t matCount = r.peekU32(q0);
+				if (matCount == 0 || matCount > 64) return false;
+				size_t q = q0 + 4;
+				uint32_t expect = 0; // where the next run must start
+				for (uint32_t mi = 0; mi < matCount; ++mi) {
+					ModelMaterial m;
+					if (!ReadStr(r, q, 256, m.texture)) return false;
+					if (q + 8 > data.size()) return false;
+					m.firstIndex = r.peekU32(q);
+					m.triangles = r.peekU32(q + 4);
+					q += 8;
+					// Contiguous, in order, and inside the mesh.
+					// A zero-triangle slot is legal: klatka.pkmdl ends its
+					// list with one named "Models/" covering nothing.
+					if (m.firstIndex != expect || m.firstIndex + m.triangles * 3 > g.ic) return false;
+					expect = m.firstIndex + m.triangles * 3;
+					mats.push_back(std::move(m));
+				}
+				return expect == g.ic && q == headerEnd;
+			};
 			for (size_t off = scanFrom; !done && headerEnd && off + 20 < headerEnd; ++off) {
 				size_t afterName = off;
 				std::string nm;
 				if (!ReadStr(r, afterName, 256, nm) || nm.empty()) continue;
-				for (int lead : kLeads) {
-					size_t q0 = afterName + lead;
-					if (q0 + 4 > data.size()) continue;
-					const uint32_t matCount = r.peekU32(q0);
-					if (matCount == 0 || matCount > 64) continue;
-					size_t q = q0 + 4;
+				// The layout: the name, two u32 (zero wherever seen), the normal
+				// map as a length-prefixed string - length 0 when the mesh has
+				// none, which is why it read as a third zero - then the materials.
+				// ASG.pkmdl: "polySurfaceShape452", 0, 0, "Models/ASG_PB.tga", 1 material.
+				{
+					size_t q = afterName + 8;
+					std::string normalMap;
+					bool shaped = q + 4 <= data.size();
+					if (shaped && r.peekU32(q) == 0) q += 4;
+					else if (shaped) shaped = ReadStr(r, q, 256, normalMap);
 					std::vector<ModelMaterial> mats;
-					bool ok = true;
-					uint32_t expect = 0; // where the next run must start
-					for (uint32_t mi = 0; mi < matCount && ok; ++mi) {
-						ModelMaterial m;
-						if (!ReadStr(r, q, 256, m.texture)) { ok = false; break; }
-						if (q + 8 > data.size()) { ok = false; break; }
-						m.firstIndex = r.peekU32(q);
-						m.triangles = r.peekU32(q + 4);
-						q += 8;
-						// Contiguous, in order, and inside the mesh.
-						// A zero-triangle slot is legal: klatka.pkmdl ends its
-						// list with one named "Models/" covering nothing.
-						if (m.firstIndex != expect ||
-								m.firstIndex + m.triangles * 3 > g.ic) { ok = false; break; }
-						expect = m.firstIndex + m.triangles * 3;
-						mats.push_back(std::move(m));
+					if (shaped && parseMaterials(q, mats)) {
+						mesh.name = nm;
+						mesh.normalMap = normalMap;
+						mesh.materials = std::move(mats);
+						mesh.materialsExact = true;
+						done = true;
+						break;
 					}
-					// The runs must cover the whole index array and the header
-					// must land exactly on the geometry.
-					if (!ok || expect != g.ic || q != headerEnd) continue;
+				}
+				for (int lead : kLeads) {
+					std::vector<ModelMaterial> mats;
+					if (!parseMaterials(afterName + lead, mats)) continue;
 					mesh.name = nm;
 					mesh.materials = std::move(mats);
 					mesh.materialsExact = true;
@@ -268,15 +288,11 @@ bool Model::Load(const std::string& path, Model& out) {
 		// Fall back to the last non-path string when the material header did
 		// not yield a mesh name - or yielded a PATH instead of one.
 		//
-		// The header's leading string is usually the shape name, but not
-		// always: every one of pkw.pkmdl's 13 meshes comes through it as
-		// "Models/PKW_PB.tga", the texture. A mesh name is never a path - the
-		// format's own convention is the Maya shape name, which is what carries
-		// the material variant ("polySurfa_2sided") and what the scripts
-		// address meshes by (MDL.SetMeshVisibility hides "polySurfaceShape28"
-		// on exactly this model). Taking the texture left all 13 sharing one
-		// name, so per-mesh material overrides and visibility could not tell
-		// them apart.
+		// A mesh name is never a path: the format's convention is the Maya shape
+		// name, which carries the material variant ("polySurfa_2sided") and is
+		// what the scripts address meshes by. A path here was the normal map read
+		// as the name, before the layout above was known (pkw.pkmdl's
+		// "Models/PKW_PB.tga").
 		const bool namedLikeAPath = mesh.name.find('/') != std::string::npos ||
 									mesh.name.find('.') != std::string::npos;
 		if (mesh.name.empty() || namedLikeAPath) {

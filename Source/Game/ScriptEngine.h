@@ -65,6 +65,8 @@ public:
 		// ENTITY.EnableDemonic: drawn in the red fresnel glow while Demon
 		// Morph is on (Render/DemonFx.h).
 		bool demonic = false;
+		// MDL.EnableNormalMaps: the weapons' palskinnedperpixel look.
+		bool normalMaps = false;
 		bool inWorld = false; // WORLD.AddEntity was called
 		bool worldObject = false; // WORLD.FindEntityByName pseudo-entity
 		// ENTITY.Create's 5th argument for a pack mesh: WorldMesh::CenterGeometry

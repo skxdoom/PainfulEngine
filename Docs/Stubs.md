@@ -286,7 +286,9 @@ Ranked by calls per 900 combat frames:
   where they pick the water, Water.md) /
   `SetCubeMap` (245 each), `SetSpecular` / `AddSpecularLight` /
   `ResetSpecularLights` (~110), `MATERIAL.Replace` (44 sites), `MDL.SetTexture`
-  (32), `MDL.EnableNormalMaps` (7). `MDL.CreateShadowMap` (38) is answered:
+  (32). `MDL.EnableNormalMaps` (7) is answered: the weapons' object-space normal
+  maps ([`Lighting.md`](Reference/Lighting.md), "Weapon normal maps").
+  `MDL.CreateShadowMap` (38) is answered:
   it marks the characters that cast the directional shadow, and the per-actor
   blob it asked for is not built ([`Lighting.md`](Reference/Lighting.md),
   "Shadows").

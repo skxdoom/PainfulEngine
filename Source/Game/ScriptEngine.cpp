@@ -183,6 +183,7 @@ void ScriptEngine::CreateRendererInstance(Entity& e) {
 		renderer_->SetScriptCharacterShadow(e.rendererInstance, e.characterShadow);
 		renderer_->SetScriptViewModel(e.rendererInstance, e.viewAttached);
 		renderer_->SetScriptDemonic(e.rendererInstance, e.demonic);
+		renderer_->SetScriptNormalMaps(e.rendererInstance, e.normalMaps);
 	}
 	if (e.rendererInstance >= 0) SyncPose(e);
 }

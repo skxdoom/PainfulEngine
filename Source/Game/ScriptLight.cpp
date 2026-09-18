@@ -23,6 +23,7 @@ struct LightNatives : ScriptNativesBase {
 	static int L_ENVIRONMENT_RemoveLights(lua_State* L);
 	static int L_R3D_EnableShadows(lua_State* L);
 	static int L_MDL_CreateShadowMap(lua_State* L);
+	static int L_MDL_EnableNormalMaps(lua_State* L);
 	// The light an entity IS. Every LIGHT.* native but Setup acts on one that
 	// already exists, and Setup is what makes it: CLight:Apply calls Setup
 	// first and the rest in a row after it, and CreateLight does the same.
@@ -144,6 +145,20 @@ int LightNatives::L_MDL_CreateShadowMap(lua_State* L) {
 	return 0;
 }
 
+// MDL.EnableNormalMaps(e, on = false) - 0x1012e500: a model's mesh flag (+0xa4)
+// that switches the meshes naming a normal map to palskinnedperpixel. Every weapon
+// template passes Cfg.WeaponNormalMap, the menu's "Hi-Res Weapon Model".
+// Lighting.md, "Weapon normal maps"
+int LightNatives::L_MDL_EnableNormalMaps(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || e->type != kModel) return 0;
+	e->normalMaps = lua_isnumber(L, 2) ? lua_tonumber(L, 2) != 0 : lua_toboolean(L, 2) != 0;
+	if (self->renderer_ && e->rendererInstance >= 0)
+		self->renderer_->SetScriptNormalMaps(e->rendererInstance, e->normalMaps);
+	return 0;
+}
+
 // LIGHT.SetLitParentFlag - bit 0x80 at Entity+0x1a (0x10137a20). Whether the
 // entity this light hangs off is lit by it; nothing here reads it yet, so it
 // is recorded and not acted on.
@@ -205,6 +220,7 @@ void BindLight(ScriptEngine& engine, LuaHost& host) {
 		{"ENVIRONMENT", "RemoveLights", LightNatives::L_ENVIRONMENT_RemoveLights},
 		{"R3D", "EnableShadows", LightNatives::L_R3D_EnableShadows},
 		{"MDL", "CreateShadowMap", LightNatives::L_MDL_CreateShadowMap},
+		{"MDL", "EnableNormalMaps", LightNatives::L_MDL_EnableNormalMaps},
 	};
 	RegisterFamily(engine, host, natives);
 }

@@ -25,6 +25,11 @@ vec3 a_normal : NORMAL;
 vec4 a_color0 : COLOR0;
 vec2 a_texcoord0 : TEXCOORD0;
 vec2 a_texcoord1 : TEXCOORD1;
+// The normal-mapped models' second stream: each vertex's first bone rotation,
+// its three rows (EntityRenderer, "bump" parts).
+vec3 a_texcoord2 : TEXCOORD2;
+vec3 a_texcoord3 : TEXCOORD3;
+vec3 a_texcoord4 : TEXCOORD4;
 
 vec2 v_texcoord0 : TEXCOORD0;
 vec2 v_texcoord1 : TEXCOORD1;
@@ -34,3 +39,7 @@ float v_viewdist : TEXCOORD2;
 vec3 v_wpos : TEXCOORD3;
 vec4 v_clip : TEXCOORD4;
 float v_strength : TEXCOORD5;
+// The model-space axes carried into world space, for the object-space normal maps.
+vec3 v_bone0 : TEXCOORD5;
+vec3 v_bone1 : TEXCOORD6;
+vec3 v_bone2 : TEXCOORD7;

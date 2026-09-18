@@ -509,12 +509,15 @@ bone[boneCount]:
   u8      flag
 mesh[]    each preceded by its material header:
   string  meshName
-  u32 x3                          "lead" - usually 12 bytes, all zero
+  u32, u32                        zero in every shipped model
+  string  normalMap               the mesh's object-space normal map, length 0
+                                  (so a third zero) when it has none; the
+                                  weapons name one ("Models/ASG_PB.tga") -
+                                  Lighting.md, "Weapon normal maps"
   u32     materialCount
   material[materialCount]:
     string textureName
-    u32, u32                      separator pair BETWEEN materials only
-                                  (absent after the last one)
+    u32 firstIndex, u32 triangleCount   the run this slot covers
   then the geometry:
   u32     indexCount
   u16     indices[indexCount]

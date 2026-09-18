@@ -574,6 +574,7 @@ int ModelCmd(const char* path) {
 				}
 				return s.empty() ? std::string("(none)") : s;
 				}().c_str());
+		if (!mesh.normalMap.empty()) LogInfo("      normal map: %s", mesh.normalMap.c_str());
 		// Which bones drive this mesh, by vertex-weight share. The question a
 		// detached hand raises is "what is this piece bound to", and it
 		// cannot be answered from a picture.

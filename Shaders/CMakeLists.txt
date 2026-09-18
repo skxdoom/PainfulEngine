@@ -16,6 +16,7 @@ set(SHADER_DEF ${CMAKE_CURRENT_SOURCE_DIR}/common.sc)
 # Shared shader code, included by name. Listed so an edit rebuilds every shader
 # that pulls it in - shaderc's own dependency tracking does not reach us.
 set(SHADER_SHARED ${CMAKE_CURRENT_SOURCE_DIR}/shared_lights.sh
+		${CMAKE_CURRENT_SOURCE_DIR}/shared_entity.sh
 		${CMAKE_CURRENT_SOURCE_DIR}/shared_ssao.sh
 		${CMAKE_CURRENT_SOURCE_DIR}/shared_volume.sh)
 set(SHADER_GEN ${CMAKE_CURRENT_BINARY_DIR}/generated)
@@ -38,7 +39,7 @@ endif()
 
 set(SHADER_NAMES
 		vs_world fs_world
-		vs_entity fs_entity
+		vs_entity fs_entity vs_entity_nm fs_entity_nm
 		vs_shadow fs_shadow
 		fs_sky
 		vs_particle fs_particle vs_particle_warp fs_particle_warp

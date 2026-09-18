@@ -135,6 +135,19 @@ bool EntityRenderer::Init(const std::string& shaderDir) {
 	}
 	program_ = bgfx::createProgram(vs, fsh, true);
 	if (!bgfx::isValid(program_)) return false;
+	// The normal-mapped models. Missing is not fatal: they draw vertex-normal lit.
+	{
+		bgfx::ShaderHandle vsn = LoadShader(shaderDir, "vs_entity_nm");
+		bgfx::ShaderHandle fsn = LoadShader(shaderDir, "fs_entity_nm");
+		if (bgfx::isValid(vsn) && bgfx::isValid(fsn)) programNm_ = bgfx::createProgram(vsn, fsn, true);
+		else LogWarn("entity: vs_entity_nm/fs_entity_nm missing, no normal maps");
+	}
+	rotLayout_.begin()
+		.add(bgfx::Attrib::TexCoord2, 3, bgfx::AttribType::Float)
+		.add(bgfx::Attrib::TexCoord3, 3, bgfx::AttribType::Float)
+		.add(bgfx::Attrib::TexCoord4, 3, bgfx::AttribType::Float)
+		.end();
+	sNormalMap_ = bgfx::createUniform("s_normalMap", bgfx::UniformType::Sampler);
 
 	sDiffuse_ = bgfx::createUniform("s_diffuse", bgfx::UniformType::Sampler);
 	sLightmap_ = bgfx::createUniform("s_lightmap", bgfx::UniformType::Sampler);
@@ -171,11 +184,14 @@ void EntityRenderer::Shutdown() {
 		for (Part& p : model.parts) {
 			if (p.ownsVbo && bgfx::isValid(p.vbo)) bgfx::destroy(p.vbo);
 			if (p.ownsIbo && bgfx::isValid(p.ibo)) bgfx::destroy(p.ibo);
+			if (bgfx::isValid(p.bindRot)) bgfx::destroy(p.bindRot);
 		}
 	}
 	models_.clear();
 	instances_.clear();
 	if (bgfx::isValid(program_)) { bgfx::destroy(program_); program_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(programNm_)) { bgfx::destroy(programNm_); programNm_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(sNormalMap_)) { bgfx::destroy(sNormalMap_); sNormalMap_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(waterProgram_)) { bgfx::destroy(waterProgram_); waterProgram_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uEntWater_)) { bgfx::destroy(uEntWater_); uEntWater_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uEntWaterRefl_)) { bgfx::destroy(uEntWaterRefl_); uEntWaterRefl_ = BGFX_INVALID_HANDLE; }
@@ -314,6 +330,21 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
 			if (part.water) LogInfo("model water: %s (%s)", mesh.name.c_str(), part.material.fshader.c_str());
 			if (!part.material.map1.empty())
 				part.stage1 = textures.Get(part.material.map1, "");
+			// The object-space normal map; one that does not load leaves the part
+			// on the plain path, as the original's "not found" texture does.
+			if (!mesh.normalMap.empty()) {
+				const bgfx::TextureHandle nm = textures.Get(mesh.normalMap, "");
+				if (nm.idx != textures.White().idx) {
+					part.normalMap = nm;
+					if (part.ownsVbo) {
+						std::vector<float> rows(vertexCount * 9, 0.f);
+						for (size_t v = 0; v < vertexCount; ++v)
+							rows[v * 9 + 0] = rows[v * 9 + 4] = rows[v * 9 + 8] = 1.f;
+						part.bindRot = bgfx::createVertexBuffer(
+								bgfx::copy(rows.data(), uint32_t(rows.size() * sizeof(float))), rotLayout_);
+					}
+				}
+			}
 			gpu.parts.push_back(std::move(part));
 		}
 		// Every slot was empty or out of range: the vertices have no owner.
@@ -795,6 +826,13 @@ void EntityRenderer::SetScriptDemonic(int slot, bool demonic) {
 	instances_[slot].demonic = demonic;
 }
 
+void EntityRenderer::SetScriptNormalMaps(int slot, bool on) {
+	if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
+			"EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
+		return;
+	instances_[slot].normalMaps = on;
+}
+
 void EntityRenderer::SetDemonPass(bool on, bgfx::ViewId view, bgfx::TextureHandle detail,
 		bgfx::TextureHandle ramp, float fresnelScale) {
 	demonOn_ = on && bgfx::isValid(demonProgram_) && bgfx::isValid(detail) && bgfx::isValid(ramp);
@@ -1055,6 +1093,10 @@ void EntityRenderer::ReleaseScript(int slot) {
 	for (bgfx::DynamicVertexBufferHandle h : inst.posed)
 		if (bgfx::isValid(h)) bgfx::destroy(h);
 	inst.posed.clear();
+	for (bgfx::DynamicVertexBufferHandle h : inst.posedRot)
+		if (bgfx::isValid(h)) bgfx::destroy(h);
+	inst.posedRot.clear();
+	inst.normalMaps = false;
 	inst.alive = false;
 }
 
@@ -1226,6 +1268,29 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 				}
 				bgfx::update(instance.posed[i], 0,
 						bgfx::copy(posedVerts_.data(), bytes));
+
+				// The normal map's rotation: the vertex's FIRST bone, as the
+				// original's vertex shader takes it (Skin.fxo, FXSkinBump). Its rows
+				// carry the bind axes to the posed model.
+				if (!instance.normalMaps || !bgfx::isValid(part.normalMap)) continue;
+				instance.posedRot.resize(model.parts.size(), BGFX_INVALID_HANDLE);
+				const size_t vc = part.cpu.vertexCount();
+				rotScratch_.assign(vc * 9, 0.f);
+				for (size_t v = 0; v < vc; ++v) {
+					float* row = &rotScratch_[v * 9];
+					const std::vector<SkinInfluence>& infl = part.cpu.skin[v];
+					if (infl.empty() || infl[0].bone >= instance.skin.size()) {
+						row[0] = row[4] = row[8] = 1.f;
+						continue;
+					}
+					const Mat4& m = instance.skin[infl[0].bone];
+					for (int r = 0; r < 3; ++r)
+						for (int c = 0; c < 3; ++c) row[r * 3 + c] = m[r * 4 + c];
+				}
+				if (!bgfx::isValid(instance.posedRot[i]))
+					instance.posedRot[i] = bgfx::createDynamicVertexBuffer(uint32_t(vc), rotLayout_);
+				bgfx::update(instance.posedRot[i], 0,
+						bgfx::copy(rotScratch_.data(), uint32_t(rotScratch_.size() * sizeof(float))));
 			}
 		}
 		if (!inView) {
@@ -1373,8 +1438,23 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 				continue;
 			}
 			bgfx::setState(state);
-			if (demonDraw) bgfx::submit(demonView_, demonProgram_);
-			else bgfx::submit(view, program_);
+			// MDL.EnableNormalMaps on a part that has one: the second stream (the
+			// posed rows, or the bind pose's identity) and the map at stage 8.
+			const Part& ownerPart = model.parts[owner < model.parts.size() ? owner : partIndex];
+			const bool posedRot = usePosed && owner < instance.posedRot.size() &&
+					bgfx::isValid(instance.posedRot[owner]);
+			const bool bump = !demonDraw && instance.normalMaps && bgfx::isValid(programNm_) &&
+					bgfx::isValid(part.normalMap) && (posedRot || bgfx::isValid(ownerPart.bindRot));
+			if (bump) {
+				if (posedRot) bgfx::setVertexBuffer(1, instance.posedRot[owner]);
+				else bgfx::setVertexBuffer(1, ownerPart.bindRot);
+				bgfx::setTexture(8, sNormalMap_, part.normalMap, FilteredSampler(mat.sampler[0]));
+				bgfx::submit(view, programNm_);
+			} else if (demonDraw) {
+				bgfx::submit(demonView_, demonProgram_);
+			} else {
+				bgfx::submit(view, program_);
+			}
 			++drawCalls_;
 		}
 	}

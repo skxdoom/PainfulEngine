@@ -60,6 +60,9 @@ struct ModelMesh {
 	// The material slots, in order. See ModelMaterial: each carries the
 	// triangle run it covers, so a mesh draws as one call per slot.
 	std::vector<ModelMaterial> materials;
+	// The mesh's object-space normal map ("Models/ASG_PB.tga"), empty when none:
+	// the length-prefixed string after the name. MDL.EnableNormalMaps draws with it.
+	std::string normalMap;
 	// True when the material header parsed and landed EXACTLY on the geometry
 	// header, i.e. the layout is fully accounted for.
 	bool materialsExact = false;
