@@ -160,6 +160,10 @@ bool EntityRenderer::Init(const std::string& shaderDir) {
 	uVmMtx_ = bgfx::createUniform("u_vmMtx", bgfx::UniformType::Mat4);
 	uVmLight_ = bgfx::createUniform("u_vmLight", bgfx::UniformType::Vec4);
 	sVmShadow_ = bgfx::createUniform("s_vmShadow", bgfx::UniformType::Sampler);
+	uVmRect_ = bgfx::createUniform("u_vmRect", bgfx::UniformType::Vec4, 1 + ViewModelShadows::kLights);
+	uVmLightMtx_ = bgfx::createUniform("u_vmLightMtx", bgfx::UniformType::Mat4, ViewModelShadows::kLights);
+	uVmLightPos_ = bgfx::createUniform("u_vmLightPos", bgfx::UniformType::Vec4, ViewModelShadows::kLights);
+	uVmSlots_ = bgfx::createUniform("u_vmSlots", bgfx::UniformType::Vec4, 2);
 	uDirColor_ = bgfx::createUniform("u_dirColor", bgfx::UniformType::Vec4);
 	uDirDir_ = bgfx::createUniform("u_dirDir", bgfx::UniformType::Vec4);
 	uEye_ = bgfx::createUniform("u_eye", bgfx::UniformType::Vec4);
@@ -202,6 +206,8 @@ void EntityRenderer::Shutdown() {
 	if (bgfx::isValid(uVmMtx_)) { bgfx::destroy(uVmMtx_); uVmMtx_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uVmLight_)) { bgfx::destroy(uVmLight_); uVmLight_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(sVmShadow_)) { bgfx::destroy(sVmShadow_); sVmShadow_ = BGFX_INVALID_HANDLE; }
+	for (bgfx::UniformHandle* u : {&uVmRect_, &uVmLightMtx_, &uVmLightPos_, &uVmSlots_})
+		if (bgfx::isValid(*u)) { bgfx::destroy(*u); *u = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uUv0_)) { bgfx::destroy(uUv0_); uUv0_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uUv1_)) { bgfx::destroy(uUv1_); uUv1_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uTile_)) { bgfx::destroy(uTile_); uTile_ = BGFX_INVALID_HANDLE; }
@@ -850,25 +856,72 @@ bool EntityRenderer::ViewModelBounds(Vec3& centre, float& radius) const {
 	return radius > 1e-3f;
 }
 
-void EntityRenderer::BindViewModel(bool isViewModel) {
+void EntityRenderer::BindViewModel(bool isViewModel, const float cellOfSlot[8]) {
+	static_assert(kMaxDynamicLights <= 8, "u_vmSlots holds eight light slots");
 	const ViewModelShadows* vm = viewModelShadows_;
 	const bool on = isViewModel && vm && vm->ready();
-	const float params[4] = {on ? 1.f : 0.f, on && vm->active() ? 1.f : 0.f, 0.f,
-			on ? vm->texel() : 0.f};
+	const float params[4] = {on ? 1.f : 0.f, on && vm->active() ? 1.f : 0.f,
+			on ? vm->texelUv()[0] : 0.f, on ? vm->texelUv()[1] : 0.f};
 	bgfx::setUniform(uVmParams_, params);
 	if (!on) return;
-	bgfx::setUniform(uVmMtx_, vm->matrix());
-	bgfx::setUniform(uVmLight_, vm->light());
+	const ViewModelShadows::Cell& dir = vm->cell(0);
+	const float dirLight[4] = {0.f, 0.f, 0.f, dir.texel};
+	bgfx::setUniform(uVmMtx_, dir.receiverMatrix);
+	bgfx::setUniform(uVmLight_, dirLight);
+	float rects[1 + ViewModelShadows::kLights][4];
+	float mtx[ViewModelShadows::kLights][16];
+	float pos[ViewModelShadows::kLights][4];
+	for (int i = 0; i <= ViewModelShadows::kLights; ++i) {
+		const ViewModelShadows::Cell& c = vm->cell(i);
+		for (int k = 0; k < 4; ++k) rects[i][k] = c.rect[k];
+		if (i == 0) continue;
+		for (int k = 0; k < 16; ++k) mtx[i - 1][k] = c.receiverMatrix[k];
+		pos[i - 1][0] = c.lightPos[0];
+		pos[i - 1][1] = c.lightPos[1];
+		pos[i - 1][2] = c.lightPos[2];
+		pos[i - 1][3] = c.texel;
+	}
+	bgfx::setUniform(uVmRect_, rects, 1 + ViewModelShadows::kLights);
+	bgfx::setUniform(uVmLightMtx_, mtx, ViewModelShadows::kLights);
+	bgfx::setUniform(uVmLightPos_, pos, ViewModelShadows::kLights);
+	bgfx::setUniform(uVmSlots_, cellOfSlot, 2);
 	bgfx::setTexture(7, sVmShadow_, vm->texture());
 }
 
+void EntityRenderer::PickViewModelLights(ViewModelShadows& vm, const Vec3& centre, float radius,
+		bool placed, bool dynamic) const {
+	std::vector<std::pair<float, const LightSource*>> picks;
+	for (const LightSource& l : lighting_.dynamicLights()) {
+		if (l.type != LightSource::kPoint && l.type != LightSource::kSpot) continue;
+		if (l.fakeSpecular || !l.projector.empty() || l.id == 0) continue;
+		if (!(l.dynamic ? dynamic : placed)) continue;
+		const float score = LightAttenuation(l, centre, radius) * l.intensity *
+				(l.color[0] + l.color[1] + l.color[2]);
+		if (score > 0.f) picks.emplace_back(score, &l);
+	}
+	std::sort(picks.begin(), picks.end(), [](const auto& a, const auto& b) {
+		return a.first > b.first;
+	});
+	for (const auto& p : picks) {
+		if (vm.lightCount() >= ViewModelShadows::kLights) break;
+		vm.AddLight(p.second->id, p.second->pos, centre, radius);
+	}
+}
+
 void EntityRenderer::DrawViewModelShadows(const ViewModelShadows& vm, float timeSeconds) {
-	if (!vm.ready() || !vm.active() || !bgfx::isValid(vm.program())) return;
+	if (!vm.ready() || !bgfx::isValid(vm.program())) return;
 	// The weapon on itself, and nothing else: the world and the other models
 	// were tried as casters and read as wrong on a thing held at the eye.
-	for (Instance& instance : instances_) {
-		if (!instance.alive || !instance.visible || !instance.viewModel) continue;
-		DrawCaster(vm.viewId(), vm.program(), instance, models_[instance.model], timeSeconds);
+	for (int i = 0; i <= ViewModelShadows::kLights; ++i) {
+		const ViewModelShadows::Cell& cell = vm.cell(i);
+		if (!cell.active) continue;
+		for (Instance& instance : instances_) {
+			if (!instance.alive || !instance.visible || !instance.viewModel) continue;
+			float transform[16];
+			bx::mtxMul(transform, instance.transform.m, cell.drawMatrix);
+			DrawCaster(vm.viewId(), vm.program(), instance, models_[instance.model], timeSeconds,
+					transform, cell.scissor);
+		}
 	}
 }
 
@@ -1383,6 +1436,14 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 					(!model.mapObject && drawDynLights_ < 2 && !lit.lights[s]->dynamic))
 				specSlots += float(1 << s);
 		static const LightBlock unlitLights;
+		// The weapon's light slots that have a cell in its own map, by light id.
+		float vmCells[8] = {-1.f, -1.f, -1.f, -1.f, -1.f, -1.f, -1.f, -1.f};
+		if (instance.viewModel && viewModelShadows_)
+			for (int s = 0; s < lit.lightCount && s < 8; ++s)
+				for (int k = 1; k <= ViewModelShadows::kLights; ++k) {
+					const ViewModelShadows::Cell& c = viewModelShadows_->cell(k);
+					if (c.active && c.lightId == lit.lights[s]->id) vmCells[s] = float(k - 1);
+				}
 
 		const float detail[4] = {1.f, 1.f, 0.f, 0.f};
 		// Identity UV transform: entity meshes carry no per-slot xform.
@@ -1487,7 +1548,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 					bgfx::isValid(projector_.cookie()) ? projector_.cookie() : white_,
 					bgfx::isValid(projector_.falloff()) ? projector_.falloff() : white_,
 					4, shadowTex, 5, BGFX_INVALID_HANDLE, 6, lightShadowTex);
-			BindViewModel(instance.viewModel);
+			BindViewModel(instance.viewModel, vmCells);
 			// The model water look (palskin_water): its own program, the cube
 			// map at stage 1, MDL.SetMaterialRefractFresnel's numbers per mesh.
 			const bgfx::TextureHandle cubeTex = bgfx::isValid(envCube_) ? envCube_ : levelCube_;

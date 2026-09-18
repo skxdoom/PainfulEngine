@@ -160,7 +160,12 @@ public:
 	void SetViewModelShadows(const ViewModelShadows* vm) { viewModelShadows_ = vm; }
 	// The sphere about the view model's instances; false when none is up.
 	bool ViewModelBounds(Vec3& centre, float& radius) const;
-	// The weapon into its map - itself alone, so the map holds its
+	// Up to ViewModelShadows::kLights point and spot lights that reach the
+	// weapon, strongest at it first, into the map's light cells - placed ones
+	// and runtime ones as the atlas switches allow, the flashlight never.
+	void PickViewModelLights(ViewModelShadows& vm, const Vec3& centre, float radius,
+			bool placed, bool dynamic) const;
+	// The weapon into its map's cells - itself alone, so they hold its
 	// self-shadowing and nothing else. After Draw.
 	void DrawViewModelShadows(const ViewModelShadows& vm, float timeSeconds);
 	size_t shadowDrawCalls() const { return shadowDrawCalls_; }
@@ -371,9 +376,10 @@ private:
 
 	// Recomputes the instance's world-space bounds from its model's bbox.
 	void UpdateBounds(Instance& instance, const GpuModel& model) const;
-	// The view-model uniforms for one draw: on with the map's matrix for the
-	// weapon, off for everything else.
-	void BindViewModel(bool isViewModel);
+	// The view-model uniforms for one draw: on with the map's matrices for the
+	// weapon, off for everything else. cellOfSlot: each light slot's light
+	// cell in the map, -1 for none.
+	void BindViewModel(bool isViewModel, const float cellOfSlot[8]);
 	// One instance's opaque parts into a depth view, from the buffers Draw
 	// posed. Shared by every shadow pass. `transform` replaces the instance's
 	// own (a slot's whole view-projection folded in), `scissor` keeps it in its slot.
@@ -453,6 +459,10 @@ private:
 	bgfx::UniformHandle uVmMtx_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uVmLight_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle sVmShadow_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uVmRect_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uVmLightMtx_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uVmLightPos_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uVmSlots_ = BGFX_INVALID_HANDLE;
 	size_t shadowDrawCalls_ = 0;
 	TextureCache* textures_ = nullptr; // for the projector maps only
 	std::string levelHint_;

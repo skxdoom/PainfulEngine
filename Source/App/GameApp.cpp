@@ -1282,8 +1282,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		// The world takes the same picks: it subtracts what a model occludes
 		// of a light its lightmap already holds.
 		world.SetShadowedLights(entities.shadowLights(), &lightShadows);
-		// The view model's map, fitted to the weapon, down the box
-		// directional - only where the box gives one.
+		// The view model's maps, fitted to the weapon: down the box directional
+		// (only where the box gives one), and from the lights nearest it.
 		vmShadows.BeginFrame();
 		{
 			Vec3 vmCentre;
@@ -1293,6 +1293,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 				entities.CameraDirectional(camera.pos, elapsed, toLight, dirColor);
 				if (dirColor[0] + dirColor[1] + dirColor[2] > 0.003f)
 					vmShadows.Begin(toLight, vmCentre, vmRadius);
+				entities.PickViewModelLights(vmShadows, vmCentre, vmRadius, placedLightShadows,
+						dynLightShadows);
 			}
 		}
 
@@ -1699,13 +1701,14 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 						bloom.taps(), bloom.threshold(), bloom.multiplier(), renderer.msaaSamples(),
 						demonFx.active() ? "on" : "off");
 				LogInfo("  shadow maps: flashlight %s, characters %s (%zu of %zu cast), %zu lights "
-						"(%zu baked chunk slots), view model %s; %zu world draws, "
+						"(%zu baked chunk slots), view model %s + %d lights; %zu world draws, "
 						"%zu entity draws in all",
 						shadow.active() ? "on" : (shadow.ready() ? "idle" : "OFF"),
 						characterShadows.ready() ? "on" : "OFF", characterShadows.casters().size(),
 						entities.characterCount(),
 						entities.shadowLights().size(),
 						world.bakedShadowSlots(), vmShadows.active() ? "on" : "off",
+						vmShadows.lightCount(),
 						world.shadowDrawCalls(), entities.shadowDrawCalls());
 				for (const CharacterShadows::Caster& c : characterShadows.casters()) {
 					const Vec3 mid = (c.reachLo + c.reachHi) * 0.5f;

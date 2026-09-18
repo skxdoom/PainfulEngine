@@ -2,56 +2,76 @@
 #include "../Core/Frustum.h"
 #include "../Core/Vectors.h"
 #include <bgfx/bgfx.h>
+#include <cstdint>
 #include <string>
 
 namespace painful {
 
-// The view model's shadow map: one orthographic map down the environment
-// box's directional, fitted to the weapon's bounding sphere, so it is dense
-// where the eye is closest. The weapon alone casts - its self-shadowing is
-// what this is for - and alone reads it. Placed lights and the flashlight
-// were given slots of their own and taken out again: at the eye they added
-// nothing worth a map. Docs/Reference/Lighting.md, "Shadows on the view model"
+// The view model's shadow maps: one atlas, one view, each cell drawn with its
+// own matrix and scissor. Cell 0 is orthographic down the environment box's
+// directional; cells 1..kLights are perspective from the placed and dynamic
+// lights nearest the weapon. All are fitted to the weapon's bounding sphere,
+// and the weapon alone casts into them - its self-shadowing is what they are
+// for. Docs/Reference/Lighting.md, "Shadows on the view model"
 class ViewModelShadows {
 public:
+	static constexpr int kLights = 3;
+	static constexpr int kCols = 2, kRows = 2;
+
+	struct Cell {
+		bool active = false;
+		int lightId = 0; // LightSource::id; 0 for the directional
+		Vec3 lightPos; // a light cell's eye
+		float drawMatrix[16] = {}; // world -> the cell's clip space
+		float receiverMatrix[16] = {}; // world -> atlas uv, depth (divide by w)
+		float rect[4] = {}; // the cell in atlas uv, inset past the filter
+		// World units per texel: flat for the directional, per unit of
+		// distance from the light for a light cell.
+		float texel = 0.f;
+		uint16_t scissor[4] = {};
+		Frustum frustum = {};
+	};
+
 	~ViewModelShadows() { Shutdown(); }
 	ViewModelShadows() = default;
 	ViewModelShadows(const ViewModelShadows&) = delete;
 	ViewModelShadows& operator=(const ViewModelShadows&) = delete;
 
-	bool Init(const std::string& shaderDir, int size);
+	// cellSize texels a side, kCols x kRows cells.
+	bool Init(const std::string& shaderDir, int cellSize);
 	void Shutdown();
 	bool ready() const { return bgfx::isValid(fb_); }
-	int size() const { return size_; }
+	int size() const { return cellSize_; }
 	void SetView(bgfx::ViewId view) { view_ = view; }
 	bgfx::ViewId viewId() const { return view_; }
 
-	void BeginFrame() { active_ = false; }
-	// An orthographic box about the sphere, looking down toLight.
+	// Forgets last frame's cells and clears the atlas.
+	void BeginFrame();
+	// Cell 0: an orthographic box about the sphere, looking down toLight.
 	void Begin(const Vec3& toLight, const Vec3& centre, float radius);
-	bool active() const { return active_; }
-	const Frustum& frustum() const { return frustum_; }
+	// The next light cell: a perspective view from lightPos fitted to the
+	// sphere. False when the cells are spent or the light sits inside it.
+	bool AddLight(int lightId, const Vec3& lightPos, const Vec3& centre, float radius);
+	bool active() const { return cells_[0].active; }
+	const Cell& cell(int i) const { return cells_[i]; }
+	int lightCount() const { return lights_; }
 
-	// The receiver's uniforms: u_vmMtx (world -> uv and depth, crop
-	// included) and u_vmLight (w: one texel in world units, orthographic).
-	const float* matrix() const { return matrix_; }
-	const float* light() const { return light_; }
-	float texel() const { return texel_; } // one map texel in uv
+	const float* texelUv() const { return texelUv_; } // one atlas texel, u and v
 	bgfx::TextureHandle texture() const { return depth_; }
 	bgfx::ProgramHandle program() const { return program_; }
 	static constexpr uint64_t kState = BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LESS;
 
 private:
+	void Place(Cell& cell, int index, const float view[16], const float proj[16]);
+
 	bgfx::FrameBufferHandle fb_ = BGFX_INVALID_HANDLE;
 	bgfx::TextureHandle depth_ = BGFX_INVALID_HANDLE;
 	bgfx::ProgramHandle program_ = BGFX_INVALID_HANDLE;
 	bgfx::ViewId view_ = 0;
-	int size_ = 0;
-	float texel_ = 0.f;
-	bool active_ = false;
-	Frustum frustum_ = {};
-	float matrix_[16] = {};
-	float light_[4] = {};
+	int cellSize_ = 0;
+	int lights_ = 0;
+	float texelUv_[2] = {};
+	Cell cells_[1 + kLights];
 };
 
 } // namespace painful

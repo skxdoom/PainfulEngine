@@ -593,17 +593,32 @@ directional at all - the level designers' volumes decide whether there is sun
 to shadow.
 
 The weapon is the only caster - this is the one place it casts, and on
-itself - and the directional the only light. Both were wider once: the world
-and the nearby models cast into it, and the flashlight and the three
-strongest placed lights had fitted maps of their own, each read by the
-weapon in place of the coarser world maps. All of it was taken out again:
-surroundings shading a thing held at the eye read as wrong, and the point
-lights' self-shadow on a gun was not worth the maps. The receiver is the
-view-model draw alone: `u_vmParams.x` marks it and the directional term takes
-the map, with the bias in texels as everywhere else.
+itself. An earlier version also let the world and the nearby models cast
+into it; surroundings shading a thing held at the eye read as wrong, and that
+is gone for good.
+
+**Up to three lights shadow it too.** The map is a square atlas of 2x2 cells
+of `ViewModelShadowMapSize`, drawn in the one view with a matrix and a scissor
+per cell as the character shadows are: cell 0 the directional, cells 1-3
+perspective from the point and spot lights that reach the weapon, strongest
+at it first (`EntityRenderer::PickViewModelLights`). Placed and runtime lights
+follow the atlas switches (`ShadowMapPlacedLights`, `ShadowMapDynLights`);
+the flashlight keeps its own map, and a light inside the weapon's sphere (a
+muzzle flash at the barrel) gets no cell, since no single view frames it.
+Each cell is fitted to the sphere from the light, so a texel grows with the
+distance to the light and the receiver's lift follows it, plus the slope:
+the normal lift adds tan(angle to the light), clamped at 4, which is what
+kept a blade lit near grazing from striping. The weapon's slot for that light
+takes the darker of its own map and whatever the lights' atlas already gives
+it (`u_vmSlots`, the cell per light slot, matched by light id).
+
+The receiver is the view-model draw alone: `u_vmParams.x` marks it; the
+directional term takes cell 0, the light slots their cells, with the bias in
+texels as everywhere else.
 
 `painful_config.ini`: `ViewModelShadows` (1/0), `ViewModelShadowMapSize`
-(512). `PAINFUL_SHADOWVIEW` darkens the weapon by these terms.
+(each cell, 1024). `PAINFUL_SHADOWVIEW` darkens the weapon by these terms; 2
+shows the lights' alone.
 
 ## Weapon normal maps
 

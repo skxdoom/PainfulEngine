@@ -201,12 +201,17 @@ float LightShadow(int i, vec3 toPoint, vec3 n, vec3 l)
 #endif
 
 #ifdef PAINFUL_VM_STAGE
-// The view model's own map (Render/ViewModelShadows.h): orthographic down
-// the environment directional, fitted to the weapon. Only a view-model draw
-// sets u_vmParams.x, and only with a directional to shadow sets y.
-uniform vec4 u_vmParams; // x: this is the view model, y: the map is on, w: one texel in uv
-uniform mat4 u_vmMtx;
-uniform vec4 u_vmLight; // w: one texel in world units
+// The view model's own maps (Render/ViewModelShadows.h), cells of one atlas:
+// orthographic down the environment directional, and perspective from up to
+// three lights, all fitted to the weapon. Only a view-model draw sets
+// u_vmParams.x, and only with a directional to shadow sets y.
+uniform vec4 u_vmParams; // x: this is the view model, y: the directional cell is on, zw: one texel in uv
+uniform mat4 u_vmMtx; // the directional cell
+uniform vec4 u_vmLight; // w: one directional texel in world units
+uniform vec4 u_vmRect[4]; // each cell in uv, inset: the directional, then the lights
+uniform mat4 u_vmLightMtx[3];
+uniform vec4 u_vmLightPos[3]; // xyz: the light, w: world units per texel per unit of distance
+uniform vec4 u_vmSlots[2]; // per light slot, its light cell, -1 for none
 SAMPLER2DSHADOW(s_vmShadow, PAINFUL_VM_STAGE);
 
 float VmShadow(vec3 wpos, vec3 n, vec3 l)
@@ -214,8 +219,35 @@ float VmShadow(vec3 wpos, vec3 n, vec3 l)
 	float texel = u_vmLight.w;
 	vec3 p = wpos + n * (texel * 1.5) + l * (texel * 1.0);
 	vec3 c = mul(u_vmMtx, vec4(p, 1.0)).xyz;
-	if (c.x < 0.0 || c.x > 1.0 || c.y < 0.0 || c.y > 1.0 || c.z > 1.0) return 1.0;
-	return Pcf3x3(s_vmShadow, c.xy, c.z, u_vmParams.w);
+	vec4 r = u_vmRect[0];
+	if (c.x < r.x || c.x > r.z || c.y < r.y || c.y > r.w || c.z > 1.0) return 1.0;
+	return Pcf3x3v(s_vmShadow, c.xy, c.z, u_vmParams.zw);
+}
+
+float VmLightCell(int slot)
+{
+	vec4 s = slot < 4 ? u_vmSlots[0] : u_vmSlots[1];
+	int k = slot < 4 ? slot : slot - 4;
+	return k == 0 ? s.x : (k == 1 ? s.y : (k == 2 ? s.z : s.w));
+}
+
+// A light cell: perspective from the light, so a texel grows with the distance
+// to it and the lift follows, as the flashlight's does. The normal lift also
+// grows with the slope: the 3x3 filter spans a texel either side, and a
+// surface near grazing drops tan(angle) of depth across each.
+float VmLightShadow(int cell, vec3 wpos, vec3 n, vec3 l)
+{
+	vec4 lp = u_vmLightPos[cell];
+	float texel = length(lp.xyz - wpos) * lp.w;
+	float ndotl = clamp(dot(n, l), 0.05, 1.0);
+	float slope = min(sqrt(1.0 - ndotl * ndotl) / ndotl, 4.0);
+	vec3 p = wpos + n * (texel * (1.5 + slope)) + l * (texel * 1.0);
+	vec4 c = mul(u_vmLightMtx[cell], vec4(p, 1.0));
+	if (c.w <= 0.0) return 1.0;
+	vec3 uvz = c.xyz / c.w;
+	vec4 r = u_vmRect[cell + 1];
+	if (uvz.x < r.x || uvz.x > r.z || uvz.y < r.y || uvz.y > r.w || uvz.z > 1.0) return 1.0;
+	return Pcf3x3v(s_vmShadow, uvz.xy, uvz.z, u_vmParams.zw);
 }
 #endif
 
@@ -355,6 +387,19 @@ void DynamicLights(vec3 wpos, vec3 n, vec3 eye, vec3 origin, vec4 specular,
 			shadowTerm = LightShadow(i, -d, n, l);
 			shadowMin = min(shadowMin, shadowTerm);
 		}
+#ifdef PAINFUL_VM_STAGE
+		// The weapon's own map for this light, when it has a cell: its
+		// self-shadow, the darker of the two winning.
+		if (u_vmParams.x > 0.5)
+		{
+			float cell = VmLightCell(i);
+			if (cell >= 0.0)
+			{
+				shadowTerm = min(shadowTerm, VmLightShadow(int(cell + 0.5), wpos, n, l));
+				shadowMin = min(shadowMin, shadowTerm);
+			}
+		}
+#endif
 		if (u_dynCone[i].z > 0.5)
 		{
 			// Baked: adds nothing, takes away what the model occludes.
