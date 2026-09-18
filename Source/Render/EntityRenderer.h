@@ -15,6 +15,7 @@
 #include "LightShadowAtlas.h"
 #include "TextureCache.h"
 #include <bgfx/bgfx.h>
+#include <array>
 #include <map>
 #include <set>
 #include <string>
@@ -128,6 +129,10 @@ public:
 	// MDL.EnableNormalMaps: the palskinnedperpixel look on the parts that have a
 	// normal map. Lighting.md, "Weapon normal maps"
 	void SetScriptNormalMaps(int slot, bool on);
+	// MDL.SetMaterialSpecular / ResetMaterialSpecular: one mesh's specular colour
+	// and power (rgb 0-1, power), or all back to 0.5 at 20. Lighting.md, "Model specular"
+	void SetScriptMaterialSpecular(int slot, const std::string& mesh, const float rgbPower[4]);
+	void ResetScriptMaterialSpecular(int slot);
 	// MDL.SetMaterialRefractFresnel: one mesh's water look on one instance.
 	void SetScriptMeshWater(int slot, const std::string& mesh, float refract, float fresnel,
 			const Vec3& reflTint, const Vec3& refrTint);
@@ -334,6 +339,8 @@ private:
 		// Per instance, not per model - the viewmodel hides its blades while
 		// another copy of the same model keeps them. Empty means all shown.
 		std::vector<uint8_t> hiddenParts;
+		// MDL.SetMaterialSpecular per part: rgb, power. Empty = the load default.
+		std::vector<std::array<float, 4>> partSpecular;
 		// The environment cross-fade this instance is in the middle of. Per
 		// instance because two monks either side of a doorway are at different
 		// points of the same fade.
@@ -410,6 +417,8 @@ private:
 	bgfx::UniformHandle uDirDir_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uEye_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uSpecular_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uSpecColor_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uSpecOrigin_ = BGFX_INVALID_HANDLE;
 	LightUniforms lightUniforms_;
 	ProjectorMaps projector_;
 	const ShadowMap* shadow_ = nullptr;

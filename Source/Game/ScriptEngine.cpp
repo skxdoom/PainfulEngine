@@ -184,6 +184,8 @@ void ScriptEngine::CreateRendererInstance(Entity& e) {
 		renderer_->SetScriptViewModel(e.rendererInstance, e.viewAttached);
 		renderer_->SetScriptDemonic(e.rendererInstance, e.demonic);
 		renderer_->SetScriptNormalMaps(e.rendererInstance, e.normalMaps);
+		for (const auto& kv : e.materialSpecular)
+			renderer_->SetScriptMaterialSpecular(e.rendererInstance, kv.first, kv.second.data());
 	}
 	if (e.rendererInstance >= 0) SyncPose(e);
 }

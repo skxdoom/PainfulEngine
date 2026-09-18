@@ -39,6 +39,15 @@ uniform vec4 u_fog; // x: mode (0 none, 1 exp, 2 exp2, 3 linear), y: start, z: e
 // The water passes clip the world at the surface: y = w, keep y * sign above.
 // (0, 0, 0, 0) is off. Water.md, "The planar reflection".
 uniform vec4 u_clip;
+// The gloss: the fake lights of tu2_fx_gloss and the uber pass's point lights, Phong
+// off the gloss map (Lights.fxo FXTU2Gloss, FXUberPointPassTU2). Lighting.md, "World specular"
+#define PAINFUL_GLOSS_LIGHTS 5
+SAMPLER2D(s_gloss, 10);
+uniform vec4 u_eye;
+uniform vec4 u_gloss; // x: power, y: how many, z: on for this batch, w: PAINFUL_GLOSSVIEW
+uniform vec4 u_glossPos[PAINFUL_GLOSS_LIGHTS]; // xyz: position, w: 1/range (0 = no falloff)
+uniform vec4 u_glossColor[PAINFUL_GLOSS_LIGHTS]; // rgb: colour x intensity, w: gain
+uniform vec4 u_glossMask[PAINFUL_GLOSS_LIGHTS]; // x: added to the lightmap that masks it
 
 void main()
 {
@@ -100,14 +109,14 @@ void main()
 	// left at full albedo rather than going black; only the dynamic lights
 	// below reach them.
 	// The dynamic lights, added over the lightmap - the same call the models
-	// make, with no specular, because the world's light passes have none -
+	// make, with no specular: the world's comes off the gloss map, below -
 	// and, from the placed lights the lightmap already holds, what a model's
 	// shadow takes away.
 	vec3 lit = vec3_splat(0.0);
 	vec3 unusedSpec = vec3_splat(0.0);
 	float unusedShadow = 1.0;
 	vec3 occluded = vec3_splat(0.0);
-	DynamicLights(v_wpos, normalize(v_normal), vec3_splat(0.0), vec3_splat(0.0),
+	DynamicLights(v_wpos, normalize(v_normal), vec3_splat(0.0), vec3_splat(0.0), vec3_splat(0.0),
 			lit, unusedSpec, unusedShadow, occluded);
 	vec3 lightShadowed = max(light - occluded, vec3_splat(0.0));
 
@@ -127,6 +136,29 @@ void main()
 	light = lightShadowed * modelShadow;
 	vec3 color = albedo * light;
 	color += albedo * lit;
+
+	// The raw lightmap masks the highlight - the shadowed one, so a model's
+	// shadow takes the highlight with the light.
+	if (u_gloss.w > 0.5) color = vec3_splat(0.0);
+	if (u_gloss.z > 0.5)
+	{
+		vec3 gn = normalize(v_normal);
+		vec3 r = reflect(normalize(v_wpos - u_eye.xyz), gn);
+		vec3 lm = light / max(u_ambient.w, 0.0001);
+		vec3 glossSum = vec3_splat(0.0);
+		for (int i = 0; i < PAINFUL_GLOSS_LIGHTS; ++i)
+		{
+			if (float(i) >= u_gloss.y) break;
+			vec3 toLight = u_glossPos[i].xyz - v_wpos;
+			float d = length(toLight);
+			vec3 l = toLight / max(d, 0.0001);
+			float att = clamp(1.0 - d * u_glossPos[i].w, 0.0, 1.0);
+			float s = pow(max(dot(r, l), 0.000001), u_gloss.x) * clamp(dot(l, gn), 0.0, 1.0) * att;
+			glossSum += u_glossColor[i].rgb * (u_glossColor[i].w * s) *
+					clamp(lm + vec3_splat(u_glossMask[i].x), 0.0, 1.0);
+		}
+		color += texture2D(s_gloss, uvDiffuse).rgb * glossSum;
+	}
 
 	// Fog modes match CLevel.lua: 0=none, 1=exp, 2=exp2, 3=linear. As in D3D
 	// fixed function, only linear fog uses the start/end range; the

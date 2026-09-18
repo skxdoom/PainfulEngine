@@ -24,6 +24,8 @@ struct LightNatives : ScriptNativesBase {
 	static int L_R3D_EnableShadows(lua_State* L);
 	static int L_MDL_CreateShadowMap(lua_State* L);
 	static int L_MDL_EnableNormalMaps(lua_State* L);
+	static int L_MDL_ResetMaterialSpecular(lua_State* L);
+	static int L_MDL_SetMaterialSpecular(lua_State* L);
 	// The light an entity IS. Every LIGHT.* native but Setup acts on one that
 	// already exists, and Setup is what makes it: CLight:Apply calls Setup
 	// first and the rest in a row after it, and CreateLight does the same.
@@ -159,6 +161,33 @@ int LightNatives::L_MDL_EnableNormalMaps(lua_State* L) {
 	return 0;
 }
 
+// MDL.ResetMaterialSpecular(e) - Model::ResetMaterialSpecular (0x101de910): every
+// mesh back to the load default, 0.5 grey at power 20. Lighting.md, "Model specular"
+int LightNatives::L_MDL_ResetMaterialSpecular(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || e->type != kModel) return 0;
+	e->materialSpecular.clear();
+	if (self->renderer_ && e->rendererInstance >= 0)
+		self->renderer_->ResetScriptMaterialSpecular(e->rendererInstance);
+	return 0;
+}
+
+// MDL.SetMaterialSpecular(e, mesh, r, g, b, power) - 0x1013c470: colour in 0-255,
+// divided by 255; the "material" is the mesh of that name (CActor's s_SubClass.Specular).
+int LightNatives::L_MDL_SetMaterialSpecular(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || e->type != kModel || !lua_isstring(L, 2)) return 0;
+	const std::string mesh = lua_tostring(L, 2);
+	const float v[4] = {float(luaL_optnumber(L, 3, 0)) / 255.f, float(luaL_optnumber(L, 4, 0)) / 255.f,
+			float(luaL_optnumber(L, 5, 0)) / 255.f, float(luaL_optnumber(L, 6, 0))};
+	e->materialSpecular[mesh] = {v[0], v[1], v[2], v[3]};
+	if (self->renderer_ && e->rendererInstance >= 0)
+		self->renderer_->SetScriptMaterialSpecular(e->rendererInstance, mesh, v);
+	return 0;
+}
+
 // LIGHT.SetLitParentFlag - bit 0x80 at Entity+0x1a (0x10137a20). Whether the
 // entity this light hangs off is lit by it; nothing here reads it yet, so it
 // is recorded and not acted on.
@@ -203,6 +232,7 @@ void ScriptEngine::CollectLights(std::vector<LightSource>& out) const {
 		if (e.light.type != LightSource::kDirectional && e.light.range <= 0.f) continue;
 		out.push_back(e.light);
 		out.back().pos = e.pos;
+		out.back().id = kv.first;
 	}
 }
 
@@ -221,6 +251,8 @@ void BindLight(ScriptEngine& engine, LuaHost& host) {
 		{"R3D", "EnableShadows", LightNatives::L_R3D_EnableShadows},
 		{"MDL", "CreateShadowMap", LightNatives::L_MDL_CreateShadowMap},
 		{"MDL", "EnableNormalMaps", LightNatives::L_MDL_EnableNormalMaps},
+		{"MDL", "ResetMaterialSpecular", LightNatives::L_MDL_ResetMaterialSpecular},
+		{"MDL", "SetMaterialSpecular", LightNatives::L_MDL_SetMaterialSpecular},
 	};
 	RegisterFamily(engine, host, natives);
 }

@@ -284,10 +284,12 @@ Ranked by calls per 900 combat frames:
 - **Model and mesh materials** — `MESH.SetDetailMap` (245; `SetNormalMap`,
   `SetCubeMap` and `SetDefaultMaterial` are answered for world-mesh objects,
   where they pick the water, Water.md) /
-  `SetCubeMap` (245 each), `SetSpecular` / `AddSpecularLight` /
-  `ResetSpecularLights` (~110), `MATERIAL.Replace` (44 sites), `MDL.SetTexture`
+  `SetCubeMap` (245 each), `MATERIAL.Replace` (44 sites), `MDL.SetTexture`
   (32). `MDL.EnableNormalMaps` (7) is answered: the weapons' object-space normal
-  maps ([`Lighting.md`](Reference/Lighting.md), "Weapon normal maps").
+  maps ([`Lighting.md`](Reference/Lighting.md), "Weapon normal maps"). So are
+  `MESH.SetSpecular` / `AddSpecularLight` / `ResetSpecularLights` (~110), the
+  world's gloss ("World specular"), and `MDL.SetMaterialSpecular` /
+  `ResetMaterialSpecular` ("Model specular").
   `MDL.CreateShadowMap` (38) is answered:
   it marks the characters that cast the directional shadow, and the per-actor
   blob it asked for is not built ([`Lighting.md`](Reference/Lighting.md),

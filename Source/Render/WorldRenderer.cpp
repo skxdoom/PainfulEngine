@@ -2,6 +2,7 @@
 #include "ShaderLoad.h"
 #include "ShadowMap.h"
 #include "CharacterShadows.h"
+#include "../Core/Debug.h"
 #include "../Core/Vectors.h"
 #include "../Core/Log.h"
 #include "GpuBuffers.h"
@@ -95,7 +96,6 @@ bool WorldRenderer::Init(const std::string& shaderDir) {
 		waterProgram_ = bgfx::createProgram(wvs, wfs, true);
 		sNormal_ = bgfx::createUniform("s_normal", bgfx::UniformType::Sampler);
 		sCube_ = bgfx::createUniform("s_cube", bgfx::UniformType::Sampler);
-		uEye_ = bgfx::createUniform("u_eye", bgfx::UniformType::Vec4);
 		uWater_ = bgfx::createUniform("u_water", bgfx::UniformType::Vec4);
 		uWaterDeep_ = bgfx::createUniform("u_waterDeep", bgfx::UniformType::Vec4);
 		uWaterShallow_ = bgfx::createUniform("u_waterShallow", bgfx::UniformType::Vec4);
@@ -123,6 +123,12 @@ bool WorldRenderer::Init(const std::string& shaderDir) {
 	uUv0_ = bgfx::createUniform("u_uv0", bgfx::UniformType::Vec4);
 	uUv1_ = bgfx::createUniform("u_uv1", bgfx::UniformType::Vec4);
 	uTile_ = bgfx::createUniform("u_tile", bgfx::UniformType::Vec4);
+	uEye_ = bgfx::createUniform("u_eye", bgfx::UniformType::Vec4);
+	sGloss_ = bgfx::createUniform("s_gloss", bgfx::UniformType::Sampler);
+	uGloss_ = bgfx::createUniform("u_gloss", bgfx::UniformType::Vec4);
+	uGlossPos_ = bgfx::createUniform("u_glossPos", bgfx::UniformType::Vec4, kGlossLights);
+	uGlossColor_ = bgfx::createUniform("u_glossColor", bgfx::UniformType::Vec4, kGlossLights);
+	uGlossMask_ = bgfx::createUniform("u_glossMask", bgfx::UniformType::Vec4, kGlossLights);
 	lightUniforms_.Init();
 	return true;
 }
@@ -150,6 +156,8 @@ void WorldRenderer::Clear() {
 	// The texture cache owns these, and a level switch may re-Init it, so the
 	// handles are dropped rather than destroyed.
 	dynamicLights_.clear();
+	allLights_.clear();
+	glossPoints_.clear();
 	projector_.Clear();
 	textures_ = nullptr;
 }
@@ -172,6 +180,8 @@ void WorldRenderer::Shutdown() {
 	if (bgfx::isValid(uUv0_)) { bgfx::destroy(uUv0_); uUv0_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uUv1_)) { bgfx::destroy(uUv1_); uUv1_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uTile_)) { bgfx::destroy(uTile_); uTile_ = BGFX_INVALID_HANDLE; }
+	for (bgfx::UniformHandle* u : {&sGloss_, &uGloss_, &uGlossPos_, &uGlossColor_, &uGlossMask_})
+		if (bgfx::isValid(*u)) { bgfx::destroy(*u); *u = BGFX_INVALID_HANDLE; }
 	lightUniforms_.Shutdown();
 	if (bgfx::isValid(waterProgram_)) { bgfx::destroy(waterProgram_); waterProgram_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(sNormal_)) { bgfx::destroy(sNormal_); sNormal_ = BGFX_INVALID_HANDLE; }
@@ -378,6 +388,7 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
 				b.indexCount = uint32_t(m.triangleCount) * 3;
 				if (b.indexCount == 0) continue;
 				b.diffuse = textures.Get(m.diffuse(), levelHint);
+				b.diffuseName = m.diffuse();
 				auto slotUv = [](const TextureSlot& s, float out[4]) {
 					out[0] = s.scaleU; out[1] = s.scaleV;
 					out[2] = s.offsetU; out[3] = s.offsetV;
@@ -540,7 +551,36 @@ void WorldRenderer::DrawReflection(bgfx::ViewId view, const Camera& clipped, int
 	cullMode_ = cull;
 }
 
+int WorldRenderer::SetMeshSpecular(const std::string& object, float power, const int lights[2]) {
+	int maps = 0;
+	for (Chunk& c : chunks_) {
+		if (c.name != object) continue;
+		c.specular = true;
+		c.specPower = power;
+		c.specLights[0] = lights[0];
+		c.specLights[1] = lights[1];
+		// <texture>_s on disk, else the diffuse itself: SetSpecular's +0x14.
+		for (Batch& b : c.batches) {
+			b.gloss = b.diffuse;
+			if (!textures_ || b.diffuseName.empty()) continue;
+			std::string name = b.diffuseName;
+			const size_t dot = name.find_last_of('.');
+			if (dot != std::string::npos && name.find_first_of("/\\", dot) == std::string::npos)
+				name.resize(dot);
+			name += "_s";
+			if (textures_->Resolve(name, levelHint_, false).empty()) continue;
+			b.gloss = textures_->Get(name, levelHint_, false);
+			++maps;
+		}
+	}
+	return maps;
+}
+
 void WorldRenderer::SetDynamicLights(const std::vector<LightSource>& lights) {
+	allLights_ = lights;
+	glossPoints_.clear();
+	for (const LightSource& l : allLights_)
+		if (l.type == LightSource::kPoint && !l.fakeSpecular) glossPoints_.push_back(&l);
 	dynamicLights_.clear();
 	for (const LightSource& l : lights) {
 		if (!l.dynamic || l.fakeSpecular || l.type == LightSource::kDirectional) continue;
@@ -603,6 +643,8 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 	const float fogParams[4] = {float(info.fogMode), info.fogStart, info.fogEnd,
 								info.fogDensity};
 	bgfx::setUniform(uFog_, fogParams);
+	const float eyePos[4] = {camera.pos[0], camera.pos[1], camera.pos[2], 0.f};
+	bgfx::setUniform(uEye_, eyePos);
 	// The water passes clip the world at the surface (Camera::clipped).
 	const float clip[4] = {0.f, camera.clipped ? (camera.keepAbove ? 1.f : -1.f) : 0.f, 0.f,
 			camera.mirrorY};
@@ -826,6 +868,48 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 		PackShadow(lights, shadow_);
 		PackCharacterShadows(lights, characterShadows_, c.aabbLo, c.aabbHi);
 
+		// The gloss, with Dynamic Lights at 2 (World+0x18fc): the mesh's own fake
+		// lights (RenderTU2Specular), then the uber pass's point lights - placed ones
+		// only where the mesh has fake lights. Lighting.md, "World specular"
+		static const bool kGlossView = DebugFlag("PAINFUL_GLOSSVIEW");
+		float gloss[4] = {c.specPower, 0.f, 0.f, kGlossView ? 1.f : 0.f};
+		float glossPos[kGlossLights][4] = {};
+		float glossColor[kGlossLights][4] = {};
+		float glossMask[kGlossLights][4] = {};
+		if (c.specular && drawDynLights_ == 2) {
+			int n = 0;
+			const auto add = [&](const LightSource& l, float invRange, float gain, float unmasked) {
+				for (int k = 0; k < 3; ++k) {
+					glossPos[n][k] = l.pos[k];
+					glossColor[n][k] = l.color[k] * l.intensity;
+				}
+				glossPos[n][3] = invRange;
+				glossColor[n][3] = gain;
+				glossMask[n][0] = unmasked;
+				++n;
+			};
+			for (int id : c.specLights)
+				for (const LightSource& l : allLights_)
+					if (id != 0 && l.id == id) { add(l, 0.f, 4.f, 0.f); break; }
+			const bool hasFake = c.specLights[0] != 0 || c.specLights[1] != 0;
+			const Vec3 centre = (c.aabbLo + c.aabbHi) * 0.5f;
+			const float radius = (c.aabbHi - c.aabbLo).Length() * 0.5f;
+			glossScratch_.clear();
+			for (const LightSource* l : glossPoints_)
+				if ((l->dynamic || hasFake) && l->id != c.specLights[0] && l->id != c.specLights[1] &&
+						LightTouches(*l, c.aabbLo, c.aabbHi))
+					glossScratch_.push_back(l);
+			std::sort(glossScratch_.begin(), glossScratch_.end(), [&](const LightSource* a, const LightSource* b) {
+				return LightAttenuation(*a, centre, radius) > LightAttenuation(*b, centre, radius);
+			});
+			// Placed: highlight only, x4, masked by the lightmap. Dynamic: x2, unmasked.
+			for (size_t k = 0; k < glossScratch_.size() && k < size_t(kGlossPoints); ++k) {
+				const LightSource& l = *glossScratch_[k];
+				add(l, 1.f / std::max(l.range, 1e-4f), l.dynamic ? 2.f : 4.f, l.dynamic ? 1.f : 0.f);
+			}
+			gloss[1] = float(n);
+		}
+
 		// Blended materials (glass, glow, smoke) keep their texture in the lighting-only view.
 		const bool greyAlbedo = lightingOnly_ && !(state & BGFX_STATE_BLEND_MASK);
 		for (const Batch& b : c.batches) {
@@ -841,6 +925,14 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 			bgfx::setUniform(uTile_, tile);
 			lightUniforms_.Submit(lights, 5, 6, projTex, projFall, 7, shadowTex,
 					8, characterTex, 9, lightAtlasTex);
+			// Only a lightmapped batch: tu2_fx_gloss is the TU2 material.
+			gloss[2] = b.hasLightmap && gloss[1] > 0.f ? 1.f : 0.f;
+			bgfx::setUniform(uGloss_, gloss);
+			bgfx::setUniform(uGlossPos_, glossPos, kGlossLights);
+			bgfx::setUniform(uGlossColor_, glossColor, kGlossLights);
+			bgfx::setUniform(uGlossMask_, glossMask, kGlossLights);
+			bgfx::setTexture(10, sGloss_, bgfx::isValid(b.gloss) ? b.gloss : b.diffuse,
+					FilteredSampler(c.material.sampler[0]));
 			// Every stage takes Cfg.TextureFiltering, as the engine's
 			// MaterialSystem::SetTexFiltering applies it (Render/TextureFilter.h).
 			bgfx::setTexture(2, sDetail_, detailOn_ ? detailTex_ : b.diffuse,

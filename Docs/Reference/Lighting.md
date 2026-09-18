@@ -245,10 +245,12 @@ up. The gate is:
   (`+0x7e0`) overrides — `PlayerLight` sets `Important = true` so the
   flashlight survives it.
 
-**A light that is not dynamic never touches the world mesh**, and it must not:
+**A light that is not dynamic never lights the world mesh**, and it must not:
 the level's placed `CLight`s are already in the baked lightmap, so adding them
 again would double every torch alcove. `IsDynamic` is exactly the flag that says
-"the lightmap does not contain me".
+"the lightmap does not contain me". With Dynamic Lights at 2 a placed point
+light still adds a glint to a mesh that has fake-specular lights ("World
+specular").
 
 ## Where the lights come from in this port
 
@@ -315,14 +317,6 @@ the same way, for the same reason at a larger scale.
 (`0x101D2C70`) `AddLight`s it, so in the original it can be crowded out by four
 nearer point lights. It has no position and no falloff, so here it is a term of
 its own and always applies.
-
-**Specular is per pixel, from the real eye.** `ComputeVSLights` builds ONE
-half-vector per entity out of an unnormalised `(camera - entityPos) + lightDir`,
-so `N.H` tracks the view far more than the light and everything facing the
-player picks up a sheen. This port uses `normalize(L + V)` at the pixel. The
-`lit`-gate on `N.L > 0` is kept but ramped over `u_specular.z`, because per
-pixel the step draws a hard line along the `N.L = 0` contour where the
-original's per-vertex interpolation smeared it.
 
 **The world takes the analytic attenuation curve** rather than binding
 `special/atten` twice: the texture is exactly `(r/R)^2`, so evaluating it is the
@@ -639,7 +633,86 @@ off swaps the normal map itself for `..._pb_no_specular` through
 `MATERIAL.Replace` (still a stub here, so that switch does nothing yet). In the
 port the directional takes exactly that; the dynamic lights run through the
 shared per-pixel path with the same exponent, and all specular is masked by the
-map's alpha. The half vector is per pixel from the real eye, as on every model.
+map's alpha. The half-vectors are the model's own, as on every model ("Model
+specular").
+
+## Model specular
+
+`skin.shader`'s `palskinned` says only `specular true`; the numbers are the
+mesh's. `SimpleMesh`'s constructor (`0x1005822c`) gives every mesh a specular
+colour of 0.5 grey and a power of 20, `MDL.ResetMaterialSpecular`
+(`Model::ResetMaterialSpecular`, `0x101de910`) puts them back, and
+`MDL.SetMaterialSpecular(e, mesh, r, g, b, power)` (`0x1013c470`) sets one mesh
+by name, the colour in 0-255. `CActor:ApplySpecular` and `CItem:ApplySpecular`
+hand it the template's `Specular` table; six monsters carry one (Leper
+`{30,30,30,20}` on its four bodies, Vamp `{128,128,128,20}`, Tank zeros on its
+metal). palskin multiplies the summed specular by that colour
+(`mul oD1, r5, c10`).
+
+**The half-vector is the model's, not the pixel's.** `Entity::ComputeVSLights`
+(`0x101d1dc0`) builds one per light per model: `normalize((camera - origin) + L)`,
+the camera term UNNORMALISED and `L` the unit direction from the model's origin
+to the light. A few units off, the camera term dominates and `N.H` follows the
+view: a broad sheen over whatever faces the player on its lit side. The view
+weapon sits about 1.35 units from the eye, so there the two terms weigh about
+the same. The port builds the same vectors in the pixel shader from
+`u_specOrigin`, for the directional and for every point light. It used
+`normalize(L + V)` per pixel before, a tight hotspot that read far weaker than
+the original on the weapons and the monsters alike.
+
+Kept from before: `lit`'s gate on `N.L > 0` ramps over 0.25 of `N.L`
+(`kSpecularGate`), because per pixel the step draws a hard line along the
+contour where the original's per-vertex interpolation smeared it. The
+normal-mapped weapons take the same half-vectors with their own power (10) and
+the map's alpha in place of the colour.
+
+## World specular
+
+With **Dynamic Lights at 2** (`World+0x18fc`, Menu.md, "Video options") the
+world mesh has a gloss: a Phong highlight off a gloss map, on the meshes a
+level's `MapEntities/*.EMesh` describe. `EMesh:Apply` runs
+`MESH.ResetSpecularLights`, one `MESH.AddSpecularLight` per name in
+`Specular.Lights`, then `MESH.SetSpecular(e, Specular.Power)` (class default 8).
+
+- `WorldMesh::AddSpecularLight` (`0x101d6d90`) fills the first free of two
+  slots (`+0x7e8`, `+0x7ec`) and drops the rest. The names are the level's
+  `IsFakeSpecular` lights (`aa_fake1` ...), which light nothing else.
+- `WorldMesh::SetSpecular` (`0x101dc520`) stores the power (`+0x7f0`) and loads
+  each material's gloss map: its texture name plus `"_s"` (`0x102ca418`) when
+  that is on disk, else the diffuse itself. 990 `_s` maps ship. It also picks
+  the mesh's light list (`+0x1c`): every light when the mesh has fake lights and
+  the setting is 2, else the dynamic ones only (`RenderWorld`, `0x100b3320`).
+
+What draws it (`WorldMesh::Draw`, `0x101daa70`):
+
+- **A mesh with fake lights** draws its base pass as `tu2_fx_gloss`
+  (`RenderTU2Specular`, `0x101d7a40`; `Lights.fxo` `FXTU2Gloss`):
+  `lightmap x (albedo x overbright + gloss x sum)`, summing over the two lights
+  `colour x intensity x 4 x pow(sat(R.L), power) x sat(N.L)`, where `R` is the
+  eye ray reflected about the normal. No falloff: `aa_fake1` has Range 5000.
+  Constants: `c1`/`c3` each light's colour x intensity / 255 with the power in
+  `w`, `c10.x` 2 under Overbright, else 1.
+- **The point lights on the list** go through `RenderUberLightPass`
+  (`0x101d8030`, `FXUberPointPassTU2`, three to a draw), each with
+  `GP_UberLight = (diffuse, lightmap bias, gloss gain, 1/range)`. A placed light
+  is `(0, 0, 4)`: a glint only, x4, masked by the lightmap, which already holds
+  its diffuse. A dynamic one is `(1, 1, 2)`: diffuse, and an unmasked x2 glint.
+  Falloff `sat(1 - d/range)`, the mesh's power. So a placed light glints only on
+  a mesh with fake lights; a dynamic one on any `.EMesh` mesh.
+- The `tu2_fx_gloss_pointpass` material `SetupShaders` builds (`+0x760`) is
+  never drawn.
+
+Cathedral: 37 meshes, 34 with fake lights, 102 gloss maps (the log's
+`specular:` line). 1327 `.EMesh` files across the levels name specular lights.
+
+The port folds it into `fs_world` on lightmapped batches: up to five gloss
+lights a chunk (`WorldRenderer::kGlossLights`), the two fake ones and then the
+three point lights that score highest at the chunk (`kGlossPoints`), each with
+its gain and whether the lightmap masks it. The mask is the lightmap after the
+model shadows, so a character's shadow takes the glint with the light. Not
+carried: the original's four-slot list also holds spots and the fake lights,
+which crowd the uber pass; here only point lights compete. The world's dynamic
+diffuse keeps the port's curve. `PAINFUL_GLOSSVIEW=1` draws the gloss alone.
 
 ## Screen-space ambient occlusion
 

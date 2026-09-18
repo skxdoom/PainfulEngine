@@ -680,8 +680,16 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			worldReady = true;
 			// The map's .EMesh overrides (MESH.SetDefaultMaterial and friends) ran
 			// while the scripts loaded; the chunks exist only now.
-			for (const auto& kv : engine.meshOverrides())
+			int glossMeshes = 0, fakeLit = 0, glossMaps = 0;
+			for (const auto& kv : engine.meshOverrides()) {
 				world.SetMeshOverride(kv.first, kv.second.material, kv.second.cube, kv.second.normal);
+				if (!kv.second.specular) continue;
+				glossMaps += world.SetMeshSpecular(kv.first, kv.second.specPower, kv.second.specLights);
+				++glossMeshes;
+				fakeLit += kv.second.specLights[0] != 0 || kv.second.specLights[1] != 0;
+			}
+			LogInfo("specular: %d meshes, %d with fake lights, %d gloss maps", glossMeshes, fakeLit,
+					glossMaps);
 			// The volumes, and their .EVolumetric FOGVOL.Setup values, the same way.
 			volumes.Upload(*map, info.scale, world);
 			for (const auto& kv : engine.volumeParams())

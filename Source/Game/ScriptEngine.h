@@ -180,6 +180,8 @@ public:
 		std::map<std::string, bool> hiddenMeshes;
 		// MDL.SetMaterial, kept for the same reason as hiddenMeshes.
 		std::string materialName;
+		// MDL.SetMaterialSpecular since the last reset: mesh -> rgb, power.
+		std::map<std::string, std::array<float, 4>> materialSpecular;
 		// What this entity is bound to, and where on it.
 		//
 		// ENTITY.RegisterChild names the parent; PARTICLE.SetParentOffset gives
@@ -592,8 +594,13 @@ public:
 	// object (a MapEntities .EMesh): the water family and its textures per
 	// map, keyed by the object name; the renderer applies them after the
 	// map uploads. Water.md, "Which water a surface gets".
+	// MESH.SetSpecular / AddSpecularLight: the gloss power and the (at most two)
+	// fake-specular lights, by entity handle. Lighting.md, "World specular"
 	struct MeshOverride {
 		std::string material, cube, normal;
+		bool specular = false;
+		float specPower = 8.f;
+		int specLights[2] = {0, 0};
 	};
 	const std::unordered_map<std::string, MeshOverride>& meshOverrides() const { return meshOverrides_; }
 	// FOGVOL.Setup on a volfog/vollight object (a MapEntities .EVolumetric): its

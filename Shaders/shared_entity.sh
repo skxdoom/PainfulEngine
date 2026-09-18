@@ -51,8 +51,10 @@ uniform vec4 u_fog; // x: mode, y: start, z: end, w: density
 // rather than one of the slots.
 uniform vec4 u_dirColor;
 uniform vec4 u_dirDir;
-uniform vec4 u_eye; // xyz: the camera, for the per-pixel half-vector
+uniform vec4 u_eye; // xyz: the camera
 uniform vec4 u_specular; // x: exponent, y: strength, z: N.L gate softening
+uniform vec4 u_specColor; // rgb: the mesh's specular colour (palskin's c10)
+uniform vec4 u_specOrigin; // xyz: the model's position, where its half-vectors are built
 uniform vec4 u_stage1; // x: op - 0 off, 1 modulate, 2 add, 3 modulatealphaadd
 
 void main()
@@ -69,7 +71,7 @@ void main()
 	vec3 n = normalize(v_normal);
 	vec3 shadowNormal = n;
 	vec3 specParams = u_specular.xyz;
-	float specMask = 1.0;
+	vec3 specMask = u_specColor.rgb;
 #ifdef PAINFUL_ENTITY_NM
 	// The map holds normals in the model's bind space; v_bone0..2 carry that
 	// space's axes, posed by the vertex's first bone, into world space.
@@ -77,7 +79,7 @@ void main()
 	vec3 t = bump.xyz * 2.0 - 1.0;
 	n = normalize(t.x * v_bone0 + t.y * v_bone1 + t.z * v_bone2);
 	specParams = vec3(10.0, 1.0, u_specular.z);
-	specMask = bump.a;
+	specMask = vec3_splat(bump.a);
 #endif
 
 	// Ambient, plus the environment directional. A model in an unlit alcove is
@@ -95,8 +97,10 @@ void main()
 		dirShadow = VmShadow(v_wpos, shadowNormal, u_dirDir.xyz);
 	vec3 diffuse = u_ambient.rgb + u_dirColor.rgb * ndotl * dirShadow;
 
-	vec3 eyeDir = normalize(u_eye.xyz - v_wpos);
-	float ndoth = max(dot(n, normalize(u_dirDir.xyz + eyeDir)), 0.0);
+	// ComputeVSLights (0x101d1dc0): one half-vector per model, the UNNORMALISED
+	// (camera - origin) plus the light direction, so it leans to the view.
+	// Lighting.md, "Model specular"
+	float ndoth = max(dot(n, normalize((u_eye.xyz - u_specOrigin.xyz) + u_dirDir.xyz)), 0.0);
 #ifdef PAINFUL_ENTITY_NM
 	// FXSkinBump: pow(sat(N.H), 10) x sat(N.L) x the light's colour.
 	vec3 specular = u_dirColor.rgb * pow(ndoth, 10.0) * ndotl * dirShadow;
@@ -104,14 +108,15 @@ void main()
 	// The directional's specular, still `lit`-gated on N.L > 0 - a step in the
 	// original, ramped here over u_specular.z, because per pixel the step
 	// draws a hard line along the N.L = 0 contour.
-	vec3 specular = u_dirColor.rgb * pow(ndoth, u_specular.x) *
+	// Floored: Tank's meshes set power 0, and pow(0, 0) is NaN on D3D.
+	vec3 specular = u_dirColor.rgb * pow(max(ndoth, 0.000001), u_specular.x) *
 			u_specular.y * smoothstep(0.0, u_specular.z, ndotl) * dirShadow;
 #endif
 
 	// Everything positional, exactly as the world mesh gets it.
 	float lightShadow = 1.0;
 	vec3 unusedOccluded = vec3_splat(0.0);
-	DynamicLights(v_wpos, n, u_eye.xyz, specParams, diffuse, specular, lightShadow,
+	DynamicLights(v_wpos, n, u_eye.xyz, u_specOrigin.xyz, specParams, diffuse, specular, lightShadow,
 			unusedOccluded);
 	specular *= specMask;
 	// PAINFUL_SHADOWVIEW: models grey, darkened by the shadows they take;

@@ -61,6 +61,8 @@ struct LightSource {
 	enum Type { kDirectional = 1, kPoint = 2, kSpot = 3 };
 
 	int type = kPoint;
+	// The light's entity handle, which MESH.AddSpecularLight names it by.
+	int id = 0;
 	Vec3 pos;
 	Vec3 dir{0, -1, 0};
 	Vec3 color{1, 1, 1}; // 0..1

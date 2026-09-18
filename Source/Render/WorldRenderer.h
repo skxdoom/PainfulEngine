@@ -54,9 +54,9 @@ public:
 	void SetObjectVisible(size_t object, bool visible);
 
 	// The lights the scripts made this frame. Only the ones flagged
-	// IsDynamic reach the world mesh: the placed lights are already in its
-	// lightmap, and adding them again would double every torch alcove.
-	// Docs/Reference/Lighting.md
+	// IsDynamic light the world mesh: the placed lights are already in its
+	// lightmap, and adding them again would double every torch alcove. The
+	// placed ones still add gloss. Docs/Reference/Lighting.md
 	void SetDynamicLights(const std::vector<LightSource>& lights);
 	// The Video Options (Menu.md, "Video options"): Cfg.DynamicLights 0 keeps only
 	// spots and important lights of those; WaterFX 0 draws the reflecting water
@@ -143,6 +143,10 @@ public:
 	// cube and normal maps; empty keeps the level's.
 	void SetMeshOverride(const std::string& object, const std::string& material,
 			const std::string& cube, const std::string& normal);
+	// MESH.SetSpecular on a map mesh: its gloss power, its fake-specular lights
+	// (entity handles, 0 = none) and its gloss maps. Lighting.md, "World specular"
+	// Returns how many of its batches found a <texture>_s map.
+	int SetMeshSpecular(const std::string& object, float power, const int lights[2]);
 
 	// Diagnostic: 0 = CCW, 1 = CW, 2 = none.
 	void SetCullMode(int mode) { cullMode_ = mode; }
@@ -167,6 +171,8 @@ private:
 		// Stored as the shader wants it: scale in xy, offset in zw.
 		float uvDiffuse[4] = {1, 1, 0, 0};
 		float uvBlend[4] = {1, 1, 0, 0};
+		std::string diffuseName; // the slot-0 texture, which names the gloss map
+		bgfx::TextureHandle gloss = BGFX_INVALID_HANDLE; // set by SetMeshSpecular
 	};
 	struct Chunk { // one MPK object
 		bgfx::VertexBufferHandle vbo = BGFX_INVALID_HANDLE;
@@ -188,6 +194,10 @@ private:
 		std::vector<uint16_t> zones; // every zone the chunk overlaps; empty = always drawn
 		size_t object = 0; // index into MapMesh::objects
 		bool hidden = false; // SetObjectVisible(false)
+		// MESH.SetSpecular / AddSpecularLight (WorldMesh+0x7f0, +0x7e8/+0x7ec).
+		bool specular = false;
+		float specPower = 8.f;
+		int specLights[2] = {0, 0};
 	};
 
 	std::vector<Chunk> chunks_;
@@ -237,6 +247,19 @@ private:
 	std::string levelHint_;
 	std::vector<LightSource> dynamicLights_;
 	std::vector<int> chunkLights_; // scratch: the picked slots, reused per chunk
+	// The gloss pass: every light the scripts made (the fake-specular ones are
+	// found by id), and the point lights that can add a highlight. Two fake
+	// lights plus the uber pass's three; fs_world's PAINFUL_GLOSS_LIGHTS.
+	static constexpr int kGlossLights = 5;
+	static constexpr int kGlossPoints = 3;
+	std::vector<LightSource> allLights_;
+	std::vector<const LightSource*> glossPoints_;
+	std::vector<const LightSource*> glossScratch_;
+	bgfx::UniformHandle sGloss_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uGloss_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uGlossPos_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uGlossColor_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uGlossMask_ = BGFX_INVALID_HANDLE;
 	const ShadowMap* shadow_ = nullptr;
 	const CharacterShadows* characterShadows_ = nullptr;
 	const std::vector<ShadowedLight>* shadowedLights_ = nullptr;

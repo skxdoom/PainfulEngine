@@ -44,6 +44,9 @@ struct WorldNatives : ScriptNativesBase {
 	static int L_MESH_SetDefaultCubeMaps(lua_State* L);
 	static int L_MESH_SetCubeMap(lua_State* L);
 	static int L_MESH_SetNormalMap(lua_State* L);
+	static int L_MESH_SetSpecular(lua_State* L);
+	static int L_MESH_AddSpecularLight(lua_State* L);
+	static int L_MESH_ResetSpecularLights(lua_State* L);
 	static ScriptEngine::MeshOverride* MeshOverrideFor(ScriptEngine* self, lua_State* L);
 	static int L_FOGVOL_Setup(lua_State* L);
 	static int L_FOGVOL_GetProperties(lua_State* L);
@@ -888,6 +891,34 @@ int WorldNatives::L_MESH_SetNormalMap(lua_State* L) {
 	return 0;
 }
 
+// MESH.SetSpecular(e, power = 8) - WorldMesh::SetSpecular (0x101dc520): the gloss
+// power, and the gloss maps (<texture>_s, else the diffuse) loaded. EMesh:Apply runs
+// it on every map mesh after AddSpecularLight. Lighting.md, "World specular"
+int WorldNatives::L_MESH_SetSpecular(lua_State* L) {
+	if (ScriptEngine::MeshOverride* o = MeshOverrideFor(From(L), L)) {
+		o->specular = true;
+		o->specPower = float(luaL_optnumber(L, 2, 8));
+	}
+	return 0;
+}
+
+// MESH.AddSpecularLight(e, light) - 0x101d6d90: fills the first free of two slots
+// and ignores the rest.
+int WorldNatives::L_MESH_AddSpecularLight(lua_State* L) {
+	ScriptEngine::MeshOverride* o = MeshOverrideFor(From(L), L);
+	const int light = int(luaL_optnumber(L, 2, 0));
+	if (!o || light <= 0) return 0;
+	for (int& slot : o->specLights)
+		if (slot == 0) { slot = light; break; }
+	return 0;
+}
+
+int WorldNatives::L_MESH_ResetSpecularLights(lua_State* L) {
+	if (ScriptEngine::MeshOverride* o = MeshOverrideFor(From(L), L))
+		o->specLights[0] = o->specLights[1] = 0;
+	return 0;
+}
+
 // FOGVOL.Setup(e, color, end) - 0x1013b4b0: Volume+0x864 the composed colour,
 // +0x86c End. Recorded by object name for the renderer. FogVolumes.md
 int WorldNatives::L_FOGVOL_Setup(lua_State* L) {
@@ -948,6 +979,9 @@ void BindWorld(ScriptEngine& engine, LuaHost& host) {
 		{"MESH", "SetDefaultCubeMaps", WorldNatives::L_MESH_SetDefaultCubeMaps},
 		{"MESH", "SetCubeMap", WorldNatives::L_MESH_SetCubeMap},
 		{"MESH", "SetNormalMap", WorldNatives::L_MESH_SetNormalMap},
+		{"MESH", "SetSpecular", WorldNatives::L_MESH_SetSpecular},
+		{"MESH", "AddSpecularLight", WorldNatives::L_MESH_AddSpecularLight},
+		{"MESH", "ResetSpecularLights", WorldNatives::L_MESH_ResetSpecularLights},
 		{"FOGVOL", "Setup", WorldNatives::L_FOGVOL_Setup},
 		{"FOGVOL", "GetProperties", WorldNatives::L_FOGVOL_GetProperties},
 		{"ENTITY", "EnableDeathZoneTest", WorldNatives::L_ENTITY_EnableDeathZoneTest},

@@ -84,27 +84,13 @@ MaterialState LookupMaterial(ShaderLibrary* lib, const std::string& name, bool c
 	return m;
 }
 
-// The specular exponent and strength. skin.shader only says `specular true`,
-// leaving the numbers to the fixed-function material, so these are tuned to the
-// look rather than read from data. The half-vector is per pixel now, from the
-// real eye, so the sheen can be tighter than the original's camera-facing wash
-// without reading as wrong. PAINFUL_SPECULAR overrides them as
-// "exponent,strength,gate" while that is being judged.
-const float* SpecularParams() {
-	// z softens the N.L gate on the specular. The original switches on it
-	// hard, and can only do that because it lights per vertex and interpolates
-	// the result; per pixel the same switch draws a visible line. This is that
-	// interpolation put back as a ramp - roughly how much N.L varies across one
-	// triangle.
-	static float v[4] = {12.f, 0.35f, 0.25f, 0.f};
-	static const bool once = [] {
-		if (const char* s = DebugText("PAINFUL_SPECULAR"))
-			sscanf(s, "%f,%f,%f", &v[0], &v[1], &v[2]);
-		return true;
-	}();
-	(void)once;
-	return v;
-}
+// A mesh's specular until MDL.SetMaterialSpecular: 0.5 grey at power 20, what
+// SimpleMesh's constructor (0x1005822c) and ResetMaterialSpecular write.
+constexpr std::array<float, 4> kDefaultSpecular = {0.5f, 0.5f, 0.5f, 20.f};
+// How far into N.L the specular's gate ramps. palskin's `lit` switches on
+// N.L > 0 per vertex and the interpolation smears it; per pixel the step
+// would draw a line, so it ramps over about one triangle's worth.
+constexpr float kSpecularGate = 0.25f;
 
 } // namespace
 
@@ -162,6 +148,8 @@ bool EntityRenderer::Init(const std::string& shaderDir) {
 	uUv1_ = bgfx::createUniform("u_uv1", bgfx::UniformType::Vec4);
 	uTile_ = bgfx::createUniform("u_tile", bgfx::UniformType::Vec4);
 	uSpecular_ = bgfx::createUniform("u_specular", bgfx::UniformType::Vec4);
+	uSpecColor_ = bgfx::createUniform("u_specColor", bgfx::UniformType::Vec4);
+	uSpecOrigin_ = bgfx::createUniform("u_specOrigin", bgfx::UniformType::Vec4);
 	sStage1_ = bgfx::createUniform("s_stage1", bgfx::UniformType::Sampler);
 	uStage1_ = bgfx::createUniform("u_stage1", bgfx::UniformType::Vec4);
 	uEntWater_ = bgfx::createUniform("u_entWater", bgfx::UniformType::Vec4);
@@ -218,6 +206,8 @@ void EntityRenderer::Shutdown() {
 	if (bgfx::isValid(uUv1_)) { bgfx::destroy(uUv1_); uUv1_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uTile_)) { bgfx::destroy(uTile_); uTile_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uSpecular_)) { bgfx::destroy(uSpecular_); uSpecular_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uSpecColor_)) { bgfx::destroy(uSpecColor_); uSpecColor_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uSpecOrigin_)) { bgfx::destroy(uSpecOrigin_); uSpecOrigin_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uDirColor_)) { bgfx::destroy(uDirColor_); uDirColor_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uDirDir_)) { bgfx::destroy(uDirDir_); uDirDir_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uEye_)) { bgfx::destroy(uEye_); uEye_ = BGFX_INVALID_HANDLE; }
@@ -1082,6 +1072,29 @@ void EntityRenderer::SetScriptMeshVisibility(int slot, const std::string& meshNa
 	}
 }
 
+void EntityRenderer::SetScriptMaterialSpecular(int slot, const std::string& mesh,
+		const float rgbPower[4]) {
+	if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
+			"EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
+		return;
+	Instance& inst = instances_[slot];
+	if (inst.model >= models_.size()) return;
+	const GpuModel& model = models_[inst.model];
+	if (inst.partSpecular.size() != model.parts.size())
+		inst.partSpecular.assign(model.parts.size(), kDefaultSpecular);
+	// Model::SetMaterialSpecular matches the mesh name with String::operator==.
+	for (size_t i = 0; i < model.parts.size(); ++i)
+		if (model.parts[i].name == mesh)
+			inst.partSpecular[i] = {rgbPower[0], rgbPower[1], rgbPower[2], rgbPower[3]};
+}
+
+void EntityRenderer::ResetScriptMaterialSpecular(int slot) {
+	if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
+			"EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
+		return;
+	instances_[slot].partSpecular.clear();
+}
+
 void EntityRenderer::ReleaseScript(int slot) {
 	if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
 			"EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
@@ -1314,7 +1327,8 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 		bgfx::setUniform(uDirColor_, dirColor);
 		bgfx::setUniform(uDirDir_, dirDir);
 		bgfx::setUniform(uEye_, eyePos);
-		bgfx::setUniform(uSpecular_, SpecularParams());
+		const float specOrigin[4] = {instance.pos[0], instance.pos[1], instance.pos[2], 0.f};
+		bgfx::setUniform(uSpecOrigin_, specOrigin);
 
 		LightBlock lights;
 		for (int s = 0; s < lit.lightCount; ++s) {
@@ -1382,6 +1396,13 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			const float stage1[4] = {
 				bgfx::isValid(stage1Tex) ? float(mat.stage1Op) : 0.f, 0.f, 0.f, 0.f};
 			bgfx::setUniform(uStage1_, stage1);
+			// palskin's c10: this mesh's specular colour, its power in w.
+			const std::array<float, 4>& spec = partIndex < instance.partSpecular.size()
+					? instance.partSpecular[partIndex] : kDefaultSpecular;
+			const float specParams[4] = {spec[3], 1.f, kSpecularGate, 0.f};
+			const float specColor[4] = {spec[0], spec[1], spec[2], 0.f};
+			bgfx::setUniform(uSpecular_, specParams);
+			bgfx::setUniform(uSpecColor_, specColor);
 			bgfx::setTransform(instance.transform.m);
 			// The posed buffer when there is one, the shared bind-pose buffer
 			// otherwise. Indices never change: skinning moves vertices, it

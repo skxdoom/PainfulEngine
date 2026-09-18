@@ -445,6 +445,10 @@ The ordered work queue, with the evidence behind each item, is
   / `UpdateDecal`, `R3D.KeepDecals` and `Cfg.DecalsStayTime`, cut against the
   map object under the hit ([`Decals.md`](Reference/Decals.md)). Not on models
   or pack meshes. Trails (`AttachTrailToBones`) are still stubs.
+- Specular is the original's on both sides: models take their meshes' colour
+  and power and the per-model half-vectors, the world its gloss maps under the
+  `.EMesh` fake-specular lights and the point lights, with Dynamic Lights at 2
+  ([`Lighting.md`](Reference/Lighting.md), "Model specular", "World specular").
 - Script-driven dynamic lights are in: the whole `LIGHT.*` family, so the
   flashlight (cookie, cone and flicker), the torches monsters carry and the
   flashes an action fires off all light both models and the world mesh
@@ -462,8 +466,8 @@ The ordered work queue, with the evidence behind each item, is
   `ENTITY.AddLight`, `WORLD.SetDirLight`, `LIGHT.SetLitParentFlag`, and
   shadows from the other dynamic lights - a torch still lights through a wall
   within its range.
-- Model material extras: `MESH.SetDetailMap` / `SetNormalMap` / `SetCubeMap` /
-  `SetSpecular`, `MDL.SetMaterial` / `SetTexture`, `MATERIAL.Replace`.
+- Model material extras: `MESH.SetDetailMap` / `SetNormalMap` / `SetCubeMap`,
+  `MDL.SetMaterial` / `SetTexture`, `MATERIAL.Replace`.
 - `R3D.SetCameraFOV` / `GetCameraFOV` carry `Cfg.FOV`, and every shipped call
   site is a whole-screen change (`Game:Init`, the menu's 90, the console's
   `fov` command), so the field of view is no longer fixed.

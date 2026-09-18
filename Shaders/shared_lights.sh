@@ -244,13 +244,14 @@ float CharacterShadows(vec3 wpos, vec3 n)
 // diffuse and spec accumulate; multiply DIFFUSE by the albedo afterwards, the
 // way `mul_x2 r0.rgb, r0, t3` closes both shipped light shaders. specular is
 // (exponent, strength, N.L gate width); strength 0 skips it, which is what the
-// world mesh passes - its light passes have no specular term at all.
+// world mesh passes - its gloss is a pass of its own. `origin` is the model's
+// position, where the half-vectors are built (see the loop).
 // shadowMin collects the darkest placed-light shadow term at the pixel, for
 // PAINFUL_SHADOWVIEW, and `occluded` what a BAKED light (u_dynCone.z, the
 // world's lightmap already holds it) loses to a model's shadow - to be taken
 // off the lightmap, in the same units as `diffuse`. Both are only written
 // where the caller defined PAINFUL_LIGHTSHADOW_STAGE.
-void DynamicLights(vec3 wpos, vec3 n, vec3 eye, vec3 specular,
+void DynamicLights(vec3 wpos, vec3 n, vec3 eye, vec3 origin, vec3 specular,
 		inout vec3 diffuse, inout vec3 spec, inout float shadowMin, inout vec3 occluded)
 {
 	// Taken before the loop: D3D allows no gradients inside flow control.
@@ -369,16 +370,14 @@ void DynamicLights(vec3 wpos, vec3 n, vec3 eye, vec3 specular,
 
 		if (specular.y > 0.0)
 		{
-			// Per pixel, from the real eye and the real light vector. The
-			// original built ONE half-vector per entity out of an
-			// unnormalised (camera - entityPos) + lightDir, which tracks the
-			// VIEW far more than the light and reads as a camera-facing wash
-			// on anything a lamp is near.
-			vec3 h = normalize(l + normalize(eye - wpos));
+			// ComputeVSLights' half-vector: ONE per model, from its origin -
+			// the unnormalised (camera - origin) plus the unit direction to
+			// the light. Lighting.md, "Model specular"
+			vec3 h = normalize((eye - origin) + normalize(u_dynPos[i].xyz - origin));
 			// palskin's `lit` gates specular on N.L > 0. That is a step, and
 			// per pixel it draws a hard line along the contour, so it is
 			// ramped over specular.z of N.L.
-			spec += energy * pow(max(dot(n, h), 0.0), specular.x) * specular.y *
+			spec += energy * pow(max(dot(n, h), 0.000001), specular.x) * specular.y *
 					smoothstep(0.0, specular.z, ndotl);
 		}
 	}
