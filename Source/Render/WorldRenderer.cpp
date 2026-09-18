@@ -868,6 +868,18 @@ void WorldRenderer::DrawShadow(bgfx::ViewId view, const ShadowMap& map, float ti
 	DrawShadowInto(view, map.frustum(), map.program(), timeSeconds, &map == shadow_ && visCulling_);
 }
 
+void WorldRenderer::DrawLightShadows(const LightShadowAtlas& atlas,
+		const std::vector<ShadowedLight>& picks, float timeSeconds) {
+	if (!atlas.ready()) return;
+	for (const ShadowedLight& s : picks) {
+		if (!s.light->dynamic) continue;
+		const int faces = atlas.faceCount(s.slot);
+		for (int f = 0; f < faces; ++f)
+			DrawShadowInto(atlas.viewId(s.slot, f), atlas.faceFrustum(s.slot, f), atlas.program(),
+					timeSeconds, false);
+	}
+}
+
 void WorldRenderer::DrawShadowInto(bgfx::ViewId view, const Frustum& frustum,
 		bgfx::ProgramHandle program, float timeSeconds, bool byZones) {
 	if (!bgfx::isValid(program)) return;

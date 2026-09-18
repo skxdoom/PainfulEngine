@@ -364,7 +364,7 @@ half-fov `acos(coneAngleCos)`, aspect 1, near `0.1`, far `Range`, the same
 frustum the cookie already covers, so the map and the cookie are bounded alike.
 `painful_config.ini` owns it: `FlashlightShadows` (1/0) switches it and
 `FlashlightShadowMapSize` sizes it (512 by default - 2048 read as too crisp for
-a torch beam; an older file's `ShadowMapSize` is read under the new name); `PAINFUL_SHADOWMAP=<size>` overrides both for a run, 0 being off. The
+a torch beam); `PAINFUL_SHADOWMAP=<size>` overrides both for a run, 0 being off. The
 format is
 the first of `D24S8`, `D32F`, `D16` the backend can both render and compare
 against, and a backend without hardware depth compare logs and runs without.
@@ -461,10 +461,11 @@ light over `kFadeHeights` (4) heights from the bounds' corner nearest the light
   its lighting is ("Environment boxes"), and nothing else. The original's
   steering by the nearest placed light is not kept: the placed lights already
   cast real shadows of their own ("Shadows from the placed lights").
-- **The strength is the caster's.** `CharacterShadowMapStrength` (60 percent)
-  of the darkening, scaled by the character's directional against the level's
-  brightest (`EntityLighting::DirectionalReference`), so a character standing in
-  a box that says "shade" throws a weaker shadow.
+- **One strength everywhere.** Every caster darkens the world by
+  `CharacterShadowStrength` (60 percent), whatever its box or level; the
+  original's blob did not depend on the light either. Scaling it by the
+  caster's directional against the level's brightest was tried and dropped:
+  the reference differed from map to map, and so did the shadows.
 
 All the slots live in one square depth atlas drawn in one view
 (`Renderer::kCharacterShadowView`): each caster's draw carries its slot's whole
@@ -474,7 +475,9 @@ does not rescale it) snapped to its texel grid. `Add` checks that the caster's
 own centre lands inside its cell in front of the far plane (a `PAINFUL_CHECK`).
 A world chunk takes up to `PAINFUL_MAX_CHAR_SHADOWS` (8, top-level CMakeLists,
 the one-number rule) of the casters whose reach overlaps it, nearest the camera
-first; `fs_world` multiplies what each leaves.
+first; `fs_world` takes the darkest of them at each pixel, so overlapping shadows
+merge into one shade rather than stacking darker, as the original's blob passes
+did (each a modulate over the last).
 
 **Only the static world receives them.** No model is darkened by them or by
 itself: the original lit a model from its box alone, and receiving was tried and
@@ -488,12 +491,9 @@ depth map of the world from the light, as a gate, was built once and taken out
 as a pass too many; the lightmap has no shadow term that could gate it for free.
 
 The menu's "Character Shadows" (`R3D.EnableShadows`) is the only switch.
-`painful_config.ini`: `CharacterShadowMapSize` (256 texels a side per character,
-32 to 1024), `CharacterShadowMapStrength` (60), `CharacterShadowCasters` (24, up
-to 64). An older file's `ModelShadowStrength` is read as the strength; its
-`ModelShadows`, `ModelShadowMapSize` (which sized one map about the camera) and
-the short-lived `CharacterShadowFadeStart` / `End` are dropped.
-`PAINFUL_SHADOWMAP=0` turns the atlas off with the flashlight's map.
+`painful_config.ini`: `CharacterShadowSize` (256 texels a side per character,
+32 to 1024), `CharacterShadowStrength` (60), `CharacterShadowCasters` (24, up
+to 64). `PAINFUL_SHADOWMAP=0` turns the atlas off with the flashlight's map.
 `PAINFUL_SHADOWVIEW=1` draws the term alone - white lit, black shadowed, models
 at 0.8. The `--shot` report lists each caster: where its shadow reaches, how far
 from the eye, its direction and strength.
@@ -513,7 +513,7 @@ adds nothing for it and computes what it WOULD contribute at the pixel - the
 recovered world-pass arithmetic, gain x colour x `(1 - d^2/R^2)` x `N.L` - and
 takes the occluded part of that off the lightmap, clamped at zero. Where the
 lamp dominates the texel its shadow is deep; where other light dominates it is
-faint; a texel the lamp never reached is untouched. `LightShadowWorldStrength`
+faint; a texel the lamp never reached is untouched. `ShadowMapStrength`
 (100 percent) scales it, because how the bake's magnitude compares to the
 additive gains is not recovered - the two paths were written for different
 hardware and only the additive one is decoded. A shadowed light that is
@@ -522,10 +522,10 @@ and simply gets its map.
 
 **A budget per frame, not per level.** Cemetery places 60 lights and only a
 handful matter to what is on screen, so each frame `EntityRenderer::
-PickShadowLights` takes the lights within `LightShadowRadius` (40 units) of
+PickShadowLights` takes the lights within `ShadowMapLightsRadius` (40 units) of
 the camera, scores them by colour x intensity weighted by a fade over the
 outer third of that radius (`Important` first), and gives the strongest
-`LightShadowLights` (8) a slot in the atlas. The rest light without shadows,
+`ShadowMapMaxLights` (8) a slot in the atlas. The rest light without shadows,
 as before. The fade also reaches the shader (`u_dynShadow.w`), so a light on
 its way out of the radius thins its shadows rather than dropping them; the
 first version scored by the slot score at the models in view, which swapped
@@ -533,11 +533,14 @@ the set as models moved. The flashlight is left out - it has its own map -
 and so are directionals and the fake-specular lights.
 
 **One atlas, six faces a point light.** A slot is a 3x2 block of
-`LightShadowMapSize`-texel faces in one depth texture; a point light renders
+`ShadowMapSize`-texel faces in one depth texture; a point light renders
 six 90-degree faces, a spot one face down its cone, each its own bgfx view
 with its own rect (`Renderer::kLightShadowViewBase`, 48 views). Casters are the
 models inside each face's frustum, opaque parts only, the view weapon excluded
-as everywhere.
+as everywhere - and, for a DYNAMIC light, the static world too
+(`WorldRenderer::DrawLightShadows`): a light spawned at runtime is in no
+lightmap, so a wall between it and the floor has to cast. A placed light's
+faces take the models alone, its world shadows being baked.
 
 **The lookup is analytic.** The receiver never sees a face matrix: from the
 light-relative vector it picks the face by major axis, takes the face's
@@ -567,13 +570,20 @@ were built and removed: `ModelLighting = 1` (box terms halved, removed in
 72cd7c4) and `RendererType = 1`, model light traced through a distance field of
 the level (72cd7c4 to 61342bf, removed 2026-09-17; its notes are in that
 history). The other half of that seam
-is `LightShadowWorldStrength`: where the bake stored less of a lamp than the
+is `ShadowMapStrength`: where the bake stored less of a lamp than the
 analytic term says, the subtraction clamps at zero and the floor shadow goes
 black, and lowering it is the fix.
 
-`painful_config.ini`: `LightShadows` (1/0), `LightShadowLights` (8),
-`LightShadowRadius` (40), `LightShadowMapSize` (256 per face),
-`LightShadowWorldStrength` (100).
+**Placed and dynamic lights switch separately.** A light is dynamic when its
+script set `LIGHT.SetDynamicFlag` - every light made at runtime is
+(`CreateLight`, `AddLight` in `CLight.lua`: muzzle flashes, explosions, the
+lightning bolt), and so are the few placed `CLight`s authored `IsDynamic` (4 of
+the 143 in the level folders), which the engine's own "Dynamic Lights" option
+treats the same way. `PickShadowLights` skips a kind that is switched off.
+
+`painful_config.ini`: `ShadowMapPlacedLights` (1/0), `ShadowMapDynLights`
+(1/0), `ShadowMapMaxLights` (8), `ShadowMapLightsRadius` (40), `ShadowMapSize`
+(256 per face), `ShadowMapStrength` (100).
 `PAINFUL_SHADOWVIEW` darkens the grey models by this term and the world by
 the share of its lightmap the subtraction keeps. Cost: up to six depth views per shadowed light with the
 models in reach, and nine compares per shadowed light per model pixel.
@@ -624,8 +634,8 @@ arm's length a wall spread its taps wide and drew a dark band across itself. The
 sky takes none.
 
 Each tap occludes by three factors, multiplied: its elevation over the surface
-past `SSAOAngle` (30 degrees, ramped to 1 at straight up), its height above the
-surface's plane from a quarter of `SSAOHeight` to all of it (40 percent of the
+past `Ssao::kAngleDegrees` (30 degrees, ramped to 1 at straight up), its height above the
+surface's plane from a quarter of `Ssao::kHeight` to all of it (40 percent of the
 radius, smoothstep), and its distance, falling linearly to 0 at the radius; the
 average times `SSAOIntensity` (500 percent, the user's pick in play) comes off. The first estimator was McGuire's Alchemy
 obscurance (scaled by 2; his 5 took Cathedral's corners to black), summing
@@ -653,10 +663,10 @@ The occlusion is multiplied over a scene the world shaders already fogged, so
 it has to thin as they do: the occlusion pass takes the level fog (mode,
 start, end, density) and the world shaders' own curve over the view distance,
 `length` of the view-space position like `v_viewdist`, and scales the darkening
-by it. It also fades out between `SSAOFadeStart` and `SSAOFadeEnd` (30 and 60
+by it. It also fades out between `Ssao::kFadeStart` and `kFadeEnd` (30 and 60
 units): far off, the taps span less than a pixel of geometry and the occlusion
 flickered on buildings (the user's report, 2026-09-17). A pixel with nothing
-left to show skips its taps. Then the result, at `SSAOStrength` (100 percent), multiplies the
+left to show skips its taps. Then the result, whole (`Ssao::kStrength`), multiplies the
 scene's colour before anything reads the frame (views 68-71, ahead of the haze's
 copy and the bloom). The view model, the particles and the coronas draw after
 it, in the late views (Particles.md, "The warp sprites"): drawn in the world view,

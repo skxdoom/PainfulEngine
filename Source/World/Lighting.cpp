@@ -228,19 +228,6 @@ int EntityLighting::EnvironmentAt(const Vec3& pos) const {
 	return -1;
 }
 
-namespace {
-
-float Luminance(const Vec3& c) { return 0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2]; }
-
-} // namespace
-
-float EntityLighting::DirectionalReference() const {
-	float reference = Luminance(levelDirColor_) * levelDirIntensity_;
-	for (const Environment& env : environments_)
-		if (env.dirOverwrite) reference = std::max(reference, Luminance(env.dirColor) * env.dirIntensity);
-	return reference;
-}
-
 void EntityLighting::UpdateFade(const Vec3& pos, float timeSeconds, EntityLightFade& fade) const {
 	if (fade.env >= int(environments_.size())) fade.primed = false; // the boxes were rebuilt
 	if (fade.primed && timeSeconds == fade.clock) return; // this frame's step is taken

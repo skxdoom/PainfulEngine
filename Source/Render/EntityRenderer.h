@@ -53,6 +53,9 @@ public:
 	// flashlight. Handed over whole because they all move.
 	void SetDynamicLights(std::vector<LightSource> lights) {
 		lighting_.SetDynamicLights(std::move(lights));
+		// The picks point into the list just replaced; a frame that does not pick
+		// (the atlas switched off) must not keep them.
+		shadowPicks_.clear();
 	}
 	// Where to resolve a light's projector texture from. Named by the light
 	// rather than by the level, so it cannot be looked up until one asks.
@@ -80,8 +83,8 @@ public:
 	// frustum, from the buffers Draw posed. Called after Draw, once per map.
 	void DrawShadow(bgfx::ViewId view, const ShadowMap& map, float timeSeconds);
 	// The character shadows: the nearest characters whose shadow can reach the
-	// view each take a slot, down their own faded environment directional, at
-	// `strength` of their directional against the level's brightest. Before Draw,
+	// view each take a slot, down their own faded environment directional, all at
+	// the one `strength` (CharacterShadowStrength). Before Draw,
 	// so a caster out of view is still posed; its fade steps here if it had not.
 	void PickCharacterShadows(const Camera& camera, int width, int height, float timeSeconds,
 			float strength, CharacterShadows& shadows);
@@ -98,8 +101,10 @@ public:
 	// `radius` of the camera, important ones first, each with a fade that
 	// reaches zero at the radius so a light leaving the set fades its
 	// shadows rather than dropping them. After SetDynamicLights, before
-	// Draw. The caller aims the atlas at each pick.
-	void PickShadowLights(const Camera& camera, int count, float radius);
+	// Draw. The caller aims the atlas at each pick. `placed` and `dynamic` take the
+	// two kinds: a light is dynamic when LIGHT.SetDynamicFlag set it.
+	void PickShadowLights(const Camera& camera, int count, float radius, bool placed,
+			bool dynamic);
 	const std::vector<ShadowedLight>& shadowLights() const { return shadowPicks_; }
 	// The casters into every face of every picked light. After Draw.
 	void DrawLightShadows(float timeSeconds);

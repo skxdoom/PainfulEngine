@@ -30,44 +30,26 @@ const char* kPrefix = "Pf.";
 // The keys the engine knows, in the order the file is written. Booleans are
 // written true/false. The help is one line, for the console's `pf help`.
 const EngineConfig::Known kKnown[] = {
-	{"HudAspect", "2", false, "4:3 interface on a wide screen: 0 stretched, 1 centred, 2 anchored by thirds"},
-	{"WindowMode", "0", false, "0 config.ini's Fullscreen decides, 1 always a window, 2 borderless"},
-	{"FlashlightShadows", "true", true, "the flashlight casts shadows"},
-	{"FlashlightShadowMapSize", "512", false, "flashlight shadow map, texels a side; applies while FlashlightShadows is on"},
-	{"CharacterShadowMapSize", "256", false, "character shadow map, texels a side per character (32 to 1024)"},
-	{"CharacterShadowMapStrength", "60", false, "how dark a character's shadow falls on the world at the level's brightest directional, percent"},
-	{"CharacterShadowCasters", "24", false, "characters with a shadow map per frame, nearest first (the original's cap is 24; up to 64)"},
-	{"LightShadows", "true", true, "the placed lights cast shadows"},
-	{"LightShadowLights", "8", false, "placed lights with a shadow map per frame, up to 8"},
-	{"LightShadowRadius", "40", false, "how far from the camera a placed light gets a map, units"},
-	{"LightShadowMapSize", "256", false, "placed light shadow map, texels per face"},
-	{"LightShadowWorldStrength", "100", false, "how much of a placed light a model's shadow takes off the world, percent"},
-	{"ViewModelShadows", "true", true, "the weapon in hand takes shadows from maps fitted to it"},
-	{"ViewModelShadowMapSize", "512", false, "view model shadow map, texels per light"},
-	{"SSAO", "false", true, "screen-space ambient occlusion over the scene"},
+	{"HudAspect", "2", false, "aspect ratio of the interface: 0 stretched, 1 centred, 2 anchored by thirds"},
+	{"WindowMode", "0", false, "0 default (set from config.ini), 1 windowed, 2 borderless"},
+	{"FlashlightShadows", "true", true, "whether the flashlight casts shadows"},
+	{"FlashlightShadowMapSize", "512", false, "sets flashlight shadow map size in texels"},
+	{"CharacterShadowSize", "256", false, "character shadow size in texels (32 to 1024)"},
+	{"CharacterShadowStrength", "60", false, "characters shadow strength"},
+	{"CharacterShadowCasters", "24", false, "characters with a shadow per frame, nearest first (the original's cap is 24; up to 64)"},
+	{"ShadowMapPlacedLights", "true", true, "whether the placed lights in the level places cast shadow maps"},
+	{"ShadowMapDynLights", "true", true, "whether the dynamically created lights cast shadow maps"},
+	{"ShadowMapMaxLights", "8", false, "lights with a shadow map per frame, up to 8"},
+	{"ShadowMapLightsRadius", "40", false, "the radius in which a light gets a shadow map"},
+	{"ShadowMapSize", "256", false, "light shadow map size in texels"},
+	{"ShadowMapStrength", "60", false, "light shadow map strength"},
+	{"ViewModelShadows", "true", true, "whether the weapon view model cast self shadows"},
+	{"ViewModelShadowMapSize", "1024", false, "view model shadow map size in texels"},
+	{"SSAO", "false", true, "enables SSAO"},
 	{"SSAOScreenRadius", "40", false, "SSAO radius, thousandths of the screen's height at any distance"},
-	{"SSAOStrength", "100", false, "SSAO strength, percent"},
-	{"SSAOIntensity", "500", false, "SSAO occlusion gain, percent of the averaged taps (before the strength)"},
-	{"SSAOAngle", "30", false, "SSAO: degrees an occluder must rise over a surface to count; shallower creases stay clear"},
-	{"SSAOHeight", "40", false, "SSAO: percent of the radius an occluder must stand over a surface to fully count (starts at a quarter)"},
-	{"SSAOFadeStart", "30", false, "SSAO: distance, world units, where the occlusion starts to fade out"},
-	{"SSAOFadeEnd", "60", false, "SSAO: distance, world units, past which there is no occlusion"},
+	{"SSAOIntensity", "500", false, "SSAO intensity"},
 	{"BloomScale", "2", false, "bloom is blurred at 1/N of the screen; the original is 2"},
 	{"BloomKernel", "0", false, "bloom blur: 0 the Gaussian to three sigma, 1 the original 13 taps"},
-};
-
-// Keys a later build renamed: an older file's value is read under the new name.
-// A null `to` means the key was dropped, and the rewrite leaves it out.
-struct Renamed { const char* from; const char* to; };
-const Renamed kRenamed[] = {
-	{"ShadowMapSize", "FlashlightShadowMapSize"},
-	{"FogVolumes", nullptr},
-	{"ModelShadows", nullptr},
-	// Sized one map about the camera; the key now sizes a map per character.
-	{"ModelShadowMapSize", nullptr},
-	{"ModelShadowStrength", "CharacterShadowMapStrength"},
-	{"CharacterShadowFadeStart", nullptr},
-	{"CharacterShadowFadeEnd", nullptr},
 };
 
 const EngineConfig::Known* FindKnown(const std::string& key) {
@@ -125,21 +107,15 @@ bool EngineConfig::Reload() {
 		// An older file said `Key = value` with no prefix.
 		if (Lower(key).rfind(Lower(kPrefix), 0) == 0) key = key.substr(3);
 		else oldStyle = true;
-		const Renamed* renamed = nullptr;
-		for (const Renamed& r : kRenamed)
-			if (Lower(key) == Lower(r.from)) renamed = &r;
-		if (renamed) {
-			oldStyle = true;
-			if (!renamed->to) continue;
-			key = renamed->to;
-		}
-		Set(key, Trim(t.substr(eq + 1)));
+		// A key this build does not know (renamed or dropped) is left out.
 		std::string canonical;
-		seen[Canonical(key, canonical) ? canonical : key] = true;
+		if (!Canonical(key, canonical)) { oldStyle = true; continue; }
+		Set(key, Trim(t.substr(eq + 1)));
+		seen[canonical] = true;
 	}
 	in.close();
-	// A key this build knows and the file does not, or the older style:
-	// rewritten so the file reads as this build writes it, everything kept.
+	// A key this build knows and the file does not, one it does not know, or the
+	// older style: rewritten so the file reads as this build writes it.
 	bool missing = false;
 	for (const Known& k : kKnown)
 		if (!seen.count(k.key)) missing = true;
@@ -150,14 +126,10 @@ bool EngineConfig::Reload() {
 bool EngineConfig::Save() const {
 	std::ofstream out(path_);
 	if (!out) return false;
-	std::map<std::string, std::string> rest = values_;
 	for (const Known& k : kKnown) {
-		const auto it = rest.find(k.key);
-		out << kPrefix << k.key << " = " << (it != rest.end() ? it->second : k.value) << "\n";
-		if (it != rest.end()) rest.erase(it);
+		const auto it = values_.find(k.key);
+		out << kPrefix << k.key << " = " << (it != values_.end() ? it->second : k.value) << "\n";
 	}
-	// Not known to this build, kept as found.
-	for (const auto& kv : rest) out << kPrefix << kv.first << " = " << kv.second << "\n";
 	return true;
 }
 

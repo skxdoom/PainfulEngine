@@ -172,11 +172,6 @@ public:
 
 	const std::vector<LightSource>& dynamicLights() const { return dynamic_; }
 
-	// The brightest directional the level can give, its own or a box's, as
-	// luminance x intensity: what a character's shadow strength is measured
-	// against.
-	float DirectionalReference() const;
-
 	size_t lightCount() const { return lights_.size(); }
 	size_t environmentCount() const { return environments_.size(); }
 	size_t dynamicCount() const { return dynamic_.size(); }

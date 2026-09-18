@@ -900,39 +900,34 @@ void EntityRenderer::DrawShadow(bgfx::ViewId view, const ShadowMap& map, float t
 void EntityRenderer::PickCharacterShadows(const Camera& camera, int width, int height,
 		float timeSeconds, float strength, CharacterShadows& shadows) {
 	for (Instance& instance : instances_) instance.hasCharacterSlot = false;
-	const float reference = lighting_.DirectionalReference();
-	if (!shadows.ready() || strength <= 0.f || reference <= 1e-6f) return;
+	if (!shadows.ready() || strength <= 0.f) return;
 
 	float viewMtx[16], projMtx[16];
 	camera.ViewProj(width, height, camera.farPlane, viewMtx, projMtx);
 	const Frustum frustum = Frustum::FromViewProj(viewMtx, projMtx);
 	// View::RenderShadowmaps takes up to 24 of the scene's casters; here the
 	// nearest first, as many as there are slots.
-	struct Pick { float dist2; size_t index; float strength; };
+	struct Pick { float dist2; size_t index; };
 	std::vector<Pick> picks;
 	for (size_t i = 0; i < instances_.size(); ++i) {
 		Instance& instance = instances_[i];
 		if (!instance.alive || !instance.visible || !instance.castsShadow ||
 				!instance.characterShadow || instance.viewModel)
 			continue;
-		// The character's own light, faded as its lighting is (UpdateFade steps
-		// once per frame, so Draw's Evaluate will not step it again).
+		// The character's own light direction, faded as its lighting is (UpdateFade
+		// steps once per frame, so Draw's Evaluate will not step it again).
 		lighting_.UpdateFade(instance.pos, timeSeconds, instance.lightFade);
-		const EntityLightFade& fade = instance.lightFade;
-		const Vec3 c = fade.dirColor;
-		const float lum = (0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2]) * fade.intensity;
-		const float s = std::min(strength * lum / reference, 1.f);
-		if (s <= 0.003f) continue;
 		Vec3 reachLo, reachHi;
-		CharacterShadows::Reach(instance.aabbLo, instance.aabbHi, fade.dirDir, reachLo, reachHi);
+		CharacterShadows::Reach(instance.aabbLo, instance.aabbHi, instance.lightFade.dirDir,
+				reachLo, reachHi);
 		if (!frustum.VisibleAabb(reachLo, reachHi)) continue;
-		picks.push_back({(instance.pos - camera.pos).LengthSq(), i, s});
+		picks.push_back({(instance.pos - camera.pos).LengthSq(), i});
 	}
 	std::sort(picks.begin(), picks.end(), [](const Pick& a, const Pick& b) { return a.dist2 < b.dist2; });
 	for (const Pick& p : picks) {
 		Instance& instance = instances_[p.index];
 		if (!shadows.Add(int(p.index), instance.aabbLo, instance.aabbHi, instance.lightFade.dirDir,
-				p.strength))
+				strength))
 			break;
 		instance.hasCharacterSlot = true;
 	}
@@ -951,7 +946,8 @@ void EntityRenderer::DrawCharacterShadows(const CharacterShadows& shadows, float
 	}
 }
 
-void EntityRenderer::PickShadowLights(const Camera& camera, int count, float radius) {
+void EntityRenderer::PickShadowLights(const Camera& camera, int count, float radius, bool placed,
+		bool dynamic) {
 	shadowPicks_.clear();
 	if (!lightShadows_ || !lightShadows_->ready() || count <= 0 || radius <= 0.f) return;
 
@@ -966,6 +962,7 @@ void EntityRenderer::PickShadowLights(const Camera& camera, int count, float rad
 		const LightSource& l = lights[j];
 		if (l.type == LightSource::kDirectional || !l.projector.empty()) continue;
 		if (l.range <= 0.f || l.intensity <= 0.f || l.fakeSpecular) continue;
+		if (!(l.dynamic ? dynamic : placed)) continue;
 		const float dist = (l.pos - camera.pos).Length();
 		const float fadeFrom = radius * 0.7f;
 		float fade = 1.f;

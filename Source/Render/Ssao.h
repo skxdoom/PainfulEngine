@@ -22,12 +22,17 @@ public:
 	void Shutdown();
 	bool ready() const { return bgfx::isValid(apply_); }
 
-	// SSAOScreenRadius as a share of the screen's height, SSAOStrength 0..1.
-	void SetParams(float radius, float strength);
-	// SSAOIntensity as a factor, SSAOAngle in degrees, SSAOHeight as a share of the radius.
-	void SetShape(float intensity, float angleDegrees, float height);
-	// SSAOFadeStart/End in world units: the occlusion is gone past the end.
-	void SetFade(float start, float end) { fade_[0] = start; fade_[1] = end; }
+	// SSAOScreenRadius as a share of the screen's height.
+	void SetRadius(float radius);
+	// SSAOIntensity as a factor; the rest of the shape is fixed below.
+	void SetIntensity(float intensity);
+	// The fixed tuning (Lighting.md, "Screen-space ambient occlusion"): the share of
+	// the occlusion applied, how far an occluder must rise over a surface and how
+	// high (of the radius) to count fully, and the fade-out distances in world units.
+	static constexpr float kStrength = 1.f;
+	static constexpr float kAngleDegrees = 30.f;
+	static constexpr float kHeight = 0.4f;
+	static constexpr float kFadeStart = 30.f, kFadeEnd = 60.f;
 	// The level fog, as the world shaders get it: the occlusion thins with it.
 	void SetFog(int mode, float start, float end, float density) {
 		fog_[0] = float(mode); fog_[1] = start; fog_[2] = end; fog_[3] = density;
@@ -61,10 +66,10 @@ private:
 	bgfx::FrameBufferHandle fb_[2] = {BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE};
 	bgfx::TextureHandle tex_[2] = {BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE};
 	int bufW_ = 0, bufH_ = 0;
-	float radius_ = 1.f, strength_ = 1.f;
-	float shape_[4] = {5.f, 0.5f, 0.1f, 0.4f};
+	float radius_ = 1.f;
+	float shape_[4] = {5.f, 0.5f, 0.1f, 0.4f}; // SetIntensity rebuilds it from the constants
 	float fog_[4] = {0.f, 0.f, 0.f, 0.f};
-	float fade_[4] = {30.f, 60.f, 0.f, 0.f};
+	const float fade_[4] = {kFadeStart, kFadeEnd, 0.f, 0.f};
 	bool active_ = false;
 };
 

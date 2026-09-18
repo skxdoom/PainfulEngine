@@ -222,6 +222,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	lightShadows.SetBaseView(Renderer::kLightShadowViewBase);
 	entities.SetLightShadowAtlas(&lightShadows);
 	float lightShadowRadius = 40.f;
+	bool placedLightShadows = true, dynLightShadows = true;
 	// The view model's own maps, fitted to the weapon in hand.
 	ViewModelShadows vmShadows;
 	vmShadows.SetView(Renderer::kViewModelShadowView);
@@ -481,7 +482,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		}
 
 		// Switched by the menu's "Character Shadows" alone (engine.shadowsEnabled()).
-		size = anyMaps ? std::clamp(cfg.GetInt("CharacterShadowMapSize", 256), 32, 1024) : 0;
+		size = anyMaps ? std::clamp(cfg.GetInt("CharacterShadowSize", 256), 32, 1024) : 0;
 		const int casters = std::clamp(cfg.GetInt("CharacterShadowCasters", 24), 1, 64);
 		if (size != characterSize || casters != characterSlots) {
 			characterShadows.Shutdown();
@@ -489,10 +490,13 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			characterSize = size;
 			characterSlots = casters;
 		}
-		characterStrength = float(std::clamp(cfg.GetInt("CharacterShadowMapStrength", 60), 0, 100)) / 100.f;
+		characterStrength = float(std::clamp(cfg.GetInt("CharacterShadowStrength", 60), 0, 100)) / 100.f;
 
-		size = anyMaps && cfg.GetBool("LightShadows", true) ? cfg.GetInt("LightShadowMapSize", 256) : 0;
-		const int count = std::min(cfg.GetInt("LightShadowLights", 8),
+		// The lights' atlas: placed lights and runtime ones switch separately.
+		placedLightShadows = cfg.GetBool("ShadowMapPlacedLights", true);
+		dynLightShadows = cfg.GetBool("ShadowMapDynLights", true);
+		size = anyMaps && (placedLightShadows || dynLightShadows) ? cfg.GetInt("ShadowMapSize", 256) : 0;
+		const int count = std::min(cfg.GetInt("ShadowMapMaxLights", 8),
 				int(Renderer::kLightShadowViewCount / 6));
 		if (size != atlasSize || count != atlasCount) {
 			lightShadows.Shutdown();
@@ -500,7 +504,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			atlasSize = size;
 			atlasCount = count;
 		}
-		lightShadowRadius = float(cfg.GetInt("LightShadowRadius", 40));
+		lightShadowRadius = float(cfg.GetInt("ShadowMapLightsRadius", 40));
 
 		size = anyMaps && cfg.GetBool("ViewModelShadows", true) ? cfg.GetInt("ViewModelShadowMapSize", 512) : 0;
 		if (size != vmSize) {
@@ -508,17 +512,12 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			vmShadows.Init(shaderDir, size);
 			vmSize = size;
 		}
-		world.SetLightShadowStrength(float(cfg.GetInt("LightShadowWorldStrength", 100)) / 100.f);
+		world.SetLightShadowStrength(float(cfg.GetInt("ShadowMapStrength", 100)) / 100.f);
 
 		bloom.SetQuality(cfg.GetInt("BloomScale", 2), cfg.GetInt("BloomKernel", 0));
 		ssaoOn = ssaoInit && cfg.GetBool("SSAO", false);
-		ssao.SetParams(float(std::max(cfg.GetInt("SSAOScreenRadius", 40), 1)) / 1000.f,
-				float(std::clamp(cfg.GetInt("SSAOStrength", 100), 0, 100)) / 100.f);
-		ssao.SetShape(float(std::max(cfg.GetInt("SSAOIntensity", 500), 0)) / 100.f,
-				float(std::clamp(cfg.GetInt("SSAOAngle", 30), 0, 85)),
-				float(std::clamp(cfg.GetInt("SSAOHeight", 40), 0, 400)) / 100.f);
-		ssao.SetFade(float(std::max(cfg.GetInt("SSAOFadeStart", 30), 0)),
-				float(std::max(cfg.GetInt("SSAOFadeEnd", 60), 0)));
+		ssao.SetRadius(float(std::max(cfg.GetInt("SSAOScreenRadius", 40), 1)) / 1000.f);
+		ssao.SetIntensity(float(std::max(cfg.GetInt("SSAOIntensity", 500), 0)) / 100.f);
 	};
 	applySettings();
 	SkyRenderer sky;
@@ -1263,7 +1262,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		// The placed lights worth a map this frame, and their faces aimed.
 		lightShadows.BeginFrame();
 		if (lightShadows.ready()) {
-			entities.PickShadowLights(camera, lightShadows.slots(), lightShadowRadius);
+			entities.PickShadowLights(camera, lightShadows.slots(), lightShadowRadius,
+					placedLightShadows, dynLightShadows);
 			for (const ShadowedLight& s : entities.shadowLights())
 				lightShadows.Begin(s.slot, *s.light);
 		}
@@ -1402,6 +1402,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		}
 		entities.DrawCharacterShadows(characterShadows, elapsed);
 		entities.DrawLightShadows(elapsed);
+		if (worldReady) world.DrawLightShadows(lightShadows, entities.shadowLights(), elapsed);
 		// Decals over the world and the props, before anything blended. Their colour
 		// is albedo, so the lighting-only view goes without them.
 		if (decalsReady && !lightingOnly) {
@@ -1685,7 +1686,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 						bloom.active() ? "on" : "off", bloom.bufferWidth(), bloom.bufferHeight(),
 						bloom.taps(), bloom.threshold(), bloom.multiplier(), renderer.msaaSamples(),
 						demonFx.active() ? "on" : "off");
-				LogInfo("  shadow maps: flashlight %s, characters %s (%zu of %zu cast), %zu placed lights "
+				LogInfo("  shadow maps: flashlight %s, characters %s (%zu of %zu cast), %zu lights "
 						"(%zu baked chunk slots), view model %s; %zu world draws, "
 						"%zu entity draws in all",
 						shadow.active() ? "on" : (shadow.ready() ? "idle" : "OFF"),

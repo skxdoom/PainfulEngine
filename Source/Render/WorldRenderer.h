@@ -83,7 +83,7 @@ public:
 		shadowedLights_ = &lights;
 		lightAtlas_ = atlas;
 	}
-	// How much of the occluded light comes off, 0..1 (LightShadowWorldStrength).
+	// How much of the occluded light comes off, 0..1 (ShadowMapStrength).
 	void SetLightShadowStrength(float k) { lightShadowStrength_ = k; }
 	// The M key's lighting-only view: unblended materials take 0.8 grey for albedo.
 	void SetLightingOnly(bool on) { lightingOnly_ = on; }
@@ -94,6 +94,11 @@ public:
 	// The same into any depth view: every opaque chunk inside `frustum`.
 	void DrawShadowInto(bgfx::ViewId view, const Frustum& frustum, bgfx::ProgramHandle program,
 			float timeSeconds, bool byZones);
+	// The world into the faces of the DYNAMIC lights picked for the atlas: a light
+	// spawned at runtime is in no lightmap, so the world's shadow has to be cast.
+	// A placed light's is baked, and its faces take the models alone. After Draw.
+	void DrawLightShadows(const LightShadowAtlas& atlas, const std::vector<ShadowedLight>& picks,
+			float timeSeconds);
 
 	size_t drawCalls() const { return drawCalls_; }
 	size_t shadowDrawCalls() const { return shadowDrawCalls_; }

@@ -93,23 +93,22 @@ bool Ssao::BuildTargets(int width, int height) {
 	return true;
 }
 
-void Ssao::SetParams(float radius, float strength) {
+void Ssao::SetRadius(float radius) {
 	radius_ = radius > 0.001f ? radius : 0.001f;
-	strength_ = strength;
 }
 
-void Ssao::SetShape(float intensity, float angleDegrees, float height) {
+void Ssao::SetIntensity(float intensity) {
 	shape_[0] = intensity;
-	shape_[1] = bx::sin(bx::toRad(angleDegrees));
+	shape_[1] = bx::sin(bx::toRad(kAngleDegrees));
 	// A tap starts to count at a quarter of the height where it fully counts.
-	shape_[2] = height * 0.25f;
-	shape_[3] = height > 0.f ? height : 0.0001f;
+	shape_[2] = kHeight * 0.25f;
+	shape_[3] = kHeight;
 }
 
 void Ssao::Draw(const SceneTargets& scene, const Camera& camera, bgfx::ViewId aoView, bgfx::ViewId blurHView,
 		bgfx::ViewId blurVView, bgfx::ViewId applyView) {
 	active_ = false;
-	if (!ready() || !scene.active() || !scene.depthReadable() || strength_ <= 0.f) return;
+	if (!ready() || !scene.active() || !scene.depthReadable()) return;
 	const bool multisampled = scene.msaa() >= 2;
 	if (multisampled && !bgfx::isValid(aoMs_)) return;
 	const int w = scene.width(), h = scene.height(), hw = scene.halfWidth(), hh = scene.halfHeight();
@@ -121,7 +120,7 @@ void Ssao::Draw(const SceneTargets& scene, const Camera& camera, bgfx::ViewId ao
 	const bgfx::Caps* caps = bgfx::getCaps();
 	const float screen[4] = {float(w), float(h), caps->originBottomLeft ? 1.f : 0.f,
 			caps->homogeneousDepth ? 1.f : 0.f};
-	const float params[4] = {radius_, strength_, proj[5], 0.f};
+	const float params[4] = {radius_, kStrength, proj[5], 0.f};
 
 	// The occlusion, at half size from the full-size depth.
 	bgfx::setViewFrameBuffer(aoView, fb_[0]);

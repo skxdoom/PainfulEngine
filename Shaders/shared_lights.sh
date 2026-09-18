@@ -219,11 +219,12 @@ float VmShadow(vec3 wpos, vec3 n, vec3 l)
 }
 #endif
 
-// What is left of the light after every caster's shadow, each faded along its
-// light from the caster's near side over kFadeHeights of its height.
+// What is left of the light under the darkest caster's shadow, each faded along
+// its light from the caster's near side over kFadeHeights of its height.
+// Overlapping shadows do not stack: the darkest wins.
 float CharacterShadows(vec3 wpos, vec3 n)
 {
-	float kept = 1.0;
+	float shade = 0.0;
 	for (int i = 0; i < PAINFUL_MAX_CHAR; ++i)
 	{
 		if (float(i) >= u_charShadowInfo.x) break;
@@ -235,9 +236,9 @@ float CharacterShadows(vec3 wpos, vec3 n)
 		vec4 r = u_charShadowRect[i];
 		if (along >= 1.0 || c.x < r.x || c.x > r.z || c.y < r.y || c.y > r.w || c.z > 1.0) continue;
 		float lit = Pcf3x3(s_charShadow, c.xy, c.z, u_charShadowInfo.y);
-		kept *= 1.0 - (1.0 - lit) * (1.0 - along) * u_charShadowDir[i].w;
+		shade = max(shade, (1.0 - lit) * (1.0 - along) * u_charShadowDir[i].w);
 	}
-	return kept;
+	return 1.0 - shade;
 }
 
 // diffuse and spec accumulate; multiply DIFFUSE by the albedo afterwards, the
