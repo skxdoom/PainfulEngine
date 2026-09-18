@@ -72,7 +72,8 @@ HudRenderer::Material HudRenderer::CreateMaterial(const std::string& name,
 	// "HUD/ammo" - and the cache resolves the extension and the archive.
 	// The levelHint is empty: HUD art is global, not per level.
 	(void)texturesRoot;
-	bgfx::TextureHandle tex = textures.Get(name, "");
+	// The engine loads HUD art with flags 10 - no mip levels built, no quality scaling.
+	bgfx::TextureHandle tex = textures.Get(name, "", true, false);
 	if (!bgfx::isValid(tex)) return 0;
 
 	Mat m;

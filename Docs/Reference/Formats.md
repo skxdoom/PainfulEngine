@@ -754,6 +754,25 @@ resolved into another level before and now draw white (`Okna_L_0000`,
 lava shapes' `lawa_dirt` / `lawa__dirt` / `lawaTwins_dirt` on DM and CTF maps);
 `PainfulTools textures <mpk> <DataRoot> <mapName>` lists them.
 
+### Mip levels
+
+Many files ship without a mip chain: 847 level textures (the lightmaps aside,
+884 more), among them Cathedral's `floor` and `beton_tile_all`, 43 model
+textures, 67 decals and 169 sky layers. The engine does not draw them that way.
+`MaterialSystem::CreateTexture` (`0x10099cb0`) hands the file to the device
+(`D3Dev` vtable `+0x48`, `0x10001da0`), which loads a 2D texture through the
+statically linked `D3DXCreateTextureFromFileInMemoryEx` with MipLevels
+`D3DX_DEFAULT` - a full chain, the levels the file lacks built with MipFilter
+`0x80005` (box, dithered) - unless the texture's flags carry 2, which asks for
+one level. `WorldMesh::InitializeTextures` passes 2 for the lightmap only, 0 for
+the diffuse maps and 8 (no quality scaling) for the detail map; the HUD, the
+loading screen and the menu borders pass 10. Every other load passes 0 or 8.
+
+The port builds the missing levels on load (`TextureCache`, `CreateWithMips`): a
+2x2 box average of the stored values down to 1x1, decoded to RGBA8 for it;
+lightmaps and HUD art ask for none. The log's `textures:` line counts them
+(Cathedral: 38 of 232).
+
 PainKit includes a small **DDS reader** (DXT1/BC1, DXT3/BC2, DXT5/BC3 and
 uncompressed 24/32-bit) and a dependency-free **PNG writer**, so textures can be
 decoded for export or preview without external libraries.

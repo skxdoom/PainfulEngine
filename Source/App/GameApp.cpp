@@ -690,6 +690,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			}
 			LogInfo("specular: %d meshes, %d with fake lights, %d gloss maps", glossMeshes, fakeLit,
 					glossMaps);
+			LogInfo("textures: %zu loaded, %zu given mip levels they shipped without, %zu missing",
+					textures.loadedTextures(), textures.mipsBuilt(), textures.missing());
 			// The volumes, and their .EVolumetric FOGVOL.Setup values, the same way.
 			volumes.Upload(*map, info.scale, world);
 			for (const auto& kv : engine.volumeParams())

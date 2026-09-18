@@ -29,8 +29,10 @@ public:
 	// Returns a valid handle; falls back to a white texture when unresolved.
 	// anyLevel false: never a same-named file from another level's folder, the
 	// rule for lightmaps. Formats.md, "Where the engine looks"
+	// mips false: the file's own levels only - lightmaps and the HUD (flag 2).
+	// Otherwise a file without a mip chain gets one, as D3DX built it.
 	bgfx::TextureHandle Get(const std::string& reference, const std::string& levelHint,
-			bool anyLevel = true);
+			bool anyLevel = true, bool mips = true);
 	// Cube maps need their own creation call and their own sampler type in the
 	// shader, so they cannot share Get(). The engine hardcodes exactly one:
 	// special/cube_wenecja, for water reflections.
@@ -44,6 +46,7 @@ public:
 	size_t indexedFiles() const { return index_.size(); }
 	size_t loadedTextures() const { return loaded_; }
 	size_t missing() const { return missing_; }
+	size_t mipsBuilt() const { return mipsBuilt_; } // files that shipped without a mip chain
 
 	// Exposed for diagnostics: which file does a reference map to?
 	std::string Resolve(const std::string& reference, const std::string& levelHint,
@@ -73,6 +76,7 @@ private:
 	bgfx::TextureHandle whiteCube_ = BGFX_INVALID_HANDLE;
 	bgfx::TextureHandle transparent_ = BGFX_INVALID_HANDLE;
 	size_t loaded_ = 0, missing_ = 0;
+	size_t mipsBuilt_ = 0;
 };
 
 } // namespace painful

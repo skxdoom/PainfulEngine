@@ -6,6 +6,7 @@
 #include <bx/allocator.h>
 
 #include <algorithm>
+#include <cstring>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -162,11 +163,57 @@ std::string TextureCache::Resolve(const std::string& reference,
 	return {};
 }
 
+namespace {
+
+// The missing levels of a single-level 2D texture, as D3DX builds them for
+// D3DXCreateTextureFromFileInMemoryEx at MipLevels D3DX_DEFAULT: a 2x2 box
+// average of the stored values, down to 1x1. Decoded to RGBA8 for it.
+// Docs/Reference/Formats.md, "Mip levels"
+bgfx::TextureHandle CreateWithMips(const bimg::ImageContainer& image) {
+	bimg::ImageContainer* rgba =
+		bimg::imageConvert(&g_allocator, bimg::TextureFormat::RGBA8, image, false);
+	if (!rgba) return BGFX_INVALID_HANDLE;
+	uint32_t w = rgba->m_width, h = rgba->m_height;
+	uint64_t total = 0;
+	for (uint32_t lw = w, lh = h;; lw = std::max(1u, lw / 2), lh = std::max(1u, lh / 2)) {
+		total += uint64_t(lw) * lh * 4;
+		if (lw == 1 && lh == 1) break;
+	}
+	const bgfx::Memory* mem = bgfx::alloc(uint32_t(total));
+	std::memcpy(mem->data, rgba->m_data, size_t(w) * h * 4);
+	uint8_t* src = mem->data;
+	while (w > 1 || h > 1) {
+		const uint32_t dw = std::max(1u, w / 2), dh = std::max(1u, h / 2);
+		uint8_t* dst = src + size_t(w) * h * 4;
+		for (uint32_t y = 0; y < dh; ++y) {
+			const uint32_t y0 = std::min(y * 2, h - 1), y1 = std::min(y * 2 + 1, h - 1);
+			for (uint32_t x = 0; x < dw; ++x) {
+				const uint32_t x0 = std::min(x * 2, w - 1), x1 = std::min(x * 2 + 1, w - 1);
+				for (int c = 0; c < 4; ++c) {
+					const uint32_t sum = src[(y0 * w + x0) * 4 + c] + src[(y0 * w + x1) * 4 + c] +
+							src[(y1 * w + x0) * 4 + c] + src[(y1 * w + x1) * 4 + c];
+					dst[(y * dw + x) * 4 + c] = uint8_t((sum + 2) / 4);
+				}
+			}
+		}
+		src = dst;
+		w = dw;
+		h = dh;
+	}
+	const bgfx::TextureHandle handle = bgfx::createTexture2D(uint16_t(rgba->m_width),
+			uint16_t(rgba->m_height), true, 1, bgfx::TextureFormat::RGBA8, BGFX_SAMPLER_NONE, mem);
+	bimg::imageFree(rgba);
+	return handle;
+}
+
+} // namespace
+
 bgfx::TextureHandle TextureCache::Get(const std::string& reference,
-		const std::string& levelHint, bool anyLevel) {
+		const std::string& levelHint, bool anyLevel, bool mips) {
 	if (reference.empty()) return white_;
 
-	std::string cacheKey = Lower(reference) + "|" + Lower(levelHint) + (anyLevel ? "" : "|level");
+	std::string cacheKey = Lower(reference) + "|" + Lower(levelHint) + (anyLevel ? "" : "|level") +
+			(mips ? "" : "|nomips");
 	auto cached = cache_.find(cacheKey);
 	if (cached != cache_.end()) return cached->second;
 
@@ -179,12 +226,19 @@ bgfx::TextureHandle TextureCache::Get(const std::string& reference,
 		bimg::ImageContainer* image =
 			bimg::imageParse(&g_allocator, data.data(), static_cast<uint32_t>(data.size()));
 		if (image) {
-			const bgfx::Memory* mem = bgfx::copy(image->m_data, image->m_size);
-			handle = bgfx::createTexture2D(
-					uint16_t(image->m_width), uint16_t(image->m_height),
-					image->m_numMips > 1, image->m_numLayers,
-					bgfx::TextureFormat::Enum(image->m_format),
-					BGFX_SAMPLER_NONE, mem);
+			if (mips && image->m_numMips <= 1 && image->m_numLayers == 1 && !image->m_cubeMap &&
+					image->m_depth <= 1 && (image->m_width > 1 || image->m_height > 1)) {
+				handle = CreateWithMips(*image);
+				if (bgfx::isValid(handle)) ++mipsBuilt_;
+			}
+			if (!bgfx::isValid(handle) || handle.idx == white_.idx) {
+				const bgfx::Memory* mem = bgfx::copy(image->m_data, image->m_size);
+				handle = bgfx::createTexture2D(
+						uint16_t(image->m_width), uint16_t(image->m_height),
+						image->m_numMips > 1, image->m_numLayers,
+						bgfx::TextureFormat::Enum(image->m_format),
+						BGFX_SAMPLER_NONE, mem);
+			}
 			sizes_[reference] = {int(image->m_width), int(image->m_height)};
 			bimg::imageFree(image);
 			if (bgfx::isValid(handle)) ++loaded_;

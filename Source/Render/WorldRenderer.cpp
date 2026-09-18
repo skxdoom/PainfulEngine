@@ -409,7 +409,7 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
 						b.blended = true;
 						b.blend2 = textures.Get(m.slots[blendSlot].name, levelHint);
 						b.mask = textures.Get(m.slots[maskSlot].name, levelHint);
-						b.lightmap = textures.Get(m.slots[lightSlot].name, levelHint, false);
+						b.lightmap = textures.Get(m.slots[lightSlot].name, levelHint, false, false);
 						b.hasLightmap = true;
 						slotUv(m.slots[0], b.uvDiffuse);
 						slotUv(m.slots[blendSlot], b.uvBlend);
@@ -424,7 +424,7 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
 				// Only this level's own; a missing one is white, as the original's
 				// special/white stand-in (Formats.md, "Where the engine looks").
 				b.hasLightmap = (o.uvChannels == 2) && !m.lightmap().empty();
-				b.lightmap = b.hasLightmap ? textures.Get(m.lightmap(), levelHint, false)
+				b.lightmap = b.hasLightmap ? textures.Get(m.lightmap(), levelHint, false, false)
 						: textures.White();
 				chunk.batches.push_back(b);
 			}
