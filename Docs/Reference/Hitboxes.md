@@ -72,10 +72,10 @@ bones**; the average across all 220 files is 9.4. So a ragdoll is a coarse
 skeleton - spine, head, upper and lower limbs - not every finger.
 
 **There is no shape data in the file**: only mass and material. Every `.rde` in
-the game uses exactly five keys and no others. The limb shapes must therefore
-be derived from the model, which `Ragdoll::Init(Model*, RagdollSkeleton*,
-const char*, float, int)` is handed - almost certainly from the vertices
-weighted to each bone, which is data we already parse for skinning.
+the game uses exactly five keys and no others. The shapes are in the model's
+`.hke` - see [The shapes](#the-shapes-are-the-hkes-hulls). (This page first
+guessed they were derived from the skin weights. That was wrong, and it shipped
+as boxes with holes between them.)
 
 ## The movement shape is something else again
 
@@ -238,7 +238,50 @@ Being a monster is not contingent on the shape: the kinematic conversion has to
 happen whatever the rig looks like, and the body pose has to be synced every
 frame, including for a monster that is standing still.
 
-## Per-limb hitboxes: derived, posed, drawn - and traced against
+## The shapes are the .hke's hulls
+
+`Ragdoll::Init` (`0x1019CCA0`) calls `FUN_101C1A40`, which builds a
+`RagdollSkeleton` with `FUN_101C02F0` and the bodies with `FUN_101BC620`.
+
+- **The skeleton is the `.hke`.** `FUN_101C02F0` opens it (a bad one is the
+  `"Critical error: error in ragdoll hke!!!"` box) and makes one record per
+  `RIGID_BODY`, stride `0x7c`: the bone name at `+0`, the geometry's vertices at
+  `[0x1c]` with their count at `[0x1d]`.
+- **The `.rde` only overrides.** The same function then loads
+  `../Data/Models/<model>.rde` as a `ConfigFile` and, per body NAME, reads
+  `Mass`, `LinearDamping` and the rest. A section naming a bone with no body is
+  never looked up.
+- **A body's shape is the convex hull of its own vertices.** `FUN_101BC620` copies
+  them times the model scale, welds duplicates (`FUN_1023F0E0`, 1e-4), and hands
+  them to the hull builder (`FUN_1023FEB0`, then `FUN_101C2D30`). The skin is
+  never consulted.
+
+So a live monster's shootable shape is the same set of hulls its corpse falls
+as. `BuildLimbHulls` (`Source/Assets/Rde.cpp`) builds them: the geometry with
+the primitive's offset baked in, held in the body's rest frame, with
+`frame = Rest * inverse(Bind)` taking that to the bone - the offset the ragdoll
+already uses (`RagdollOffsets`). `TraceLimbs` bounds each with a slab test and
+answers with the hull's triangles; a segment that starts inside one reports
+`t = 0` facing back down the ray, as the box did.
+
+What the skin boxes got wrong, on `evilmonkv2` at the bind pose (model units, y):
+
+| limb | hull | skin box |
+|---|---|---|
+| `root` | -0.07 .. 2.79 | -0.37 .. 0.62 |
+| `k_zebra` | 3.00 .. 6.95 | 2.36 .. 4.24 |
+| `k_szyja` | 5.76 .. 10.15 | 5.61 .. 10.58 |
+| `r_l_lokiec` (x) | 6.14 .. 13.74 | 6.46 .. 10.62 |
+
+The belly (0.62-2.36) and the chest (4.24-5.61) had no box at all, and the
+forearms stopped short of the hands: a vertex whose strongest bone is not a limb
+was charged to nobody. `PainfulTools hitboxes <model>` prints both sets.
+
+**Still ours:** a model needs its `.rde` to get limbs at all, which keeps the
+set of limbed models what it was; the original needs only the `.hke`. A model
+whose `.hke` does not parse keeps the skin boxes, and the log line says which.
+
+## Per-limb hitboxes: the skin-box fallback
 
 `.rde` parsing and `BuildLimbBounds` live in `Source/Assets/Rde.h/.cpp`. A
 vertex counts towards the bone that influences it MOST; splitting it across

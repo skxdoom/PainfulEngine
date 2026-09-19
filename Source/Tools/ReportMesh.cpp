@@ -503,6 +503,40 @@ int HitboxesCmd(const char* modelPath) {
 	}
 	LogInfo("  %zu named bones absent from the model, %zu limbs with no vertices",
 			missing, unweighted);
+
+	// The .hke hulls the game traces against, beside the skin boxes above: each
+	// shape's bind-pose bounds in MODEL space, so the two sets compare directly.
+	std::string hkePath = rdePath.substr(0, rdePath.size() - 4) + ".hke";
+	Hke def;
+	if (!Hke::Load(hkePath, def)) { LogInfo("  no usable %s: the game keeps the skin boxes", hkePath.c_str()); return 0; }
+	const std::vector<LimbBounds> hulls = BuildLimbHulls(model, def);
+	std::vector<Bone> bones = model.bones;
+	BuildHierarchy(bones);
+	std::vector<Mat4> bindWorld, inverseBind;
+	ComputeBindWorld(bones, bindWorld, inverseBind);
+	auto modelBounds = [&](const LimbBounds& l, Vec3& lo, Vec3& hi) {
+		lo = Vec3(1e30f); hi = Vec3(-1e30f);
+		const Mat4 m = Mat4::Mul(l.frame, bindWorld[size_t(l.bone)]);
+		for (int i = 0; i < 8; ++i) {
+			const Vec3 w = m.TransformPoint(Vec3((i & 1) ? l.max[0] : l.min[0],
+					(i & 2) ? l.max[1] : l.min[1], (i & 4) ? l.max[2] : l.min[2]));
+			lo = Min(lo, w); hi = Max(hi, w);
+		}
+	};
+	LogInfo("%s: %zu bodies, %zu hulls on bones  (model-space bounds at the bind pose)",
+			hkePath.c_str(), def.bodies.size(), hulls.size());
+	for (const LimbBounds& h : hulls) {
+		Vec3 lo, hi;
+		modelBounds(h, lo, hi);
+		LogInfo("  %-16s hull x[%6.2f..%6.2f] y[%6.2f..%6.2f] z[%6.2f..%6.2f]", h.name.c_str(),
+				lo[0], hi[0], lo[1], hi[1], lo[2], hi[2]);
+		for (const LimbBounds& b : limbs) {
+			if (b.bone != h.bone || !b.valid()) continue;
+			modelBounds(b, lo, hi);
+			LogInfo("  %-16s skin x[%6.2f..%6.2f] y[%6.2f..%6.2f] z[%6.2f..%6.2f]", "",
+					lo[0], hi[0], lo[1], hi[1], lo[2], hi[2]);
+		}
+	}
 	return 0;
 }
 

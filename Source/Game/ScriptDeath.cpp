@@ -847,9 +847,8 @@ int DeathNatives::L_PHYSICS_RemoveHavokBodyFromIS(lua_State* L) {
 	return 0;
 }
 
-// A hit joint's ragdoll body: its own, else the nearest ancestor's. The trace
-// lands on the .rde hitboxes, which sit on more bones than the .hke gives
-// bodies to; Havok reported the body that covered the limb.
+// A hit joint's ragdoll body: its own, else the nearest ancestor's. The hulls
+// are the .hke's bodies, so the walk only matters for a skin-box fallback.
 std::string ScriptEngine::RagdollBoneForJoint(Entity& e, const Hke& def, int joint) {
 	const SkeletonCache::Entry* skel = skeletons_.Get(e.source);
 	if (!skel) return JointName(e, joint);
@@ -980,9 +979,17 @@ const std::vector<LimbBounds>* ScriptEngine::Hitboxes(const std::string& model) 
 	if (!Ragdoll::Load(base + ".rde", ragdoll)) return &slot;
 	Model loaded;
 	if (!Model::Load(base + ".pkmdl", loaded)) return &slot;
-	slot = BuildLimbBounds(loaded, ragdoll);
-	LogInfo("hitboxes: %s -> %zu limbs", model.c_str(), slot.size());
-	return &slot;
+	// The .hke's hulls, as the original; the skin-derived boxes only where a
+	// model ships no usable .hke. RagdollDef may rehash ragdolls_, not hitboxes_.
+	const Hke* def = RagdollDef(model);
+	std::vector<LimbBounds> hulls;
+	if (def) hulls = BuildLimbHulls(loaded, *def);
+	const bool fromHke = !hulls.empty();
+	std::vector<LimbBounds>& kept = hitboxes_[model];
+	kept = fromHke ? std::move(hulls) : BuildLimbBounds(loaded, ragdoll);
+	LogInfo("hitboxes: %s -> %zu limbs (%s)", model.c_str(), kept.size(),
+			fromHke ? ".hke hulls" : "skin boxes, no usable .hke");
+	return &kept;
 }
 
 // Which ragdoll part a skeleton joint drives, or -1 for a bone the .hke does

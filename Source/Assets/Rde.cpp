@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdlib>
 
+#include "Hke.h"
 #include "Pkmdl.h"
 #include "Skeleton.h"
 #include <string>
@@ -143,6 +144,60 @@ std::vector<LimbBounds> BuildLimbBounds(const Model& model, const Ragdoll& ragdo
 		if (limb.vertices == 0)
 			for (int c = 0; c < 3; ++c) limb.min[c] = limb.max[c] = 0.f;
 
+	return out;
+}
+
+std::vector<LimbBounds> BuildLimbHulls(const Model& model, const Hke& def) {
+	std::vector<LimbBounds> out;
+	if (model.bones.empty() || def.bodies.empty()) return out;
+
+	std::vector<Bone> bones = model.bones;
+	BuildHierarchy(bones);
+	std::vector<Mat4> bindWorld, inverseBind;
+	ComputeBindWorld(bones, bindWorld, inverseBind);
+
+	for (const HkeBody& body : def.bodies) {
+		int bone = -1;
+		for (size_t b = 0; b < bones.size(); ++b)
+			if (bones[b].name == body.bone) { bone = int(b); break; }
+		const HkeGeometry* g = def.Find(body.geometry);
+		if (bone < 0 || !g || g->vertexCount() < 4) continue;
+
+		LimbBounds limb;
+		limb.bone = bone;
+		limb.name = body.bone;
+		limb.min = Vec3(1e30f);
+		limb.max = Vec3(-1e30f);
+		// The primitive's own offset is baked into the points, as the ragdoll's
+		// hulls do it; the body's rest pose then carries them to the bone.
+		HkeBody primAsBody;
+		primAsBody.rotAngle = body.primRotAngle;
+		primAsBody.rotAxis = body.primRotAxis;
+		primAsBody.translation = body.primTranslation;
+		Mat4 prim, rest;
+		primAsBody.RestMatrix(prim.m);
+		body.RestMatrix(rest.m);
+		limb.frame = Mat4::Mul(rest, inverseBind[size_t(bone)]);
+
+		limb.hullVerts.reserve(g->verts.size());
+		for (size_t v = 0; v < g->vertexCount(); ++v) {
+			Vec3 p;
+			prim.TransformPoint(g->verts[v * 3 + 0], g->verts[v * 3 + 1], g->verts[v * 3 + 2], p);
+			for (int c = 0; c < 3; ++c) {
+				limb.hullVerts.push_back(p[c]);
+				limb.min[c] = std::min(limb.min[c], p[c]);
+				limb.max[c] = std::max(limb.max[c], p[c]);
+			}
+		}
+		for (size_t t = 0; t + 2 < g->tris.size(); t += 3) {
+			if (g->tris[t] >= g->vertexCount() || g->tris[t + 1] >= g->vertexCount() ||
+					g->tris[t + 2] >= g->vertexCount())
+				continue;
+			for (int k = 0; k < 3; ++k) limb.hullTris.push_back(g->tris[t + size_t(k)]);
+		}
+		limb.vertices = g->vertexCount();
+		out.push_back(std::move(limb));
+	}
 	return out;
 }
 

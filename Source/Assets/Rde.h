@@ -1,12 +1,14 @@
 #pragma once
 #include <string>
 #include "../Core/Vectors.h"
+#include "../Core/Matrix.h"
 #include <vector>
 
 
 namespace painful {
 
 struct Model;
+struct Hke;
 
 // One limb of a ragdoll, as the .rde names it.
 struct RagdollLimb {
@@ -25,8 +27,8 @@ struct RagdollLimb {
 // COARSE skeleton - evilmonkv2 names 17 of its 63 bones, and the average across
 // all 220 is 9.4 - so this is spine, head and limbs, not fingers.
 //
-// There is NO SHAPE DATA HERE, only mass and material. The limb shapes have to
-// be derived from the model, which is what BuildLimbBounds does.
+// No shape data here, only mass and material overrides: the shapes are the
+// .hke's hulls (BuildLimbHulls). Docs/Reference/Hitboxes.md, "The shapes"
 struct Ragdoll {
 	std::vector<RagdollLimb> limbs;
 	std::string error;
@@ -35,18 +37,19 @@ struct Ragdoll {
 	static bool Load(const std::string& path, Ragdoll& out);
 };
 
-// A limb's extent in ITS OWN BONE's space, derived from the vertices that bone
-// drives.
-//
-// Bone space rather than model space on purpose: posing it then costs nothing,
-// because the skinning matrices that place it are already computed every frame
-// for the draw. A box built in model space would have to be rebuilt per pose.
+// One limb's shape, held relative to ITS OWN BONE so the posed bone matrices
+// place it for nothing. min/max bound it in the shape's frame; `frame` takes
+// that frame to bone space (identity for a skin-derived box).
 struct LimbBounds {
 	int bone = -1;
 	std::string name;
 	Vec3 min;
 	Vec3 max;
-	size_t vertices = 0; // how many the bone actually drives
+	size_t vertices = 0; // how many points made the shape
+	Mat4 frame;
+	// The .hke hull in the shape's frame; empty for a skin-derived box.
+	std::vector<float> hullVerts; // xyz triples
+	std::vector<uint32_t> hullTris; // index triples
 
 	float extent(int axis) const { return max[axis] - min[axis]; }
 	bool valid() const { return vertices > 0; }
@@ -57,6 +60,11 @@ struct LimbBounds {
 // A vertex counts towards the bone that influences it MOST. Splitting it across
 // every influence would smear each box over its neighbours - the whole point of
 // per-limb shapes is that an arm is not the chest.
+// The fallback, for a model with no usable .hke.
 std::vector<LimbBounds> BuildLimbBounds(const Model& model, const Ragdoll& ragdoll);
+
+// One hull per .hke rigid body that names a bone of the model, as the original
+// builds them (FUN_101BC620): the body's own geometry, never the skin.
+std::vector<LimbBounds> BuildLimbHulls(const Model& model, const Hke& def);
 
 } // namespace painful

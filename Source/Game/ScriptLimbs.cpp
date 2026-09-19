@@ -78,6 +78,43 @@ bool SlabTest(const Vec3& o, const Vec3& dir, const Vec3& lo, const Vec3& hi,
 	return true;
 }
 
+// The segment against a limb's .hke hull, in the hull's frame: the nearest
+// triangle either way round. A hit on a face that points along the ray means
+// the segment started inside (the face's outward side is judged from the hull's
+// centre, the file's winding not being trusted).
+bool HullTest(const Vec3& o, const Vec3& dir, const LimbBounds& limb, float& tHit, Vec3& normal,
+		bool& inside) {
+	const Vec3 centre = (limb.min + limb.max) * 0.5f;
+	float best = 2.f;
+	for (size_t i = 0; i + 2 < limb.hullTris.size(); i += 3) {
+		const float* pa = &limb.hullVerts[limb.hullTris[i] * 3];
+		const float* pb = &limb.hullVerts[limb.hullTris[i + 1] * 3];
+		const float* pc = &limb.hullVerts[limb.hullTris[i + 2] * 3];
+		const Vec3 a(pa[0], pa[1], pa[2]);
+		const Vec3 e1 = Vec3(pb[0], pb[1], pb[2]) - a;
+		const Vec3 e2 = Vec3(pc[0], pc[1], pc[2]) - a;
+		const Vec3 h = Cross(dir, e2);
+		const float det = Dot(e1, h);
+		if (std::fabs(det) < 1e-12f) continue;
+		const float inv = 1.f / det;
+		const Vec3 s0 = o - a;
+		const float u = Dot(s0, h) * inv;
+		if (u < 0.f || u > 1.f) continue;
+		const Vec3 q = Cross(s0, e1);
+		const float v = Dot(dir, q) * inv;
+		if (v < 0.f || u + v > 1.f) continue;
+		const float t = Dot(e2, q) * inv;
+		if (t < 0.f || t > 1.f || t >= best) continue;
+		best = t;
+		normal = Cross(e1, e2);
+		if (Dot(normal, a - centre) < 0.f) normal = normal * -1.f;
+	}
+	if (best > 1.f) return false;
+	inside = Dot(normal, dir) > 0.f;
+	tHit = inside ? 0.f : best;
+	return true;
+}
+
 // A direction through an affine matrix: the 3x3 alone, so the translation does
 // not apply. TransformPoint would move the ray's direction by the entity's
 // position, which points every shot at the world origin.
@@ -203,7 +240,7 @@ bool ScriptEngine::TraceLimbs(const Vec3& from, const Vec3& to, float maxDistanc
 					continue;
 			}
 
-			const Mat4 toWorld = Mat4::Mul((*bones)[size_t(limb.bone)], world);
+			const Mat4 toWorld = Mat4::Mul(Mat4::Mul(limb.frame, (*bones)[size_t(limb.bone)]), world);
 			const Mat4 toLimb = Mat4::InvertAffine(toWorld);
 			const Vec3 o = toLimb.TransformPoint(AsVec3(from));
 			const Vec3 dir = TransformDir(toLimb, AsVec3(span));
@@ -212,6 +249,14 @@ bool ScriptEngine::TraceLimbs(const Vec3& from, const Vec3& to, float maxDistanc
 			int axis = -1;
 			float sign = -1.f;
 			if (!SlabTest(o, dir, limb.min, limb.max, t, axis, sign)) continue;
+			// The box only bounds a hull; the hull answers.
+			Vec3 hullNormal;
+			const bool hull = !limb.hullTris.empty();
+			if (hull) {
+				bool inside = false;
+				if (!HullTest(o, dir, limb, t, hullNormal, inside)) continue;
+				axis = inside ? -1 : 0;
+			}
 			if (t >= bestT) continue;
 
 			bestT = t;
@@ -231,7 +276,8 @@ bool ScriptEngine::TraceLimbs(const Vec3& from, const Vec3& to, float maxDistanc
 				out.normal = AsVec3(span) / -length;
 			} else {
 				Vec3 n;
-				n[axis] = sign;
+				if (hull) n = hullNormal;
+				else n[axis] = sign;
 				out.normal = TransformDir(toWorld, n);
 				// A degenerate normal falls back to the ray, the same answer
 				// the length-zero branch above gives.
@@ -283,6 +329,25 @@ void ScriptEngine::CollectHitboxLines(const Vec3& around, float radius,
 		if (!limbs) continue;
 
 		for (const LimbBounds& limb : *limbs) {
+			// A hull draws as its triangles, which is what a shot tests.
+			if (!limb.hullTris.empty()) {
+				for (size_t i = 0; i + 2 < limb.hullTris.size(); i += 3) {
+					Vec3 w[3];
+					bool posed = true;
+					for (int k = 0; k < 3 && posed; ++k) {
+						const float* v = &limb.hullVerts[limb.hullTris[i + size_t(k)] * 3];
+						posed = JointToWorld(e, limb.bone, limb.frame.TransformPoint(Vec3(v[0], v[1], v[2])), w[k]);
+					}
+					if (!posed) break;
+					for (int k = 0; k < 3; ++k) {
+						DebugLine line;
+						for (int c = 0; c < 3; ++c) { line.a[c] = w[k][c]; line.b[c] = w[(k + 1) % 3][c]; }
+						line.abgr = 0xff00a5ffu;
+						out.push_back(line);
+					}
+				}
+				continue;
+			}
 			// Each corner goes bone-local -> world through the POSED bone, so
 			// the box follows the animation without being rebuilt.
 			Vec3 corner[8];
