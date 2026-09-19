@@ -216,6 +216,7 @@ bool Window::PumpEvents() {
 				case SDL_SCANCODE_COMMA: debugToggles_[1] = true; break;
 				case SDL_SCANCODE_PERIOD: debugToggles_[2] = true; break;
 				case SDL_SCANCODE_SLASH: debugToggles_[3] = true; break;
+				case SDL_SCANCODE_H: debugToggles_[4] = true; break;
 				default: break;
 				}
 			}
@@ -354,8 +355,12 @@ bool Window::TakePhysicsDebugToggle() {
 	return pressed;
 }
 
+void Window::SetTitle(const std::string& title) {
+	if (window_) SDL_SetWindowTitle(window_, title.c_str());
+}
+
 bool Window::TakeDebugToggle(int index) {
-	if (index < 0 || index >= 4) return false;
+	if (index < 0 || index >= 5) return false;
 	const bool pressed = debugToggles_[index];
 	debugToggles_[index] = false;
 	return pressed;

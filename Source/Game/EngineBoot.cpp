@@ -18,6 +18,8 @@ bool EngineBoot::Init(const std::string& dataRoot, const char* exePath, const st
 	window_.Show();
 	if (!renderer_.Init(window_)) return false;
 	LogInfo("renderer: %s", renderer_.BackendName().c_str());
+	// The backend is known only now, and the title is where a glance finds it.
+	window_.SetTitle(title + " (" + renderer_.BackendName() + ")");
 	// Which diagnostic switches this run had on, so a log explains its own odd
 	// behaviour. PainfulTools traces lists them all.
 	if (const std::string on = DebugActive(); !on.empty()) LogInfo("switches: %s", on.c_str());

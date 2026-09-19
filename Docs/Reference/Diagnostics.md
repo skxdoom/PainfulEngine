@@ -157,8 +157,26 @@ table reports its own errors through the check facility.
 ## The developer views
 
 Under `-dev` (or `PAINFUL_DEV`) the overlay lists its keys: `M` view, `,`
-collision, `.` nameplates, `/` AI, `F` noclip. They are read by scancode and
-ignored while the console or the menu is open, where they are typed.
+collision, `.` nameplates, `/` AI, `F` noclip, `H` hides the overlay. They are
+read by scancode and ignored while the console or the menu is open, where they
+are typed. The graphics API is in the window title, not the overlay.
+
+The overlay is HUD text (`courbd`, 14 px) with a one-pixel shadow; bgfx's debug
+text is a character grid and cannot be offset, and it remains only as the
+fallback when the HUD failed to start. Under the FPS row are the frame's costs
+in milliseconds, each smoothed over about ten frames:
+
+| row | what is timed |
+|---|---|
+| Frame | the whole frame, from the clock that gives `dt`; GPU is bgfx's timer query |
+| Scripts | `Game_Tick`, `Tick2`, `Tick3`, `Game_Render`, `Game_PostRender` |
+| Game | the native ticks of the simulation block, less its scripts and physics |
+| Physics | `PhysicsWorld::Update` |
+| Render | `BeginFrame` to the HUD's flush: culling, posing, draw submission |
+| Present | `bgfx::frame`, which with vsync on is mostly the wait for the display |
+
+The HUD row's draw count is the previous frame's, since batches are counted at
+the flush and the overlay is laid out before it.
 
 `M` cycles lit, wireframe, lighting only (`PAINFUL_WIRE=1`,
 `PAINFUL_LIGHTINGONLY=1` start there).

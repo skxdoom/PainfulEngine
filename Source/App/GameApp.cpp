@@ -62,6 +62,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdarg>
 #include <cstdio>
 #include <fstream>
 #include <cstdlib>
@@ -301,6 +302,18 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		collisionWire = mode == 2;
 	}
 	bool nameplates = DebugFlag("PAINFUL_NAMEPLATES");
+	// The -dev overlay, H to hide. Its frame costs, in ms: what the frame spent
+	// (acc) and a smoothed copy to read (shown).
+	bool overlayOn = true;
+	// The HUD's batches are counted at its flush, after the overlay is laid out,
+	// so the overlay reports the frame before (its own text included).
+	size_t hudDrawsLast = 0;
+	struct FrameCost { double scripts = 0, game = 0, physics = 0, render = 0, present = 0; };
+	FrameCost costAcc, costShown;
+	using CostClock = std::chrono::steady_clock;
+	const auto msSince = [](CostClock::time_point t) {
+		return std::chrono::duration<double, std::milli>(CostClock::now() - t).count();
+	};
 	constexpr float kNameplateRadius = 20.f;
 
 	// Slash stops the monsters THINKING, which is not the same as stopping them
@@ -925,7 +938,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		const bool collisionKey = window.TakeDebugToggle(1);
 		const bool nameplateKey = window.TakeDebugToggle(2);
 		const bool aiKey = window.TakeDebugToggle(3);
+		const bool overlayKey = window.TakeDebugToggle(4);
 		if (devKeys) {
+			if (overlayKey) overlayOn = !overlayOn;
 			if (wireKey) viewMode = ViewMode((int(viewMode) + 1) % 3);
 			if (collisionKey) collisionWire = !collisionWire;
 			if (nameplateKey) nameplates = !nameplates;
@@ -1078,21 +1093,31 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		// Docs/Reference/Sound.md, "Virtual voices"
 		audio.Advance(dt);
 		audio.Update();
+		costAcc = FrameCost();
+		const CostClock::time_point simStart = CostClock::now();
 		if (!engine.gamePaused()) {
 			engine.TickAnimations(sim);
 			engine.TickMonsters(sim);
 			engine.TickProjectiles(sim);
+			CostClock::time_point t0 = CostClock::now();
 			host.CallGlobal("Game_Tick", d, 1);
+			costAcc.scripts += msSince(t0);
+			t0 = CostClock::now();
 			physics.Update(sim);
+			costAcc.physics += msSince(t0);
 			engine.TickGrenades();
 			engine.SyncFromPhysics();
 			engine.TickRagdolls();
+			t0 = CostClock::now();
 			host.CallGlobal("Game_Tick2", d, 1);
+			costAcc.scripts += msSince(t0);
 			// Tick2 is where the view is steered, so take the result: the eye
 			// rides PO_GetPawnHeadPos less PLAYER.GetCameraFix, at the angles
 			// the scripts accumulated from MOUSE.GetDelta.
 			if (scriptView) engine.TakeCameraPose(camera.pos, camera.yaw, camera.pitch);
+			t0 = CostClock::now();
 			host.CallGlobal("Game_Tick3", d, 1);
+			costAcc.scripts += msSince(t0);
 			// The player's pusher follows its centre. SlideSphere is a query
 			// and touches nothing, so without a body the pawn walks through
 			// corpses and loose props without either noticing.
@@ -1129,8 +1154,14 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			hud.UseAnchoring(true);
 			engine.SetHudCanvas(hud.canvasWidth(), hud.canvasHeight(), hud.CanvasOffsetX());
 		}
-		host.CallGlobal("Game_Render", d, 1);
-		host.CallGlobal("Game_PostRender", d, 1);
+		// Native game work: the simulation block less its scripts and its physics.
+		costAcc.game = std::max(0.0, msSince(simStart) - costAcc.scripts - costAcc.physics);
+		{
+			const CostClock::time_point t0 = CostClock::now();
+			host.CallGlobal("Game_Render", d, 1);
+			host.CallGlobal("Game_PostRender", d, 1);
+			costAcc.scripts += msSince(t0);
+		}
 
 		// The menu draws over the HUD, into the same batch, so it lands on top
 		// in submission order. Its items were declared by the scripts during
@@ -1306,6 +1337,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			camera.fovDegrees = 2.f * std::atan(std::tan(half) / aspect) * 180.f / 3.14159265f;
 		}
 
+		const CostClock::time_point renderStart = CostClock::now();
 		renderer.BeginFrame();
 		// The original's gate: render flag 8 (Cfg.Bloom) and Multiplier > 0,
 		// on a frame that draws the world. An OverlayColor of black adds
@@ -1624,55 +1656,102 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			}
 		}
 
+		// The -dev overlay, H to hide; PAINFUL_QUIET drops it too, for captures of
+		// the menu's top edge. One fact a row; a dev mode's value is green while
+		// engaged. HUD text, so a row can carry a shadow bgfx's grid cannot.
+		costShown.scripts += (costAcc.scripts - costShown.scripts) * 0.1;
+		costShown.game += (costAcc.game - costShown.game) * 0.1;
+		costShown.physics += (costAcc.physics - costShown.physics) * 0.1;
+		if (dev && overlayOn && !DebugFlag("PAINFUL_QUIET")) {
+			struct Row { std::string text, value; bool engaged = false; };
+			std::vector<Row> rows;
+			const auto rowf = [&](const char* fmt, ...) {
+				char buffer[256];
+				va_list args;
+				va_start(args, fmt);
+				vsnprintf(buffer, sizeof buffer, fmt, args);
+				va_end(args);
+				rows.push_back({buffer, "", false});
+			};
+			const auto gap = [&]() { rows.push_back({}); };
+			rowf("FPS: %.1f", dt > 0.f ? 1.f / dt : 0.f);
+			rowf("Frame: %.2f ms  (GPU %.2f)", double(dt) * 1000.0, renderer.GpuMs());
+			rowf("  Scripts: %.2f", costShown.scripts);
+			rowf("  Game:    %.2f", costShown.game);
+			rowf("  Physics: %.2f", costShown.physics);
+			rowf("  Render:  %.2f", costShown.render);
+			rowf("  Present: %.2f", costShown.present);
+			gap();
+			rowf("World draws: %zu", worldReady ? world.drawCalls() : 0);
+			rowf("Entity draws: %zu (%zu skinned)", entities.drawCalls(), entities.posedInstances());
+			rowf("Shadow draws: %zu", world.shadowDrawCalls() + entities.shadowDrawCalls());
+			rowf("Zones: %zu/%zu", worldReady ? world.zonesVisible() : 0,
+					worldReady ? world.zoneCount() : 0);
+			rowf("Script lights: %zu", scriptLights.size());
+			rowf("Particles: %zu in %zu emitters", particles.liveParticles(), particles.emitters());
+			if (hudReady)
+				rowf("HUD: %zu quads in %zu draws, %zu fonts", hud.quadsThisFrame(),
+						hudDrawsLast, hud.fonts().baked());
+			else
+				rowf("HUD: OFF");
+			gap();
+			rowf("Pos: %.1f %.1f %.1f", camera.pos[0], camera.pos[1], camera.pos[2]);
+			rowf("Rot: %.2f %.2f", camera.yaw, camera.pitch);
+			rowf("Player: %s", walking ? (pawn.onGround() ? "walking" : "airborne")
+					: (engine.playerHandle() ? "flying" : "none"));
+			gap();
+			const auto modeRow = [&](const char* key, const char* name, bool engaged, const char* state) {
+				rowf("[%s] %s: ", key, name);
+				rows.back().value = state;
+				rows.back().engaged = engaged;
+			};
+			modeRow("M", "View", viewMode != ViewMode::kLit,
+					wireframe ? "wireframe" : lightingOnly ? "lighting only" : "lit");
+			modeRow(",", "Collision", collisionWire, collisionWire ? "dynamic" : "off");
+			modeRow(".", "Nameplates", nameplates, nameplates ? "on (20m)" : "off");
+			modeRow("/", "AI", aiDisabled, aiDisabled ? "off" : "on");
+			modeRow("F", "Fly", noclip, noclip ? "on" : "off");
+			modeRow("H", "Overlay", false, "on");
+			if (collisionWire) {
+				gap();
+				rowf("Collision colours:");
+				rowf("    green awake, yellow asleep");
+				rowf("    magenta script, red non-colliding");
+				rowf("    green box: no physics body");
+			}
+			if (hudReady) {
+				hud.UseCanvas(false); // window pixels
+				constexpr int kSize = 14;
+				const float lineH = std::max(hud.TextHeight("courbd", kSize), 12.f) + 1.f;
+				float y = 8.f;
+				for (const Row& r : rows) {
+					float x = 8.f;
+					for (int part = 0; part < 2; ++part) {
+						const std::string& t = part == 0 ? r.text : r.value;
+						if (t.empty()) continue;
+						const uint32_t colour = part == 1 && r.engaged ? 0xff40ff40u : 0xffffffffu;
+						hud.Text("courbd", kSize, x + 1.f, y + 1.f, t, 0xc0000000u);
+						x += hud.Text("courbd", kSize, x, y, t, colour);
+					}
+					y += lineH;
+				}
+			} else {
+				uint16_t line = 1;
+				for (const Row& r : rows) renderer.DebugText(line++, "%s%s", r.text.c_str(), r.value.c_str());
+			}
+		}
 		if (hudReady) {
 			hud.UseCanvas(true);
 			hud.End();
+			hudDrawsLast = hud.drawCalls();
 		}
-
-		// The overlay is -dev only; PAINFUL_QUIET drops it there too, for
-		// captures of the menu's top edge.
-		if (dev && !DebugFlag("PAINFUL_QUIET")) {
-		// One fact a row, as the original's overlay; a dev mode's value is green while engaged.
-		uint16_t row = 1;
-		renderer.DebugText(row++, "PainfulEngine - %s", renderer.BackendName().c_str());
-		renderer.DebugText(row++, "FPS: %.1f", dt > 0.f ? 1.f / dt : 0.f);
-		++row;
-		renderer.DebugText(row++, "World draws: %zu", worldReady ? world.drawCalls() : 0);
-		renderer.DebugText(row++, "Entity draws: %zu (%zu skinned)", entities.drawCalls(), entities.posedInstances());
-		renderer.DebugText(row++, "Shadow draws: %zu", world.shadowDrawCalls() + entities.shadowDrawCalls());
-		renderer.DebugText(row++, "Zones: %zu/%zu", worldReady ? world.zonesVisible() : 0,
-				worldReady ? world.zoneCount() : 0);
-		renderer.DebugText(row++, "Script lights: %zu", scriptLights.size());
-		renderer.DebugText(row++, "Particles: %zu in %zu emitters", particles.liveParticles(), particles.emitters());
-		if (hudReady)
-			renderer.DebugText(row++, "HUD: %zu quads in %zu draws, %zu fonts", hud.quadsThisFrame(),
-					hud.drawCalls(), hud.fonts().baked());
-		else
-			renderer.DebugText(row++, "HUD: OFF");
-		++row;
-		renderer.DebugText(row++, "Pos: %.1f %.1f %.1f", camera.pos[0], camera.pos[1], camera.pos[2]);
-		renderer.DebugText(row++, "Rot: %.2f %.2f", camera.yaw, camera.pitch);
-		renderer.DebugText(row++, "Player: %s", walking ? (pawn.onGround() ? "walking" : "airborne")
-				: (engine.playerHandle() ? "flying" : "none"));
-		++row;
-		const auto modeRow = [&](const char* key, const char* name, bool engaged, const char* state) {
-			renderer.DebugText(row++, "[%s] %s: %s%s\x1b[0m", key, name, engaged ? "\x1b[10;0m" : "", state);
-		};
-		modeRow("M", "View", viewMode != ViewMode::kLit,
-				wireframe ? "wireframe" : lightingOnly ? "lighting only" : "lit");
-		modeRow(",", "Collision", collisionWire, collisionWire ? "dynamic" : "off");
-		modeRow(".", "Nameplates", nameplates, nameplates ? "on (20m)" : "off");
-		modeRow("/", "AI", aiDisabled, aiDisabled ? "off" : "on");
-		modeRow("F", "Fly", noclip, noclip ? "on" : "off");
-		if (collisionWire) {
-			++row;
-			renderer.DebugText(row++, "Collision colours:");
-			renderer.DebugText(row++, "    green awake, yellow asleep");
-			renderer.DebugText(row++, "    magenta script, red non-colliding");
-			renderer.DebugText(row++, "    green box: no physics body");
+		costAcc.render = msSince(renderStart);
+		costShown.render += (costAcc.render - costShown.render) * 0.1;
+		{
+			const CostClock::time_point t0 = CostClock::now();
+			renderer.EndFrame();
+			costShown.present += (msSince(t0) - costShown.present) * 0.1;
 		}
-		}
-		renderer.EndFrame();
 
 		if (!shotPath.empty()) {
 			++frame;

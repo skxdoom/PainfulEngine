@@ -23,6 +23,7 @@ public:
 	// Opens HIDDEN, so the mode can be set before anything is on screen;
 	// Show puts it up (PAINFUL_HIDDEN keeps it down).
 	bool Open(const std::string& title, int width, int height);
+	void SetTitle(const std::string& title);
 	void Show();
 	void Close();
 
@@ -38,7 +39,7 @@ public:
 	bool TakeNoclipToggle();
 	// True once per press of the collision-wireframe key.
 	bool TakePhysicsDebugToggle();
-	// True once per press of M , . / - the in-game debug modes, indexed 0..3 -
+	// True once per press of M , . / H - the in-game debug modes, indexed 0..4 -
 	// so the game loop can keep its own modes without the window knowing what
 	// any of them mean.
 	bool TakeDebugToggle(int index);
@@ -151,7 +152,7 @@ private:
 	int levelStep_ = 0;
 	bool noclipToggle_ = false;
 	bool physicsDebugToggle_ = false;
-	bool debugToggles_[4] = {false, false, false, false}; // M , . /
+	bool debugToggles_[5] = {false, false, false, false, false}; // M , . / H
 	bool vkDown_[256] = {};
 	int wheelSteps_ = 0;
 	std::vector<int> keyPresses_;

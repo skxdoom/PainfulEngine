@@ -117,6 +117,8 @@ public:
 
 	// Human-readable name of the backend bgfx actually selected.
 	std::string BackendName() const;
+	// The last frame's GPU time from bgfx's own timer queries; 0 when it has none.
+	double GpuMs() const;
 
 private:
 	bool initialised_ = false;

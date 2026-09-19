@@ -208,6 +208,13 @@ std::string Renderer::BackendName() const {
 	return bgfx::getRendererName(bgfx::getRendererType());
 }
 
+double Renderer::GpuMs() const {
+	if (!initialised_) return 0.0;
+	const bgfx::Stats* s = bgfx::getStats();
+	if (!s || s->gpuTimerFreq <= 0 || s->gpuTimeEnd <= s->gpuTimeBegin) return 0.0;
+	return double(s->gpuTimeEnd - s->gpuTimeBegin) * 1000.0 / double(s->gpuTimerFreq);
+}
+
 void Renderer::SetClearColor(float r, float g, float b) {
 	const uint32_t rgba = (uint32_t(r * 255.f) << 24) | (uint32_t(g * 255.f) << 16) |
 			(uint32_t(b * 255.f) << 8) | 0xff;

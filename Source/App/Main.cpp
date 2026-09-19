@@ -24,7 +24,7 @@ static int Usage() {
 	LogInfo("");
 	LogInfo("  flags: --shot <file>   capture one frame to a .tga and exit");
 	LogInfo("         --exec <lua>    run a Lua chunk once the world is up");
-	LogInfo("         -dev            the debug overlay, the M , . / toggles, F noclip");
+	LogInfo("         -dev            the debug overlay (H hides it), the M , . / toggles, F noclip");
 	LogInfo("         -mp             multiplayer movement (MultiPlayerMove tweaks)");
 	LogInfo("");
 	LogInfo("  The level reports and the free-camera viewer are in PainfulTools.");
