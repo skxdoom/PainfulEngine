@@ -1245,7 +1245,19 @@ void PhysicsWorld::PressGround(const Vec3& feet, float radius, float force) {
 		if (bodies.GetMotionType(id) != JPH::EMotionType::Dynamic) continue;
 		// Only what is UNDER the feet, not a wall the sphere brushes.
 		if (float(hit.mContactPointOn2.GetY()) > feet[1] - 0.5f * radius) continue;
-		bodies.AddForce(id, JPH::Vec3(0.f, -force, 0.f), JPH::RVec3(hit.mContactPointOn2));
+		// Through the centre of mass on a free prop: at the contact point the
+		// weight torqued it into the kinematic pawn every frame and it never
+		// settled. A jointed part (a bridge plank) keeps the point, and tilts.
+		// Physics.md, "The player's weight"
+		bool jointed = false;
+		for (const Impl::RagdollInst& r : impl_->ragdolls) {
+			if (!r.ragdoll) continue;
+			for (const JPH::BodyID part : r.ragdoll->GetBodyIDs())
+				if (part == id) { jointed = true; break; }
+			if (jointed) break;
+		}
+		if (jointed) bodies.AddForce(id, JPH::Vec3(0.f, -force, 0.f), JPH::RVec3(hit.mContactPointOn2));
+		else bodies.AddForce(id, JPH::Vec3(0.f, -force, 0.f));
 	}
 }
 

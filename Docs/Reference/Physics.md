@@ -1573,6 +1573,18 @@ non-character body whose contact point is under the feet sphere. Measured:
 with the player on the middle plank it hangs 0.8 lower than with nobody on it
 (-43.6 against -42.8) and the neighbours shift by 0.3-0.5.
 
+**On a free prop the weight goes through the centre of mass.** At the contact
+point it torqued the prop every frame, and the pawn is a swept shape the prop
+cannot lean on: the prop tipped into it, the pawn was set back on top, and the
+pair never settled. Measured standing 0.2 off an urn's centre (60 kg) and 0.7
+off a pallet's (110 kg): the prop held 0.1-0.7 units/s for the whole run, and
+the pallet crept 0.55 units in 8 s with the player on it. Through the centre of
+mass both read 0.000 from the first sample. A jointed part - a ragdoll's body,
+which is what the bridge's planks are - keeps the contact point, so a plank
+still tilts under a foot at its end. What this gives up: a free prop no longer
+tips when stood on at its edge, which the original's dynamic player body would
+do. STAND-IN until the pawn is a body the solver can see.
+
 ### The culling box follows the pose
 
 `EntityRenderer` culled an instance by its bind-pose box under the entity
