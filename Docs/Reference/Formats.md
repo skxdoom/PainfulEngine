@@ -447,6 +447,16 @@ leaves every following field unaligned, so read sequentially, never by offset.
 Lightmapped geometry moves normals into a separate array (lighting is baked, so
 the inline slot is free), keeping the vertex record 32 bytes in both cases.
 
+**The node matrix is read and thrown away.** `WorldMesh::LoadMesh`
+(`0x101DCE70`) reads the 16 floats into `WorldMesh+0x6c` and the next statement
+copies `GIdentityMatrix` over them. The vertices are already in map space; the
+matrix is the exporter's record of the Maya node (a barrier's is its box centre
+and size). It is not always identity: 46 objects of `3x02_factory.mpk` carry one,
+eight of them (`h1_sciany_schody*`, a hall's walls) a 0.83 scale. Applying it shrank
+those walls toward the origin, off their building. `MapObject::nodeTransform` keeps it for the
+writer and `PainfulTools map <mpk> <filter>`, which prints it; nothing else
+reads it.
+
 Zero-length normals appear in some shipped meshes (61 in one sky map). These are
 degenerate vertices in the source art, not decode errors.
 

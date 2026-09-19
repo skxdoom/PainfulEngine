@@ -39,9 +39,7 @@ void CollisionMesh::Build(const MapMesh& map, float worldScale) {
 				o.position(vi, p[c]);
 			}
 			if (!ok) continue;
-			// Map objects carry their own transform; every shipped map has it
-			// at identity, but honouring it costs nothing and avoids a silent
-			// wrong answer if one ever does not.
+			// Identity for a .mpk, as the original leaves it (Mpk.h).
 			for (int c = 0; c < 3; ++c) p[c] = o.transform.TransformPoint(p[c]) * worldScale;
 			Tri tri;
 			tri.v0 = p[0];

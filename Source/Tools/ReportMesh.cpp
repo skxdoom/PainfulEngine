@@ -269,6 +269,10 @@ int MapCmd(const char* path, const char* nameFilter) {
 			LogInfo("  %-40s %5zu verts  x[%8.2f..%8.2f] y[%8.2f..%8.2f] z[%8.2f..%8.2f]%s",
 					o.name.c_str(), o.vertexCount(), lo[0], hi[0], lo[1], hi[1], lo[2], hi[2],
 					o.isCollidable() ? "" : "  (not collidable)");
+			const Mat4& t = o.nodeTransform;
+			if (t.m[12] != 0.f || t.m[13] != 0.f || t.m[14] != 0.f || t.m[0] != 1.f || t.m[5] != 1.f || t.m[10] != 1.f)
+				LogInfo("      transform: t(%.2f, %.2f, %.2f) diag(%.2f %.2f %.2f)",
+						t.m[12], t.m[13], t.m[14], t.m[0], t.m[5], t.m[10]);
 			++shown;
 		}
 		LogInfo("%zu objects match '%s' (raw mesh units; times the level scale for world)",
@@ -319,7 +323,7 @@ int MapCmd(const char* path, const char* nameFilter) {
 	size_t nonIdentity = 0;
 	std::map<std::string, size_t> translations;
 	for (const MapObject& o : m.objects) {
-		const Mat4& t = o.transform;
+		const Mat4& t = o.nodeTransform;
 		const bool ident = t.m[0] == 1.f && t.m[5] == 1.f && t.m[10] == 1.f &&
 				t.m[12] == 0.f && t.m[13] == 0.f && t.m[14] == 0.f;
 		if (ident) continue;

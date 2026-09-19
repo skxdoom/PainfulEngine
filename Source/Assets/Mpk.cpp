@@ -110,7 +110,7 @@ bool MapMesh::Load(const std::string& path, MapMesh& out) {
 		uint32_t nameLen = r.u32();
 		o.name.assign(reinterpret_cast<const char*>(data.data() + r.pos()), nameLen - 1);
 		r.seek(r.pos() + nameLen);
-		r.readMat4(o.transform);
+		r.readMat4(o.nodeTransform);
 		o.uvChannels = r.u32();
 		uint32_t vcount = r.u32();
 		o.verts.resize(static_cast<size_t>(vcount) * 8);
@@ -215,7 +215,7 @@ bool MapMesh::Write(const std::string& path, const MapMesh& mesh) {
 
 	for (const MapObject& o : mesh.objects) {
 		PutString(out, o.name);
-		for (int i = 0; i < 16; ++i) PutF32(out, o.transform.m[i]);
+		for (int i = 0; i < 16; ++i) PutF32(out, o.nodeTransform.m[i]);
 		PutU32(out, o.uvChannels);
 
 		PutU32(out, uint32_t(o.verts.size() / 8));

@@ -252,8 +252,7 @@ bool PhysicsWorld::BuildStaticWorld(const MapMesh& map, float worldScale,
 		for (size_t v = 0; v < o.vertexCount(); ++v) {
 			Vec3 p, w;
 			o.position(v, p);
-			// Every shipped map has this at identity, but honouring it costs
-			// nothing and avoids a silent wrong answer if one ever does not.
+			// Identity for a .mpk, as the original leaves it (Mpk.h); a pack object has one.
 			w = o.transform.TransformPoint(p);
 			vertices.push_back(JPH::Float3(w[0] * worldScale, w[1] * worldScale,
 					w[2] * worldScale));

@@ -31,7 +31,11 @@ struct Material {
 // so a source port must honour them rather than treating names as labels.
 struct MapObject {
 	std::string name;
+	// What the consumers apply. A .mpk leaves it at identity: WorldMesh::LoadMesh
+	// (0x101DCE70) reads the file matrix and overwrites it. Formats.md, ".mpk"
 	Mat4 transform;
+	// The .mpk file's node matrix, kept for the writer and the reports only.
+	Mat4 nodeTransform;
 	uint32_t uvChannels = 1; // 1 = dynamically lit, 2 = lightmapped
 	std::vector<float> verts; // 8 floats per vertex
 	std::vector<float> normals; // 3 floats per vertex when stored separately
