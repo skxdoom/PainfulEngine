@@ -264,18 +264,9 @@ already uses (`RagdollOffsets`). `TraceLimbs` bounds each with a slab test and
 answers with the hull's triangles; a segment that starts inside one reports
 `t = 0` facing back down the ray, as the box did.
 
-What the skin boxes got wrong, on `evilmonkv2` at the bind pose (model units, y):
-
-| limb | hull | skin box |
-|---|---|---|
-| `root` | -0.07 .. 2.79 | -0.37 .. 0.62 |
-| `k_zebra` | 3.00 .. 6.95 | 2.36 .. 4.24 |
-| `k_szyja` | 5.76 .. 10.15 | 5.61 .. 10.58 |
-| `r_l_lokiec` (x) | 6.14 .. 13.74 | 6.46 .. 10.62 |
-
-The belly (0.62-2.36) and the chest (4.24-5.61) had no box at all, and the
-forearms stopped short of the hands: a vertex whose strongest bone is not a limb
-was charged to nobody. `PainfulTools hitboxes <model>` prints both sets.
+The skin boxes leave holes wherever a non-limb bone drives the mesh (a vertex
+whose strongest bone is not a limb is charged to nobody), which is why they are
+only the fallback. `PainfulTools hitboxes <model>` prints both sets.
 
 **Still ours:** a model needs its `.rde` to get limbs at all, which keeps the
 set of limbed models what it was; the original needs only the `.hke`. A model
