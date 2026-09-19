@@ -20,7 +20,9 @@ namespace {
 
 // MAXANISOTROPY only raises the cap (16 on D3D11); a sampler still has to ask
 // for the anisotropic filter, which Render/TextureFilter.h decides per bind.
-const uint32_t kResetFlags = BGFX_RESET_VSYNC | BGFX_RESET_MAXANISOTROPY;
+// PAINFUL_VSYNC=0 uncaps the frame, which is how a GPU cost is told from a wait.
+const uint32_t kResetFlags = (DebugInt("PAINFUL_VSYNC", 1) > 0 ? BGFX_RESET_VSYNC : 0u) |
+		BGFX_RESET_MAXANISOTROPY;
 
 // Cfg.Multisample's count as bgfx reset bits. bgfx has no 6x, so the
 // original's "x6" becomes 8x. Docs/Reference/Menu.md, "Multisample".
@@ -135,7 +137,7 @@ bool Renderer::Init(Window& window) {
 	height_ = window.height();
 	initialised_ = true;
 
-	bgfx::setDebug(BGFX_DEBUG_TEXT);
+	bgfx::setDebug(BGFX_DEBUG_TEXT | (DebugFlag("PAINFUL_GPUVIEWS") ? BGFX_DEBUG_PROFILER : 0u));
 	// The sky view owns the screen clear and the world view draws on top of
 	// it. (SetClearColor overrides the colour per level.)
 	bgfx::setViewClear(kSkyView, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x1a1a20ff, 1.0f, 0);
@@ -196,7 +198,8 @@ void Renderer::DebugText(uint16_t row, const char* fmt, ...) {
 void Renderer::SetWireframe(bool on) {
 	// The text flag has to stay: it is what carries the debug rows, including
 	// the line that says the wireframe is on.
-	bgfx::setDebug(BGFX_DEBUG_TEXT | (on ? BGFX_DEBUG_WIREFRAME : 0u));
+	bgfx::setDebug(BGFX_DEBUG_TEXT | (on ? BGFX_DEBUG_WIREFRAME : 0u) |
+			(DebugFlag("PAINFUL_GPUVIEWS") ? BGFX_DEBUG_PROFILER : 0u));
 }
 
 void Renderer::RequestScreenshot(const std::string& path) {
@@ -213,6 +216,19 @@ double Renderer::GpuMs() const {
 	const bgfx::Stats* s = bgfx::getStats();
 	if (!s || s->gpuTimerFreq <= 0 || s->gpuTimeEnd <= s->gpuTimeBegin) return 0.0;
 	return double(s->gpuTimeEnd - s->gpuTimeBegin) * 1000.0 / double(s->gpuTimerFreq);
+}
+
+void Renderer::LogViewCosts() const {
+	if (!initialised_) return;
+	const bgfx::Stats* s = bgfx::getStats();
+	if (!s || s->gpuTimerFreq <= 0) return;
+	LogInfo("gpu views: %u, frame %.2f ms, %u draws", unsigned(s->numViews), GpuMs(), unsigned(s->numDraw));
+	for (uint16_t i = 0; i < s->numViews; ++i) {
+		const bgfx::ViewStats& v = s->viewStats[i];
+		const double gpu = double(v.gpuTimeEnd - v.gpuTimeBegin) * 1000.0 / double(s->gpuTimerFreq);
+		const double cpu = double(v.cpuTimeEnd - v.cpuTimeBegin) * 1000.0 / double(s->cpuTimerFreq);
+		if (gpu >= 0.05 || cpu >= 0.05) LogInfo("  view %3u  gpu %6.2f ms  cpu %6.2f ms  %s", unsigned(v.view), gpu, cpu, v.name);
+	}
 }
 
 void Renderer::SetClearColor(float r, float g, float b) {

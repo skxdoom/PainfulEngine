@@ -117,8 +117,12 @@ public:
 
 	// Human-readable name of the backend bgfx actually selected.
 	std::string BackendName() const;
-	// The last frame's GPU time from bgfx's own timer queries; 0 when it has none.
+	// First GPU command to last, from bgfx's timer queries: a SPAN, idle gaps
+	// included, not work. Diagnostics.md, "The GPU span". 0 when there is none.
 	double GpuMs() const;
+	// PAINFUL_GPUVIEWS: bgfx's per-view GPU times, logged. Needs the profiler
+	// flag, which SetWireframe carries while the switch is set.
+	void LogViewCosts() const;
 
 private:
 	bool initialised_ = false;

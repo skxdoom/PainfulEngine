@@ -1758,6 +1758,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			const int shotFrame = DebugInt("PAINFUL_SHOT_FRAME", 30);
 			if (frame == shotFrame) {
 				renderer.RequestScreenshot(shotPath);
+				if (DebugFlag("PAINFUL_GPUVIEWS")) renderer.LogViewCosts();
 				// The numbers behind the picture, so a shot can be judged
 				// without opening it.
 				std::string posed;

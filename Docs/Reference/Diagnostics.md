@@ -168,12 +168,26 @@ in milliseconds, each smoothed over about ten frames:
 
 | row | what is timed |
 |---|---|
-| Frame | the whole frame, from the clock that gives `dt`; GPU is bgfx's timer query |
+| Frame | the whole frame, from the clock that gives `dt`; the GPU span is below |
 | Scripts | `Game_Tick`, `Tick2`, `Tick3`, `Game_Render`, `Game_PostRender` |
 | Game | the native ticks of the simulation block, less its scripts and physics |
 | Physics | `PhysicsWorld::Update` |
 | Render | `BeginFrame` to the HUD's flush: culling, posing, draw submission |
 | Present | `bgfx::frame`, which with vsync on is mostly the wait for the display |
+
+### The GPU figure
+
+The figure beside Frame is bgfx's timer query: the GPU clock at the frame's
+first command and at its last. It is a span, not work. A light frame reaches the
+driver as one batch and reads a fraction of a millisecond. Once a frame is big
+enough for the driver to flush part of it early - more chunks in view, a shot's
+extra passes - the first command runs at once, the last batch waits for the
+swapchain buffer, and the span reads about one display interval (8 ms at
+120 Hz) while the FPS does not move.
+
+To read a real cost, set `PAINFUL_VSYNC=0` and read Frame.
+`PAINFUL_GPUVIEWS=1` logs bgfx's per-view GPU and CPU times at the `--shot`
+frame; idle time shows there as a large figure in a view with few draws.
 
 The HUD row's draw count is the previous frame's, since batches are counted at
 the flush and the overlay is laid out before it.
