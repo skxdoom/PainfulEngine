@@ -85,7 +85,7 @@ a script `print` do not read alike. `EDITOR.OutputText` used to hand-write
 `PAINFUL_LOG=warn|info|trace` sets the level; the default is `trace`. Measured
 on the same run: 190 lines at trace, 29 at info, 3 at warn. The 161 lines the
 first step drops are the `[stub]` instrumentation, which is why they are
-`LogTrace` and why trace is the default — `Docs/Plan.md` measures the remaining
+`LogTrace` and why trace is the default — `Docs/Stubs.md` measures the remaining
 native work by counting them, so quiet-by-default would have thrown away the
 progress bar.
 

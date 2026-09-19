@@ -86,7 +86,10 @@ Source/
                             ScriptEntity, ScriptMonster, ScriptSound,
                             ScriptPlayer, ScriptInput, ScriptTrace, ScriptAnim,
                             ScriptWorld, ScriptHud, ScriptMenu, ScriptDeath,
-                            ScriptLimbs - each declaring its own natives and
+                            ScriptLimbs, ScriptCollision, ScriptExplosion,
+                            ScriptDecal, ScriptLight, ScriptWater,
+                            ScriptConsole, ScriptSave, ScriptWorldSave -
+                            each declaring its own natives and
                             its own binding table, so adding one recompiles
                             that file alone. ScriptBind calls the binders.
             EngineBoot      window, device and level-independent caches, shared
@@ -281,11 +284,10 @@ The Lua 5.0.2 host boots the real game scripts — `Loader.lua`, `Game:Init()`
 with 1054 templates preloaded, and the per-frame `Game_Tick*/Render/GC` chain —
 from the archives or a loose tree alike. 964 files load, none missing.
 Unimplemented natives are instrumented stubs that report what the scripts
-asked for, which is how the remaining API gets recovered; the reading and the
-work queue are in [`Plan.md`](Plan.md).
+asked for, which is how the remaining API gets recovered; the counts and the
+work queue are in [`Stubs.md`](Stubs.md).
 
-Of the 638 natives the shipped scripts reference, 227 are implemented. What
-that buys:
+What the implemented natives buy:
 
 - **Levels load through the game's own pipeline.** `Game:LoadLevel` runs
   `.CLevel` via LoadObj, level templates, every entity instance file,
@@ -349,7 +351,14 @@ that buys:
   the engine's offsets and `SeesEntity` traces head to head
   ([`MonsterMovement.md`](Reference/MonsterMovement.md)).
 - **Ragdolls.** `MDL.EnableRagdoll`, the joint damping and friction setters,
-  `ApplyPointImpulseToRagdoll`, and `TickRagdolls` in the frame.
+  `ApplyPointImpulseToRagdoll`, and `TickRagdolls` in the frame. A stake pins
+  a corpse to a wall, and monsters pose, carry and throw bodies by one joint
+  ([`Physics.md`](Reference/Physics.md), "Pinning a CORPSE", "Holding a body
+  by one joint").
+- **Things move the player.** The scripted movers carry what stands on them
+  (the Factory belts, lifts, the handcar), a monster's throw takes control
+  away for its duration ([`PlayerMovement.md`](Reference/PlayerMovement.md),
+  "Being thrown"), and Thor's `ExplosionUp` / `ExplosionParabolic` launch.
 - **Gibs.** `MDL.MakeGib` makes the `<Model>_gib` entity in the pose the body
   died in and hands it the body's velocity; `RagdollSelfExplosion` bursts it
   with the engine's own shared-strength law; blasts reach corpses, so a rocket
@@ -380,8 +389,9 @@ that buys:
 
 ## What is missing
 
-The ordered work queue, with the evidence behind each item, is
-[`Plan.md`](Plan.md). This is the inventory.
+The ordered work queue is [`Stubs.md`](Stubs.md), and the stand-ins that are
+argued rather than recovered are indexed in [`Plan.md`](Plan.md). This is the
+inventory.
 
 ### Gameplay
 
@@ -391,8 +401,7 @@ The ordered work queue, with the evidence behind each item, is
   (`speed * 80 / (80 + mass)`, standing in for a Havok contact) — and Jolt's
   one-sided mesh needs `StandCharacterOnFloor`, which Havok never did
   ([`MonsterMovement.md`](Reference/MonsterMovement.md)). Not yet exercised:
-  stairs and slopes under the dynamic body, and flyers (`PO_SetFlying` is a
-  real flag now, but the `Maintain*` movers behind it are still stubs).
+  stairs and slopes under the dynamic body.
 - **Corpse collision groups.** Pinning itself works — a stake nails a body to a
   wall, and the questions asked about a pinned corpse afterwards now answer
   (`MDL.IsPinned` / `IsPinnedJoint`, the joint pose and velocity family;
@@ -413,29 +422,21 @@ The ordered work queue, with the evidence behind each item, is
   yields a different route than flat A* over the same links is not measured.
   `WPT.GetClosest` / `GetPosition` now answer, so the five scripts that put a
   monster back on the walkable set do so.
-- **Flying and scripted movers.** `PO_SetFlying` is a real flag the tick
-  honours, but `PO_MaintainVelocity` / `MaintainLinearMovement` /
-  `MaintainPosition` and `PO_EnableSpeedDamping` behind it are stubs, so
-  Alastor and the ravens still have no mover.
-- **Collision-group plumbing.** `EnableCollisionsToAll`, `PO_Activate`.
-  `PO_SetCollisionGroup` applies the layer/motion rule to a live body (the
-  thrown cans and fireballs), and the player is hit by the AI's traces,
-  by contacts and by blasts ([`Physics.md`](Reference/Physics.md), "The
-  player takes hits"); the finer group pairs of the original's filter are
-  still not modelled.
-  `EnableCollisionsToRagdoll` is real: a corpse's armed joints report their
-  landing, which is the fall sound and the blood ([`Physics.md`](Reference/Physics.md),
-  "Ragdoll limbs report too").
-- **The ragdoll joint API.** The `ApplyVelocitiesToJoint` /
-  `ApplyRotationToJoint` family, `SetRagdollRestitution`. The `Spring` and
-  `Dashpot` actions in the
-  `.hke` are parsed but not simulated ([`Physics.md`](Reference/Physics.md),
-  "The binary .hke").
-- **Lifetime and world state.** `WORLD.SetWorldSpeed` is done (slow motion:
-  [`LuaHost.md`](Reference/LuaHost.md), "The time multiplier").
-  `WORLD.RemoveEntity` / `DeleteDyingEntities`, `PHYSICS.SetGravity`.
-  `PARTICLE.Restart` and `SetImmortal` are still stubs.
-- No glass, buoyancy, ladders or ice. See [`Physics.md`](Reference/Physics.md).
+- **The scripted movers are a reconstruction.** The `PO_Maintain*` family and
+  `PO_EnableSpeedDamping` run as a per-step servo standing in for the Havok
+  actions ([`Physics.md`](Reference/Physics.md), "The scripted movers").
+  `PLAYER.AttachToUnderBody`, the handcar's explicit attach, is still a stub.
+- **Collision groups.** `PO_SetCollisionGroup` applies the layer/motion rule
+  to a live body; the finer group pairs of the original's filter are still
+  not modelled ([`Physics.md`](Reference/Physics.md), "The player takes
+  hits").
+- **Ragdoll leftovers.** The `Spring` and `Dashpot` actions in the `.hke` are
+  parsed but not simulated ([`Physics.md`](Reference/Physics.md), "The binary
+  .hke"); `SetRagdollHardDeactivator` / `SetRagdollBreakablesThreshold` are
+  stubs.
+- **Lifetime and world state.** `WORLD.RemoveEntity` / `DeleteDyingEntities`,
+  `PHYSICS.SetGravity`, `PARTICLE.Restart` and `SetImmortal` are still stubs.
+- No buoyancy, ladders or ice. See [`Physics.md`](Reference/Physics.md).
 - `PLAYER.GetCameraFix` answers a literal 0, so there is no view bob or crouch
   offset on the camera.
 
@@ -465,11 +466,11 @@ The ordered work queue, with the evidence behind each item, is
   (`MDL.CreateShadowMap`) also cast onto the world, each from a depth slot of
   its own down its own environment directional, faded along the light as the
   original's blobs were; `R3D.EnableShadows` gates those. Left:
-  `ENTITY.AddLight`, `WORLD.SetDirLight`, `LIGHT.SetLitParentFlag`, and
+  `ENTITY.AddLight`, `WORLD.SetDirLight`, and
   shadows from the other dynamic lights - a torch still lights through a wall
   within its range.
-- Model material extras: `MESH.SetDetailMap` / `SetNormalMap` / `SetCubeMap`,
-  `MDL.SetMaterial` / `SetTexture`, `MATERIAL.Replace`.
+- Model material extras: `MESH.SetDetailMap`, `MDL.SetTexture`,
+  `MATERIAL.Replace`.
 - `R3D.SetCameraFOV` / `GetCameraFOV` carry `Cfg.FOV`, and every shipped call
   site is a whole-screen change (`Game:Init`, the menu's 90, the console's
   `fov` command), so the field of view is no longer fixed.
@@ -488,7 +489,8 @@ The ordered work queue, with the evidence behind each item, is
   [`TextureTransforms.md`](Reference/TextureTransforms.md).
 - Post-processing: bloom is in ([`Bloom.md`](Reference/Bloom.md) - the
   original's threshold, kernel and gains, at the screen's own resolution
-  instead of a 512x512 point-sampled copy). No motion blur.
+  instead of a 512x512 point-sampled copy), and an optional SSAO the original
+  never had ([`Lighting.md`](Reference/Lighting.md)). No motion blur.
 - Multisampling: `Cfg.Multisample` is honoured, on the backbuffer and on the
   bloom scene target ([`Menu.md`](Reference/Menu.md), "Multisample"); x6 runs
   as 8x, bgfx having no 6.
@@ -496,8 +498,8 @@ The ordered work queue, with the evidence behind each item, is
   black-and-white world, the red fresnel monsters, the strike warp and the
   trail, at screen resolution. The fresnel scale is the one constant set by
   eye; `SuperDemonFX` is recorded and not drawn (nothing sets it).
-- Particle texture animation uses frame 0 only, and the `WarpTex` refraction
-  pass is not implemented.
+- Particle texture animation uses frame 0 only
+  ([`Particles.md`](Reference/Particles.md)).
 - Antiportal occlusion is parsed but unused, portal frustum clipping is
   approximate (a portal in view opens its zones, where the original narrows
   the frustum through the portal polygon), and `WORLD.UseSwitchZones` /

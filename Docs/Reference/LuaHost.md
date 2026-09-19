@@ -957,11 +957,3 @@ duration). The mix reseat on return to 1 is not needed with a per-frame rate.
 The audio clock (`Advance`), the console, the menus and the post-process
 effects keep real time, as they do in the original's frame outside
 `EngineGame::Tick`.
-
-## Next stages
-2. Damage: the shot lands but nothing takes it yet. `ENTITY.ExplodeItem`,
-   `ENTITY.EnableGunPass`, `ENTITY.SetRotationCAM`, and whatever the hit
-   handlers need to reach an actor's health.
-3. Animation and the actor clock - which is also what gates melee damage and
-   the actors' whole event loop. See
-   [`Plan.md`](../Plan.md) for the full order.

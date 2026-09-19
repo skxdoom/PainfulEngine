@@ -20,26 +20,21 @@ and it's playable, with some bugs and occasional crashes. See
 - Bug fixes where the original had them
 - Further graphics improvements
 
-## Why it's being made with AI
-
-The original **PainEngine** is closed source. Therefore the only viable way 
-to recreate this engine and its trademark feel is decompiling it and reading 
-huge chunks of unreadable decompiled code, which AI is pretty good at. 
-Ultimately it's just a passion project.
-
-Worth noticing that no decompiled output was re-used as is. It was only used
-as a reference.
-
 ## Building
 
-Dependencies are git submodules in `External/` and build from source. Nothing
-is installed system-wide.
+Needs CMake 3.20 or newer and a C++20 compiler. Windows with Visual Studio 2022
+is the only platform built and tested so far. Dependencies are git submodules
+or vendored in `External/` and build from source. Nothing is installed
+system-wide.
 
 ```
 git clone --recursive <this repo>
 cmake -S . -B Build -G "Visual Studio 17 2022" -A x64
 cmake --build Build --config Release
 ```
+
+That produces `Build/Bin/Release/PainfulEngine.exe`, the game, and
+`PainfulTools.exe`, the headless reports and the free-camera viewer.
 
 Shaders are compiled by bgfx's `shaderc` once per graphics backend and embedded
 in the executable, so there is one file to ship. To copy it into a game folder
@@ -54,6 +49,18 @@ cmake -S . -B Build -DPAINFUL_DEPLOY_DIR="X:/Painkiller/Bin"
 
 Copy `PainfulEngine.exe` into the game's `Bin/` folder, next to the original
 `Painkiller.exe`, and run it.
+
+## How it was done
+
+The original **PainEngine** is closed source, so the only way to recreate it
+and its trademark feel is to recover the rules from what the game shipped: the
+data files, the Lua scripts, and the engine itself decompiled in Ghidra. That means
+reading huge amounts of barely readable decompiled code, which AI is pretty
+good at.
+
+No decompiled output was re-used as is. It served only as a reference for what
+the engine does. The implementation is written from scratch on a different
+renderer, physics engine and audio stack. Ultimately it's just a passion project.
 
 ## Third-party
 

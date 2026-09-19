@@ -1405,9 +1405,8 @@ One file carries a `Dashpot` action (`C2L2_Door2`, an `hkLinearDashpotAction`
 between the fixed `joint1` and the door) and 17 a `Spring` action; both are
 parsed and neither is simulated yet.
 
-Still stubs: `SetRagdollRestitution`, `SetRagdollCollisionGroup`,
-`EnableCollisionsToRagdoll` (the gib-splash collision sounds), and the
-`ApplyVelocitiesToJoint` / `ApplyRotationToJoint` joint-level family.
+Still stubs: `SetRagdollRestitution`, `SetRagdollHardDeactivator`,
+`SetRagdollBreakablesThreshold`.
 
 
 ### Bones no body drives
@@ -2210,20 +2209,18 @@ landed — see [`PlayerMovement.md`](PlayerMovement.md) and
   models and leaves 420 entities unresolved. Most of that gap is entities that
   legitimately have no model, but the hull view also shows at least one hull
   with nothing drawn at it, so the two disagree somewhere real.
-- **No glass, no water buoyancy, no ladders, no ice.** Each is a named piece of
-  the original: `Glass` and `Tweak.Glass`, `EnableUnderwaterWorld` and
-  `Tweak.Underwater`, `World::NearLadder`, `World::OnIce`.
-- **Explosions land, with parts missing.** `WORLD.Explosion2` damages and
-  shoves; the closest-point pass, `ExplosionUp` / `ExplosionParabolic` and
-  the ragdoll self-explosion branch are not ported. Listed under Explosions
-  above.
+- **No water buoyancy, no ladders, no ice.** Each is a named piece of the
+  original: `EnableUnderwaterWorld` and `Tweak.Underwater`,
+  `World::NearLadder`, `World::OnIce`. Glass breaks but does not shatter
+  (Glass above).
+- **Explosions land, with one part missing**: the closest-point pass over
+  world meshes. Listed under Explosions above.
 - **Monsters are Havok bodies stood in for by Jolt ones.** The tick rule is
   recovered and ported; the body's mass and the player's push are argued
   stand-ins, and Jolt's one-sided mesh needs a floor-standing correction the
   original never did. All in [`MonsterMovement.md`](MonsterMovement.md).
-- **Corpses cannot be pinned.** `ENTITY.PO_SetPinned` works on props (see
-  Pinned bodies above), but `PHYSICS.PinHavokBody` and the `MDL.SetPinned*`
-  family are still stubs, so the stakegun cannot pin a body to a wall.
+- **What a corpse's collision group means** — the group-pair filter — is
+  unrecovered ("A corpse's collision group" above).
 - **`World/CollisionMesh` still exists** and still answers the corona
   line-of-sight trace. Jolt can answer the same query; the BVH stays until
   there is a reason to move it.

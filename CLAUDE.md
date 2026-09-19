@@ -18,13 +18,14 @@ what would settle it.
 
 ## Docs are part of the change
 
-`Docs/` has four kinds of file, maintained differently:
+`Docs/` has five kinds of file, maintained differently:
 
 | | |
 |---|---|
 | `Docs/Reference/` | The recovered rules. Changes only when a new fact is recovered. |
 | `Docs/Status.md` | What works today. Changes when a checklist item flips. |
-| `Docs/Plan.md` | What is left, in order. |
+| `Docs/Stubs.md` | The work queue: the remaining stubs, ranked. A family that lands is deleted from it. |
+| `Docs/Plan.md` | The strategy, the stand-ins that are argued rather than recovered, the open questions. |
 | `Docs/Data/` | Generated. `native_priority.tsv` comes from `Tools/GenNativeList.ps1`. Never hand-edited. |
 
 **A change to a recovered rule updates its `Docs/Reference/` page in the same

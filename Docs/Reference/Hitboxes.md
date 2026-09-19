@@ -448,19 +448,9 @@ that it is never paired with an `Add`, and that is a signal only over time.
 
 ## Still open
 
-Ragdoll simulation has since landed: `MDL.EnableRagdoll` hands the boxes to the
-solver, `IsRagdoll` / `IsRagdollActive` answer truthfully, and `TickRagdolls`
-runs in the frame, so a dead monster falls instead of freezing in its last pose.
-What remains:
+Ragdolls, gibs and corpse pinning are in ([`Physics.md`](Physics.md)), and the
+monster's mover and body are one dynamic shape
+([`MonsterMovement.md`](MonsterMovement.md)). What remains:
 
-- **The mover and the body are still two shapes.** `TickMonsters` sweeps its own
-  sphere, sized from mesh bounds, while the three-sphere body is only what
-  others hit — so the body work does not affect pathing. Unifying them on the
-  recovered shape is the remaining piece, and it is what makes monsters stop at
-  ledges the player walks over. See [`../Plan.md`](../Plan.md).
-- **`MDL.MakeGib` and the pin family are still stubs** — `SetPinned`,
-  `SetPinnedJoint`, `SetRagdollCollisionGroup`, `RagdollSelfExplosion`,
-  `SetRagdollMovedByExplosions`. So a corpse cannot be gibbed, and nothing can
-  be pinned to a wall.
 - **Props with an `.rde` still answer on their script body**, not per limb.
   Breakable props and `BodyTypes.FromRagdoll` are their own question.

@@ -1,26 +1,14 @@
 # Monster movement — scope
 
 Monsters walk. What follows is the map of how, what is measured, and what is
-still missing - written the way `Animation.md` was, after three sessions of
-fixing one native at a time failed to close it.
-
-**The last blocker was self-inflicted.** The mover computed its step and never
-applied it: a probe-removal `sed` deleted the `SlideSphere` call out of
-`TickMonsters`, and every actor sat at a position that never changed by a
-single float. That is the signature to remember - a real collision failure
-drifts, jitters or wedges against something, while a missing call leaves
-positions PERFECTLY constant. Two sessions of diagnosis went past it because
-the symptom read as "the sweep refuses to move them" rather than "nothing is
-sweeping". Bulk `sed` over C++ is how it got there; see
-[[pkre-budget-discipline]] rule 1.
+still missing.
 
 ## The mover, recovered (2026-09-02)
 
-Everything under "Monsters are moved, not simulated" further down is
-superseded by this section. It was right that `PO_Move` is a setter and that
-`PO_SetMonsterType` sets one flag bit; it was wrong about what the step then
-does with them. A monster is **not** carried - it is an ordinary dynamic Havok
-body whose velocity the engine re-commands every physics tick.
+`PO_Move` is a setter and `PO_SetMonsterType` sets one flag bit ("The monster
+flag and `PO_Move`" further down); the step spends them. A monster is **not**
+carried - it is an ordinary dynamic Havok body whose velocity the engine
+re-commands every physics tick.
 
 Sources: `PhysicsObject::Tick` 0x10190570, `MonsterFloorCheck` 0x1018FAA0,
 `PhysicsWorld::CreatePhysicsObject` 0x101999F0, `SetFreedomOfRotation`
@@ -389,19 +377,6 @@ monks - `UpdateWalking` takes its step straight from
 animation, not a constant.** It is also damped hard as the actor closes on its
 target, which is what produced the 0.46 units/second above.
 
-## A latent bug found on the way
-
-`SlideSphere` keeps a 0.02 skin off every surface and advances by
-`length - skin`, so **a step shorter than the skin advances by nothing at
-all**. The player never meets this - it moves 0.13 units a frame - but an actor
-damps its speed as it closes on its target, and at 0.46 units/second a 60 Hz
-step is 0.008 units.
-
-`TickMonsters` accumulates the step and spends it once it clears the skin; the
-distance is unchanged, it just arrives every third frame. This was NOT the
-cause of the frozen monsters (that was the deleted sweep above) - it is a real
-defect that would have bitten as soon as they started arriving anywhere.
-
 ## What is implemented
 
 - `PO_Move`, `PO_SetMonsterType`, `PO_SetMonsterMovementConst`, `PO_IsOnFloor`,
@@ -419,14 +394,9 @@ defect that would have bitten as soon as they started arriving anywhere.
 
 - **Flyers.** The bodyless actors are bats, and they move through
   `UpdateFlying` rather than `UpdateWalking`. A separate mode, untested.
-- **`WPT.GetClosest` / `GetPosition`** - a separate, smaller thing from the
-  routing graph, used by four monsters (AlastorKing, Lucifer, StoneGolem,
-  Apoc_zombie) to place themselves rather than to navigate.
 - **The floors section** of a `.wps`, and with it `Select_OnSelectedFloors`.
   Routing does not need it.
 - **`ERot`**, the movement curve's rotation channel.
-- The engine's own rule for `BodyTypes.Fatter`, which lives inside
-  `Entity::CreatePhysicsObject`.
 
 ## Tooling this needed
 
@@ -456,15 +426,6 @@ end
 
 That is how the table above was measured, and it beats adding C++ probes for
 anything that lives on the script side.
-
-## Order
-
-1. ~~**The `.wps` waypoint graph.**~~ **Done** - see the end of this document.
-2. **Flyers**, through `UpdateFlying`. Bats, and the one other template that
-   sets `CreatePO = false`.
-3. **Sight from head positions**, matching `GetPawnHeadPos`, so low cover stops
-   blocking sight the original sees over.
-4. `ERot`, and the `Fatter` shape rule.
 
 ## Measured with a squad
 
@@ -754,26 +715,16 @@ per tick, every tick, aborting `Game_Tick` and with it the whole object update:
   `Thor.lua:78`, `attempt to concatenate local 'count'`. Once per level rather
   than per tick, so it costs one monster rather than the update.
 
-## Monsters are moved, not simulated
+## The monster flag and `PO_Move`
 
-Reported from play: monks stood walking inside a wall, and the player could
-bowl them across the level like barrels. One cause behind both - an actor was
-an ordinary **dynamic rigid body**.
+`PO_SetMonsterType` (0x101313C0) sets one flag bit at `PhysicsObject+0x74` and
+nothing else, and `PO_Move` (0x10130D50) **moves nothing at all**: it writes
+three floats to `PhysicsObject+0x34..0x3c` and returns. It is a setter, like
+`PO_SetAction`, and the physics tick spends what it stored ("The mover,
+recovered" above). `PO_Move`'s vector is a VELOCITY - `CActor` passes
+`mv * (1/delta)`.
 
-Engine.dll says it should not be. `PO_SetMonsterType` (0x101313C0) sets one
-flag bit at `PhysicsObject+0x74` and nothing else, and `PO_Move` (0x10130D50)
-**moves nothing at all**: it writes three floats to `PhysicsObject+0x34..0x3c`
-and returns. It is a setter, like `PO_SetAction`, and the physics step spends
-what it stored. A monster is a body the engine *carries*, not one it
-simulates.
-
-So the body becomes kinematic the moment the monster flag arrives (it cannot
-be done at `PO_Create`, which is called before the flag), and `TickMonsters`
-walks it with the same swept sphere the player moves with. Nothing can push
-it, it cannot tumble, and it is stopped by the geometry that stops the player.
-`PO_Move`'s vector is a VELOCITY - `CActor` passes `mv * (1/delta)`.
-
-Recovered layout, worth keeping:
+Recovered layout:
 
 | offset | field |
 |---|---|
@@ -787,27 +738,7 @@ Recovered layout, worth keeping:
 after creating the object - the SIGHT parameters, seeded before any script
 sets them; see below.
 
-### The shape was the actual bug
-
-`CreateScriptBody` sizes a sphere by the **largest** half-extent, which is
-right for a barrel and wrong for a character: `evilmonkv2` is 14.4 model units
-across the ARMS against a body 2.9 deep, so a monk was a sphere wider than it
-was tall and could not approach a wall. Monsters now take the smaller
-horizontal half-extent - 0.35 world units for a monk.
-
-And a `.pkmdl`'s origin is the **middle of the model, not the ground under
-it**: `evilmonkv2` measures `y[-12.80..10.11]`, so its feet are 12.8 units
-below the position the scripts set. Assuming a foot origin and lifting the
-sphere by a radius made monks climb out of the world at exactly one radius per
-tick, which is how the mistake was caught - the offset now comes from the
-model's own bounds. Measured after: a monk holds y = -2.92 for 900 frames,
-on the floor, not drifting.
-
-The engine's own rule for `BodyTypes.Fatter` lives inside
-`Entity::CreatePhysicsObject` and has NOT been recovered; the horizontal
-half-extent is a shape argument, not the original's constant.
-
-### Sight, and the mover proved
+### Sight
 
 `SeesEntity` (0x101335E0) hands off to `CalculatePawnToEntityVisibility` when
 the looker has a physics object and otherwise line-traces between the two
@@ -816,22 +747,14 @@ duration of the trace and back on after - a monster's own body sits on the
 line and would blind it.
 
 `PO_SetSightParams` (0x10131210) writes the four floats at +0x24..+0x30, which
-is the same block `PO_Create` seeds - so those are SIGHT parameters, not the
-movement limits guessed at above. The templates name them, and the names give
+is the same block `PO_Create` seeds - so those are SIGHT parameters, not
+movement limits. The templates name them, and the names give
 the model away: `viewDistance360` is how far the actor sees in EVERY
 direction, `viewDistance` how far inside its cone. Shipped values run
 `viewAngle = 170, viewDistance360 = 6`: aware of anything within six units,
 and beyond that only what is in front. The angles arrive as a full spread in
 degrees and are stored as a half-angle in radians, which is what makes the
 engine's 180 default come out as the pi/2 PO_Create writes.
-
-**The mover is verified.** Driven at 4 units/s, a monk walks 5.97 units per 90
-ticks - 4 x 1.5 s = 6.00, the commanded speed exactly - holds y = -2.92 the
-whole way, and is stopped dead by a wall in the other direction.
-
-One trap on the way: a monster sweeps its own shape through a world its own
-body is standing in, so it was wedged inside itself and could not move at all.
-`SlideSphere` and `Depenetrate` now take a body slot to pass through.
 
 Monsters still will not come at you in a HEADLESS run, and that is correct
 rather than broken: nothing walks toward a player it cannot see, and at the
