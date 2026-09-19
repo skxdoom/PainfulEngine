@@ -620,6 +620,21 @@ texels as everywhere else.
 (each cell, 1024). `PAINFUL_SHADOWVIEW` darkens the weapon by these terms; 2
 shows the lights' alone.
 
+## The view model's depth
+
+The weapon is a world-space model drawn late into the scene's own depth buffer,
+so a wall nearer than its muzzle covered it. `vs_entity` and `vs_entity_nm` squeeze
+a view model's clip-space depth into the nearest tenth of the range
+(`u_viewDepth.x`; `.y` says the backend's clip z runs -w..w). Only the depth
+moves: the image is the same pixel for pixel, the weapon still sorts against
+itself, and lighting and both shadow lookups read `v_wpos`, which is untouched.
+At 0.1 only a surface within about 1.1 near-plane distances of the eye can
+still cover it. `PAINFUL_VMDEPTH` sets the scale; 1 turns it off.
+
+NOT read from the binary: a viewport depth range for the weapon is the usual
+D3D8-era way to get this, and what would settle it is the viewport `MinZ` /
+`MaxZ` the original sets around the weapon's draw.
+
 ## Weapon normal maps
 
 Every weapon template ends its setup with `MDL.EnableNormalMaps(self._Entity,

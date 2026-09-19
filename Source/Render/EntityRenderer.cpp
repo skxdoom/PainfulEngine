@@ -157,6 +157,7 @@ bool EntityRenderer::Init(const std::string& shaderDir) {
 	uEntWaterRefr_ = bgfx::createUniform("u_entWaterRefr", bgfx::UniformType::Vec4);
 	sEnvCube_ = bgfx::createUniform("s_envcube", bgfx::UniformType::Sampler);
 	uVmParams_ = bgfx::createUniform("u_vmParams", bgfx::UniformType::Vec4);
+	uViewDepth_ = bgfx::createUniform("u_viewDepth", bgfx::UniformType::Vec4);
 	uVmMtx_ = bgfx::createUniform("u_vmMtx", bgfx::UniformType::Mat4);
 	uVmLight_ = bgfx::createUniform("u_vmLight", bgfx::UniformType::Vec4);
 	sVmShadow_ = bgfx::createUniform("s_vmShadow", bgfx::UniformType::Sampler);
@@ -203,6 +204,7 @@ void EntityRenderer::Shutdown() {
 	if (bgfx::isValid(sStage1_)) { bgfx::destroy(sStage1_); sStage1_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uStage1_)) { bgfx::destroy(uStage1_); uStage1_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uVmParams_)) { bgfx::destroy(uVmParams_); uVmParams_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uViewDepth_)) { bgfx::destroy(uViewDepth_); uViewDepth_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uVmMtx_)) { bgfx::destroy(uVmMtx_); uVmMtx_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uVmLight_)) { bgfx::destroy(uVmLight_); uVmLight_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(sVmShadow_)) { bgfx::destroy(sVmShadow_); sVmShadow_ = BGFX_INVALID_HANDLE; }
@@ -1549,6 +1551,12 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 					bgfx::isValid(projector_.falloff()) ? projector_.falloff() : white_,
 					4, shadowTex, 5, BGFX_INVALID_HANDLE, 6, lightShadowTex);
 			BindViewModel(instance.viewModel, vmCells);
+			// The weapon in the nearest tenth of the depth range: the world cannot
+			// cover it. PAINFUL_VMDEPTH overrides the scale, 1 turns it off.
+			static const float kViewModelDepth = DebugFloat("PAINFUL_VMDEPTH", 0.1f);
+			const float viewDepth[4] = {instance.viewModel ? kViewModelDepth : 1.f,
+					bgfx::getCaps()->homogeneousDepth ? 1.f : 0.f, 0.f, 0.f};
+			bgfx::setUniform(uViewDepth_, viewDepth);
 			// The model water look (palskin_water): its own program, the cube
 			// map at stage 1, MDL.SetMaterialRefractFresnel's numbers per mesh.
 			const bgfx::TextureHandle cubeTex = bgfx::isValid(envCube_) ? envCube_ : levelCube_;

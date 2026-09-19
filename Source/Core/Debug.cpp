@@ -51,6 +51,7 @@ Row g_rows[] = {
 	{"PAINFUL_NEAR", Kind::kFloat, "camera near plane"},
 	{"PAINFUL_WIRE", Kind::kInt, "1 geometry wireframe, 2 collision wireframe"},
 	{"PAINFUL_GPUVIEWS", Kind::kFlag, "log bgfx's per-view GPU and CPU times at the --shot frame"},
+	{"PAINFUL_VMDEPTH", Kind::kFloat, "the view model's depth scale (0.1); 1 lets the world cover the weapon again"},
 	{"PAINFUL_VSYNC", Kind::kInt, "0 presents without vsync, to read a frame's real cost"},
 	{"PAINFUL_LIGHTINGONLY", Kind::kFlag, "start in the lighting-only view: grey albedo, lighting kept"},
 	{"PAINFUL_SSAOVIEW", Kind::kFlag, "SSAO's blurred occlusion drawn in place of the scene"},

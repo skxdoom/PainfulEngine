@@ -456,6 +456,7 @@ private:
 	std::vector<ShadowedLight> shadowPicks_;
 	const ViewModelShadows* viewModelShadows_ = nullptr;
 	bgfx::UniformHandle uVmParams_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uViewDepth_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uVmMtx_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uVmLight_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle sVmShadow_ = BGFX_INVALID_HANDLE;
