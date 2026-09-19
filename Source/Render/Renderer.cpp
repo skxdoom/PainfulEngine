@@ -123,6 +123,10 @@ bool Renderer::Init(Window& window) {
 	init.resolution.height = static_cast<uint32_t>(window.height());
 	init.resolution.reset = kResetFlags;
 	init.callback = &g_screenShotCallback;
+	// The transform cache grows a frame late: a frame past the reserve draws its
+	// last models with identity. Reserved past any level, and never shrunk.
+	init.limits.numDrawCalls = 16384;
+	init.limits.numDrawCallPeakFrames = 0;
 	if (!bgfx::init(init)) {
 		LogWarn("bgfx::init failed");
 		return false;
