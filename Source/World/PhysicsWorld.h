@@ -468,7 +468,8 @@ public:
 	bool RayCast(const Vec3& from, const Vec3& to, RayHit& out,
 			bool staticOnly = false, const int* exclude = nullptr,
 			size_t excludeCount = 0, const int* ignoreRagdolls = nullptr,
-			size_t ignoreRagdollCount = 0, bool includePlayer = false) const;
+			size_t ignoreRagdollCount = 0, bool includePlayer = false,
+			bool standableOnly = false) const;
 
 	// Pushes a sphere out of anything it is inside, and reports how many
 	// overlaps it had to resolve. SlideSphere does this before every move:
@@ -577,7 +578,9 @@ private:
 	// minLift: ignore an embedding shallower than this - a resting body sits
 	// Jolt's penetration slop (~0.02) into the floor, and lifting that every
 	// step kept the bodies airborne half the time, bouncing off CCD landings.
-	void StandCharacterOnFloor(int slot, float maxLift, float minLift = 0.001f);
+	// staticOnly: the per-step lift, which leaves props to the solver; a
+	// placement still stands a monster on the barrels it was authored on.
+	void StandCharacterOnFloor(int slot, float maxLift, float minLift = 0.001f, bool staticOnly = false);
 	void CreatePawnProbe();
 	// The collidable map geometry as one static body; shared by Load and
 	// LoadWorldMesh.

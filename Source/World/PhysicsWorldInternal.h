@@ -101,16 +101,21 @@ constexpr JPH::ObjectLayer kNoCollide = 2;
 // stopped by the sphere that is standing there, and no trace should ever land
 // on them.
 constexpr JPH::ObjectLayer kProbe = 3;
-// ECollisionGroups.Missile (5) and Particles (8): grenades, rockets, shell
-// casings. Simulated against the world, props, monsters and each other, but
-// never against the probes.
+// ECollisionGroups.Missile (5): grenades, rockets. Simulated against the
+// world, props and monsters, never against each other or the probes.
 constexpr JPH::ObjectLayer kMissile = 4;
 // A LIVE monster's ragdoll limbs, posed along its animation (Ragdoll::Animate).
 // Traces land on them; nothing simulates against them. A monster's own body
 // is dynamic and sits inside them, and a limb that could push it would eject
 // its owner every step.
 constexpr JPH::ObjectLayer kHitbox = 5;
-constexpr JPH::ObjectLayer kCount = 6;
+// ECollisionGroups.Particles (8): wall debris, shell casings, gas. The Havok
+// filter disables 8 against every group but the fixed ones (1, 24, 28, 29), so
+// they meet the world and whatever a script drives, and nothing that is
+// simulated - ScriptContactListener::OnContactValidate draws that line.
+// Physics.md, "Collision groups".
+constexpr JPH::ObjectLayer kParticle = 6;
+constexpr JPH::ObjectLayer kCount = 7;
 } // namespace Layers
 
 namespace BroadPhase {
@@ -134,6 +139,11 @@ public:
 		// ten bombs 0.05 apart with a 0.165 radius each; touching, every one
 		// of them counted its neighbours as hits and blew up in the barrel.
 		if (a == Layers::kMissile && b == Layers::kMissile) return false;
+		// Debris: the static world and the moving layer's kinematic bodies.
+		if (a == Layers::kParticle || b == Layers::kParticle) {
+			const JPH::ObjectLayer other = a == Layers::kParticle ? b : a;
+			return other == Layers::kNonMoving || other == Layers::kMoving;
+		}
 		// Static against static is never interesting.
 		return a != Layers::kNonMoving || b != Layers::kNonMoving;
 	}
@@ -231,7 +241,8 @@ public:
 		// the actors (4) in the Havok filter (colgroup3.log), so nothing that
 		// walks stands on a grenade. Physics.md, "Collision groups".
 		return layer != Layers::kNoCollide && layer != Layers::kProbe &&
-				layer != Layers::kHitbox && layer != Layers::kMissile;
+				layer != Layers::kHitbox && layer != Layers::kMissile &&
+				layer != Layers::kParticle;
 	}
 };
 const SweepLayerFilter kSweepLayer;
@@ -477,9 +488,19 @@ using namespace physics_detail;
 // remaining chatter.
 class ScriptContactListener final : public JPH::ContactListener {
 public:
+	// Debris passes through anything the solver moves: props, monsters, corpses.
+	JPH::ValidateResult OnContactValidate(const JPH::Body& a, const JPH::Body& b,
+			JPH::RVec3Arg, const JPH::CollideShapeResult&) override {
+		const bool pa = a.GetObjectLayer() == Layers::kParticle;
+		const bool pb = b.GetObjectLayer() == Layers::kParticle;
+		if ((pa && b.IsDynamic()) || (pb && a.IsDynamic()))
+			return JPH::ValidateResult::RejectAllContactsForThisBodyPair;
+		return JPH::ValidateResult::AcceptAllContactsForThisBodyPair;
+	}
 	void OnContactAdded(const JPH::Body& a, const JPH::Body& b,
 			const JPH::ContactManifold& manifold,
-			JPH::ContactSettings&) override {
+			JPH::ContactSettings& settings) override {
+		BalanceStack(a, b, manifold, settings);
 		NoteCharacter(a, b, manifold);
 		Pending p;
 		p.a = a.GetID();
@@ -546,10 +567,33 @@ public:
 		Vec3 blocked;
 	};
 	const std::unordered_set<uint32_t>* characters = nullptr;
+	float pushMassLimit = 2500.f; // Tweak.PlayerMove.MaximalItemPushMass
 	void OnContactPersisted(const JPH::Body& a, const JPH::Body& b,
 			const JPH::ContactManifold& manifold,
-			JPH::ContactSettings&) override {
+			JPH::ContactSettings& settings) override {
+		BalanceStack(a, b, manifold, settings);
 		NoteCharacter(a, b, manifold);
+	}
+	// STAND-IN: a heavy body resting ON a much lighter one - a 150 kg monster on
+	// the sizer's 2 kg barrels - is a stack Jolt's solver cannot hold: the
+	// barrel is driven into the floor and squirts out. In that one contact the
+	// upper body counts as at most kStackRatio times the lower one's mass.
+	// Sideways contacts are untouched, so pushing is. Physics.md, "Heavy on light".
+	static void BalanceStack(const JPH::Body& a, const JPH::Body& b,
+			const JPH::ContactManifold& manifold, JPH::ContactSettings& settings) {
+		if (!a.IsDynamic() || !b.IsDynamic()) return;
+		const float ny = manifold.mWorldSpaceNormal.GetY(); // from a into b
+		if (std::fabs(ny) < 0.7f) return;
+		const bool aOnTop = ny < 0.f;
+		const float upperInv = (aOnTop ? a : b).GetMotionProperties()->GetInverseMass();
+		const float lowerInv = (aOnTop ? b : a).GetMotionProperties()->GetInverseMass();
+		if (upperInv <= 0.f || lowerInv <= 0.f) return;
+		constexpr float kStackRatio = 2.f;
+		const float ratio = lowerInv / upperInv; // upper mass over lower mass
+		if (ratio <= kStackRatio) return;
+		const float scale = ratio / kStackRatio;
+		(aOnTop ? settings.mInvMassScale1 : settings.mInvMassScale2) = scale;
+		(aOnTop ? settings.mInvInertiaScale1 : settings.mInvInertiaScale2) = scale;
 	}
 	void NoteCharacter(const JPH::Body& a, const JPH::Body& b,
 			const JPH::ContactManifold& manifold) {
@@ -557,14 +601,13 @@ public:
 		const bool ca = characters->count(a.GetID().GetIndexAndSequenceNumber()) != 0;
 		const bool cb = characters->count(b.GetID().GetIndexAndSequenceNumber()) != 0;
 		if (!ca && !cb) return;
-		// Only what will not give way: the world, the kinematic pushers, and
-		// a dynamic body at least as heavy as the character - a gravestone,
-		// a pinned-then-released stone. Another character or a light prop
-		// keeps the contact impulse instead: that is how a crowd shuffles and
-		// how a monster shoves a barrel aside, and clipping those left a
-		// queue standing still. A heavy sleeping body was the gap: the
-		// Cemetery's graves became bodies and monsters bounced off them the
-		// way they had off walls.
+		// Only what will not give way: the world, the kinematic pushers, and a
+		// dynamic body too heavy to shove - past the player's own limit
+		// (MaximalItemPushMass), or kShoveRatio times the character. Anything
+		// lighter keeps the contact impulse: a crowd shuffles, and a monster
+		// walks a barrel out of its way as the original's do. "At least my
+		// mass" stopped a 120 kg monk dead at a 200 kg barrel.
+		// MonsterMovement.md, "Shoving props".
 		auto blocks = [this](const JPH::Body& me, const JPH::Body& other) {
 			if (!other.IsDynamic()) return true;
 			if (characters->count(other.GetID().GetIndexAndSequenceNumber())) return false;
@@ -573,7 +616,8 @@ public:
 			if (!mine || !theirs) return true;
 			const float myInv = mine->GetInverseMass(), theirInv = theirs->GetInverseMass();
 			if (theirInv <= 0.f) return true;
-			return theirInv <= myInv; // at least my mass
+			constexpr float kShoveRatio = 20.f; // STAND-IN: the player's is 2500 / 80
+			return 1.f / theirInv > pushMassLimit || theirInv * kShoveRatio < myInv;
 		};
 		const JPH::Vec3 n = manifold.mWorldSpaceNormal; // from a into b
 		std::lock_guard<std::mutex> guard(lock_);

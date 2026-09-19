@@ -983,7 +983,7 @@ const SolidLayerFilter kSolidLayer;
 bool PhysicsWorld::RayCast(const Vec3& from, const Vec3& to, RayHit& out,
 		bool staticOnly, const int* exclude,
 		size_t excludeCount, const int* ignoreRagdolls,
-		size_t ignoreRagdollCount, bool includePlayer) const {
+		size_t ignoreRagdollCount, bool includePlayer, bool standableOnly) const {
 	out = RayHit{};
 	if (!loaded()) return false;
 
@@ -1055,6 +1055,9 @@ bool PhysicsWorld::RayCast(const Vec3& from, const Vec3& to, RayHit& out,
 	impl_->system.GetNarrowPhaseQuery().CastRay(
 			ray, settings, collector, {},
 			staticOnly ? static_cast<const JPH::ObjectLayerFilter&>(staticLayer)
+			// A floor ray: only what a body can stand on, so never a grenade or
+			// a piece of debris - the pawn rode a flying pebble as a platform.
+			: standableOnly ? static_cast<const JPH::ObjectLayerFilter&>(kSweepLayer)
 			: (includePlayer ? static_cast<const JPH::ObjectLayerFilter&>(withPlayerLayer)
 			: solidLayer),
 			bodies);

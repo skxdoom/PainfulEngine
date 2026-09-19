@@ -122,13 +122,14 @@ int PhysicsWorld::CreateScriptBody(int bodyType, const std::string& modelName,
 	const bool fixedRigid = collisionGroup == 1;
 	// Missile (5) and Particles (8) are simulated like anything else but
 	// never against the pusher bodies - see Layers::kMissile.
-	const bool missile = collisionGroup == 5 || collisionGroup == 8;
+	const bool missile = collisionGroup == 5;
+	const bool particle = collisionGroup == 8;
 	JPH::BodyCreationSettings body(shape.Get(), JPH::RVec3(pos[0], pos[1], pos[2]),
 			EngineQuatToJolt(rot),
 			(projectile || fixedRigid) ? JPH::EMotionType::Kinematic
 			: JPH::EMotionType::Dynamic,
 			projectile ? Layers::kNoCollide
-			: (missile ? Layers::kMissile : Layers::kMoving));
+			: (particle ? Layers::kParticle : (missile ? Layers::kMissile : Layers::kMoving)));
 	body.mMotionQuality = JPH::EMotionQuality::LinearCast;
 	// The contact material every script body is born with, and keeps: the
 	// sizer fills its hkpRigidBodyCinfo with restitution 0.9, both dampings 0,
@@ -140,15 +141,14 @@ int PhysicsWorld::CreateScriptBody(int bodyType, const std::string& modelName,
 	body.mAngularDamping = 0.f;
 	// PO_SetCollisionGroup turns a driven projectile into a dynamic body.
 	body.mAllowDynamicOrKinematic = true;
-	// The sizer's mass for a mesh body: (0.2 * scale)^3 * 10000 (0x101B3E20,
-	// constants 0x102B3B80 and 0x102C8658) - 80 for the player at scale 1,
-	// 0.64 for a scale-0.2 crate. Jolt's density gave a small crate hundreds
-	// of kilos and made it a wall to the player. PO_SetMass still overrides.
-	// The sphere cases keep Jolt's own mass. Physics.md, "The props".
+	// A mesh body's mass is its hull's: world volume x 100 (0x102B21F4), and 30
+	// where that comes to less (0x102B3B7C) - FUN_101BABB0, the builder behind
+	// CreatePhysicsObjectFromMesh. PO_SetMass still overrides. The sphere cases
+	// keep Jolt's own mass. Physics.md, "A mesh body's mass".
 	if (sphereRadius <= 0.f) {
-		const float k = 0.2f * scale;
+		const float hullMass = shape.Get()->GetVolume() * 100.f;
 		body.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
-		body.mMassPropertiesOverride.mMass = std::max(0.01f, k * k * k * 10000.f);
+		body.mMassPropertiesOverride.mMass = hullMass < 30.f ? 30.f : hullMass;
 	}
 
 	JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
@@ -339,7 +339,13 @@ bool PhysicsWorld::CarriedBy(int slot, Vec3& carry) const {
 }
 
 float PhysicsWorld::ScriptBodyMass(int slot) const {
-	return ScriptBodyExists(slot) ? impl_->scriptBodies[slot].mass : 0.f;
+	if (!ScriptBodyExists(slot)) return 0.f;
+	if (impl_->scriptBodies[slot].mass > 0.f) return impl_->scriptBodies[slot].mass;
+	// No PO_SetMass: what the body was built with (the hull's own mass).
+	JPH::BodyLockRead lock(impl_->system.GetBodyLockInterface(), impl_->scriptBodies[slot].body);
+	if (!lock.Succeeded() || !lock.GetBody().IsDynamic()) return 0.f;
+	const float inv = lock.GetBody().GetMotionProperties()->GetInverseMass();
+	return inv > 0.f ? 1.f / inv : 0.f;
 }
 
 void PhysicsWorld::ActivateScriptBody(int slot, bool on) {
@@ -692,14 +698,16 @@ void PhysicsWorld::SetScriptBodyCollisionGroup(int slot, int collisionGroup) {
 	Impl::ScriptBody& sb = impl_->scriptBodies[size_t(slot)];
 	if (!sb.inWorld || sb.character >= 0) return;
 	// CreateScriptBody's rule: 7 driven and touching nothing, 1 kinematic,
-	// 5/8 a missile, anything else an ordinary dynamic body.
+	// 5 a missile, 8 debris, anything else an ordinary dynamic body.
 	const bool projectile = collisionGroup == 7;
 	const bool fixedRigid = collisionGroup == 1;
-	const bool missile = collisionGroup == 5 || collisionGroup == 8;
+	const bool missile = collisionGroup == 5;
+	const bool particle = collisionGroup == 8;
 	const JPH::EMotionType motion = (projectile || fixedRigid) ? JPH::EMotionType::Kinematic
 			: JPH::EMotionType::Dynamic;
 	const JPH::ObjectLayer layer =
-		projectile ? Layers::kNoCollide : (missile ? Layers::kMissile : Layers::kMoving);
+		projectile ? Layers::kNoCollide
+		: (particle ? Layers::kParticle : (missile ? Layers::kMissile : Layers::kMoving));
 	JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
 	if (bodies.GetMotionType(sb.body) != motion)
 		bodies.SetMotionType(sb.body, motion, JPH::EActivation::Activate);
@@ -914,7 +922,7 @@ void PhysicsWorld::MakeScriptBodyCharacter(int slot, float k, const Vec3& rootOf
 	StandCharacterOnFloor(slot, 100.f);
 }
 
-void PhysicsWorld::StandCharacterOnFloor(int slot, float maxLift, float minLift) {
+void PhysicsWorld::StandCharacterOnFloor(int slot, float maxLift, float minLift, bool staticOnly) {
 	Impl::Character* ch = impl_->CharacterOf(slot);
 	if (!ch || !ScriptBodyExists(slot) || !impl_->scriptBodies[size_t(slot)].inWorld) return;
 	JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
@@ -957,6 +965,13 @@ void PhysicsWorld::StandCharacterOnFloor(int slot, float maxLift, float minLift)
 		if (float(at.GetY()) > middle) continue;
 		JPH::BodyLockRead lock(impl_->system.GetBodyLockInterface(), hit.mBodyID);
 		if (!lock.Succeeded()) continue;
+		// Per step this is the one-sided MESH's stand-in only: a prop is a closed
+		// shape the solver separates itself, and lifting off one shook both. A
+		// placement keeps props - monsters are authored on barrels - but never
+		// another monster, which is how two from one spawn point stacked.
+		if (lock.GetBody().IsDynamic() && (staticOnly ||
+				impl_->characterBodies.count(hit.mBodyID.GetIndexAndSequenceNumber()) != 0))
+			continue;
 		const JPH::Vec3 n =
 			lock.GetBody().GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, at);
 		if (n.GetY() <= 0.5f) continue;
@@ -1066,7 +1081,7 @@ void PhysicsWorld::StepCharacters() {
 		// airborne 49% of their steps and cost speed on every landing, and
 		// holding them at an exact height off a ray that ended there was a
 		// 0.027 sawtooth every three frames.
-		StandCharacterOnFloor(ch.slot, 0.1f, 0.05f);
+		StandCharacterOnFloor(ch.slot, 0.1f, 0.05f, true);
 
 		const JPH::RVec3 p = bodies.GetPosition(sb.body);
 		const float cx = float(p.GetX());
@@ -1075,6 +1090,7 @@ void PhysicsWorld::StepCharacters() {
 		const JPH::Vec3 vel = bodies.GetLinearVelocity(sb.body);
 
 		ch.onFloor = false;
+		JPH::BodyID under;
 		if (!ch.checkFloors) {
 			ch.onFloor = true;
 		} else {
@@ -1095,6 +1111,10 @@ void PhysicsWorld::StepCharacters() {
 					kSweepLayer, ignore);
 			if (collector.HadHit()) {
 				ch.onFloor = true;
+				// Standing on another monster's head: see the slide below.
+				if (impl_->characterBodies.count(collector.mHit.mBodyID.GetIndexAndSequenceNumber()) != 0 &&
+						ray.GetPointOnRay(collector.mHit.mFraction).GetY() > double(cy - 5.5f * ch.k - 0.3f))
+					under = collector.mHit.mBodyID;
 				JPH::BodyLockRead lock(impl_->system.GetBodyLockInterface(),
 						collector.mHit.mBodyID);
 				if (lock.Succeeded()) {
@@ -1129,6 +1149,21 @@ void PhysicsWorld::StepCharacters() {
 				const float into = next.Dot(n);
 				if (into > 0.f) next -= n * into;
 			}
+		// STAND-IN: a sphere balanced dead centre on another's top sphere stays
+		// there for good in Jolt, where Havok's solver let it slip off. Two
+		// monsters from one spawn point stacked. MonsterMovement.md, "Stacking".
+		if (!under.IsInvalid()) {
+			const JPH::RVec3 q = bodies.GetPosition(under);
+			JPH::Vec3 away(float(p.GetX() - q.GetX()), 0.f, float(p.GetZ() - q.GetZ()));
+			if (away.LengthSq() < 1e-4f) {
+				const float a = 2.399963f * float(ch.slot); // golden angle: neighbours part ways
+				away = JPH::Vec3(std::cos(a), 0.f, std::sin(a));
+			}
+			constexpr float kSlideOff = 2.f;
+			const JPH::Vec3 dir = away.Normalized();
+			const float have = next.Dot(dir);
+			if (have < kSlideOff) next += dir * (kSlideOff - have);
+		}
 		bodies.SetLinearVelocity(sb.body, next);
 	}
 }

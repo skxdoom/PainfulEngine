@@ -218,6 +218,33 @@ the middle sphere's height so a ledge beside the body is not mistaken for a
 floor under it. A whole placement when the body is made or teleported, 0.1 per
 step after that.
 
+**Static surfaces only, per step.** A prop or a character is a closed shape the
+solver separates on its own, and lifting a monster off one shook both, so the
+per-step lift skips dynamic bodies. The placement (body made or teleported)
+still counts props as floor - levels author monsters on barrels - but never
+another character.
+
+### Shoving props
+
+The original has no wall slide: a monster's body is re-commanded into a contact
+every tick and Havok shares the momentum, so it walks a barrel out of its way as
+the player does. The port's wall slide therefore treats a dynamic body as a wall
+only when it is past `Tweak.PlayerMove.MaximalItemPushMass` (2500, the player's
+own limit) or more than 20 times the character's mass; lighter ones keep the
+solver's contact. The 20 is a STAND-IN - the player's ratio at the limit is
+2500 / 80 - and what it guards is a small monster building penetration against
+something it cannot move.
+
+### Stacking
+
+Two monsters made at one point: the second is pushed up out of the first, lands
+with its bottom sphere dead centre on the other's top sphere, and Jolt holds
+that balance for good; the original's slide off. STAND-IN, in `StepCharacters`:
+when the floor ray's hit is another character's body just under the soles, the
+upper one is given 2 units/s away from the lower one's axis (the golden angle
+times its slot when they are exactly coaxial). What would settle the speed is
+watching the original do it.
+
 ### The Cemetery chase (2026-09-02)
 
 Reported from play: skeletons wedge among the graves and on each other where

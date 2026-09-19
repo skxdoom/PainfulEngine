@@ -445,7 +445,9 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
 		PhysicsWorld::RayHit hit;
 		Vec3 from{centre[0], centre[1] + kEyeAboveCentre, centre[2]};
 		Vec3 to{centre[0], centre[1] - kFloorReach, centre[2]};
-		bool floorHit = physics.RayCast(from, to, hit);
+		// Standable bodies only: a missile or debris is no floor (groups 5 and 8
+		// are disabled against the player body, 23). Physics.md, "Collision groups".
+		bool floorHit = physics.RayCast(from, to, hit, false, nullptr, 0, nullptr, 0, false, true);
 		axisFloor_ = floorHit;
 		if (!floorHit) {
 			auto unit = [&] { // xorshift32 -> [-0.5, 0.5]
@@ -455,7 +457,7 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
 			const float ox = unit() * 4.f * 0.2f, oz = unit() * 4.f * 0.2f;
 			from[0] += ox; from[2] += oz;
 			to[0] += ox; to[2] += oz;
-			floorHit = physics.RayCast(from, to, hit);
+			floorHit = physics.RayCast(from, to, hit, false, nullptr, 0, nullptr, 0, false, true);
 		}
 		if (floorHit) {
 			for (int c = 0; c < 3; ++c) floorNormal_[c] = hit.normal[c];
@@ -472,7 +474,7 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
 			const Vec3 sFrom{centre[0], centre[1] + kEyeAboveCentre, centre[2]};
 			const Vec3 sTo{centre[0], centre[1] - 8.5f * 0.2f, centre[2]};
 			PhysicsWorld::RayHit sHit;
-			scriptFloor_ = physics.RayCast(sFrom, sTo, sHit);
+			scriptFloor_ = physics.RayCast(sFrom, sTo, sHit, false, nullptr, 0, nullptr, 0, false, true);
 		}
 		// A lift, a handcar or a conveyor carries whoever stands on it. Havok
 		// does this through contact friction; the pawn is a query, so it takes

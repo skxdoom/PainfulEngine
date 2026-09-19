@@ -195,6 +195,7 @@ void PhysicsWorld::LoadTweaks(const std::string& dataRoot) {
 	}
 	settings_.gravity = tweaks_.Number("GlobalData.Gravity", settings_.gravity);
 	maxPushMass_ = tweaks_.Number("PlayerMove.MaximalItemPushMass", maxPushMass_);
+	impl_->contacts.pushMassLimit = maxPushMass_;
 	impl_->system.SetGravity(JPH::Vec3(0.f, -settings_.gravity, 0.f));
 }
 

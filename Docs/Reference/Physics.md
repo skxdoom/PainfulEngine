@@ -187,21 +187,42 @@ none. Nothing is left unresolved on any of them.
 *spawned*, and spawning is script work that does not exist yet — the statically
 placed actors are a dormant pool the real game never draws in place.
 
-### A script body's mass is the sizer's, not the shape's
+### A mesh body's mass
 
-`FUN_101B3E20` computes one mass before it switches on the body type:
-`(scale × 0.2)³ × 10000` (`0x102B3B80` = 0.2, `0x102C8658` = 10000), where
-`scale` is `PO_Create`'s explicit scale or, without one, the entity's. That is
-the player's 80 at scale 1 and **0.64** for a scale-0.2 crate such as
-`skrzynia_mala`; `PO_SetMass` overrides it where a template gives one. The
-port let Jolt derive mass from the hull's volume at its default density, so a
-small crate weighed hundreds of kilos and the player could not shift it.
-`CreateScriptBody` now sets the sizer's mass for every mesh-based body; the
-sphere cases (grenades, blood) keep Jolt's own, because the sphere branch
-of the sizer overwrites the value in a way the decompile does not settle.
-Measured headlessly: a `skrzynia_mala` walked into on TestFloor travels ahead
-of the player; left alone it settles at 0.92 within two seconds.
+`CreatePhysicsObjectFromMesh` (`0x10199450`) builds its body in `FUN_101BABB0`,
+which welds the mesh's vertices times the entity's scale into a convex hull and
+asks Havok for that hull's mass properties. The mass is
 
+    volume x 100          (0x102B21F4)
+    30 where that is less (0x102B3B7C)
+
+in world units, written to `PhysicsObject+0x48`; `PO_SetMass` overrides it where
+a template gives a `Mass`. The same function writes friction 0.5 and restitution
+0.1 into the wrapper. `PO_GetMass` answers with the built mass when no script
+mass was set.
+
+The SIZER's rule, `(0.2 x scale)^3 x 10000`, belongs to `FUN_101B3E20` - the
+sphere stacks: the player's 80, the monsters - and not to mesh bodies.
+`Tweak.PlayerMove.MaximalItemPushMass` (2500) only means something under the
+hull rule: Factory's containers are past it, an unweighted barrel is about 155.
+
+The sphere cases (grenades, blood) keep Jolt's own mass, because the sphere
+branch of the sizer overwrites the value in a way the decompile does not settle.
+
+### Heavy on light
+
+STAND-IN, `ScriptContactListener::BalanceStack`. Jolt's solver does not hold a
+heavy body resting on a much lighter one: the lower body is driven into the floor
+and squirts out. In a contact between two dynamic bodies whose normal is within
+45 degrees of vertical, the upper body counts as at most twice the lower one's
+mass (`mInvMassScale`, `mInvInertiaScale`). It is per contact, so sideways
+contacts - pushing - keep the real masses, and gravity still acts on the real
+one. A solver limit, not a rule of the game; nothing in the data settles the
+ratio.
+
+Check: `MonstersSpawnPoint_054` in City on Water stands a `HellBiker_NotMoveable`
+on three barrels (`NeverMove` is AI only, the body is an ordinary one); he should
+hold his height and the barrels should not move.
 
 ## Where the code is
 
@@ -1575,15 +1596,11 @@ with the player on the middle plank it hangs 0.8 lower than with nobody on it
 
 **On a free prop the weight goes through the centre of mass.** At the contact
 point it torqued the prop every frame, and the pawn is a swept shape the prop
-cannot lean on: the prop tipped into it, the pawn was set back on top, and the
-pair never settled. Measured standing 0.2 off an urn's centre (60 kg) and 0.7
-off a pallet's (110 kg): the prop held 0.1-0.7 units/s for the whole run, and
-the pallet crept 0.55 units in 8 s with the player on it. Through the centre of
-mass both read 0.000 from the first sample. A jointed part - a ragdoll's body,
+cannot lean on, so the pair never settled. A jointed part - a ragdoll's body,
 which is what the bridge's planks are - keeps the contact point, so a plank
-still tilts under a foot at its end. What this gives up: a free prop no longer
-tips when stood on at its edge, which the original's dynamic player body would
-do. STAND-IN until the pawn is a body the solver can see.
+still tilts under a foot at its end. STAND-IN until the pawn is a body the
+solver can see: a free prop no longer tips when stood on at its edge, which the
+original's dynamic player body would do.
 
 ### The culling box follows the pose
 
@@ -1621,6 +1638,28 @@ MonsterBarrier (27) is the mirror: disabled against 23 and almost everything
 else, NOT against 4. The full disabled-pair list is in the decompile
 (`PainfulEngineHelpers/ghidra/colgroup3.log`); the port's layers implement the
 actor-relevant part of it and not the rest.
+
+### Particles (8): debris meets the fixed world and nothing else
+
+The list disables 8 against 2-23, 25-27, 30 and 31 - the actors (4), the player
+(23), ordinary props and active meshes (3), ragdolls, missiles and itself. What
+is left is the fixed groups: 1, 24, 28, 29. Every piece of wall debris is made
+in it (`Kamyk`, `sgKamyk`, `hainKamyk`, `KamykWybuch*`:
+`PO_Create(BodyTypes.Simple, 0.2, ECollisionGroups.Particles)`), and so are the
+gas clouds and the rocket, which finds its hits with its own `LineTrace`.
+
+`Layers::kParticle` pairs with the static world and the moving layer, and
+`ScriptContactListener::OnContactValidate` rejects the pair when the other body
+is dynamic - so debris lands on a script-driven lift (kinematic) and passes
+through a barrel, a monster or a corpse.
+
+The pawn's floor rays ask `RayCast` for standable bodies only (the sweep's layer
+filter), which leaves out missiles and debris. The pawn is a query, and the
+moving-platform rule ("The scripted movers") takes the velocity of whatever that
+ray lands on; on a pebble, that threw the player.
+
+Missiles (5) are left as they were: the list disables 5 against the actors too,
+but the port detonates a grenade on a monster through that contact.
 
 ## Active meshes: world geometry that is a rigid body
 
