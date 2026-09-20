@@ -218,6 +218,16 @@ double Renderer::GpuMs() const {
 	return double(s->gpuTimeEnd - s->gpuTimeBegin) * 1000.0 / double(s->gpuTimerFreq);
 }
 
+// Live GPU buffer handles, for the shot report: a level reload that leaks shows here.
+void Renderer::BufferCounts(unsigned& vertex, unsigned& index) const {
+	vertex = index = 0;
+	if (!initialised_) return;
+	if (const bgfx::Stats* s = bgfx::getStats()) {
+		vertex = unsigned(s->numVertexBuffers) + unsigned(s->numDynamicVertexBuffers);
+		index = unsigned(s->numIndexBuffers) + unsigned(s->numDynamicIndexBuffers);
+	}
+}
+
 void Renderer::LogViewCosts() const {
 	if (!initialised_) return;
 	const bgfx::Stats* s = bgfx::getStats();

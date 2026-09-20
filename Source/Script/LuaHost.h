@@ -105,7 +105,6 @@ public:
 
 	// Reads <global>.<field>.{X,Y,Z} - e.g. Lev.Pos, the level's authored
 	// start position. False when any link of the chain is missing.
-	bool ReadVec3(const char* globalName, const char* field, Vec3& out);
 
 	lua_State* state() const { return L_; }
 	const std::string& dataRoot() const { return dataRoot_; }

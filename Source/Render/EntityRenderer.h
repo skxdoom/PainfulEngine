@@ -424,19 +424,15 @@ private:
 	std::vector<MeshVertex> posedVerts_;
 
 	bgfx::UniformHandle sDiffuse_ = BGFX_INVALID_HANDLE;
-	bgfx::UniformHandle sLightmap_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uParams_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uAmbient_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uFogColor_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uFog_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uUvAnim_ = BGFX_INVALID_HANDLE;
-	bgfx::UniformHandle uDetail_ = BGFX_INVALID_HANDLE;
-	bgfx::UniformHandle sDetail_ = BGFX_INVALID_HANDLE;
-	// Entities have no per-slot UV transform, but the fragment shader is
-	// shared with the world pass, so these must be set to identity every draw
-	// or the last world chunk's tiling (up to 30x) leaks onto models.
+	// Entities have no per-slot UV transform, but a uniform is per program and
+	// not per draw, so these must be set to identity every draw or the last
+	// world chunk's tiling (up to 30x) leaks onto models.
 	bgfx::UniformHandle uUv0_ = BGFX_INVALID_HANDLE;
-	bgfx::UniformHandle uUv1_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uTile_ = BGFX_INVALID_HANDLE;
 	// The model lighting block: ambient and the environment directional are the
 	// engine's own (c10/c11), the positional lights go through the shared

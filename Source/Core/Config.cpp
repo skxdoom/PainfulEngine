@@ -30,7 +30,7 @@ const char* kPrefix = "Pf.";
 // The keys the engine knows, in the order the file is written. Booleans are
 // written true/false. The help is one line, for the console's `pf help`.
 const EngineConfig::Known kKnown[] = {
-	{"HudAspect", "2", false, "aspect ratio of the interface: 0 stretched, 1 centred, 2 anchored by thirds"},
+	{"HudAspect", "2", false, "aspect ratio of the interface: 0 stretched, 1 centred, 2 anchored by fifths"},
 	{"WindowMode", "0", false, "0 default (set from config.ini), 1 windowed, 2 borderless"},
 	{"FlashlightShadows", "true", true, "whether the flashlight casts shadows"},
 	{"FlashlightShadowMapSize", "512", false, "sets flashlight shadow map size in texels"},

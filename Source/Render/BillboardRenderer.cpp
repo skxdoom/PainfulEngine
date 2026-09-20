@@ -408,8 +408,8 @@ void BillboardRenderer::Draw(bgfx::ViewId view, bgfx::ViewId coronaView, const C
 
 	for (const Sprite& s : sprites_) {
 		if (!s.alive || s.curAlpha <= 0.f) continue;
-		if (bgfx::getAvailTransientVertexBuffer(4, layout_) < 4) return;
-		if (bgfx::getAvailTransientIndexBuffer(6) < 6) return;
+		if (bgfx::getAvailTransientVertexBuffer(4, layout_) < 4) break;
+		if (bgfx::getAvailTransientIndexBuffer(6) < 6) break;
 
 		bgfx::TransientVertexBuffer tvb;
 		bgfx::TransientIndexBuffer tib;

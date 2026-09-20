@@ -206,8 +206,10 @@ AudioEngine::Sample* AudioEngine::Load(const std::string& name) {
 	Uint8* raw = nullptr;
 	Uint32 rawLen = 0;
 	SDL_IOStream* io = SDL_IOFromConstMem(file.data(), file.size());
+	// closeio = true, so SDL closes the stream on the failure path too
+	// (SDL_wave.c: `if (closeio && src) SDL_CloseIO(src)` under `done:`).
+	// Closing it again here was a double free.
 	if (!io || !SDL_LoadWAV_IO(io, true, &have, &raw, &rawLen)) {
-		if (io) SDL_CloseIO(io);
 		// Present but unreadable is a different thing from absent, and worth
 		// saying out loud.
 		LogWarn("audio: %s is not a WAV this build can read: %s", name.c_str(),
@@ -280,10 +282,14 @@ void AudioEngine::ComputeGains(Playing& p) const {
 }
 
 void AudioEngine::Mix(float* out, int frames) {
+	// One atomic load per buffer, not per sample: the sliders and the
+	// bullet-time rate change at most once a game frame.
+	const float sampleGain = sampleGain_.load(std::memory_order_relaxed);
 	for (Playing& p : voices_) {
 		if (!p.used || !p.playing || !p.real || p.paused || !p.sample) continue;
 
 		const Sample& s = *p.sample;
+		const double rate = Rate(p);
 		const size_t total = s.pcm.size() / size_t(s.channels);
 		for (int f = 0; f < frames; ++f) {
 			size_t idx = size_t(p.cursor);
@@ -301,9 +307,9 @@ void AudioEngine::Mix(float* out, int frames) {
 			const float* src = &s.pcm[idx * size_t(s.channels)];
 			const float l = src[0];
 			const float r = s.channels > 1 ? src[1] : l;
-			out[f * kChannels + 0] += l * p.gain[0] * sampleGain_;
-			out[f * kChannels + 1] += r * p.gain[1] * sampleGain_;
-			p.cursor += Rate(p);
+			out[f * kChannels + 0] += l * p.gain[0] * sampleGain;
+			out[f * kChannels + 1] += r * p.gain[1] * sampleGain;
+			p.cursor += rate;
 		}
 	}
 
@@ -329,7 +335,7 @@ void AudioEngine::Mix(float* out, int frames) {
 		const int got = SDL_GetAudioStreamData(ms->conv, streamScratch_.data(),
 				n * int(sizeof(float)));
 		const int gotSamples = got > 0 ? got / int(sizeof(float)) : 0;
-		const float g = ms->volume * streamGain_;
+		const float g = ms->volume * streamGain_.load(std::memory_order_relaxed);
 		for (int i = 0; i < gotSamples; ++i) out[i] += streamScratch_[size_t(i)] * g;
 		// Drained after the end of the file: a one-shot stream is over.
 		if (gotSamples < n && ms->eof) ms->playing = false;
@@ -764,24 +770,6 @@ void AudioEngine::Update() {
 	}
 }
 
-// Make room at the mixing cap by STEALING the least audible voice.
-//
-// Sixty-four is the right number - the original's own log reports Miles at
-// DIG_MIXER_CHANNELS: 64 - but dropping the newcomer is the wrong policy for
-// it. A level running sixty-four ambient loops and monster sounds left no slot
-// for the player's own jump, so the sound went missing exactly where there was
-// most going on; on an empty TestFloor it always played. That asymmetry is the
-// tell.
-//
-// Quietest first, by mixed gain, so a distant 3D sound loses to a close one.
-// Held handles are never taken: a script that owns a flamethrower loop expects
-// it to still be there, and stealing it would leave the handle pointing at
-// whatever replaced it. Returns false when everything audible is spoken for,
-// in which case the caller drops as before.
-size_t AudioEngine::PlayingCount() const {
-	std::lock_guard<std::mutex> guard(lock_);
-	return RealCount();
-}
 
 void AudioEngine::LogRealVoices() const {
 	std::lock_guard<std::mutex> guard(lock_);
@@ -1119,8 +1107,10 @@ void AudioEngine::RefillStreams() {
 				if (!ms->DecodeFrame()) { ms->eof = true; break; }
 				continue;
 			}
-			ms->eof = true;
+			// Flush BEFORE the flag: a callback that sees eof with data still
+			// inside conv reads short, clears playing, and drops the tail.
 			SDL_FlushAudioStream(ms->conv);
+			ms->eof = true;
 		}
 	}
 }

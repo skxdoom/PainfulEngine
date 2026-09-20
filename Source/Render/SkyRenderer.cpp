@@ -85,6 +85,7 @@ void SkyRenderer::Unload() {
 	parts_.clear();
 	layered_ = false;
 	layerCount_ = 0;
+	angle_ = 0.f; // only a low-quality sky sets it; a layered dome draws as authored
 }
 
 void SkyRenderer::Shutdown() {

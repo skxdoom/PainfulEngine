@@ -288,10 +288,9 @@ int HudNatives::L_HUD_DrawQuadRGBA(lua_State* L) {
 
 // HUD.DrawQuadRotated(mat, x, y, w, h, angle, pivotX, pivotY, r, g, b, a)
 //
-// The compass needle. The pivot is an absolute screen point, not an offset
-// and not the quad's centre: Hud:QuadRot draws the arrow at one place and
-// turns it about the dial's hub a few pixels away. The original rounds the
-// pivot to whole pixels before using it.
+// The compass needle. The quad is CENTRED on the pivot, an absolute canvas
+// point the original rounds to whole pixels; x,y are read and do NOT place
+// it. Docs/Reference/Hud.md, "The rotated quad".
 int HudNatives::L_HUD_DrawQuadRotated(lua_State* L) {
 	ScriptEngine* self = From(L);
 	if (!self->hud_) return 0;

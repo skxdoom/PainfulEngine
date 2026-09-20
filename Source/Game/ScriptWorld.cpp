@@ -626,6 +626,14 @@ void ScriptEngine::ResetLevelState() {
 	lastExploded_.clear();
 	contactVelocity_.clear();
 	excludedSlots_.clear();
+	// Limb handles name (entity, joint), and ReleaseWorld(true) restarts
+	// handles at 1 - so anything left here would hide a joint of a NEW
+	// entity for the rest of the session. An unbalanced Remove bracket (a
+	// script error between Stake.lua's Add/Remove pair) is how that happens.
+	suppressedLimbs_.clear();
+	limbShadowed_.clear();
+	limbHandles_.clear();
+	limbHandleIndex_.clear();
 	if (playerHandle_ && Find(playerHandle_) == nullptr) playerHandle_ = 0;
 	LogInfo("level switch: %zu engine entities dropped, %zu script entities still live",
 			engineOwned.size(), entities_.size());

@@ -237,7 +237,6 @@ private:
 	const Playing* Resolve(Voice v) const;
 
 	Voice Open(const std::string& name, bool positional, bool held);
-	size_t PlayingCount() const;
 	// The virtual-voice policy (MilesEngine::TryToPlayRealSound 0x101f43b0,
 	// TryToPlayRealSound2D 0x101f44d0, Tick 0x101f49c0): a logical sound gets
 	// a real voice when it is in range, its file's start gap has passed, and
@@ -287,8 +286,11 @@ private:
 	float masterVolume_ = 1.f;
 	float effectsVolume_ = 1.f;
 	float streamingVolume_ = 1.f;
-	float sampleGain_ = 1.f; // master * master * effects
-	float streamGain_ = 1.f; // master * streaming
+	// The mixer thread reads these; the game thread writes them from the
+	// volume sliders. Atomic rather than locked - a slider is not worth
+	// making the audio callback wait.
+	std::atomic<float> sampleGain_{1.f}; // master * master * effects
+	std::atomic<float> streamGain_{1.f}; // master * streaming
 	float rolloff_ = 1.f;
 	std::atomic<float> worldRate_{1.f};
 	std::atomic<float> lowPassCut_{1.f};

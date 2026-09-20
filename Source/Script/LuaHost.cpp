@@ -454,24 +454,6 @@ bool LuaHost::PostMsg(const char* msg, const double* args, int nargs, const char
 	return true;
 }
 
-bool LuaHost::ReadVec3(const char* globalName, const char* field, Vec3& out) {
-	lua_getglobal(L_, globalName);
-	if (!lua_istable(L_, -1)) { lua_pop(L_, 1); return false; }
-	lua_pushstring(L_, field);
-	lua_gettable(L_, -2);
-	if (!lua_istable(L_, -1)) { lua_pop(L_, 2); return false; }
-	const char* axes[3] = {"X", "Y", "Z"};
-	for (int i = 0; i < 3; ++i) {
-		lua_pushstring(L_, axes[i]);
-		lua_gettable(L_, -2);
-		if (!lua_isnumber(L_, -1)) { lua_pop(L_, 3); return false; }
-		out[i] = float(lua_tonumber(L_, -1));
-		lua_pop(L_, 1);
-	}
-	lua_pop(L_, 2);
-	return true;
-}
-
 void LuaHost::RecordNativeCall(const char* fullName, lua_State* L) {
 	const uint64_t count = ++nativeCalls_[fullName];
 	if (count > 3) return;

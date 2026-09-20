@@ -1075,8 +1075,6 @@ void MenuSystem::DrawTabGroup(const Item& item, int index, int count) {
 // scripts' own path, exactly as in the original.
 namespace {
 // Thirteen rows in the 360-unit body of the shipped KeyBorder.
-constexpr float kKeyRowH = 27.f;
-constexpr float kKeyCellPad = 20.f;
 } // namespace
 
 int MenuSystem::KeyRowsVisible(float& rowH) {

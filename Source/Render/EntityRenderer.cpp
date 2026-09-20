@@ -136,16 +136,12 @@ bool EntityRenderer::Init(const std::string& shaderDir) {
 	sNormalMap_ = bgfx::createUniform("s_normalMap", bgfx::UniformType::Sampler);
 
 	sDiffuse_ = bgfx::createUniform("s_diffuse", bgfx::UniformType::Sampler);
-	sLightmap_ = bgfx::createUniform("s_lightmap", bgfx::UniformType::Sampler);
 	uParams_ = bgfx::createUniform("u_params", bgfx::UniformType::Vec4);
 	uAmbient_ = bgfx::createUniform("u_ambient", bgfx::UniformType::Vec4);
 	uFogColor_ = bgfx::createUniform("u_fogColor", bgfx::UniformType::Vec4);
 	uFog_ = bgfx::createUniform("u_fog", bgfx::UniformType::Vec4);
 	uUvAnim_ = bgfx::createUniform("u_uvanim", bgfx::UniformType::Vec4);
-	uDetail_ = bgfx::createUniform("u_detail", bgfx::UniformType::Vec4);
-	sDetail_ = bgfx::createUniform("s_detail", bgfx::UniformType::Sampler);
 	uUv0_ = bgfx::createUniform("u_uv0", bgfx::UniformType::Vec4);
-	uUv1_ = bgfx::createUniform("u_uv1", bgfx::UniformType::Vec4);
 	uTile_ = bgfx::createUniform("u_tile", bgfx::UniformType::Vec4);
 	uSpecular_ = bgfx::createUniform("u_specular", bgfx::UniformType::Vec4);
 	uSpecColor_ = bgfx::createUniform("u_specColor", bgfx::UniformType::Vec4);
@@ -193,14 +189,11 @@ void EntityRenderer::Shutdown() {
 	if (bgfx::isValid(demonProgram_)) { bgfx::destroy(demonProgram_); demonProgram_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uDemonFresnel_)) { bgfx::destroy(uDemonFresnel_); uDemonFresnel_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(sDiffuse_)) { bgfx::destroy(sDiffuse_); sDiffuse_ = BGFX_INVALID_HANDLE; }
-	if (bgfx::isValid(sLightmap_)) { bgfx::destroy(sLightmap_); sLightmap_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uParams_)) { bgfx::destroy(uParams_); uParams_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uAmbient_)) { bgfx::destroy(uAmbient_); uAmbient_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uFogColor_)) { bgfx::destroy(uFogColor_); uFogColor_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uFog_)) { bgfx::destroy(uFog_); uFog_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uUvAnim_)) { bgfx::destroy(uUvAnim_); uUvAnim_ = BGFX_INVALID_HANDLE; }
-	if (bgfx::isValid(uDetail_)) { bgfx::destroy(uDetail_); uDetail_ = BGFX_INVALID_HANDLE; }
-	if (bgfx::isValid(sDetail_)) { bgfx::destroy(sDetail_); sDetail_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(sStage1_)) { bgfx::destroy(sStage1_); sStage1_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uStage1_)) { bgfx::destroy(uStage1_); uStage1_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uVmParams_)) { bgfx::destroy(uVmParams_); uVmParams_ = BGFX_INVALID_HANDLE; }
@@ -211,7 +204,6 @@ void EntityRenderer::Shutdown() {
 	for (bgfx::UniformHandle* u : {&uVmRect_, &uVmLightMtx_, &uVmLightPos_, &uVmSlots_})
 		if (bgfx::isValid(*u)) { bgfx::destroy(*u); *u = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uUv0_)) { bgfx::destroy(uUv0_); uUv0_ = BGFX_INVALID_HANDLE; }
-	if (bgfx::isValid(uUv1_)) { bgfx::destroy(uUv1_); uUv1_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uTile_)) { bgfx::destroy(uTile_); uTile_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uSpecular_)) { bgfx::destroy(uSpecular_); uSpecular_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uSpecColor_)) { bgfx::destroy(uSpecColor_); uSpecColor_ = BGFX_INVALID_HANDLE; }
@@ -346,7 +338,10 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
 			gpu.parts.push_back(std::move(part));
 		}
 		// Every slot was empty or out of range: the vertices have no owner.
-		if (gpu.parts.size() == ownerIndex) bgfx::destroy(vbo);
+		if (gpu.parts.size() == ownerIndex) {
+			if (bgfx::isValid(vbo)) bgfx::destroy(vbo);
+			if (bgfx::isValid(ibo)) bgfx::destroy(ibo);
+		}
 	}
 	if (gpu.parts.empty()) return false;
 
@@ -1180,15 +1175,24 @@ void EntityRenderer::ReleaseScript(int slot) {
 			"EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
 		return;
 	Instance& inst = instances_[slot];
-	// A posed buffer belongs to the instance, so it dies with it. Slots are
-	// reused, and leaving these behind would leak one buffer per projectile
-	// and per corpse for the life of the level.
+	// A posed buffer belongs to the instance, so it dies with it; leaving these
+	// behind would leak one buffer per projectile and per corpse.
 	for (bgfx::DynamicVertexBufferHandle h : inst.posed)
 		if (bgfx::isValid(h)) bgfx::destroy(h);
 	inst.posed.clear();
 	for (bgfx::DynamicVertexBufferHandle h : inst.posedRot)
 		if (bgfx::isValid(h)) bgfx::destroy(h);
 	inst.posedRot.clear();
+	// A map object's model is its own (CreateWorldObject makes one per object and
+	// nothing shares it), so its buffers go too: a level of active meshes would
+	// otherwise leak a vertex and an index buffer each on every load.
+	if (inst.model < models_.size() && models_[inst.model].mapObject) {
+		for (Part& p : models_[inst.model].parts) {
+			if (p.ownsVbo && bgfx::isValid(p.vbo)) bgfx::destroy(p.vbo);
+			if (p.ownsIbo && bgfx::isValid(p.ibo)) bgfx::destroy(p.ibo);
+		}
+		models_[inst.model].parts.clear();
+	}
 	inst.normalMaps = false;
 	inst.alive = false;
 }
@@ -1250,10 +1254,13 @@ void EntityRenderer::SetScaleMultiplier(float k) {
 
 void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int height,
 		const LevelInfo& info, float timeSeconds) {
-	drawCalls_ = 0;
-	shadowDrawCalls_ = 0;
-	posedInstances_ = 0;
-	posedModels_.clear();
+	// The view model pass is the frame's second Draw: it adds to the scene's counts.
+	if (drawSet_ != kViewModelOnly) {
+		drawCalls_ = 0;
+		shadowDrawCalls_ = 0;
+		posedInstances_ = 0;
+		posedModels_.clear();
+	}
 	if (!bgfx::isValid(program_) || instances_.empty()) return;
 
 	// Same view setup as the world pass, rebuilt here for the frustum.
@@ -1447,7 +1454,6 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 					if (c.active && c.lightId == lit.lights[s]->id) vmCells[s] = float(k - 1);
 				}
 
-		const float detail[4] = {1.f, 1.f, 0.f, 0.f};
 		// Identity UV transform: entity meshes carry no per-slot xform.
 		const float identityUv[4] = {1.f, 1.f, 0.f, 0.f};
 
@@ -1497,9 +1503,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			bgfx::setUniform(uFogColor_, fogValue);
 			bgfx::setUniform(uParams_, params);
 			bgfx::setUniform(uUvAnim_, uvAnim);
-			bgfx::setUniform(uDetail_, detail);
 			bgfx::setUniform(uUv0_, identityUv);
-			bgfx::setUniform(uUv1_, identityUv);
 			bgfx::setUniform(uTile_, tile);
 			const float stage1[4] = {
 				bgfx::isValid(stage1Tex) ? float(mat.stage1Op) : 0.f, 0.f, 0.f, 0.f};

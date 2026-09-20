@@ -46,6 +46,19 @@ size_t PhysicsWorld::props() const { return impl_->props.size(); }
 size_t PhysicsWorld::unresolvedProps() const { return impl_->unresolvedProps; }
 
 void PhysicsWorld::Clear() {
+	// Ragdolls first: each owns its parts' bodies, so the sweep below would
+	// destroy them out from under a RagdollInst that is still holding their
+	// IDs. The next RecordStep's GetPose would then read a destroyed body.
+	for (Impl::RagdollInst& inst : impl_->ragdolls) {
+		if (inst.ragdoll == nullptr) continue;
+		inst.ragdoll->RemoveFromPhysicsSystem();
+		inst.ragdoll = nullptr;
+	}
+	impl_->ragdolls.clear();
+	impl_->pinnedActiveBodies.clear();
+	impl_->lastTouching.clear();
+	impl_->contacts.Clear();
+
 	JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
 	JPH::BodyIDVector all;
 	impl_->system.GetBodies(all);
@@ -314,8 +327,11 @@ void PhysicsWorld::LoadProps(const Level& level, TemplateCache& templates,
 		const Entity& e = entities[index];
 
 		// Only the entities whose own template chain calls PO_Create. Actors
-		// are left out on purpose: CActor:PO_Create runs when a monster is
-		// spawned, and spawning is script work that does not exist yet.
+		// are left out on purpose: a monster's body comes from CActor:PO_Create
+		// when the scripts spawn it, and the statically placed actors are a
+		// dormant pool the real game never draws in place. (This path is the
+		// `run` viewer and the `physics` report, which have no script host;
+		// the game gets every body from the scripts.)
 		if (e.type == "CActor") continue;
 		// A placed instance can carry the call itself, which wins over its
 		// template: Cathedral's barrels each declare

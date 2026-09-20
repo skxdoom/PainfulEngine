@@ -519,13 +519,13 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		}
 		lightShadowRadius = float(cfg.GetInt("ShadowMapLightsRadius", 40));
 
-		size = anyMaps && cfg.GetBool("ViewModelShadows", true) ? cfg.GetInt("ViewModelShadowMapSize", 512) : 0;
+		size = anyMaps && cfg.GetBool("ViewModelShadows", true) ? cfg.GetInt("ViewModelShadowMapSize", 1024) : 0;
 		if (size != vmSize) {
 			vmShadows.Shutdown();
 			vmShadows.Init(shaderDir, size);
 			vmSize = size;
 		}
-		world.SetLightShadowStrength(float(cfg.GetInt("ShadowMapStrength", 100)) / 100.f);
+		world.SetLightShadowStrength(float(cfg.GetInt("ShadowMapStrength", 80)) / 100.f);
 
 		bloom.SetQuality(cfg.GetInt("BloomScale", 2), cfg.GetInt("BloomKernel", 0));
 		ssaoOn = ssaoInit && cfg.GetBool("SSAO", false);
@@ -1776,6 +1776,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 						hud.fonts().baked());
 				LogInfo("  particles: %zu live in %zu emitters", particles.liveParticles(),
 						particles.emitters());
+				unsigned vbCount = 0, ibCount = 0;
+				renderer.BufferCounts(vbCount, ibCount);
+				LogInfo("  gpu buffers: %u vertex, %u index", vbCount, ibCount);
 				LogInfo("  bloom: %s, %dx%d buffers, %d taps, threshold %.2f, multiplier %.2f; msaa x%d; demon fx %s",
 						bloom.active() ? "on" : "off", bloom.bufferWidth(), bloom.bufferHeight(),
 						bloom.taps(), bloom.threshold(), bloom.multiplier(), renderer.msaaSamples(),

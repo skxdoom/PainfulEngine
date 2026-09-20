@@ -103,17 +103,16 @@ public:
 	// engine's elevation is positive-DOWN, so screen-down and elevation
 	// already agree. Cfg.InvertMouse is applied script-side, not here.
 	//
-	// kDegreesPerPixel is CALIBRATED, not recovered: the sensitivity native
-	// is a registered Lua thunk rather than a named function, so its constant
-	// was not there to read. This value reproduces the feel the free camera
-	// had before the scripts took the view over (0.003 rad per pixel) at the
-	// shipped sensitivity of 40.
+	// The original is counts * DI scale (+0x431c) * sensitivity * 0.0025
+	// (DIInputSystem::MouseTick 0x10034B70), in DirectInput counts. SDL gives
+	// pixels, so kDegreesPerPixel is CALIBRATED to the same feel at the
+	// shipped sensitivity of 40. Docs/Reference/LuaHost.md.
 	static constexpr float kDegreesPerPixel = 0.0043f;
 	void TakeLookDegrees(float& dx, float& dy) {
 		TakeMouseDelta(dx, dy);
 		const float k = sensitivity_ * kDegreesPerPixel;
 		dx *= k;
-		dy *= invert_ ? -k : k;
+		dy *= k;
 	}
 
 	// INP.LoadBindings(): the bindings live in the scripts' own Cfg table as
@@ -154,9 +153,9 @@ public:
 	// "Left Mouse Button". Anything without one is its own short name.
 	static std::string ShortNameForEngName(const std::string& name);
 
-	// MOUSE.SetInverse: Cfg.InvertMouse, the vertical axis reversed. Applied
-	// to the look deltas the scripts read, so it reaches the view through the
-	// same path as the sensitivity.
+	// MOUSE.SetInverse (0x1011DA40) stores a flag at InputSystem+8 and nothing
+	// on the delta path reads it; Game:UpdateViewFromPlayer negates mdy itself.
+	// Stored, never applied to the look deltas.
 	void SetInvert(bool on) { invert_ = on; }
 	bool invert() const { return invert_; }
 

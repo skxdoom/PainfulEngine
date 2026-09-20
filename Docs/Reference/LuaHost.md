@@ -555,8 +555,12 @@ CAM.SetAng(crx, cry, 0)
 So **`MOUSE.GetDelta` returns DEGREES**, not pixels - the results are added
 straight onto `CAM.GetRawRotation`'s degrees. Both axes pass through with
 their sign (findings 3 and 4 below). `Cfg.InvertMouse` is applied script-side
-(`Game:UpdateViewFromPlayer`), and `MOUSE.SetInverse` also reaches
-`Input::TakeLookDegrees` - see Plan.md, open questions. The pitch clamp is the engine's own
+(`Game:UpdateViewFromPlayer`) and only there: `MOUSE.SetInverse` (0x1011DA40)
+stores a flag at `InputSystem+8` that neither `DIInputSystem::GetMouseDelta`
+(0x1002CD60) nor `MouseTick` (0x10034B70) reads. The original's delta is
+counts x the DI scale (`+0x431c`) x sensitivity x 0.0025, averaged with the last
+one when smoothing is on; the port's `kDegreesPerPixel` is calibrated, SDL
+giving pixels rather than DirectInput counts. The pitch clamp is the engine's own
 ±80°, and the eye is the pawn head less `PLAYER.GetCameraFix` (the bob, still
 0 here). `CAM.SetPositionDisplacement` is an offset added after that, which
 is how the view shakes without moving the player; it is kept apart from the

@@ -515,10 +515,9 @@ int PlayerNatives::L_PLAYER_GetCameraFix(lua_State* L) {
 }
 
 // CAM.GetRawRotation() -> the accumulated look angles in DEGREES - Game's
-// camera tick wraps them with math.mod(...,360). While the C++ loop drives
-// the camera, these mirror its state and MOUSE.GetDelta reports no motion,
-// so the script-side accumulation is a faithful no-op; handing the camera
-// to the scripts entirely means feeding real deltas here instead.
+// camera tick wraps them with math.mod(...,360). The scripts own the view:
+// Game:UpdateViewFromPlayer adds MOUSE.GetDelta's real degrees to these and
+// writes the result back through CAM.SetAng.
 int PlayerNatives::L_CAM_GetRawRotation(lua_State* L) {
 	ScriptEngine* self = From(L);
 	const float k = 180.f / kPi;

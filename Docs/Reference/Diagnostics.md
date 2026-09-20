@@ -192,6 +192,15 @@ frame; idle time shows there as a large figure in a view with few draws.
 The HUD row's draw count is the previous frame's, since batches are counted at
 the flush and the overlay is laid out before it.
 
+The `--shot` report's `gpu buffers` line counts the live vertex and index
+buffer handles (`Renderer::BufferCounts`). It is the check for a level-load
+leak: switch levels with `--exec` and shoot a later frame, and the count must
+not climb with the number of switches. A model stays cached after its level is
+gone, so the first visit to a second level legitimately raises it once; the
+per-level map-object buffers must not. Measured on Catacombs, whose 452 active
+meshes are the ones that matter: one cycle and three cycles both report 1346
+vertex, 1129 index.
+
 `M` cycles lit, wireframe, lighting only (`PAINFUL_WIRE=1`,
 `PAINFUL_LIGHTINGONLY=1` start there).
 

@@ -123,6 +123,8 @@ public:
 	// PAINFUL_GPUVIEWS: bgfx's per-view GPU times, logged. Needs the profiler
 	// flag, which SetWireframe carries while the switch is set.
 	void LogViewCosts() const;
+	// Live vertex/index buffer handles: a level reload that leaks shows up here.
+	void BufferCounts(unsigned& vertex, unsigned& index) const;
 
 private:
 	bool initialised_ = false;

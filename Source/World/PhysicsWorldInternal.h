@@ -558,6 +558,12 @@ public:
 		std::lock_guard<std::mutex> guard(lock_);
 		out = pending_;
 	}
+	// A level switch drops the bodies these name, so nothing may outlive it.
+	void Clear() {
+		std::lock_guard<std::mutex> guard(lock_);
+		pending_.clear();
+		charContacts_.clear();
+	}
 
 	// What each CHARACTER body was touching during the step, as the
 	// direction it cannot move in. New and persisting contacts both count -
@@ -757,6 +763,14 @@ struct PhysicsWorld::Impl {
 	std::unordered_set<uint32_t> pinnedActiveBodies;
 	// Last step's blocking contacts per character body (the wall slide's input).
 	std::vector<ScriptContactListener::CharContact> lastTouching;
+
+	// Parsed collision points per model or pack mesh. PO_Create ran the
+	// whole file read, inflate and heuristic .pkmdl scan for EVERY casing,
+	// gib, grenade and destructible piece - an N-piece barrel parsed the
+	// same .dat N times in one frame. The hull is still built per body,
+	// because it scales; only the points are shared. An empty entry is a
+	// remembered miss.  Key: kind|path|mesh|centred.
+	std::unordered_map<std::string, MeshPoints> pointsCache;
 
 	// Ragdoll settings are per MODEL and shared between every instance of it;
 	// the bone order is the part order, which only the builder knows.

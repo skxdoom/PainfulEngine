@@ -65,13 +65,26 @@ int PhysicsWorld::CreateScriptBody(int bodyType, const std::string& modelName,
 		float sphereRadius, bool centred) {
 	if (impl_->worldBody.IsInvalid()) return -1; // no world, nothing to rest on
 
-	MeshPoints mesh;
-	if (!packName.empty()) {
-		if (!PackPoints(dataRoot + "/Items", packName, packMesh, mesh, centred)) return -1;
-	} else {
-		if (modelName.empty() || !ModelPoints(dataRoot + "/Models", modelName, mesh))
-			return -1;
+	// Points come from the cache: the same model or pack is asked for once per
+	// casing, gib and debris piece, and each miss re-read and re-parsed the
+	// whole file. An empty cached entry is a remembered failure.
+	const std::string key = packName.empty()
+			? "m|" + modelName
+			: "p|" + packName + "|" + packMesh + (centred ? "|c" : "");
+	auto cached = impl_->pointsCache.find(key);
+	if (cached == impl_->pointsCache.end()) {
+		MeshPoints built;
+		if (!packName.empty())
+			PackPoints(dataRoot + "/Items", packName, packMesh, built, centred);
+		else if (!modelName.empty())
+			ModelPoints(dataRoot + "/Models", modelName, built);
+		cached = impl_->pointsCache.emplace(key, std::move(built)).first;
 	}
+	if (cached->second.empty()) return -1;
+	// A copy, because BuildScaledPropShape thins the set in place. The copy is
+	// a few thousand Vec3; what the cache saves is the file read, the inflate
+	// and the .pkmdl header scan.
+	MeshPoints mesh = cached->second;
 	if (scale <= 0.f) return -1;
 
 	float radius = mesh.radius() * scale; // world-space

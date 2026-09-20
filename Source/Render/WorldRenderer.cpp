@@ -148,6 +148,7 @@ void WorldRenderer::Clear() {
 	chunks_.clear();
 	zoneGraph_ = ZoneGraph();
 	waterChunks_ = 0;
+	triangles_ = 0;
 	waterZones_.clear();
 	reflectionTex_ = BGFX_INVALID_HANDLE;
 	refractionTex_ = BGFX_INVALID_HANDLE;

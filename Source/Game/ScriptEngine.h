@@ -628,8 +628,6 @@ public:
 	// menu and restores it). The app derives the vertical angle for the
 	// window's aspect each frame.
 	float cameraFov() const { return cameraFov_; }
-	int screenWidth() const { return screenW_; }
-	int screenHeight() const { return screenH_; }
 
 	// Attaches the player pawn: CreatePlayer and the PO_ pawn family become
 	// real, and the game loop can walk.
@@ -779,7 +777,6 @@ public:
 	// The live decals, for the DecalRenderer to draw. ENTITY.SpawnDecal
 	// builds them; TickLifetimes ages and reaps them.
 	const DecalSystem& decals() const { return decals_; }
-	void ClearLoadRequest() { world_.loadRequested = false; }
 	const std::unordered_map<int, Entity>& entities() const { return entities_; }
 	size_t created() const { return created_; }
 	size_t released() const { return released_; }

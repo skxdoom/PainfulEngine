@@ -91,11 +91,15 @@ bool TextureCache::Init(const std::string& texturesRoot, bool createWhite) {
 
 void TextureCache::Shutdown() {
 	for (auto& kv : cache_) {
+		// A miss is cached as the shared white handle; those are destroyed once, below.
+		const uint16_t h = kv.second.idx;
+		if (h == white_.idx || h == whiteCube_.idx || h == transparent_.idx) continue;
 		if (bgfx::isValid(kv.second)) bgfx::destroy(kv.second);
 	}
 	cache_.clear();
 	if (bgfx::isValid(white_)) { bgfx::destroy(white_); white_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(transparent_)) { bgfx::destroy(transparent_); transparent_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(whiteCube_)) { bgfx::destroy(whiteCube_); whiteCube_ = BGFX_INVALID_HANDLE; }
 }
 
 bool TextureCache::Size(const std::string& reference, int& w, int& h) const {
