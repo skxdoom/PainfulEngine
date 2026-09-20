@@ -55,12 +55,13 @@ mw = mw * size * w / 1024
 mh = mh * size * h / 768
 ```
 
-with `w, h` from `R3D.ScreenSize()`. So `R3D.ScreenSize` must report the real
-window: it is the only thing standing between the authored layout and the
-actual screen.
+with `w, h` from `R3D.ScreenSize()`. So `R3D.ScreenSize` must report the canvas
+the layout is drawn on (the window at `HudAspect = 0`, the 4:3 canvas by
+default - "Widescreen" below): it is the only thing standing between the
+authored layout and the actual screen.
 
 Two coordinates are special. `HUD.PrintXY` centres the string horizontally when
-`x < 0` and vertically when `y < 0`, both against the real screen size - that
+`x < 0` and vertically when `y < 0`, both against that same size - that
 is how every banner in the game is positioned.
 
 ## The rotated quad — `HUD.DrawQuadRotated`
@@ -167,9 +168,8 @@ Three of these defaults are load-bearing and none of them is guessable:
 - **`DrawQuadRGBA`'s UVs default to 0.01/0.99**, not 0/1 - an inset that keeps
   the filter off the edge texels of an icon packed against its neighbours.
 - **`PrintXY`'s colour defaults to (0, 255, 0)**, green.
-- **`DrawQuadRotated`'s pivot is an absolute screen point**, not an offset and
-  not the quad's centre. `Hud:QuadRot` draws the compass arrow at one place and
-  turns it about the dial's hub a few pixels away.
+- **`DrawQuadRotated`'s pivot is an absolute canvas point and the quad is
+  centred ON it**; `x,y` does not place the quad ("The rotated quad" above).
 
 A material is light userdata in the original, so the scripts cannot do
 arithmetic on it. Scripts pass a literal `0` to mean "no texture", which
@@ -197,7 +197,8 @@ pixels = round(size * (screenH/768 + screenW/1024) * 0.5)
 from the constants `1/768` at `0x102af108` and `1/1024` at `0x102af160`. At
 1024x768 that is 1:1. At 1280x720 a requested 26 becomes 28. This is the one
 place the engine does the resolution scaling instead of the scripts, and it is
-why text stays proportionate when the panels around it were scaled by Lua.
+why text stays proportionate when the panels around it were scaled by Lua. The
+port feeds it the canvas size ("Widescreen" below).
 
 `HUD.SetFont` is also less powerful than it looks: **`PrintXY` overrides it on
 every call**. With a font name it selects that face; with none it calls
@@ -213,19 +214,16 @@ Metrics:
 
 ## What is still missing
 
-- **`HUD.DrawBorder` is not an outline.** In the original it builds a
-  `MenuItemBorder` widget - the carved stone frame the menus sit inside - and
-  draws that. That widget belongs to the menu stage; a plain outline marks out
-  the same rectangle in the meantime, which is enough to lay a menu out against
-  and visibly not the shipped art.
-- `HUD.DrawBossHealth`, `HUD.PrepareString`, `MATERIAL.Replace` and
-  `MATERIAL.SetPriority` are still stubs.
+- `HUD.DrawBossHealth`, `MATERIAL.Replace` and `MATERIAL.SetPriority` are stubs
+  ([`Stubs.md`](../Stubs.md)). `HUD.PrepareString` returns its argument
+  unchanged; the original re-encodes for its font.
+- `HUD.DrawBorder` draws the `MenuItemBorder` stone frame through
+  `MenuSystem::DrawFrame` ([`Menu.md`](Menu.md)).
 - `HUD::Print` splits a coloured string on the first space and prints the halves
   separately. We emit one run per colour instead, which draws the same pixels
   but would differ if the original's split turned out to affect kerning.
-- The rotation direction of `DrawQuadRotated` follows screen-space convention
-  (positive angle turns clockwise, y being down). The compass is the only
-  caller and has not been checked against the original frame by frame.
+- `DrawQuadRotated`'s angle is negated (measured, above); the compass is the
+  only caller and has not been compared with the original frame by frame.
 
 ## Sizing without a renderer
 
@@ -267,8 +265,8 @@ is the original's behaviour, and it is what `HudAspect = 0` in
 
 The default, `HudAspect = 2` (anchored), hands the scripts a **4:3 canvas**
 instead: the
-window's height, and 4/3 of it wide (`ScriptEngine::SetHudCanvas`, from
-`HudRenderer::Begin`). The layout comes back undistorted in canvas pixels,
+window's height, and 4/3 of it wide (`ScriptEngine::SetHudCanvas`, fed from
+the `HudRenderer`'s canvas each frame). The layout comes back undistorted in canvas pixels,
 and the font formula above collapses to `h/768` for both terms, so text
 scales evenly too. `HudRenderer` then maps each draw from canvas to window
 (`OffsetFor`):

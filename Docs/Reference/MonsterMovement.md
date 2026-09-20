@@ -1,4 +1,4 @@
-# Monster movement — scope
+# Monster movement
 
 Monsters walk. What follows is the map of how, what is measured, and what is
 still missing.
@@ -87,7 +87,7 @@ floor" means ground within 1.5 of the soles, which is generous by design.
   object also stores -4.8k (sphere bottom) and -5.5k (floor point);
   k = 0.2 * bodyScale (0x102B3B80), mass k^3 * 10000, head +4.5k.
 
-  Measured after (Cemetery, `ground.lua`): monk height 2.23, k 0.202, radii
+  Measured after (Cemetery): monk height 2.23, k 0.202, radii
   0.53/0.61/0.30; biker 3.34, k 0.304, 0.79/0.91/0.46; zombie 2.89, k 0.263,
   0.68/0.79/0.39; the Giant 94.35, k 8.58. Soles 0.000 from the ground on
   monk and biker, 0.033 on the zombie; a standing monk's height is constant
@@ -112,26 +112,9 @@ floor" means ground within 1.5 of the soles, which is generous by design.
   would settle it: the shape FUN_10211E50 builds from the three records and
   its contact behaviour.
 
-  The table below is the 2026-09-02 HIP reading, kept for its measurements;
-  its "k engine" column is the hip rule, wrong except where the origin is the
-  hip. Its "k old" column - the port's first guess, height / 10.3 - was
-  within 7% of the truth (height / 11) on every rig. Per rig (height and hip
-  in world units):
-
-  | rig | height | hip above soles | k engine | k old | radii | lowest sphere above soles | top above head |
-  |---|---:|---:|---:|---:|---|---:|---:|
-  | evilmonkv2 | 2.75 | 1.54 | 0.279 | 0.267 | 0.73 / 0.84 / 0.42 | +0.20 | +0.32 |
-  | zombie | 3.37 | 1.86 | 0.337 | 0.328 | 0.88 / 1.01 / 0.51 | +0.24 | +0.34 |
-  | banshee | 2.49 | 1.73 | 0.315 | 0.242 | 0.82 / 0.94 / 0.47 | +0.22 | +0.97 |
-  | beast | 1.50 | 0.87 | 0.158 | 0.146 | 0.41 / 0.47 / 0.24 | +0.11 | +0.24 |
-  | bagbaby | 1.89 | 0.94 | 0.170 | 0.184 | 0.44 / 0.51 / 0.26 | +0.12 | -0.02 |
-  | bones | 1.06 | 0.31 | 0.056 | 0.103 | 0.15 / 0.17 / 0.08 | +0.04 | -0.44 |
-  | amputee | 1.53 | 1.63 | 0.296 | 0.149 | 0.77 / 0.89 / 0.44 | +0.21 | +1.72 |
-
-  So the original's humanoids are the same width as ours were or a little
-  wider - the monk's widest sphere 0.84 against 0.80 - and every stack floats
-  its lowest sphere a fifth of a unit above the soles. "You could get closer
-  to them in the original" is not the radius; what differs is that the
+  "You could get closer to them in the original" is not the radius (the
+  port's first guess, height / 10.3, was within 7% of height / 11 on every rig);
+  what differs is that the
   original's player is a body that can press into a monster under load and
   ours is a sweep that stops at the hull, and that the shove (halved on the
   earlier play test) moves an attacking monster away as you walk into it.
@@ -169,7 +152,7 @@ Two things stand in for Havok and are marked as such in the code:
   `(0.2 * bodyScale)^3 * 10000` = 80; the Fatter stack is ASSUMED to follow it
   (`k^3 * 10000`, ~190 for a monk). `s_Physics.Mass` overrides it where a
   template declares one, exactly as `PO_SetMass` does.
-- **The player's push.** The pawn is a swept sphere, not a body, so the
+- **The player's push.** The pawn is a swept four-sphere stack, not a body, so the
   contact between two Havok bodies is replaced by `ShoveCharacters`: when the
   sweep is blocked, every character in the way gets
   `0.5 * speed * 80 / (80 + mass)` along the wish. The character tick decays
@@ -183,10 +166,11 @@ Two things stand in for Havok and are marked as such in the code:
   the command stopped the penetration recovery threw it back out at 4 - which
   `UpdateWalking` read as being shoved, stopped on, and re-planned from,
   often through a waypoint behind it. That is the "turn away and step back"
-  reported from play. Contacts with other dynamic bodies are deliberately
+  reported from play. Contacts with other CHARACTERS are deliberately
   NOT clipped: clipping them left a queue of monks standing still (walking
   stops 20 -> 26, reached 7 -> 6); limited to static contacts, stops 20 -> 16
-  and reached 7 -> 8.
+  and reached 7 -> 8. A dynamic prop counts as a wall only past the push limit
+  ("Shoving props" below).
 
 A live monster's ragdoll limbs are in their own Jolt layer (`kHitbox`): traces
 land on them, nothing simulates against them. Left in the moving layer they
@@ -271,7 +255,7 @@ differently in a crowd.
 
 ### Measured after the rework
 
-`Tools/monster_stats.lua` with the columns 1.5 apart instead of 2.0 (at 2.0
+`monster_stats.lua` (`PainfulEngineHelpers/tools`) with the columns 1.5 apart instead of 2.0 (at 2.0
 the outer column spawns outside the nave, over nothing), plus a wrapper on
 each actor's `damage` that logs whether the range and angle test passed.
 Cathedral, 1400 frames, sixteen `EvilMonkV2`:
@@ -325,10 +309,9 @@ else
 end
 ```
 
-`PO_Move` and `TickMonsters` serve the bodied path, which is nearly all of
-them: **81 of 86 monster templates set `CreatePO = true`.** See "The 32
-bodyless actors were bats" at the end - the split is far narrower than a first
-count suggested.
+`PO_Move` and `PhysicsWorld::StepCharacters` serve the bodied path, which is nearly all of
+them: **81 of 86 monster templates set `CreatePO = true`.** The five without
+are flyers (`Bat_Adrian_*`), which move script-side through `UpdateFlying`.
 
 ## The chain, as measured
 
@@ -348,7 +331,7 @@ running game by wrapping `Game_Tick` from the exec chunk:
 | `PO_Move` called | `-0.05, 0, -1.18` | the native itself |
 | **position** | **walks and arrives** | `_groundx/y/z` |
 
-Measured end to end with `Tools/spawn_test_monsters.lua`, which drops three
+Measured end to end with a probe that drops three
 monks five units in front of the player: they fall to the floor (y -3.4 to
 -5.09), close from z +2.09 to -4.00 on a player at z -2.9, then stop about a
 unit away and go idle - which is arrival, and the switch into attack.
@@ -375,7 +358,7 @@ monks - `UpdateWalking` takes its step straight from
 `MDL.GetAnimMovement`, rotates it by the actor's facing, and multiplies by
 `1/delta` to make it a velocity. **A monster's speed is a property of its
 animation, not a constant.** It is also damped hard as the actor closes on its
-target, which is what produced the 0.46 units/second above.
+target.
 
 ## What is implemented
 
@@ -392,8 +375,8 @@ target, which is what produced the 0.46 units/second above.
 
 ## What is not
 
-- **Flyers.** The bodyless actors are bats, and they move through
-  `UpdateFlying` rather than `UpdateWalking`. A separate mode, untested.
+- **Flyers.** Bodyless flyers (the bats) move script-side through
+  `UpdateFlying`; a `PO_SetFlying` body skips the re-command. Unmeasured.
 - **The floors section** of a `.wps`, and with it `Select_OnSelectedFloors`.
   Routing does not need it.
 - **`ERot`**, the movement curve's rotation channel.
@@ -427,57 +410,11 @@ end
 That is how the table above was measured, and it beats adding C++ probes for
 anything that lives on the script side.
 
-## Measured with a squad
+## Sight is traced against the world only
 
-`Tools/monster_stats.lua` spawns sixteen `EvilMonkV2` four deep in front of the
-player and reports what they do. Cathedral, 1400 frames:
-
-```
-t 200 of 16 | saw 16, walked 16, moved 16, reached  4, STUCK 0 | net 4.9 path 4.9
-t 400 of 16 | saw 16, walked 16, moved 16, reached 16, STUCK 0 | net 9.1 path 9.1
-t1400 of 16 | saw 16, walked 16, moved 16, reached 16, STUCK 0 | net 8.8 path 9.6
-```
-
-All sixteen acquire the player, walk, arrive within three units by frame 400
-(about seven seconds), and hold there attacking - nine `Client_OnDamage` events
-land on the player over the run. Nothing is stuck.
-
-**`net` equal to `path` is the absence of pathfinding, stated numerically.**
-Straight-line distance equals distance walked, because there is no route to
-follow. Once the `.wps` graph is in, `path` should exceed `net` wherever an
-actor rounds something. The small divergence after arrival (8.8 against 9.6) is
-the crowd jostling at the player, not navigation.
-
-### Monsters were blinding each other
-
-Tracing sight against physics bodies, only **9 of 16** ever saw the player -
-the front rank, because each rank occluded the one behind it. Engine.dll's
-`CalculatePawnToEntityVisibility` (0x10198D30) resolves visibility through
-`World::FindZone`, the zone graph, after checking the range at
-`PhysicsObject+0x24` and the pitch cone at `+0x30`. It is a question about
-level geometry, not about what is standing in the way. Traced against the world
-alone, all 16 see and arrive.
-
-That change alone took the Cathedral report from 126 distinct unimplemented
-natives to **135** - not a regression: monsters that actually reach the player
-run combat code that had never executed.
-
-### Known deviation
-
-`CalculatePawnToEntityVisibility` takes both pawns' **head** positions
-(`GetPawnHeadPos`). We trace between entity origins, which on these rigs is the
-middle of the model. Low cover would therefore block sight here that the
-original sees over.
-
-## The 32 "bodyless" actors were bats
-
-An earlier draft of this document called `CreatePO` a two-path split in the
-movement system and made it the top open question. It is not: 81 of 86 monster
-templates set `CreatePO = true`, and the 32 Cathedral actors without a physics
-object are all `Bat_Adrian_*`, from the one template that sets it false. Bats
-fly - `UpdateFlying`, not `UpdateWalking` - so they are a separate movement
-mode rather than the same one taking a different path. Worth doing, much
-smaller than feared.
+`CalculatePawnToEntityVisibility` (0x10198D30) resolves through the zone
+graph, range at `+0x24`, cone at `+0x30`. The port traces head to head against
+static geometry only, so a rank of monsters does not blind the ones behind it.
 
 ## The waypoint graph
 
@@ -503,7 +440,7 @@ you assume interleaved records: the entire first half is distances.
 The three bytes after the position are a **floor index**, not flags: the
 Cathedral uses 0..52 and its floors section opens with 53.
 
-`painful wps <file>` reports the lot, including connectivity. Cathedral: 8829
+`PainfulTools wps <file>` reports the lot, including connectivity. Cathedral: 8829
 waypoints, 130886 links, mean 14.8 each, none isolated.
 
 ### Connectivity, and a test that was wrong
@@ -541,179 +478,17 @@ the number this document predicted would move, and the reason it was the top
 item. All sixteen still arrive; nothing is stuck.
 
 
-## RESOLVED: every mid-body-origin rig drew half buried
+## Player against character
 
-Resolved by the rework at the top of this file: the body's stack is built from
-the soles up and `StandCharacterOnFloor` puts the soles on the floor, and the
-entity position follows the body. Kept for the measurements. Found with
-`PAINFUL_MONSTER_TRACE` while chasing the pile-up above. It was not
-level-specific - Cathedral and City On Water both showed it.
+The pawn's `Depenetrate` treats an overlap with a character body as a
+horizontal push, 0.05 per step (a GUESS), along the centre offset, or by body
+order when the two are coaxial. The pawn probe is excluded only from the
+player's own queries.
 
-`EntityRenderer::SetScriptPose` draws a model with its OWN origin at the
-entity position, with no vertical offset. The bestiary does not agree on where
-that origin is:
-
-| rig | `lo[1]` | origin | drawn |
-|---|---|---|---|
-| raven | -0.10 | at the feet | correct |
-| hellbiker | -11.32 | mid-body | buried |
-| evilmonkv2 | -12.80 | mid-body | buried |
-| hellangel | -13.09 | mid-body | buried |
-
-Measured on Cathedral: `evilmonkv2` at `scale 0.120`, soles at -4.460 against a
-floor at -3.072 - **1.39 below it, on a model 2.75 tall**. City On Water:
-hellbiker 1.68 under, hellangel 1.62 under. Level authors place actors
-0.08-0.25 above the floor whatever the rig, which only makes sense if the
-engine anchors an entity near its FEET; the ravens look right because their
-origin already is one.
-
-Two things to settle before changing it, in this order:
-
-1. **The binary.** This is the `Entity+0x58` reference that
-   `PhysicsWorld::CreatePhysicsObject` (0x101999F0) measures from, already
-   listed as unidentified above. It decides the anchor for the mover AND the
-   renderer, so guessing it changes two systems at once.
-2. **The animated pose.** The figures above are BIND-POSE bounds. Animation
-   plays now, so the drawn vertices come from the bone palette and the animated
-   root may not sit where `lo[1]` does. A debug draw of the sweep sphere
-   against the drawn model settles it in one screenshot.
-
-Note the earlier warning in this file: assuming a foot origin once "made monks
-climb out of the world at exactly one radius per tick". That attempt lifted by
-the RADIUS; lifting by `-lo[1] * scale` is a different quantity, but the same
-care applies.
-
-## Six things reported from play
-
-**The player walked through monsters.** The body was being placed at the
-entity's position - the model's CENTRE - while the collision sphere it stands
-for sits about a unit lower, on the soles. The two never overlapped: the
-monster's body floated at chest height while the player's sphere swept the
-floor. It now goes where the sphere is. Visible in the squad numbers
-immediately: `reached` drops from 16 to 12 and one actor ends up stuck,
-because sixteen monsters can no longer occupy the same spot.
-
-**A standing jump launched sideways.** `airDir_` was only updated while a
-movement key was held, so it kept the last direction walked - and the air
-branch falls back to it when the takeoff mask is empty. Press nothing but
-jump and you sailed off at full walking speed the way you last went, possibly
-seconds earlier. It now tracks what the player is actually doing, zero
-included.
-
-**The head bob only started after taking damage, then never stopped.** CPlayer
-decides it is `_Walking` from `ENTITY.GetVelocity(Player._Entity) > 2`, and the
-player has no script body - it is the pawn - so that read the ENTITY velocity
-store, which nothing ever wrote. The first knockback wrote one, and nothing
-cleared it, so the bob switched from permanently off to permanently on. The
-pawn now reports its real velocity, which is also what the footstep sounds are
-waiting on.
-
-**Some monsters still walk in place.** Not closed. Part of it is now honest -
-a crowd blocks itself, and one stuck actor out of sixteen is a queue rather
-than a bug. What is worth checking first is that `GetShortest` snaps to the
-nearest waypoint by 3D distance, floor index ignored: an actor can bind to a
-waypoint on the floor above or below and be handed a route it cannot walk. The
-`floor` field exists precisely to disambiguate that, and is currently parsed
-and unused.
-
-**A stationary monster sank and stayed sunk.** `TickMonsters` accumulates a
-sub-skin step rather than sweeping it, and the skip path returned before
-`SlideSphere` - which is the only thing that calls `Depenetrate`. An actor with
-`onFloor` latched true has `fallSpeed` 0, so its residual never grows, so it
-never sweeps again: anything that put it inside geometry left it there for the
-rest of the level. The skip path now sweeps a ZERO delta, which depenetrates and
-advances nothing.
-
-Adopting that result unconditionally trades the bug for its mirror image. A
-sphere at rest reports a hairline overlap every frame, and taking it walked a
-standing actor upward 0.0007 a frame - 0.19 over 250 frames. The correction is
-only adopted when it exceeds the 0.05 sweep skin, i.e. when it is a real
-extraction rather than resting contact.
-
-Measured on Cathedral, `EvilMonkV2_WalkOnlyNoThrow_001` pinned stationary with
-`PO_Move(e,0,0,0)` and pushed 0.15 into the floor at frame 50:
-
-| | frame 51 | frame 300 |
-|---|---|---|
-| before | 0.000 of 0.15 recovered | 0.000 - stuck |
-| after | 0.150 recovered | 0.150, stable to 4 dp |
-
-**A monk spawning onto another drove it through the floor.** Reported from
-play: an ambush spawns three monks with a delay, and each new one shoved the
-previous one down and out of the level. Two separate causes.
-
-*The ejection.* `Depenetrate` resolves the single deepest overlap by moving the
-full penetration depth along the contact axis. For two character spheres at the
-same spot that axis is degenerate, and vertical is as valid as any: the second
-monk arriving sent the first **0.704 straight down in one frame**. Below the
-floor mesh a sphere overlaps nothing, so no later pass can recover it - the
-failure is one-way, which is why it looked permanent.
-
-*The player was invisible to them.* `CameraBlockerFilter` takes the player's
-pusher as a body to pass through, and every call site handed it in - so it was
-excluded from **everyone's** queries, not just the player's own. A monster could
-not feel the player at all: it walked through them, and the player could not
-shoulder one aside. Measured: a monk placed on the player separated by 0.000
-and then sank.
-
-**The rule now: a character overlap is a PUSH, not an ejection.** Two upright
-characters standing on ground separate SIDEWAYS, so the correction is projected
-onto the horizontal plane, and it is rate-limited to 0.05 per step. The player's
-pusher counts as a character, and is excluded only from the player's own
-queries. Where the axis is degenerate - one character directly above another,
-which is exactly how a spawning monk arrives - the direction comes from the
-horizontal offset between the centres, and failing that from body order, so the
-two pick OPPOSITE directions instead of travelling together.
-
-**GUESS: the 0.05 rate is not recovered.** It is set so a coincident pair of
-monks separates over about a quarter of a second, which reads as shouldering
-rather than a shove. What would settle it is the character separation term in
-the monster update inside Engine.dll.
-
-Measured on Cathedral, both actors pinned with `PO_Move(e,0,0,0)`:
-
-| | before | after |
-|---|---|---|
-| monk dropped on monk, vertical | -0.704 in one frame, fell to -1.913 and stayed | 0.000, `onFloor` true through 400 frames |
-| monk dropped on monk, horizontal gap | 0.000 - never parted | 0.100 at f+1, 0.988 by f+10, stable |
-| monk placed on the player | 0.000 - no interaction, then sank | 0.050 at f+1, 0.819 by f+50, stable |
-
-Player walking speed is unchanged at 8.000 against `PlayerSpeed` 8.0, and the
-physics report's cross-frame-rate push check still agrees (7.03 / 7.14 / 7.10).
-
----
-
-# How the movement was recovered
-
-Moved here from the gameplay roadmap: these are findings about the mover,
-not plans. Each one cost a wrong hypothesis first, which is why they are
-written down.
-## Pre-existing faults found by sweeping every level
-
-Testing four levels hid these. Running all 56 headless for 200 frames each is
-cheap and should be the standard check before calling a stage done.
-
-**Fixed here.** Thirteen levels threw 188 errors each and Alastor 198 - one
-per tick, every tick, aborting `Game_Tick` and with it the whole object update:
-
-- `CItem.lua:965`, `attempt to compare number with nil` - `GetVelocitiesFromJoint`
-  returned nothing, and an object with a `RagdollCreakSound` compares its
-  fourth return against a threshold every pass. The guard above it only prints
-  when the joint is missing; it does not stop the timer. Now returns eight
-  zeros, which is the true velocity of a joint no ragdoll is driving.
-- `CActor.lua:1086`, `arithmetic on local 'mvx' (a nil value)` - `VectorRotate`,
-  as above.
-
-**Still open.**
-
-- **Three levels crash outright** at the same point every time, immediately
-  after `R3D.KeepDecals(false)` during level start, before the tick loop:
-  `C3L3_Military_Base`, `C6L1_Orphanage`, `C6L4_City`. Process exit 127, no
-  Lua error, so this is native. In a working level the next calls are
-  `WORLD.EnablePortal(...)`. Not investigated - its own task.
-- **`C3L5_Ruins` and `C6L10_Shadowland`** each throw one error at load, in
-  `Thor.lua:78`, `attempt to concatenate local 'count'`. Once per level rather
-  than per tick, so it costs one monster rather than the update.
+**Open: the waypoint `floor` index.** `GetShortest` snaps to the nearest
+waypoint by 3D distance, floor ignored, so an actor can bind to a waypoint on
+the storey above or below and be handed a route it cannot walk. The field is
+parsed and unused.
 
 ## The monster flag and `PO_Move`
 

@@ -1,10 +1,10 @@
-# Animation — scope
+# Animation
 
-What "animation" turns out to be here, what already exists, and the order to
-build it. Written before starting, because the `MDL` surface is four separate
-systems wearing one name and they are worth very different amounts.
+The clock, the pose, the joints, root motion, blending and the `.ani` file's
+own timing. Ragdolls are in [`Hitboxes.md`](Hitboxes.md) and
+[`Physics.md`](Physics.md).
 
-## It is four systems, not one
+## `MDL` is four systems, not one
 
 Counted over the shipped scripts:
 
@@ -15,12 +15,12 @@ Counted over the shipped scripts:
 | **Mesh/material** | ~150 | `SetMeshVisibility` 98, `SetTexture` 33, `SetMaterial`, `SetBlendAlpha` — not animation at all |
 | **The clock** | ~80 | `SetAnimTimeScale` 41, `SetAnim` 17, `GetAnimTimeScale` 11, `GetAnimTime` 6, `GetAnimLength` 4, `SetAnimTime`, `ResetFrame`, `GetAnimMovement` |
 
-The clock is the smallest of the four by call count and by far the most
-valuable, because it is the one the rest of the game is waiting on.
+The clock is the smallest of the four by call count and the one the rest of
+the game waits on.
 
-## Why the clock comes first, alone
+## The clock gates the actor's event loop
 
-`CActor:Tick` gates its entire animation-event loop on it:
+`CActor` gates its entire animation-event loop on it:
 
 ```lua
 local animSpeed = MDL.GetAnimTimeScale(self._Entity, self._CurAnimIndex)
@@ -44,119 +44,45 @@ Animations = {
 `{speed, loop, events, blendTime}`, with each event `{timeInSeconds, method,
 arg}`. That loop is how melee damage lands, how footsteps and attack sounds
 fire, and how an actor sequences its state against `_CurAnimTime` and
-`_CurAnimLength`. We return 0 from `GetAnimTimeScale`, so **none of it has
-ever run**.
+`_CurAnimLength`. `GetAnimTimeScale` is the speed, not a play/pause flag.
 
-The clock needs **no rendering whatsoever**. It is a per-entity timer, a
-duration read from the `.ani`, and an index. That makes it independently
-landable, independently testable headlessly, and the single biggest
-behavioural change still available. Skinning makes it visible; it does not
-make it work.
+**The loop is in `CActor:Update`, not `CActor:Tick`.** `Update` is driven by
+`GObjects:Update()`, which `Game:Tick` calls `Game.Loops` times a frame - and
+`Loops` comes from `delta * 30`, so the actor logic runs at a fixed **30 Hz**
+while rendering runs free.
 
-## What already exists
+The clock needs no rendering: a per-entity timer, a duration read from the
+`.ani`, and an index. Check: `SetAnim(idle)` on Cathedral returns index 0 with
+the file's own length, an unknown track returns -1, and an `EvilMonkV2` set to
+`atak1` fires `damage` at 0.75 s.
 
-More than expected. `Assets/Ani` parses `.ani` in full — `frameTime`, per-bone
-variable-length tracks of parent-relative matrices, `duration()`, with an
-exactness check. `Assets/Skeleton` has `BuildHierarchy`, `ComputeBindWorld`,
-`ComputeSkinningMatrices` and `SkinMesh`, and the glTF export cross-checked
-the maths against the native path years of work ago.
+## Where the code is
+
+`Assets/Ani` parses `.ani` in full (per-bone variable-length tracks of
+parent-relative matrices, keys rebased - "A `.ani` is a slice of a longer take"
+below).
+`Assets/AnimationCache` and `Assets/SkeletonCache` load per model.
+`Assets/Skeleton` has the hierarchy, `ResolveAnimTracks`, the time-sampled and
+blended poses (`ComputeBoneWorldAtTime`, `ComputeBoneWorldBlended`,
+`ComputeBoneLocalBlended`), `BoneWorldToSkinning` and `SkinMeshVertices`.
 
 Animations resolve by filename: **`<Model>.<anim>.ani`** — `evilmonk.idle.ani`
 for `evilmonk.pkmdl` with anim `"idle"`. 1228 animation files across 284
 models.
 
-## What is missing
+## The pose lives on the entity; skinning is on the CPU
 
-**In the asset layer**, two gaps:
+`ScriptEngine::TickAnimations` poses each animated entity (`PosedBones`) and
+hands the skinning matrices to `EntityRenderer::SetScriptSkinning`; the
+renderer does no posing of its own. Two reasons: the joint natives have to
+answer with no window open, and a pose computed in two places can disagree with
+itself - a flash drawn at one pose and spawned at another.
 
-- `ComputeSkinningMatrices` samples by key **index**, not by time. Playback
-  needs time-based sampling. Take the nearest key first — `frameTime` says the
-  keys are fixed-rate, so that is faithful and simple; interpolate only if it
-  visibly steps.
-- No blending. `SetAnim`'s `blend` argument and the template's `blendTime`
-  cross-fade between animations. Defer.
-
-**In the renderer**, everything: there is no skinned path and no `vs_model`
-shader. `GpuModel` keeps only GPU handles and drops the CPU mesh after upload,
-and instances *share* a `GpuModel` — so a posed instance needs both the source
-mesh retained and a buffer of its own.
-
-## The rendering decision: CPU skinning first
-
-Two options, and the reason to pick the slower one first is a correctness
-argument rather than an effort one.
-
-**CPU skinning** reuses `SkinMesh`, which is already written and already
-checked against a known-good reference. It costs a retained CPU mesh per model
-and a dynamic vertex buffer per animated instance, re-uploaded each frame.
-With Cathedral's ~40 actors that is nothing; on a busy level it is the thing
-to watch.
-
-**GPU skinning** is the end state — one shared buffer, bone matrices as
-uniforms, no per-instance upload. But it needs a new vertex layout carrying
-bone indices and weights, a new shader, and a skinned variant of the material
-path. Every one of those is a fresh convention: bone index order, weight
-normalisation, matrix layout and row-versus-column in the uniform array.
-
-Conventions are where this port has repeatedly bled — the rotation work took
-four passes and two regressions. Doing CPU first buys a **correctness oracle**:
-a working, visually verifiable reference to diff the GPU version against, one
-bone at a time. Going straight to GPU means debugging a new shader and a new
-convention simultaneously, with nothing to compare against.
-
-So: CPU, then GPU as an optimisation once there is something to check it with.
-
-## Stage 1 landed: the clock runs
-
-`SetAnim` hands out real per-entity indices, `GetAnimLength` reads the `.ani`,
-and the time advances, loops and holds. Measured on Cathedral: `SetAnim(idle)`
-returns index 0 with a length of 1.250 s (the file's own duration), an unknown
-track still returns -1, the time advances at exactly the declared speed and
-wraps precisely at the length. **All 40 actors in the level are animating.**
-
-The decisive test passes: an `EvilMonkV2` set to `atak1` fires its declared
-events — `damage` at 0.75 s and the sound events around it. That loop had
-never executed once before.
-
-### Three things the clock taught
-
-**The event loop is in `CActor:Update`, not `CActor:Tick`.** `Update` is
-driven by `GObjects:Update()`, which `Game:Tick` calls `Game.Loops` times a
-frame - and `Loops` comes from `delta * 30`, so the actor logic runs at a
-fixed **30 Hz** while rendering runs free. Looking in `Tick` for it wastes an
-hour.
-
-**Turning the clock on aborted the entire tick.** With animations finally
-playing, `CActor` reached `MDL.GetAnimMovement` for the first time; the stub
-returned nothing, the script multiplied a nil, and the error unwound
-`Game_Tick` **every frame** - taking the whole actor update with it. The same
-thing happened again a step later, when weapons started animating and reached
-`MDL.TransformPointByJoint`.
-
-This is the "a stub that returns nothing errors loudly, which is the signal to
-implement it" design working - but the blast radius is worth knowing: one
-missing return value in one actor kills the update for every object in the
-level. Both now return real value counts with honest placeholder contents,
-documented at the call.
-
-**The error handler was blind, and had been all along.** It looked up
-`debug.traceback` as a global when an error happened - but the shipped scripts
-alias the library to `debugl` and then use `debug`-prefixed names as their own
-flags, so by the time anything failed the global was no longer the library and
-every error arrived as a bare one-line message. It is now captured into the
-registry at startup, before any script runs. (Lua 5.0's `debug.traceback` also
-takes the message ALONE; the level argument only arrived in 5.1, and passing
-one appends it to the text.)
-
-## Stage 2 landed: the pose reaches the screen
-
-`ScriptEngine::TickAnimations` pushes what the clock is playing at the
-renderer, which resolves the animation's tracks against the skeleton once,
-poses every **visible** animated instance each frame, and draws it from a
-per-instance dynamic vertex buffer. Measured on Cathedral: 4 instances CPU
-skinned per frame (`EvilMonkV2` and the player's `KK2`) out of 81 entity
-draws, at 120 fps — unchanged from before the work, because culling runs
-first and an actor across the level costs nothing.
+The renderer keeps the CPU mesh of a skinned model and deforms it into a
+per-instance dynamic vertex buffer, for **visible** instances only, so an actor
+across the map costs one pass over its skeleton and nothing else. GPU skinning
+is not done; the `pose` report below is the oracle it would be diffed against,
+one bone at a time.
 
 ### The keys are matrices, so the pose had to be interpolated
 
@@ -171,8 +97,8 @@ rotation.
 
 ### Verifying it without a window
 
-`painful pose <model> <anim> [time]` reports bind-pose bounds against posed
-bounds, and this is the check that the maths is right rather than merely
+`PainfulTools pose <file.pkmdl> <anim> [time]` reports bind-pose bounds against
+posed bounds, and this is the check that the maths is right rather than merely
 plausible:
 
 - **The unanimated identity.** With no track bound to any bone, every skinning
@@ -188,29 +114,13 @@ plausible:
   the depth grows as the legs stride and the axe swings. A weapon keeps its
   size and moves by a fraction, which is what a recoil should do.
 
-This command is also why CPU skinning came first: it is the reference a GPU
-skinning shader gets diffed against, one bone at a time.
+## The skeleton answers questions
 
-## Stage 3 landed: the skeleton answers questions
-
-Four natives were returning the entity's own position for every joint, and one
-was returning -1 for every lookup. Those are the dangerous kind of stub: they
-return a plausible value, so nothing errors and a muzzle flash simply appears
-at a monster's feet.
-
-`SkeletonCache` now loads bones, bind-pose world matrices and their inverses
-per model, and the pose moved **out of the renderer onto the entity**. That
-was the one structural decision this stage forced, and it went the way it did
-for two reasons: the joint natives have to answer with no window open, which
-is how everything here gets verified; and a pose computed in two places is a
-pose that can disagree with itself, which shows up as a flash drawn at one
-pose and spawned at another. The renderer is now handed `SetScriptSkinning`
-and does no posing of its own.
-
-The cost of posing every animated entity rather than only the visible ones is
-one pass over a skeleton - about forty actors at sixty bones in a level. The
-expensive half, deforming vertices, stays behind the frustum test, so an actor
-across the map still costs nothing. Measured: unchanged at 120 fps.
+`SkeletonCache` loads bones, bind-pose world matrices and their inverses per
+model, and the joint natives answer from the entity's pose. A joint native that
+returns a plausible wrong value (the entity's own position, -1) is the
+dangerous kind of stub: nothing errors and a muzzle flash simply appears at a
+monster's feet.
 
 ### What the bone names settled
 
@@ -230,9 +140,9 @@ Model space itself is **Y up, Z forward, X lateral**: an idle puts the head at
 Y 8.88 over a root at Y -0.14, and the walk cycle slides the root along +Z.
 The bind pose is a standing T-pose, not a figure lying down.
 
-### Verifying it without a window
+### Verifying the joints without a window
 
-`painful bones <model> [anim] [time] [joint:ax,ay,az]` reports every bone's
+`PainfulTools bones <file.pkmdl> [anim] [time] [joint:ax,ay,az]` reports every bone's
 bind and posed model-space origin, and with the fourth argument, which bones a
 joint rotation moves:
 
@@ -277,7 +187,7 @@ defaults are the engine's own:
 |---:|---|---|
 | 3 | loop | **`true`** |
 | 4 | speed | `1.0` |
-| 5 | blend seconds | `0.2` |
+| 5 | blend seconds | `0.2` (the port defaults to `0.201`, `CActor`'s own fallback) |
 | 6 | movement-curve mask | `0` (no curve) |
 | 7 | movement-curve **bone** | **`"ROOOT"`** |
 | 8 | moving-curve rotation | `false` |
@@ -327,46 +237,19 @@ ticks, and finding it wants a C++ probe over `e.pos` rather than more Lua hooks.
 of travel - with `_moveWithAnimation` false, so `MoveWithAnimation` is not the
 source. Mean step over the animation is 0.0366 against 0.0014 for `atak1`.
 
-## Order
+## The `SetAnim` index contract
 
-1. ~~**The clock.**~~ **Done.** `SetAnim` returning a real per-entity index, `GetAnimTime`,
-   `GetAnimLength`, `Get/SetAnimTimeScale`, `SetAnimTime`, `ResetFrame`,
-   `LoadAnim`. An animation cache keyed by (model, anim). No rendering.
-2. ~~**Skinned rendering.**~~ **Done.** Time-based sampling with interpolation,
-   retained CPU mesh for skinned parts only, per-instance dynamic buffer,
-   posing each frame for visible animated instances.
-3. ~~**Joints.**~~ **Done.** `GetJointIndex`, `GetJointName`, `GetJointPos`,
-   `GetJointRotation`, `TransformPointByJoint` and `ApplyJointRotation`, off a
-   pose that now lives on the script side.
-4. ~~**Ragdoll.**~~ **Done.** On Jolt, with the boxes handed to the solver on death — see [`Hitboxes.md`](Hitboxes.md).
-
-## Unknowns to settle rather than guess
-
-- **`SetAnim` returns an index the scripts keep** (`_CurAnimIndex`) and hand
-  back to every other call. Per-entity, stable, and `-1` must stay the
-  "no such track" answer the scripts already handle.
-- ~~**Root motion.**~~ **Settled.** `GetAnimMovement` is real, read out of
-  Engine.dll rather than inferred, and it is what carries an actor forward
-  during an attack — independently of any AI. How it comes out of the pose is
-  its own section below; `ENTITY.PO_Move` turned out to be a separate,
-  pure setter.
-- **Whether `GetAnimTimeScale` is the speed or a play/pause flag.** The guard
-  is `> 0`, and `CActor` pauses an animation by setting it to 0 and restoring
-  it later, which reads as speed. Confirm against a template's declared speed.
+`SetAnim` returns an index the scripts keep (`_CurAnimIndex`) and hand back to
+every other call. Per-entity, stable, and `-1` must stay the "no such track"
+answer the scripts already handle.
 
 ## How to verify, headlessly
-
-The clock is fully testable without a window, which is the point of doing it
-first:
 
 - `GetAnimLength` matches the `.ani`'s own `duration()`.
 - `GetAnimTime` advances at `speed x dt`, wraps for a looping animation and
   stops at the end for a one-shot.
 - **The decisive one:** an actor's animation events fire. Hook a method named
-  in a template's event list and assert it is called at the declared time —
-  then a monk's attack event should land damage on the player, which is the
-  whole reason this stage matters.
-
+  in a template's event list and assert it is called at the declared time.
 
 ## The mover drives, the animation plays in place
 
@@ -462,7 +345,7 @@ posed `ROOOT` comes out at 0.00.
 
 Worth knowing for testing: **a headless run never exercises this.** Monsters
 idle when they cannot see the player, `idle` declares no movement curve, and
-`PosedBones` is only reached when a renderer is attached - so the correction
+headless the pose is computed only when a joint native asks - so the correction
 has to be forced to be seen outside a real game.
 
 
@@ -515,7 +398,7 @@ visible.
 the same animation constantly; restarting on every call would leave an actor
 permanently half-way between a pose and itself.
 
-Checked with `painful blend <model> <animA> <animB> [time]`, which reports a
+Checked with `PainfulTools blend <file.pkmdl> <animA> <animB> [time]`, which reports a
 bone at five weights. Fading `evilmonkv2` from `idle` into `atak`, the head
 travels smoothly from (0.644, 8.116, 2.645) to (1.498, 7.664, 1.813) - and its
 distance from its parent reads **2.5932 at every weight**. That constant is the
@@ -601,6 +484,6 @@ clamps at the last key and would never reach it. Across a 40-animation sample
 the relation `duration == header * (keys-1) / keys` holds exactly, which is
 also the check that track 0 is representative of the file.
 
-Verify with `painful pose <model> <anim> [time]`: `PKW.obrot` now reports a
+Verify with `PainfulTools pose <file.pkmdl> <anim> [time]`: `PKW.obrot` now reports a
 length of 0.320 and sweeps a full blade rotation across it, where before it
 reported 3.160 and returned the same pose at every time up to 2.84.

@@ -22,7 +22,7 @@ if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
 
 A pass costs one branch. A failure logs **once per call site**, counts every
 occurrence, and carries on. `ReportChecks()` prints the tally at the end of a
-run; `LuaHost::PrintCallReport` and the game loop both call it, so
+run; `LuaHost::PrintCallReport` calls it, and the game calls that at shutdown, so
 `PainfulTools lua` and a windowed session each end with either
 
 ```

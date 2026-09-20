@@ -149,4 +149,4 @@ trail from this frame alone.
 branch of `View::Render`). The DimScale on sprites stays, as there.
 
 `PAINFUL_DEMONFX=0` turns the path off for a comparison; `pkdemon` in the
-console toggles it in play. The `--shot` log line `demon fx: on/off`.
+console toggles it in play. The `--shot` report's bloom line ends `demon fx on/off`.

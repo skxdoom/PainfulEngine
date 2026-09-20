@@ -217,9 +217,9 @@ list with the decal's texture and the fade colour as the texture factor.
 The port draws each decal from a transient buffer with the particle shader,
 depth-tested (`LEQUAL`), no depth write, the `.ini` blend through
 `BlendModeState`, and the surface triangles lifted 4 mm along the decal normal
-so they win the test against the wall they were cut from. Fog uses the
-blend's own fog colour (white for the modulate family), so a far decal fades
-to nothing rather than to the fog.
+so they win the test against the wall they were cut from. A non-multiplying
+blend fogs toward the blend's own fog colour (`FogColorForBlend`); the
+multiplying ones are handled below.
 
 **Fog under a multiplying blend.** Fading the decal is enough under a blend that
 adds or covers, not under one that multiplies: the wall beneath is already
@@ -246,14 +246,13 @@ clipped to a quad); on Cathedral's floor 9–24, a wall `bloodSmall2` 162 and
 its `bloodLeak` 144. A monster killed and dropped from 2.5 units reports its
 armed joints with closing speeds of 6–12 against `MinStren` 6, and
 `MDL.GetJointFromHavokBody` on the handle gives the joint the template's
-sound table is keyed on. Note `WORLD.LineTraceFixedGeom` never hit the world
-before this work: its layer filter asked the pair table whether static meets
-static, which is never (`PhysicsWorld::RayCast`, `StaticLayerFilter`).
+sound table is keyed on.
 
 ## Not done
 
 - `AnimationTime` is read and unused, as in the recovered code.
-- Decals on models and pack meshes (the original cuts an item's mesh).
-- A save does not carry decals ([`LuaHost.md`](LuaHost.md), "Saving").
+- Decals on pack meshes (whether the original cuts an item's mesh is not
+  settled; a model gets none there either - "Spawn" above).
+- A save does not carry decals ([`LuaHost.md`](LuaHost.md), "Saving and loading").
 - `MaxDecals`, if the original caps the count, was not recovered; nothing
   here caps it beyond the per-decal vertex limit.

@@ -61,8 +61,11 @@ them from the map: `special/ripples_00` as `$normalmap` and
 
 ## The tiers are different constructions, not the same picture drawn better
 
-This is the part that matters for porting, and it is why the port pins water to
-one variant rather than taking the usual "best available" preference:
+This is the part that matters for porting, and it is why the port takes no
+shader-script variant's passes for water: it draws the FX techniques below in
+`fs_water`, and only the render state comes from the `nv20` entry.
+`Cfg.WaterFX` 0 draws the reflecting families as `water_ntu` and skips the
+reflection passes (`R3D.SetWaterQuality`). The shipped variants:
 
 ```
 nv30   one pass, fx = FXWater_20, compiled bytecode inside Water.fxo
@@ -269,7 +272,8 @@ original's user clip planes amount to. An oblique near plane was tried
 first and its skewed far plane cut the distant, grazing part of the
 reflection off in a ring around the camera. `Camera::Clipped` keeps the
 other side for the refraction. `WaterReflection` owns the half-size
-targets, views 47-49 draw them before the frame, and the water shader
+targets, views `Renderer::kRefractWorldView` .. `kReflectWorldView` (51-53) draw
+them before the frame, and the water shader
 samples with `v = 0.5 + 0.5 ndc.y` for the mirrored target - the effect's
 unflipped `oT5`, not its `oT6` - and the usual `0.5 - 0.5 ndc.y` for the
 refraction. The bend uses the RAW normal sum, before BumpHeight (ps @13292
@@ -291,10 +295,8 @@ Still open, and said so:
   half-texel term in `GAspect` are read but not applied.
 - The refraction target is the world only; the flags `RenderWorld` gets there
   (0x10000f) are not decoded, so what else it includes is not known.
-- Models with water materials (`palskinned_water`, the Swamp) are the section
-  below, still.
-- `Cfg.WaterFX` off (`water_ntu` for everything) is not honoured; the port has
-  no video option for it.
+- The Swamp's `waterImp*` ripples, and models in its live cube ("Swamp is not
+  world geometry" below).
 
 ## Water the scripts can hit: `ENTITY.IsWater`
 

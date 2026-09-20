@@ -86,6 +86,12 @@ feel is off.
   `PainfulEngineHelpers/Engine_LuaAPI.md` — worth naming to complete the module map.
 - About 100 module natives in the generated surface are never referenced by the
   shipped scripts. Dead API, debug-only, or used by content not in this install?
-- Loose-dir vs pak precedence.
+- **`Cfg.InvertMouse` is applied twice.** `Game:UpdateViewFromPlayer` negates
+  `mdy` itself and `MOUSE.SetInverse` makes `Input::TakeLookDegrees` negate it
+  too, so the option cancels out. Read the original's `MOUSE.SetInverse` to see
+  which side acts (does it touch `GetDelta` at all?) before changing either.
+- **Two entity teleports** noted in [`Animation.md`](Reference/Animation.md)
+  ("OPEN"): a dying `ThrowAndDie` monk snapping to the origin, and `atakthrow`
+  moving the actor. Not re-checked since the ragdoll and monster-body work.
 - `.pkm` internal format (same as `.pak`? a zip? — `GZipPack::GetFile` exists,
   suggesting the engine also supports real ZIP archives).

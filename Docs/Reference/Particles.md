@@ -401,11 +401,8 @@ the divide, ten times too strong at the flame's range.
 - **Texture animation.** `TexAnimFPS` is parsed and stored; the original steps a
   frame index into a multi-frame texture object and rewrites the UVs. Frame 0 is
   always used here.
-- **`Warp` wrap-in-box** is implemented; the `WarpTex` refraction sprites are
-  their own pass now ("The warp sprites" below).
 - **`UseRandomNormal`** is parsed but unused — its effect was not traced.
 - **`KillDist`** is parsed (and squared) but nothing culls on it yet.
 - **Mesh emitters.** One emitter file carries `Mesh`/`Skin_*`/`FPS` keys and
   renders as a model rather than quads. Not handled.
 - **Sorting.** The original does not depth-sort particles either.
-- **Fog.** Not applied on the particle pass, matching the original's draw path.

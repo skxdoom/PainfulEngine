@@ -26,7 +26,7 @@ what would settle it.
 | `Docs/Status.md` | What works today. Changes when a checklist item flips. |
 | `Docs/Stubs.md` | The work queue: the remaining stubs, ranked. A family that lands is deleted from it. |
 | `Docs/Plan.md` | The strategy, the stand-ins that are argued rather than recovered, the open questions. |
-| `Docs/Data/` | Generated. `native_priority.tsv` comes from `Tools/GenNativeList.ps1`. Never hand-edited. |
+| `Docs/Data/` | Generated outside the repo: `native_priority.tsv` is a call-frequency ranking made with the RE helpers. Never hand-edited. (`Tools/GenNativeList.ps1` regenerates `Source/Script/NativeList.inc`.) |
 
 **A change to a recovered rule updates its `Docs/Reference/` page in the same
 commit.** Not later, not in a follow-up.

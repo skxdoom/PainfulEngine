@@ -158,8 +158,8 @@ The screen lifecycle (`Activate`, `Active`, `Clear`, `ClearScreen`,
 setters, `DisableItem`/`EnableItem`, mouse hover and click, keyboard
 up/down/enter/escape, and running `action` strings.
 
-Also an absolute cursor position: `Input` currently carries only mouse
-*deltas*, because during play the mouse is captured. `PMENU.ShowMouse` is what
+Also an absolute cursor position: `Input` carries one beside the mouse
+*deltas* (during play the mouse is captured). `PMENU.ShowMouse` is what
 releases it, and `MOUSE.GetPos` has to answer truthfully for hit-testing.
 
 Ends at: the real main menu, drawn from the shipped scripts, navigable, running
@@ -285,7 +285,7 @@ declares empty - so checkboxes, list rows and slider arrows did nothing, and a
 click on an arrow set the slider to its end because the arrow zone was
 hit-tested as the bar.
 
-### Stage 3 - the frame — **partly done**
+### Stage 3 - the frame — **done, bar the fade-in**
 
 `MenuItemBorder` is in, and with it `HUD.DrawBorder`, which the original also
 builds out of that widget rather than drawing as an outline - so the HUD and
@@ -314,18 +314,12 @@ When a border has columns they alternate light and dark, which is what gives a
 list its banding, and the LAST column takes whatever width is left so rounding
 never opens a gap at the right edge.
 
-Still open in this stage: lists and scrollers, the fade-in
-(`SetItemsFadeLength`, `SetShowItemsFrame`), and `EnableItemBG`'s `blaszka`
-plate behind a row.
+Still open in this stage: the fade-in ("The fade-in is not implemented,
+deliberately" below).
 
 `AddTabGroup` is in - it is a border as far as drawing goes, and what makes it
 a group is entirely script-side. Tab visibility works: 19 `false` calls arrive
 and `Coronas` and `Shadows` end hidden while `Resolution` stays visible.
-
-(An earlier note here claimed `HideTabGroup` never fired. That was wrong, and
-wrong for an avoidable reason: the probe output was truncated at 14 lines and
-the `false` calls all come later. Measuring and then reading only the head of
-the measurement is worse than not measuring, because it looks like evidence.)
 
 ### Stage 4 - campaign flow — **done, the map as a stand-in layout**
 
@@ -399,8 +393,8 @@ scrap's picture is the upper left of its texture; 474 units wide from
 (383,145) it fills the window as in the full-screen pair, the same rule
 placing a locked level's padlock plate. `PAINFUL_MAP_CURSOR=<k>` focuses the
 k-th level for a capture. The level's tarot card sits bottom right in the
-`karta` frame (glowing under the pointer) with the card's picture in its
-window - `MagicCards` gives the picture for the level's `cardIndex` - and
+`karta` frame (glowing under the pointer; the frame art alone, no card picture
+over it) and
 opens the board. The `pentagra` marker beside it is the way back to the main
 menu.
 
@@ -443,23 +437,18 @@ Compared against captures of the original screens, 2026-09-02:
 
 - **Plates** (`EnableItemBG "blaszka"`) go under EVERY row that asked for one
   - the shipped Options screen shows five - not only the focused one, at the
-  art's proportions: `blaszka_lewa` / `_prawa` are 110 x 114, so a cap is
-  110/114 of the plate's height, and the plate stands 67 authoring units tall
-  on the 80-unit row pitch, centred on the text, spanning the menu box less
-  84 units each side (the original's is 553 wide in a 720-unit box).
-  `MaterialSize` can report a padded texture size, which is what stretched
-  the caps before; the files' own numbers are used.
+  - the shipped Options screen shows five - not only the focused one. The
+  geometry is under "The row plate" below; use the files' own sizes, not
+  `MaterialSize`, which can report a padded texture size.
 - **Sliders** are the LARGE `HUD/border` set: `strzalka_duza` points right
   (mirrored for the left end), `kreska_duza` tiles the line, `dzwigienka_duza`
-  is the upright knob. The value is right-aligned to `menuLeft +
-  sliderCtrlWidth` (AddSlider's ninth argument, 700 by default), the bar of
-  `sliderWidth` ends an arrow and a value-slot short of it; a row with its
-  own x lays the bar after its label. A float slider holds its value times
+  is the upright knob. Geometry is under "Row placement" below.
+  A float slider holds its value times
   100 (`PainMenu:AddItem` scales it up, `ApplySlider` back down) and shows it
   divided - Gamma reads 1.00, not 100.00.
 - **Checkboxes** sit before the label with no On/Off word, and are
-  `HUD/ikonki/checkbox_pusty` / `checkbox_zaznaczony` (55 x 51, drawn about
-  36 x 33): the bevelled bronze box with its red tick as one piece.
+  `HUD/ikonki/checkbox_pusty` / `checkbox_zaznaczony` (55 x 51):
+  the bevelled bronze box with its red tick as one piece.
   (`HUD/ChkChecked` is the HUD's own tick, not the menu's; its `.bmp`
   neighbour is a 16-pixel Windows icon, which is why the texture index
   prefers `.dds`, then `.tga`, then `.bmp` when a name ships in several
@@ -483,9 +472,8 @@ Compared against captures of the original screens, 2026-09-02:
 - **Plates** repeat `blaszka_centrum` (103 x 114) at the plate's scale
   between the caps rather than stretching it; **slider** spearheads point
   INTO the line.
-- **Tab groups** (`AddTabGroup`) draw a 180 x 52 tab box ten units in from
-  the group's x and eight down, the next 172 along, over a panel that starts
-  fifty units below the group's y: VideoOptions' group at (122,70) 776x560
+- **Tab groups** (`AddTabGroup`): the tab boxes and the panel are under "The
+  tab strip" below. VideoOptions' group at (122,70) 776x560
   puts its panel from y 120 to 630, and ControlsConfig declares the same
   panel as an explicit `EmptyBorder` at y 110. Every group's tab box shows;
   only the visible group's panel. The tab LABELS are ordinary rows the script
@@ -494,7 +482,7 @@ Compared against captures of the original screens, 2026-09-02:
   for the top), `kreska_mala` is vertical line, `dzwigienka_mala` the thumb.
 - `PainMenu_PrintGameVersion()` is run every menu frame, as the engine does,
   for the "Version: 1.64" at the top right.
-- `PAINFUL_QUIET=1` drops the debug overlay for captures of a screen's top.
+- With `-dev`, `PAINFUL_QUIET=1` drops the overlay text for captures of a screen's top.
 
 ### The save table (`MenuItemTypes.LoadSave`) — **done**
 
@@ -523,8 +511,9 @@ name, which is what `GetSelectedSGSlot` hands back and what
 Layout, from the decompile, in authoring units off the item's (x, y) - the
 screens put it at (100, 180): the table is 824 wide; its frame sits 20 out on
 each side, 850 wide and `listMaxHeight + 40` tall, with a 40-unit header band
-and columns of 400 / 126 / 200 / 140. The header row draws 4 units ABOVE y,
-the first data row 16 below it, and rows are one text height apart (the
+and band dividers of 400 / 126 / 200 / 140 (`kListCols`; the text columns
+below are `kColW`). The header row draws 4 units ABOVE y,
+the first data row 16 below it (plus one line under a header), and rows are one text height apart (the
 hit test starts at 14). Column texts: the level name at x (the header's is
 centred in 380), playtime centred in [380, 510], saved-at in [506, 716],
 difficulty in [716, 826] - the six floats right after the vtable. A row
@@ -542,9 +531,7 @@ and leave the table at either end. `GetSelectedSGSlot` answers nil for the
 new-save row, which is how `PainMenu:SaveGame` tells "save to a fresh slot"
 from "overwrite this one, after a yes/no".
 
-Not drawn: the original recolours a `[Quick]` / `[Auto]` / `[Checkpoint]`
-prefix on the level name (grey and red literals in the row drawer) and can
-drop a shadow under each row; the rows here are plain.
+Not drawn: the shadow the original can drop under each row.
 
 **Rows and the coloured prefix (2026-09-11).** The save table is a
 `MenuItemList`, so its rows follow the list rule: the header 4 above y, the
@@ -566,10 +553,10 @@ primaryText, alternativeText [, primaryKey, alternativeKey])` (0x100764c0,
 eight strings) declares one action's row and `SetKeyItemIndex` places it,
 index 0 being the disabled header row. The rows carry no position: they are a
 TABLE inside the border the script names `KeyBorder` - (50,110), 924 x 410, a
-50-high header band, three columns of 328 / 308 / 308 authoring units - the
+50-high header band - the
 label left in its column, the two keys CENTRED in theirs, the header row
-centred throughout, 27 units a row so thirteen of the fourteen show (the
-original's count) and the rest scroll as the focus moves, with the scroller
+centred throughout; the column widths, the row pitch and how many show are
+under "The key table's rows" below. The rest scroll as the focus moves, with the scroller
 drawn beside the table.
 
 Choosing a row opens a capture; the next key or mouse button pressed lands in
@@ -648,7 +635,7 @@ that against the PROCESS working directory - while `Cfg:Load` reads it through
 `DoFile`, which the host resolves against the executable's directory. Launched
 from anywhere but `Bin/`, every setting the menu applied was saved to a copy
 elsewhere and gone by the next start. `io.open` now resolves a bare path the
-same way (`LuaHost::IoOpenResolved`). Verified: the Controls screen's apply
+same way (`IoOpenResolved` in `LuaHost.cpp`). Verified: the Controls screen's apply
 rewrites `Bin/config.ini` byte-identical when nothing changed, and nothing
 appears in the working directory.
 
@@ -662,9 +649,8 @@ boot, `Window::SetMode`; `PAINFUL_WINDOWED=1` and `PAINFUL_RES=WxH` override
 a diagnostic run), `Language`, and the HUD's own fields, which the HUD scripts
 read directly, and `TextureFiltering` (`R3D.SetTexFiltering` and at boot; below).
 Recorded but not yet honoured: `SmoothMouse`,
-`WheelSensitivity`, gamma / brightness / contrast, and the render toggles
-(shadows, texture quality, coronas, decals, dynamic lights,
-weather) - each waits for the feature it names.
+`WheelSensitivity`, gamma / brightness / contrast, texture quality and
+weather; the rest of the video toggles are under "Video options" below.
 
 ### Texture filtering (`R3D.SetTexFiltering`)
 
@@ -1124,7 +1110,7 @@ movie. The backgrounds are Bink (`PMENU.PlayMovie`), which we do not play.
 Implementing the timing without the movie would hide every item for eighty
 frames of nothing and then fade them in against a still image - worse than not
 having it. It belongs with movie playback, whenever that happens, and the
-natives stay stubs until then.
+natives are bound as no-ops until then.
 
 ### The mouse belongs to whoever is in charge
 

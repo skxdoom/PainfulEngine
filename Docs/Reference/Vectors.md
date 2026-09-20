@@ -63,12 +63,12 @@ doubles and those natives compose in that precision.
 
 ## What is converted
 
-`float[3]` went from **904 → 7**, `float[4]` quaternions from **~37 → 0**.
+`float[3]` and `float[4]` quaternions are converted throughout.
 
-The `float[3]` left are deliberate: four in `Vectors.h` itself (the
+The `float[3]` left are deliberate: those in `Vectors.h` itself (the
 constructor, `Store`, and the two `AsVec3` overloads — the bridge has to speak
-arrays), two in the self-test that exist to prove that bridge works, and
-`MenuSystem`'s `cols[3]`, which is three column widths and not a vector.
+arrays), two in the self-test that exist to prove that bridge works, and raw
+on-disk fields (`Assets/WorldSave.h`).
 
 Storage, parameters and return types are converted across all nine layers.
 `Properties::Vector3`, `MapObject::position`/`normal`, `Camera::Forward`/`Right`,
@@ -88,7 +88,7 @@ uniform vec4s (`fog_`, `fogColor_`, `params`, `ambientValue`), UV transforms
 `ProjectToScreen`, and plain four-element tables (`kListCols`, `radii`,
 `centres`, `textRect`). Converting a uniform breaks bgfx **silently**.
 
-**The loop bodies.** Hand-written three-element loops stand at ~295: the
+**The loop bodies.** Hand-written three-element loops remain: the
 conversion changed declarations and signatures, not the code inside functions.
 Most of what remains is a plain assignment waiting to happen —
 
@@ -102,7 +102,7 @@ for (int c = 0; c < 3; ++c) dir[c] /= len;               // dir /= len;
 
 ## Testing a conversion
 
-`PainfulTools selftest` — 69 numeric checks: the layout promise, arithmetic,
+`PainfulTools selftest` — numeric checks (the last line gives the count): the layout promise, arithmetic,
 the geometric identities, the degenerate cases, `Mat4` interop, and for `Quat`
 the component order, the Euler composition, the rotation identities, the
 composition order (including a check that the two orders actually differ, so

@@ -15,6 +15,7 @@ relicenses nothing.
 | **bgfx**, **bx**, **bimg** | BSD 2-clause | Submodules under `External/bgfx` |
 | **bgfx.cmake** | CC0 1.0 | Submodule `External/bgfx` (the build wrapper) |
 | **miniz** | MIT | Header-only, from `External/bgfx/bimg/3rdparty/tinyexr/deps/miniz` |
+| **stb_truetype**, **stb_rect_pack** | MIT or public domain | From `External/bgfx/bgfx/3rdparty/stb` (HUD and menu text) |
 | **Jolt Physics** | MIT | Submodule `External/JoltPhysics` |
 | **minimp3** | CC0 1.0 | Vendored header in `External/minimp3/` (music streams) |
 

@@ -1,9 +1,8 @@
 # Hitboxes — what the original engine does
 
-Asked because shots at a monster land against one small sphere near its feet.
-The answer is that PainEngine keeps **two entirely separate collision
-representations per entity**. Both are now implemented; this is what each
-one is, and which job it does.
+PainEngine keeps **two entirely separate collision representations per
+entity**. Both are implemented; this is what each one is, and which job it
+does.
 
 ## Two representations, independently switchable
 
@@ -21,12 +20,10 @@ separately:
 - `ENTITY.AddRagdollToIntersectionSolver` (0x10134830) enables **only the
   ragdoll**.
 
-The scripts bracket their traces with these constantly - in the first
-measurement of this port `AddRagdollToIntersectionSolver` and
-`RemoveRagdollFromIntersectionSolver` were the **third and fourth busiest**
-unimplemented natives in the whole game, at 7600 and 8000 calls. That traffic
-is the shooting system telling the engine which limbs are shootable this
-instant.
+The scripts bracket their traces with these constantly -
+`AddRagdollToIntersectionSolver` and `RemoveRagdollFromIntersectionSolver` run
+to some 15,600 calls a run. That traffic is the shooting system telling the
+engine which limbs are shootable this instant.
 
 ## The ragdoll is animated, not just a corpse
 
@@ -73,9 +70,7 @@ skeleton - spine, head, upper and lower limbs - not every finger.
 
 **There is no shape data in the file**: only mass and material. Every `.rde` in
 the game uses exactly five keys and no others. The shapes are in the model's
-`.hke` - see [The shapes](#the-shapes-are-the-hkes-hulls). (This page first
-guessed they were derived from the skin weights. That was wrong, and it shipped
-as boxes with holes between them.)
+`.hke` - see [The shapes](#the-shapes-are-the-hkes-hulls).
 
 ## The movement shape is something else again
 
@@ -88,46 +83,7 @@ as boxes with holes between them.)
   shape sizer, `FUN_101B3E20(out, scale, bodyType, group)`
 
 That sizer has an explicit `bodyType != 2` branch, so **`Fatter` is a distinct
-shape rather than a sphere with a different radius**. What primitive it
-actually builds is inside Havok-specific code that has not been cracked: the
-constants are shape-header magic rather than anything named, and the only
-`CAPSULE` string in Engine.dll is `HK_DISPLAY_CAPSULE`, a debug-draw enum. So a
-capsule is the natural reading and the one the movement code wants, but it is
-**not established** and should not be written down as if it were.
-
-## Where this leaves us
-
-We build one sphere - horizontal half-extent, on the soles - and use it for
-movement AND for shooting. Movement is roughly right. Shooting is not: a shot
-tests against a 0.29-unit ball at the feet of a model two and a half units
-tall.
-
-The two jobs want different things, and the second one is a real system:
-
-1. **Per-bone hitboxes.** Read the `.rde` for which bones are limbs, build a
-   shape per limb from the vertices weighted to that bone, and pose them with
-   the skinning matrices we already compute every frame. Trace against those.
-   `MDL.GetJointFromHavokBody` then becomes answerable, and with it headshots.
-2. **The intersection solver becomes per-limb**, which is what the scripts have
-   been asking for all along with those 15 600 calls a run.
-3. **A capsule for movement**, if the shape sizer can be read - or an argued
-   approximation, flagged as one.
-
-(1) reuses the skeleton, the `.rde` and the skinning weights that already
-exist. It belongs with the ragdoll work rather than with movement.
-
-**Since written:** (1) and (3) are done - the movement shape is the recovered
-three-sphere compound, and shooting now tests the limb boxes rather than it. (2)
-is done too - the ragdoll and body trace switches are separate. See
-[The trace](#the-trace) and [The intersection solver](#the-intersection-solver-is-two-switches-not-one) below.
-
-
----
-
-# What the movement shape actually is
-
-The section above left the sizer unread. It is readable, and the answer is not
-a primitive.
+shape rather than a sphere with a different radius**: a compound, below.
 
 ## A compound, and `Fatter` is the one type that keeps it
 
@@ -180,63 +136,16 @@ templates carries a radius or a height: `s_Physics` holds only `BodyType`,
 Measured at the engine boundary, `zombie`, `nun`, `banshee`, `vamp_small`,
 `vamp_v2` and `DevilMonkv2` all arrive as `bodyType=2` at scales of 0.13-0.18.
 
-## How the engine sizes it, and where our version differs
+## How it is sized, and what moves it
 
-`PhysicsWorld::CreatePhysicsObject` (0x101999F0) looks up the joint named
-`ROOOT` and sizes the shape from it alone:
+`k = height / 11` from the posed model's box, the stack centred at mid-height
+(X/Z from the joint named `ROOOT`, that spelling only, as the engine matches
+it). The engine gives a monster ONE PhysicsObject - `PO_SetMonsterType` sets a
+flag (bit 2 at `PhysicsObject+0x74`) and the tick re-commands that same body
+from the vector `PO_Move` stores - and so does the port. The rule, the
+stand-ins and the measurements are in
+[`MonsterMovement.md`](MonsterMovement.md), "The body".
 
-```c
-param_5 = (local_68 - entity[0x58]) * 0.909090;      // (root.y - ?) * 10/11
-FUN_101b3e20(&local_78, param_5, bodyType, group);
-local_78 = -local_6c;  local_74 = -local_68;  local_70 = -local_64;
-```
-
-Per-joint records live at `model + 0x684`, stride `0x5c`, XYZ at
-`0x30/0x34/0x38`. No mesh extents are consulted anywhere in that path.
-
-**`Entity+0x58` is not identified**, and it matters. Scaling from the root's
-height above the soles is right for a rig whose root sits at a humanoid hip -
-around 0.53 of total height - and wrong wherever a rig disagrees. They do:
-banshee's root is at 0.70 of its height, vamp_v2's at 0.245, and the resulting
-bodies came out 1.30x and 0.46x of their models, tracking that ratio exactly.
-
-So we anchor to the shape's own span instead. The three spheres run from `-4.8k`
-to `+5.5k`, so `k = height / 10.3` makes the body match the model on every rig
-by construction, and the offset puts the lowest sphere's bottom on the soles.
-**The layout is the engine's; what sets its size is ours**, pending
-`Entity+0x58`.
-
-Measured across the bench - eleven rigs, every one:
-
-    modelH == bodyH   (ratio 1.00)     footGap 0.00
-
-## The rigs name the same joint two ways
-
-Six of ten shipped rigs call it `ROOOT`. The rest call it `root`, at the same
-kind of height - zombie 8.59, vamp_small 6.43, raven 2.37 beneath a `big_root`
-at the origin. One joint, two spellings; matching only the first leaves those
-rigs with no measure. `ROOOT` wins where both exist, then `root`.
-
-Rigs also disagree about where the model ORIGIN sits - at the feet for banshee
-and nun (`lo[1]` about -3), at mid-body for the evilmonks (about -13) - so
-anything derived from the origin has to be measured relative to `lo[1]`, never
-assumed.
-
-## Two shapes, where the engine has one
-
-The engine gives a monster ONE PhysicsObject: `PO_SetMonsterType` sets a flag
-(bit 2 at `PhysicsObject+0x74`) and the engine then moves that same object from
-the vector `PO_Move` stores. It is both what carries the monster through the
-world and what everything else collides with.
-
-Ours are separate. `TickMonsters` sweeps its own sphere to move a monster, and
-the three-sphere body is only what others hit - so the body work does not affect
-pathing, and the mover is still sized from mesh bounds. Unifying them on the
-recovered shape is the remaining piece.
-
-Being a monster is not contingent on the shape: the kinematic conversion has to
-happen whatever the rig looks like, and the body pose has to be synced every
-frame, including for a monster that is standing still.
 
 ## The shapes are the .hke's hulls
 
@@ -281,7 +190,7 @@ space, so the skinning matrices already computed for the draw pose them for
 nothing.
 
 Across all 220 shipped ragdolls: **220 parsed, 0 named bones absent from their
-model, 0 limbs with no vertices weighted.** `painful hitboxes <model>` dumps any
+model, 0 limbs with no vertices weighted.** `PainfulTools hitboxes <model>` dumps any
 of them, and **comma** (`-dev`) draws them in orange over the collision they replace.
 
 ### The .rde is a bone list, not a tuning file
@@ -300,8 +209,7 @@ Friction        = 2.5     x2071   (3x "1", 2x "400")
 Five limbs in the entire game deviate, all in `Friction`. So the file's real
 information content is **which bones are limbs**; the material is one global
 constant, and `Mass = -1` universally means *derive it*. There is also no shape
-data and no joint limits - the shapes come from the skin weights, and the limits
-exist nowhere in the shipped data.
+data and no joint limits in it - both are the `.hke`'s.
 
 ## The trace
 
@@ -310,10 +218,9 @@ alongside the Jolt cast and takes whichever is nearer; the limb search is handed
 the world hit's distance, so a shot that stops at a wall cannot reach the monster
 behind it.
 
-The test runs in bone space rather than world space. The boxes are already held
-there, so transforming the ray into a box's own frame turns an oriented-box
-intersection into a plain slab test, and no box is ever rebuilt or re-cornered
-for a pose.
+The test runs in bone space rather than world space: the ray goes into the
+limb's own frame, a slab test bounds the hull and the hull's triangles answer,
+so nothing is rebuilt for a pose. A skin box (the fallback) is the slab alone.
 
 **The movement body stops answering shots.** `TraceRay` excludes every body that
 limb boxes have taken over from (`limbShadowed_`, rebuilt each frame in
@@ -406,15 +313,11 @@ same call:
 `ETypes.Model`, the RENDER type, not the script class - and on it actually
 having a ragdoll.)
 
-Aliasing the two pairs was harmless while a monster was a single sphere: there
-was one shape, so it did not matter which switch hid it. It stops being harmless
-the moment the limbs are real, because the scripts bracket a shot with the
-RAGDOLL pair - that is what those ~15,600 calls a run are for, telling the engine
-which limbs are shootable this instant - and putting that through the body flag
-would hide the walking shape while leaving the limbs shootable, exactly
-backwards.
+The pairs must not be aliased: the scripts bracket a shot with the RAGDOLL
+pair, and putting that through the body flag would hide the walking shape while
+leaving the limbs shootable, exactly backwards.
 
-So `Entity` now carries `inSolver` (the body, which drives the `RayCast`
+So `Entity` carries `inSolver` (the body, which drives the `RayCast`
 exclusion list) and `ragdollInSolver` (the limbs, which `TraceLimbs` honours),
 and the four natives are four distinct functions.
 

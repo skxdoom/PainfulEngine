@@ -55,9 +55,9 @@ Eight floats per vertex, and what they mean depends on `uvChannels`:
 | 1 (dynamically lit) | position | normal | uv | empty |
 | 2 (lightmapped) | position | uv0 | uv1 | separate, 3 floats/vertex |
 
-Hand-authored geometry wants `uvChannels = 1`. `2` means the object carries a
-baked `<name>_L_0000` lightmap in texture slot 1, which is a bake pipeline we
-do not have.
+`mklevel` writes `uvChannels = 2` like shipped geometry, with slot 1 naming a
+flat white lightmap (`LM`, or the `[lightmap]` argument); there is no bake
+pipeline, so the lightmap is neutral.
 
 ### Winding
 
@@ -70,7 +70,7 @@ $ PainfulTools map Data/Maps/1x01_Chaos.mpk
 ```
 
 Everything downstream is built on that. The renderer culls CCW to suit
-([WorldRenderer.cpp:253](../../Source/Render/WorldRenderer.cpp)), and
+([`WorldRenderer.cpp`](../../Source/Render/WorldRenderer.cpp), `BGFX_STATE_CULL_CCW`), and
 `PhysicsWorld` feeds Jolt the *reverse* of each triangle because Jolt takes
 counter-clockwise as the front face. Wound the intuitive way instead, a floor
 is invisible from above **and** bodies fall through it - each half of the
@@ -129,56 +129,37 @@ breakdown at a point.
 PainfulTools mklevel Data TestFloor 200 0 beton_tile_all
 ```
 
-`mklevel <root> [name] [extent] [height] [texture]` writes a complete level
-whose map is one big walkable floor: `Maps/<name>.mpk` plus the `.CLevel` and
-`.lua`. The floor is `extent * 2` units square, centred on the origin at `y =
-height`, tessellated 64x64 (4225 verts, 8192 triangles - comfortably inside
-the `u16` ceiling) and tiled one texture repeat every 8 units.
+`mklevel <DataRoot> [name] [extent] [height] [tex] [steps] [lightmap]` writes a
+complete level whose map is one big walkable floor: `Maps/<name>.mpk`, the
+`.CLevel` (position, ambient, directional, fog, far clip, friction), the
+`.lua`, and a monster spawn point. The floor is **one quad** of `extent * 2`
+units, centred on the origin at `y = height`, tiled through its UVs at one
+texture repeat every 8 units. Never a grid: thousands of coplanar triangles in
+one object hang the original. `steps` adds static step boxes (heights) or
+`r<deg>` ramps.
 
 `o.Scale` is written as `1`. It multiplies the **world mesh and nothing else**,
 so 1 keeps mesh units and world units identical and makes the numbers above
 mean what they say. The shipped levels use 0.3 to 1.2.
 
+A generated floor is the fixture with a known right answer: known height,
+known bounds, known winding, known scale.
+
 ## Verification
 
-Round-trip through the reader:
+Round-trip through the reader: `PainfulTools map Data/Maps/TestFloor.mpk` must
+report `terminator OK`, **0 triangles agreeing with their vertex normals and
+all opposing** (the shipped convention), and one skipped region per object -
+the material block, which the loader peeks at without moving its cursor and
+then resynchronises past, as shipped maps show too.
 
-```
-$ PainfulTools map Data/Maps/TestFloor.mpk
-  1 objects, 4225 verts, 8192 tris, terminator OK
-  bounds x[-200.0..200.0] y[0.0..0.0] z[-200.0..200.0]
-  winding: 0 triangles agree with their vertex normals, 8192 oppose
-  parser skipped 106 bytes across 1 regions
-```
-
-8192 of 8192 opposing matches the shipped convention exactly. The one skipped
-region is the material block, which the loader peeks at without moving its
-cursor and then resynchronises past - shipped maps show the same thing, one
-skip per object.
-
-Then walkability, by dropping the player from a height and seeing where they
-come to rest:
+Walkability: drop the player from a height and see where they come to rest.
 
 ```bash
 PAINFUL_PLAYER_AT="60,40,-25" PAINFUL_SHOT_FRAME=250 PainfulEngine game Data TestFloor --shot out.tga
 ```
 
-| dropped at | result |
-|---|---|
-| `0, 30, 0` | `camera 0.00 2.02 0.00, player on the ground` |
-| `190, 30, 190` | `camera 190.00 2.02 190.00, player on the ground` |
-| `-195, 30, 60` | `camera -195.00 2.02 60.00, player on the ground` |
-| `250, 30, 250` | `camera 250.00 -36.03 250.00, player airborne` |
-
-Resting at exactly 2.02 above a floor at 0 in three places inside the bounds,
-and falling straight through outside them. The last row is the one that matters:
-it proves the floor is real geometry with real extent rather than a plane the
-physics happens to clamp against.
-
-## Why this is worth having
-
-Every test until now ran against shipped data, so when something looked wrong
-there was no way to tell whether the engine was wrong or the level was doing
-something exotic. A generated floor is the first fixture with a known right
-answer: known height, known bounds, known winding, known scale. The two-worlds
-scale bug and the physics winding trap would both have been one command each.
+Inside the bounds the report reads `player on the ground` at the eye height
+above the floor; outside them the player falls straight through, which proves
+the floor is real geometry with real extent rather than a plane the physics
+happens to clamp against.

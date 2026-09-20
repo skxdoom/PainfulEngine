@@ -91,8 +91,10 @@ majority vote over the shipped scripts'
 | Player/bots (14) | `PLAYER` | | Sound instance (14) | `SOUND3D` |
 | Mouse (10) | `MOUSE` | | + `LIGHT`, `PARTICLE`, `ENVIRONMENT`, `MBOARD`, `MATERIAL`, `GAMESPY`, `SND`, `PATH` | |
 
-`SOUND2D`, `EDITOR` and `LANG` exist in scripts but not in the recovered
-tables; they are created as auto-stub modules. Every module table carries an
+Nine module names the vote could not derive (`kExtraModules` in `Natives.cpp`:
+`SOUND2D`, `EDITOR`, `LANG`, `BILLBOARD`, `MENU`, `VARRAY`, `REGION`, `FOGVOL`,
+`FLOOR`) exist in scripts but not in the recovered tables; they are created
+beside them, and most now carry real natives. Every module table carries an
 `__index` that materialises a logging stub for any unlisted name, so a
 mismapped native surfaces in the call report instead of as "attempt to call
 nil". Bare globals (49, registered individually) include `DoFile`, `Log`, the
@@ -106,10 +108,9 @@ w,x,y,z`, engine order `(w,x,y,z)`), and the build/edition/CD-check flags.
 own file.
 
 Every native used to be a `static int L_*` member declared in
-`ScriptEngine.h` — 358 of them — with one 388-row table in `ScriptBind.cpp`.
-Twenty translation units include that header through
-`ScriptEngineInternal.h`, so adding a single native recompiled **30 TUs**
-(measured). It is 1 now.
+`ScriptEngine.h`, with one table in `ScriptBind.cpp`. Twenty translation
+units include that header through `ScriptEngineInternal.h`, so adding a
+single native recompiled 30 of them. It is 1 now.
 
 Each family is:
 
@@ -128,18 +129,18 @@ void BindSound(ScriptEngine& engine, LuaHost& host) {
 }
 ```
 
-`ScriptEngine::Bind` calls the seventeen binders and nothing else.
+`ScriptEngine::Bind` calls the eighteen binders and nothing else.
 
 **Why the structs and not free functions.** The bodies reach engine state
 through `self->` 632 times, so they need private access. A struct can be a
 friend; a file-local free function cannot. `ScriptEngine.h` therefore carries
-one `friend struct XNatives;` line per family — seventeen lines in place of
-358 declarations.
+one `friend struct XNatives;` line per family — eighteen lines in place of
+several hundred declarations.
 
 **Why `ScriptNativesBase`.** As members the bodies used class-scope names
 unqualified: `From`, `Entity`, the `EType` enumerators, `Route`, `LimbHit`,
 `AnimSlotArg`, `TraceCommon`, `kLimbHandleBase`. The base forwards them, so
-all 358 bodies moved **unchanged** — no edit to recovered logic. Friendship is
+every body moved **unchanged** — no edit to recovered logic. Friendship is
 not inherited, which is why each family still needs its own friend line rather
 than the base covering them all.
 
@@ -151,7 +152,7 @@ references another's natives.
 Verifying a change here: a native dropped from a binder silently becomes an
 auto-stub (`ModuleAutoIndex`), so it appears in the `lua` report's
 unimplemented list. Diffing that list against a baseline is the check that
-none went missing — 388 rows in, 388 rows out.
+none went missing — the row count before equals the row count after.
 
 ## A missing native that INVERTS a test is worse than one that does nothing
 
@@ -173,7 +174,7 @@ script family calls, then grep the unbound ones for a use inside `if` / `while`
 / `and` / `or` / `not`:
 
 ```
-bind list:  grep -oE '\{"[A-Z0-9_]+", *"[A-Za-z0-9_]+"' Source/Game/ScriptBind.cpp
+bind list:  grep -ohE '{"[A-Z0-9_]+", *"[A-Za-z0-9_]+"' Source/Game/Script*.cpp
 call list:  grep -rhoE '\b(ENTITY|WORLD|MDL|PHYSICS|...)\.[A-Za-z0-9_]+' <scripts>
 ```
 
@@ -200,22 +201,18 @@ that genuinely needs a value errors loudly — which names the next native to
 implement). The loop:
 
 ```
-PainfulTools lua <DataRoot> [frames]
+PainfulTools lua <DataRoot> [frames] [level] [exec]
 ```
 
-boots, calls `Game:Init()`, ticks N frames, and prints the report. Current
-state: **68 files, 0 script errors, from either the .pak archives or a loose
-tree**; 56 distinct natives still stubbed on that path.
+boots, calls `Game:Init()`, ticks N frames, and prints the report. It runs
+with 0 script errors from either the .pak archives or a loose tree; the
+current stub figures are in [`Stubs.md`](../Stubs.md).
 
-Natives with real implementations so far: the script loader (`DoFile`,
-`DoString`, VFS-aware `loadfile`/`dofile`), `LANG.ParseLangFile` (native reads
-the file, the parse rules stay Lua-side in `Languages_ParseLangLine` — the
-original's split), `FS.FindFiles` (returns bare child names, non-recursive,
-FindFirstFile mask semantics where `*.*` matches everything),
-`R3D.RGB/RGBA`, `INP.GetTime/GetTimeMultiplier`, `R3D.ScreenSize`,
-`MOUSE.GetPos`, the bit-flag family, the quaternion/vector helpers, and the
-version/edition/CD flags. `WORLD.LoadSky`/`LoadLowQualitySky` return a real
-layer count of 0 until the renderer is wired in.
+Two rules from the first natives: `LANG.ParseLangFile` reads the file
+natively while the parse rules stay Lua-side in `Languages_ParseLangLine`
+(the original's split), and `FS.FindFiles` returns bare child names,
+non-recursive, with FindFirstFile mask semantics where `*.*` matches
+everything.
 
 ## The singleplayer no-ops
 
@@ -364,14 +361,13 @@ weapons (`CWeapon:Tick` polls `MDL.GetAnimTime`), and the pickup poll
 The pawn is ENGINE-side, as in the original: native code moves the player
 from the `Tweak.PlayerMove` constants (PlayerSpeed 8.0, JumpStrength,
 air-control...) and the scripts only read the results.
-`Source/Game/PlayerPawn` rebuilds that on the collision world's queries - a
-body sphere slid with gravity, ground detection and jumping, anchored at the
+`Source/Game/PlayerPawn` is the recovered `PhysicsObject::PlayerAction` run on
+`PhysicsWorld` queries ([`PlayerMovement.md`](PlayerMovement.md)), anchored at the
 HEAD (which is what `ENTITY.PO_SetPawnHeadPos`/`PO_GetPawnHeadPos` address;
 `PO_GetPawnFloorPos` reports the feet that the scripts' `_groundx/y/z`
 track). `PO_Enable` on the player is the walk/fly switch, the scripts' own
 `SwitchPlayerToPhysics` semantics; on a prop it wakes or sleeps the body.
-The jump velocity and air-control curve are approximations pending the
-native's own numbers. `ENTITY.GetDimensions` returns the model's world-space
+`ENTITY.GetDimensions` returns the model's world-space
 size - the Slab ambush plates sink by their own height to hide, so it must
 be real.
 
@@ -406,17 +402,14 @@ Level triggers come in two shapes, and both work:
   It missed the volume by **12 millimetres**, and every jump pad in the game
   was inert. The pad's own dimensions were never the problem - they measure
   correctly at load.
-- The pawn posts **`PLAYER_HIT_GROUND(player, fallSpeed)`** on landings
-  above the engine's threshold of 20 - fall damage is script-side
+- The pawn posts **`PLAYER_HIT_GROUND(player, -fallSpeed)`** on landings
+  above the engine's threshold of 20 (`PlayerAction` negates it, and
+  `OnHitGround` tests `speed < -min`) - fall damage is script-side
   (`OnHitGround`).
 
 The camera tick (`Game:Tick2`) is script-driven in the original: it reads
 `MOUSE.GetDelta`, accumulates `CAM.GetRawRotation`'s degrees, and steers
-`CAM.SetPos`. While the C++ loop drives the camera, `GetRawRotation` mirrors
-its state and `GetDelta` reports zero, making the script-side accumulation a
-faithful no-op; handing the camera over entirely means feeding real deltas.
-`INP.GetActionStatus(e)` returns the pressed-actions bitmask - zero until
-real key bindings land.
+`CAM.SetPos` ("The camera is the scripts'" below).
 
 The `lua` command's fourth argument runs an arbitrary chunk after
 `Game:OnPlay`, which is how gameplay is tested headless:
@@ -471,8 +464,8 @@ Recovered along the way:
   maths back out gives, at turn `a`, `right = (cos a, 0, -sin a)` and
   `forward = (-sin a, 0, -cos a)`: it starts down -Z and runs the opposite
   way round from our yaw. Matching it against our
-  `right = (-sin yaw, 0, cos yaw)` gives **turn = -(yaw + pi/2)**, with the
-  elevation passing through unchanged. `CAM.GetAng`/`GetAngRad`/
+  `right = (-sin yaw, 0, cos yaw)` gives **turn = yaw + pi/2** (the sign and
+  the negated elevation are settled under "The rotation conventions" below). `CAM.GetAng`/`GetAngRad`/
   `GetRawRotation` all apply it. Get it wrong and the player walks at ninety
   degrees to where the camera points. The check that settles it: run the
   scripts' own `SetupAction` round trip and compare the vector it produces
@@ -560,10 +553,10 @@ CAM.SetAng(crx, cry, 0)
 ```
 
 So **`MOUSE.GetDelta` returns DEGREES**, not pixels - the results are added
-straight onto `CAM.GetRawRotation`'s degrees. Both axes come back negated
-from ours, because the engine's turn angle runs opposite to our yaw and
-screen-down is a downward look; `Cfg.InvertMouse` is applied script-side and
-must not be applied again in the native. The pitch clamp is the engine's own
+straight onto `CAM.GetRawRotation`'s degrees. Both axes pass through with
+their sign (findings 3 and 4 below). `Cfg.InvertMouse` is applied script-side
+(`Game:UpdateViewFromPlayer`), and `MOUSE.SetInverse` also reaches
+`Input::TakeLookDegrees` - see Plan.md, open questions. The pitch clamp is the engine's own
 ±80°, and the eye is the pawn head less `PLAYER.GetCameraFix` (the bob, still
 0 here). `CAM.SetPositionDisplacement` is an offset added after that, which
 is how the view shakes without moving the player; it is kept apart from the
@@ -761,7 +754,7 @@ from C++ between the entities and the portals. Its layout is decoded
 reads it ("Loading an original save" below). `WORLD.SaveGame` writes it too
 ([`Formats.md`](Formats.md), "Writing the original world save"), which is what lets
 the original load our saves. Our own file goes beside it as
-`<level>.World.pksv` (`PKSV`, version 4; `Source/Game/ScriptSave.cpp`), carrying
+`<level>.World.pksv` (`PKSV`, version 6; `Source/Game/ScriptSave.cpp`), carrying
 what the original format has no room for. `WORLD.LoadGame` prefers ours when it is
 there. The original never sees it: it lists only `*.C*` object files. Both files
 follow the same contract: every entity comes back at the HANDLE it had, because the scripts
@@ -803,7 +796,8 @@ the object count and the player's health, with no script error on either
 side; the pack written is decoded independently (a PowerShell parse of its
 directory with the seed formula) to the same 665 names.
 
-**The music is carried** (version 5): each music slot's file, byte, volume, and
+**The music is carried** (version 5; version 6 adds the 2D and 3D sounds and both
+ID counters - [`Sound.md`](Sound.md), "Handles are Miles IDs"): each music slot's file, byte, volume, and
 whether it plays. The shipped scripts delete both streams when a save loads
 (`CLevel:Delete`) and start one only when the music changes, so without this a
 loaded game stayed silent. The original keeps the same state in its audio chunk
@@ -812,11 +806,11 @@ loaded game stayed silent. The original keeps the same state in its audio chunk
 Not carried over: the animation cross-fade in progress (the new run starts on
 the current animation), angular velocity of free bodies (`angVel` is kept,
 the solver's own spin is not read back), the particle systems' live
-particles (emitters restart), 2D sounds (script-side), the decals on the walls (engine
+particles (emitters restart), the decals on the walls (engine
 entities the scripts never see; [`Decals.md`](Decals.md)), and anything in
-the stub natives. `SOUND.SaveGame_ResumeSounds` and the bookkeeping
-`WORLD.SwitchToState` / `LateVBsBegin` / `LateVBsEnd` / `UpdateAllEntities` /
-`Release` are no-ops here.
+the stub natives. The bookkeeping
+`WORLD.SwitchToState` / `LateVBsBegin` / `LateVBsEnd` / `UpdateAllEntities`
+are no-ops here.
 
 **Lights ARE carried, and have to be.** The world file's version went to 2 to
 add them (a version 1 save still loads, without them). The shipped `CLight` has
@@ -898,7 +892,7 @@ turns each record into the Entity fields our own save keeps, and calls
 The music streams are restored: each is reopened at its byte. Those in the pause
 set play; the others stay paused. The 2D and 3D sounds come back at their IDs,
 before the entities ([`Sound.md`](Sound.md), "Handles are Miles IDs"). Not
-restored yet: decals, trails, Sound entities' own records, the glass panes' broken
+state, and the portal and zone flags (the antiportal flags are applied). `WORLD.LoadGame` logs the counts.
 state, and the portal and zone blocks. `WORLD.LoadGame` logs the counts.
 
 KNOWN DEVIATION, not specific to loading: our `PATH.GetShortest` is A* between

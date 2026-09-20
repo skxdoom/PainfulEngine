@@ -269,7 +269,7 @@ joint)` puts the light on a joint and `UpdateAttached` places it.
 
 A chunk of world takes at most `kMaxDynamicLights` = 8, picked by attenuated
 intensity at the chunk centre with `Important` outranking brightness; a model
-takes the same eight, picked at its origin. The original has no cap on the world
+takes the same eight, scored against its bounding sphere ("Deviations"). The original has no cap on the world
 (it draws one pass per light) and a hard four on models; the passes are folded
 into one draw here, so a fixed count is needed, but four was a vertex-constant
 budget and there is no reason to inherit it.
@@ -508,7 +508,7 @@ recovered world-pass arithmetic, gain x colour x `(1 - d^2/R^2)` x `N.L` - and
 takes the occluded part of that off the lightmap, clamped at zero. Where the
 lamp dominates the texel its shadow is deep; where other light dominates it is
 faint; a texel the lamp never reached is untouched. `ShadowMapStrength`
-(100 percent) scales it, because how the bake's magnitude compares to the
+(80 percent) scales it, because how the bake's magnitude compares to the
 additive gains is not recovered - the two paths were written for different
 hardware and only the additive one is decoded. A shadowed light that is
 dynamic rather than baked (a carried torch) is already in the chunk's slots
@@ -577,7 +577,7 @@ treats the same way. `PickShadowLights` skips a kind that is switched off.
 
 `painful_config.ini`: `ShadowMapPlacedLights` (1/0), `ShadowMapDynLights`
 (1/0), `ShadowMapMaxLights` (8), `ShadowMapLightsRadius` (40), `ShadowMapSize`
-(256 per face), `ShadowMapStrength` (100).
+(256 per face), `ShadowMapStrength` (80).
 `PAINFUL_SHADOWVIEW` darkens the grey models by this term and the world by
 the share of its lightmap the subtraction keeps. Cost: up to six depth views per shadowed light with the
 models in reach, and nine compares per shadowed light per model pixel.
@@ -587,7 +587,7 @@ models in reach, and nine compares per shadowed light per model pixel.
 The weapon in hand shadows itself from the environment box's directional,
 through a map of its own (`Render/ViewModelShadows.h`): orthographic down
 that directional, fitted to the weapon's bounding sphere, so
-`ViewModelShadowMapSize` (512) texels span about a unit and the map is
+`ViewModelShadowMapSize` (1024) texels span about a unit and the map is
 densest where the eye is closest. It exists only where the box gives a
 directional at all - the level designers' volumes decide whether there is sun
 to shadow.
@@ -866,9 +866,7 @@ it, in the late views (Particles.md, "The warp sprites"): drawn in the world vie
 the dust of a shot at the ground showed the occlusion of the ground behind it
 (the user's report), and the weapon's depth would have occluded the wall. Measured on 2026-09-15 (Release, hidden window,
 1600x900, 4x MSAA, the depth readable), with the screen radius: by Cathedral's
-first monks it changed 8.1% of the frame, the mean level 53.1 to 51.3; on City
-on Water's start (its models under the since-removed traced shading), 124.2 to
-121.5; on Catacombs'
+first monks it changed 8.1% of the frame, the mean level 53.1 to 51.3; on Catacombs'
 start, 3.6% of the frame, 68.0 to 67.0.
 
 ## What the scripts do with them
@@ -879,7 +877,7 @@ start, 3.6% of the frame, 68.0 to 67.0.
 | `Leper:OnTick`, `EvilMonkV3` | a carried torch, flickering: `SetIntensity(i * FRand(0.67,1))` and `SetFalloff` scaled by the same number, every tick |
 | `CAction:Action_Light` | a flash — `CreateLight` at intensity 0, then `PFadeInOutLight.CProcess` drives `SetIntensity` up and back down and releases the entity |
 | `DriverElectro`, `ElectroDisk`, `Thor` | `CreateLight` per bolt, re-`Setup` each tick at `FRand(1,3)` intensity |
-| `CEnvironment:SetDependentLights` | `ENVIRONMENT.RemoveLights` / `AddLight`, only where a level authored `DependentLights`. No shipped level does; both are no-ops here |
+| `CEnvironment:SetDependentLights` | `ENVIRONMENT.RemoveLights` / `AddLight`, only where a level authored `DependentLights`. No shipped level does; `RemoveLight(s)` are registered no-ops and `AddLight` is a stub |
 
 ## A carried torch sits ON the joint, not beside it
 
@@ -915,11 +913,11 @@ save had exactly ONE light, the flashlight `Game:OnPlay` creates fresh, and
 every placed `CLight` was missing. Models still looked lit because the
 flashlight is the light you notice; the world mesh, which only takes the
 dynamic ones, had nothing at all to draw. See
-[`LuaHost.md`](LuaHost.md), "Saving".
+[`LuaHost.md`](LuaHost.md), "Saving and loading".
 
 ## Not carried
 
-- `LIGHT.SetLitParentFlag` is recorded and not acted on: nothing here asks
+- `LIGHT.SetLitParentFlag` is accepted and ignored: nothing here asks
   whether the entity a light hangs off is lit by it.
 - `ENTITY.AddLight`, which names a light for one entity regardless of the slot
   competition, is still a stub. `PainMenu` is its only caller.
@@ -927,5 +925,5 @@ dynamic ones, had nothing at all to draw. See
   file rather than from the script that sets it.
 - The original's per-actor blobs (`WorldMesh::RenderShadowPass`,
   `MDL.CreateShadowMap`) - replaced by the flashlight's shadow map and the
-  model shadows above. Every OTHER dynamic light still lights through walls
-  within its range.
+  model shadows above. A dynamic light outside the atlas budget
+  (`ShadowMapMaxLights`, `ShadowMapLightsRadius`) still lights through walls.

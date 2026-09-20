@@ -1,23 +1,22 @@
 # Sound
 
-The easiest system in the game to bring up, and it was worth doing early: the
-scripts have been calling into it constantly and hearing nothing, and a player
-who cannot hear a footfall cannot tell you whether the animation event that
-fires it worked.
+The `SOUND` / `SOUND2D` / `SOUND3D` / `SND` families over one mixed device
+stream: the data, the handle and loop rules, levels, falloff, the voice policy
+and the music streams.
 
 ## What the data is
 
 **3222 samples, every one plain uncompressed PCM in a `.wav`** - mostly mono at
 22 kHz, some stereo, some 44.1 kHz, one at 8 kHz. No codec to reverse, no
-container to decode. `SDL_LoadWAV` reads all of them and `SDL_ConvertAudioSamples`
-normalises them to the device format once, at load.
+container to decode. They are read through the VFS, decoded with
+`SDL_LoadWAV_IO`, and `SDL_ConvertAudioSamples` normalises them to the device
+format once, at load.
 
 Mono matters: a mono sample can be panned, a stereo one cannot meaningfully be,
 and the overwhelming majority of the game's positional audio is mono.
 
-The music is a separate matter and **does not ship in the extracted data** -
-`C1L1_Cathedral_Music_01` and friends are named by every level's `.CLevel` and
-exist nowhere. `SOUND.Stream*` therefore has nothing to load. Left alone.
+The music is 79 `.mp3` files under `Data/Music`, streamed - "Music streams"
+below.
 
 ## The script surface, and how it splits
 
@@ -128,7 +127,7 @@ Two corrections came out of it:
 **A handle and a mixing slot are not the same resource.** The scripts create a
 sound long before playing it and hold that handle for the life of the entity -
 Cathedral sits at ~135 held handles, none of them audible. Those cost nothing
-to mix, so the slot table is generous (512) while what actually costs
+to mix, so the handle table starts at 512 and grows, while what actually costs
 something, sounds being mixed this instant, is capped separately at 64.
 
 **`Play2D` / `Play3D` are fire and forget.** Almost every caller drops the
@@ -321,9 +320,8 @@ loop count of 0 (forever) when `loop`, and plays from the top;
 `GetLowPass` (recorded here, not filtered). The port decodes with minimp3 a
 frame at a time, half a second ahead of the mixer, through an
 `SDL_AudioStream` that converts to the device format; a looping stream
-restarts its decoder at the end of the file without a gap. Streams are not
-in the pause token set: the menu pauses samples, and the scripts pause music
-themselves.
+restarts its decoder at the end of the file without a gap. Streams are in the
+pause token set ("Pausing" above).
 
 ## Not done
 
@@ -332,99 +330,19 @@ themselves.
 - **Stream low-pass** (`StreamSetLowPass`) is stored and not applied.
 - **Doppler**, if the original has it at all - not investigated.
 - **`SND.SetVelocityScaleFactor`** (6 call sites), the per-entity doppler scale.
-- **`Setup3D`'s `dontAutoDelete`** is stored and not acted on: nothing auto-
+- **`Setup3D`'s `dontAutoDelete`** (arg 7) is not read: nothing auto-
   deletes a finished bound sound, which leaks an entity rather than removing
   one early.
 
-## The bug that made it silent, and why testing hid it
+## Checking it
 
-Everything above measured perfectly and the game played nothing. The cause:
-
-**`SDL_LoadWAV` opens a FILESYSTEM path, and the shipped game reads its data
-out of `.pak` archives.** Every sound went missing, silently, because a missing
-sample is a normal answer here and is only counted.
-
-What hid it is worth more than the bug. The engine takes a data root, and there
-are two of them:
-
-| root | what it is | sound |
-|---|---|---|
-| `Data_Extracted` | loose files, used for every diagnostic | worked |
-| `Data` | the `.pak` archives, what `Bin/PainfulEngine.exe` resolves to | silent |
-
-Every test above ran against the loose root, so the loader looked flawless -
-device open, full-scale samples reaching SDL, `0 missing`. The deployed copy
-next to the game runs against the packed root and could not read a single
-sample. **A diagnostic that only ever runs against loose files cannot see this
-class of bug at all.**
-
-`Load` now reads through `painful::ReadFile`, the VFS that knows about the
-archives, and hands the bytes to `SDL_LoadWAV_IO`. Measured against `Data`
-afterwards: `5 playing, 184 started, 44 reaped, 0 missing`.
-
-A second, smaller trap sat behind it: commands mount the archives from a
-per-command table in `main.cpp`, and a new command that is not in that table
-silently gets no VFS. `sound` had to be added to it.
-
-**Run diagnostics against `Data` as well as `Data_Extracted` when the thing
-being tested loads assets.**
-
-## The second bug that made it silent: a handle read as an index
-
-The first bug silenced everything. This one silenced only the sounds a script
-**holds** — which is worse, because it looked selective and therefore looked
-like a loop problem.
-
-`AudioEngine::Open` returned a **packed handle**: the voice index in the low 16
-bits, a generation counter in the high 16, so a stale handle cannot address a
-slot that has since been reused. (It has since given way to the original's IDs,
-"Handles are Miles IDs"; the lesson stands.) `Resolve` decoded it. The setters
-did not — their guard treated the handle as a bare 1-based index:
-
-```cpp
-if (size_t(v) > voices_.size()) return;
-Playing& p = voices_[size_t(v) - 1];
-```
-
-Voice 2 of generation 2 is `0x20002` = 131074, which fails a bounds check
-against 512 voices and returns. So `Start`, `Stop`, `Pause`, `SetVolume`,
-`SetPosition`, `SetHearingDistance`, `SetLoopCount`, `SetSpeed` and `Release`
-were all silent no-ops for **anything `Create` handed out** — 32 `Create` sites
-and 217 setter calls across the shipped scripts: rain, the flamethrower, the
-electro loops, the minigun rotor, bullet-time.
-
-The tell was which sounds survived. The Painkiller's rotor *start* and *stop*
-played and its *loop* did not, because start and stop go through `SndEnt` into
-fire-and-forget `Play2D`, which never touches a setter. Anything that reached
-for a handle got nothing.
-
-Two lessons, both cheap to reuse:
-
-- **A packed handle and a raw index must not be interchangeable at a call
-  site.** Both are `int` here, so the compiler had nothing to say.
-- **When a subsystem works for some callers and not others, split the callers
-  by the API they use rather than by what they sound like.** "Loops are broken"
-  was the wrong hypothesis; "held voices are broken" was the right one, and the
-  fire-and-forget/held split was already written down at the top of this page.
-
-## Turning a stub on can expose bugs behind it
-
-`SND.Play` was unimplemented, so nothing the scripts bound to an entity ever
-made a sound. Implementing it immediately produced a stake that screamed from
-the wall for the rest of the level — and that was not a new bug but two old
-ones that had never been reachable:
-
-- `ENTITY.UnregisterAllChildren(parent, type)` ignored its `ETypes` filter and
-  dropped **every** child. `Stake:Tick` unregisters its Trail and then kills its
-  flight loop by name on the very next line, so the list was already empty.
-- `ENTITY.KillAllChildrenByName` then erased a child that `ReleaseEntity` had
-  already unlinked — `erase(end())` on the last index, an access violation. It
-  had simply never run with a non-empty list before.
-- It also returned nothing, so `if KillAllChildrenByName(se,"stakeflame")` read
-  false every time and a burning stake never smoked.
-
-**Expect a stub's first real implementation to fail, and to fail in the code
-around it rather than in itself.**
+Samples load through the VFS, so run the diagnostics against the shipped `Data`
+(paks) as well as an extracted tree: a missing sample is a normal answer and is
+only counted, so a loader that reads the filesystem alone plays nothing and
+reports nothing. `PainfulTools sound <DataRoot> <name> [seconds]` prints `playing / started /
+reaped / missing`; cumulative started against reaped is the leak check. A
+command gets its VFS mount from the `Root` column of its row in
+`Source/Tools/ToolsMain.cpp`; `Root::kNone` means no VFS.
 
 ## Virtual voices: what the original actually mixes
 

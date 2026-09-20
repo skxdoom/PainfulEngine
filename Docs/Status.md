@@ -134,8 +134,7 @@ All parse and are cross-checked against a second implementation.
   ten archives, validated against a full extraction; every headless report is
   byte-identical run from `Data` vs `Data_Extracted`. Mount order follows the
   engine's: `<name>2.pak` > `<name>1.pak` > `<name>.pak` > loose files
-  (`Source_Port.md` §3; loose-vs-pak precedence is still unconfirmed
-  empirically — the port puts archives first).
+  ([`Formats.md`](Reference/Formats.md), "Numbered patch layering").
 
 ### World rendering
 

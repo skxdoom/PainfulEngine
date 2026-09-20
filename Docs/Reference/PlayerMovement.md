@@ -117,8 +117,7 @@ Lua field order.
 
 `StrongAirControl` and `WeakAirControl` ARE read by `PlayerAction`, as the
 airborne impulse factor (0x1019420b / 0x10194221 — see the air rule below).
-An earlier note here said they were `QWPhysics`-only; the decompiler had
-lost the block.
+(The decompiler loses that block; read the disassembly.)
 
 ### The difference that matters: reversing in mid-air
 
@@ -238,15 +237,16 @@ steers nor slows. A 180° mouse turn keeps the full 8.00 and flips the travel
   slot is reassigned at the top of the frame to the frame time, clamped by
   `if (1.0 < dt) dt = 0.05`. Resolved; the port already matched.)
 - **Stairs**: see the step ladder below.
-  Ice replaces the snap with a log-lerp steer
+  Ice replaces the walk impulse with a log-lerp steer
   (`IceSlideModifier`/`IceSlideAngleModifier`/`PlayerSpeedIce`), not yet
   ported.
 - **Landing**: a touchdown with `fallSpeed × timeMultiplier > 20`
   (0x102c8690) queues **`PLAYER_HIT_GROUND`** into `Game_GetMsg` — fall
   damage is script-side.
 - Ladders divert to `PlayerActionLadder` when either the head or the floor
-  position is near one; moving platforms subtract the mesh-under velocity
-  (`MeshUnder` probed 0.1·h below). Neither is ported yet.
+  position is near one - not ported. Moving platforms subtract the mesh-under
+  velocity (`MeshUnder` probed 0.1·h below); here the pawn is carried by the
+  body under its resting probe (`PhysicsWorld::CarriedBy`), a stand-in for it.
 
 ## The speed natives
 
@@ -388,7 +388,7 @@ displacement, so a contact removes the component into it as Havok's
 contact did. `StairsUpSpeed` / `StairsDownSpeed` (1.0 in the tweaks) are not
 read by `PlayerAction` and are not ported. `PAINFUL_PAWN_TRACE=1` prints one
 line per move — start, delta, where the sweep ended, whether it rests and on
-what normal, the final centre — which is how the corner wedge was seen.
+what normal, the final centre.
 
 Two port choices sit on top of the recovered law:
 
@@ -720,7 +720,7 @@ kinematic pusher shoved a barrel at full speed whatever it weighed (infinite
 mass - and before that the free camera's 1.2 pusher did the same), and a
 dynamic pusher chasing the pawn pushed almost nothing, because the feet
 sphere stopped the pawn at the prop's surface and the pusher arrived with no
-penetration to spend. Headless (TestFloor, `push_probe.lua`): walking into a
+penetration to spend. Headless (TestFloor): walking into a
 `BarrelBig` sends it ahead at the player's pace.
 
 ## The bug the measurement caught
@@ -755,12 +755,7 @@ camera-push diagnostic (6.82 / 7.16 / 7.43 / 0.07 either way) and reverted:
 shared collision code should not move on a hypothesis that measurement does
 not support.
 
-Jump rise measures 0.753 m rather than the 0.799 m the closed form gives.
-That is the semi-implicit step, not an error: velocity is decremented before
-the move, so the rise is `dt·Σ(v₀ − i·g·dt)` over the 17 rising steps, which
-is 0.753 exactly.
-
-Jump rise measures 0.753 m rather than the 0.799 m the closed form gives.
+Unscaled, a jump rises 0.753 m rather than the 0.799 m the closed form gives.
 That is the semi-implicit step, not an error: velocity is decremented before
 the move, so the rise is `dt·Σ(v₀ − i·g·dt)` over the 17 rising steps, which
 is 0.753 exactly.
@@ -972,7 +967,7 @@ caught in a real fight — only in the synthetic A/B above.
 
 ## Not yet ported
 
-Ice, ladders, moving platforms, underwater (`UnderwaterSpeed` family),
-double-jump (`AbsoluteVerticalVelocityBelowWhichDoubleJumpHappens`), the
-`PLAYER_HIT_GROUND` message, and MP movement (`MultiPlayerAction` has its own
-tweak block with air acceleration).
+Ice, ladders, underwater (`UnderwaterSpeed` family),
+double-jump (`AbsoluteVerticalVelocityBelowWhichDoubleJumpHappens`), and the
+rest of `MultiPlayerAction` (its air rule and tweak block are in, behind `-mp`;
+the walk acceleration and deceleration are not).

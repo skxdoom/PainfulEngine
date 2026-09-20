@@ -1,8 +1,7 @@
 # Texture transforms — pan, tile and the named xforms
 
-Decoded from `Engine.dll` and the shipped DX8 vertex shaders. This settles the
-two things the roadmap listed as unconfirmed: what `pan[N]` is measured in, and
-how the detail map is sized.
+Decoded from `Engine.dll` and the shipped DX8 vertex shaders: what `pan[N]` is
+measured in, and how the detail map is sized.
 
 | What | Symbol / file | Address |
 |---|---|---|
@@ -130,22 +129,17 @@ open item in [`Particles.md`](Particles.md).
 
 ## Where the port stands
 
-**Confirmed correct, unchanged:** `pan[N]` in units per second, and detail UV as
-`texcoord0 * (TileU, TileV)`. Both were already right; they are now established
-rather than assumed, which is what this decode was for.
+**Confirmed:** `pan[N]` in units per second, and detail UV as
+`texcoord0 * (TileU, TileV)`.
 
 **Implemented: `tile[N]`.** Parsed in `MaterialState` (`tile[0]` / `tile[1]`,
-defaulting to 1,1) and applied last in `fs_world.sc`, so the whole stage
+defaulting to 1,1) and applied last in `fs_world.sc` (and the same formula in
+`shared_entity.sh`, `fs_shadow.sc` and `fs_water.sc`), so the whole stage
 transform is `uv' = ((uv * slotXform) + pan * t) * tile` — a stage with both
 scrolls `tile` times faster than the pan figure alone reads.
 
-A first attempt regressed world texturing badly (`C1L1_Cathedral` came out with
-garbled tiling on walls and niches) and was reverted; the decode was sound and
-the fault was in the wiring. What made the second attempt hold was the
-condition the first one missed: `u_tile` is created **and set** on every path
-that binds `fs_world` — `WorldRenderer` for both the ordinary and the water
-pass, and `EntityRenderer` — so no material that never mentions `tile` can pick
-up a stale value.
+Every shader that declares `u_tile` must have it **set on every draw**, so a
+material that never mentions `tile` cannot pick up a stale value.
 
 **Not implemented: the rotation term.** No shipped `.shader` sets a rotation —
 it can only arrive through `$blendxform` / `$alphaxform` / `$detailxform`, whose

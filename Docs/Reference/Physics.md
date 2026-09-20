@@ -5,9 +5,8 @@ PainEngine is a Havok game. `Engine.dll` exports a `PhysicsWorld` and a
 reaches them, and ragdolls, glass, explosions and player movement all go
 through the same layer.
 
-Jolt stands in for Havok here. This is the bring-up: the level's collidable
-geometry, the props the level places, and the queries the rest of the engine
-needs. It is not the whole system — see [what is missing](#what-is-missing).
+Jolt stands in for Havok here. What is still missing is listed
+[at the end](#what-is-missing).
 
 ## Where the numbers come from
 
@@ -88,8 +87,10 @@ Templates/Items/BarrelBig.lua       function BarrelBig:OnCreateEntity()
                                     end
 ```
 
-Without a script host that call cannot be *run*, but it can be *read*, and 128
-templates make it. The instance's own `StartCommand` wins; otherwise
+The game runs that call through the script host, so every prop's body comes
+from the scripts' own `PO_Create`. The `run` viewer and the `physics` report
+have no host, so `PhysicsWorld::LoadProps` *reads* it instead, and the rest of
+this section is that path. 128 templates make the call. The instance's own `StartCommand` wins; otherwise
 `TemplateCache::PhysicsBodyType` walks the `BaseObj` chain looking for it. Both
 return the `BodyTypes` value from `Definitions.lua`; the counts across the
 shipped templates are
@@ -167,7 +168,8 @@ Each such entity becomes a body:
   `v * m r² / (m r² + I)` ≈ 1.2 m/s. Measured headlessly after the port:
   12.6 → 1.06.
 - **placed awake** at the authored transform, and then given a second and a
-  half of simulation *before the level is first drawn*. They are authored
+  half of simulation *before the level is first drawn* (in the game,
+  `Settle(90)` after `Game:LoadLevel`, skipped when loading a save). They are authored
   hanging in the air (below), so without that the level visibly rains its own
   furniture into place on load — and a `--shot` of frame 30 would catch it
   mid-fall, differently every run. A fixed number of fixed steps keeps captures
@@ -183,9 +185,9 @@ Each such entity becomes a body:
 Cathedral places 135, Train Station 110, Cemetery 75, and the deathmatch maps
 none. Nothing is left unresolved on any of them.
 
-`CActor` is deliberately excluded. `CActor:PO_Create` runs when a monster is
-*spawned*, and spawning is script work that does not exist yet — the statically
-placed actors are a dormant pool the real game never draws in place.
+`LoadProps` skips `CActor`. A monster's body is made by `CActor:PO_Create` when
+the scripts spawn it, and the statically placed actors are a dormant pool the
+real game never draws in place.
 
 ### A mesh body's mass
 
@@ -399,23 +401,9 @@ speed, because the bug it exists for was invisible at any single rate: the
 push landed or missed depending on the frame rate. The four numbers should
 agree.
 
-The settling is the honest measure of how far this has to go:
-
-| | props moved > 1 unit in 5 s | still awake |
-|---|---|---|
-| Train Station | 0 of 110 | 0 |
-| Cemetery | 1 of 75 | 0 |
-| Cathedral | 42 of 135 | 4 |
-
-Cathedral's are almost all one thing: **32 barrels, each settling a
-repeatable 1.08 units downward**. That is not the physics being wrong - the
-barrel's mesh sits 0.82 above its own origin, the entity is authored 0.26 above
-the floor, and 0.82 + 0.26 is exactly 1.08. The barrels were being *drawn*
-hanging in the air that whole time, and the simulation is what put them on the
-floor. Whether the original centres a pack mesh on the entity origin (the
-distinction its `FromMesh` / `FromMeshNotCentered` body types draw) is the
-thread to pull next; until then the renderer is the one placing them wrongly,
-and physics quietly corrects it on load.
+The report's `settle 5 s` line counts what the host-less path's props do over five
+seconds. It reads templates rather than running the scripts, so it is a check
+on the report path, not on the game.
 
 ## Activation and a body out of the world
 
@@ -571,8 +559,8 @@ anything. A Lua error there aborts `Game:Tick2` for the frame - every later
 object's `Tick`, including each rocket's own world line trace - so after one
 rocket blast near the Catacombs ledge (which unpins the wood debris there),
 rockets stopped exploding on the static world until the debris settled.
-Found 2026-09-05 with `bridge_rocket2.lua`; `GetName` now returns the mesh
-object's name, or the script's own name, and never nil.
+`GetName` returns the mesh object's name, or the script's own name, and
+never nil.
 
 Four things about this were easy to get wrong, and three of them were:
 
@@ -894,7 +882,7 @@ instead — same camera, same frame, `--shot` for its `entity draws` line:
 
 ```
 PAINFUL_WINDOWED=1 PAINFUL_RES=640x360 PAINFUL_SHOT_FRAME=40 \
-  PainfulEngine game D:/Dev/PKRE/Data C4L4_Alastor --shot x.tga \
+  PainfulEngine game <DataRoot> C4L4_Alastor --shot x.tga \
   --exec "<hook Game_Tick, EnableDrawMeshGroup(5, true|false) on tick 5>"
 ```
 
@@ -937,8 +925,9 @@ script-side, in `Game:OnBrokenGlass`, behind the `CheckStartGlass()` wrapper in
 
 **Deviation: the pane is found by point and radius, not by the body.** The
 original is handed the body it hit and spends the radius on which shards to
-start; our world is one static body and a trace reports no per-object handle, so
-the point (expanded by the radius) picks the pane instead. Panes are small and
+start; a pane here is its own body but has no entity behind it, and the scripts'
+`he` is an entity handle, so the point (expanded by the radius) picks the pane
+instead. Panes are small and
 far apart, so this resolves them individually — measured below.
 
 Measured on Prison (279 panes, level scale 1.0), against
@@ -988,8 +977,8 @@ there is nothing left and a second shot should carry through.
 Porting the pieces needs three things this engine does not have: a fracture
 generator over the pane polygon, a way to DRAW generated geometry (the renderer
 draws map objects and models, and pre-generating pieces as map objects would add
-~2,000 objects on Prison alone, against a bgfx index-buffer pool already
-exhausted at 1,585 active meshes), and bodies with a lifetime for the pieces.
+~2,000 objects and their GPU buffers on Prison alone - "Drawing them costs GPU
+handles" below), and bodies with a lifetime for the pieces.
 
 What IS visible on a break today is script-side and always was: `FX_BrokenGlass`
 is two emitters, `broken_glass.ini` (dust.tga, 4 particles) and
@@ -1278,10 +1267,6 @@ on. Measured: 4.309 with it on, 0.000 with it off.
   nearest SURFACE, not its origin, for anything within `3.0 * range`, and runs a
   second pass over world meshes at `0.6 * range`. A large static mesh therefore
   takes a blast it would otherwise be too far from. Ours measures from the body.
-- **`WORLD.ExplosionUp`** `(x,y,z, stren, distance, stren, random)` and
-  **`ExplosionParabolic`** `(x,y,z, flightTime, radius, targetX, targetY,
-  targetZ)`. Boss moves - Thor's hammer and fists, the Panzer Demon's shockwave
-  - and two of the three call sites are commented out in the shipped scripts.
 - The `distance <= 0.0001` branch for props. The ragdoll branch itself is
   ported - see Gibs below.
 
@@ -1385,8 +1370,7 @@ lookup, FUN_102641C0 hashing into the table at DAT_103E70F4):
 The word table is `kHkeWords` in `Hke.cpp`. It has to carry every word the
 text form ever uses: `RESTITUTION` (Spring actions), `TWO_BODIES` and the
 `Dashpot` action type turned up only in binary files and were found by hashing
-every identifier in `Engine.dll` (`HkeStrings.java` in the session
-scratchpad; `HkeHash.java` checks one word). The census (`PainfulTools
+every identifier in `Engine.dll`. The census (`PainfulTools
 ragdoll <dir>`) parses 324 of 324 with 0 unknown keywords, which is the check
 that the table is complete. `PainfulTools hketext <file.hke>` prints any file
 as text.
@@ -1584,8 +1568,8 @@ entity and applied when the ragdoll is created.
 
 ### The player's weight
 
-The player is a swept sphere with no mass, so standing on the deck did not
-move it - only flying through in noclip did, via the pusher. Havok's character
+The pawn is a swept shape, not a body in the solver, so standing on the deck
+did not move it - only flying through in noclip did, via the pusher. Havok's character
 proxy presses its `characterMass` on the bodies it stands on, so
 `PlayerPawn::Move` now calls `PhysicsWorld::PressGround` while grounded: a
 downward force of `kPlayerMass * gravity` (80 x 19.62) on every dynamic,
@@ -1608,7 +1592,7 @@ transform, and the sagging deck leaves that box by five units, so a plank in
 plain view could vanish. `SetScriptSkinning` now grows the box to every bone's
 posed centre padded by the model's half-diagonal; it can only get larger.
 
-Measured headlessly (`bridge_stand.lua`, player dropped 1.5 above the middle
+Measured headlessly (player dropped 1.5 above the middle
 plank): the player lands 0.9 above the plank and stays; the plank under the
 player creeps 0.03 between 5 s and 25 s and then holds. The two `noclip_decha`
 world meshes at the bridge ends are non-collidable, as `noclip` says ("Active
@@ -1674,7 +1658,7 @@ rigid bodies at load:
 | in the name | meaning | where |
 |---|---|---|
 | `phys` | this object is a body, not static world | `SetupFlags` sets bit 24 of `WorldMesh+0x18`, which `AddMesh` branches on |
-| `noclip` | NO body. `SetupFlags` (0x101D7050) sets `WorldMesh+0x1a` bit 0x40, which is bit 0x400000 of the flag dword at +0x18, and `ReloadWorld` (0x1019B180) skips `AddMesh` for any mesh with that bit (unless 0x8000000 is also set). The editor doc ("excluded from Havok physics - player can walk through") is exactly right. A wrong reading on 2026-09-05 had it collidable for a few hours: `FindImm 0x400000` cannot see a byte-wide `OR [+0x1a],0x40`, so the flag looked unset by anything but `EnableDynamic`. Catacombs' `noclip_decha01/02` are the two deck ends at the bridge anchors (world x 160 and 209); the bridge the player walks is the `Cat_bridge1` ragdoll, "Fixed bodies" below | `SetupFlags` |
+| `noclip` | NO body. `SetupFlags` (0x101D7050) sets `WorldMesh+0x1a` bit 0x40, which is bit 0x400000 of the flag dword at +0x18, and `ReloadWorld` (0x1019B180) skips `AddMesh` for any mesh with that bit (unless 0x8000000 is also set). The editor doc ("excluded from Havok physics - player can walk through") is exactly right. (`FindImm 0x400000` cannot see the byte-wide `OR [+0x1a],0x40`.) Catacombs' `noclip_decha01/02` are the two deck ends at the bridge anchors (world x 160 and 209); the bridge the player walks is the `Cat_bridge1` ragdoll, "Fixed bodies" above | `SetupFlags` |
 | `pinned` | starts static; released by a blast, a group activation or a moving neighbour | `AddMesh` |
 | `concave` | a mesh body (type 8) rather than a convex one (type 7) | `AddMesh` |
 | `physdest` | a destructible's piece: angular damping 1.8, removed from the entity list until its twin's release ("Destructibles" below) | `AddMesh` |
@@ -1731,7 +1715,7 @@ The port: `MapObject::isStaticTwin/isDestructiblePiece/piecePrefix`,
 `PhysicsWorld::CreateStaticTwinBody` (an exact MeshShape, static, out of the
 world body), pieces created dynamic then `SetScriptBodyEnabled(false)` and
 hidden, `ScriptEngine::destructibles_` + `ReleaseDestructible`. Not ported:
-the time-to-live, the collision-callback lottery, `EnableDrawMeshGroup`, and
+the pieces' time-to-live, the per-release collision-callback lottery, and
 saving the released state.
 
 Before this the pieces were ordinary active meshes - visible around the intact
@@ -1793,8 +1777,8 @@ o.ActiveMeshesData.kolumna[1] = 2
 o.ActiveMeshesData.wejsciowy_kamien[1] = 10
 ```
 
-so the entrance stones are group 10 and the columns group 2. Substring match on
-the object name, lowercased, defaulting to group 1.
+so the entrance stones weigh x10 and the columns x2. Substring match on the
+object name, lowercased, defaulting to a factor of 1.
 
 `CLevel:SetupMap` then configures the groups it cares about:
 
@@ -1805,13 +1789,14 @@ for i=20,30 do
 end
 ```
 
-which is why every `_actgrpNN` in the shipped maps falls in 20..30.
+which covers the campaign's rubble groups, 20..30; the boss arenas and the
+destructibles use groups below 20 and drive them from their own level scripts.
 
 How much of each level this covers:
 
 | map | `phys_` objects | groups |
 |---|---:|---|
-| `1x03_Catacombs` | 452 | 20, 24, 29 (+ named 2, 10) |
+| `1x03_Catacombs` | 452 | 20, 24, 29 |
 | `2x02_Prison` | 32 | 20, 21, 25, 26, 27, 28, 30 |
 | `3x02_Factory` | 7 | 22, 27 |
 | `1x01_Chaos`, `1x02_Atrium`, `5x01_CityOnWater` | 0 | — |
@@ -1852,9 +1837,9 @@ them as an entity. The mass factor is fetched by calling the Lua global from
 C++ at load; `WORLD.Init`'s `ActiveMeshesMassScale` is applied afterwards to
 the bodies the level gave no factor. `WORLD.Explosion2` releases pinned
 bodies within `range + radius` before applying its impulse, and
-`ActiveMeshGroupActivate` / `Enable` are real; `StaticMeshEnable` and
-`SetActivationParams` accept and do nothing (the body itself is the static
-twin here, and the autodelete timers are not ported).
+`ActiveMeshGroupActivate` / `Enable` are real; `StaticMeshEnable` switches the
+group's unreleased statdest twins on and off; `SetActivationParams` accepts and
+does nothing (the autodelete timers are not ported).
 
 ### Why they sit still at load
 
@@ -1945,8 +1930,8 @@ between the physics step and the read-back, which is the same moment.
 asks for 0.15 and gets 0.165; a rocket asks for 0.001 and is a point. The
 mass it computes, `(0.2 * scale)³ * 10000`, is overwritten by `PO_SetMass`.
 
-**What a missile collides with.** The port puts Missile (5) and Particles
-(8) bodies in their own Jolt layer: they collide with the world, props and
+**What a missile collides with.** The port puts Missile (5) bodies in their
+own Jolt layer (Particles (8) have another - "Particles (8)" above): they collide with the world, props and
 monsters, but not with each other and never with the camera's or the pawn's
 pusher sphere, and no trace lands on those spheres any more either. The
 missile-to-missile rule comes from the data: `BoltGunHeater:AltFire` fires
@@ -1969,8 +1954,7 @@ decimals, and `Rocket:Tick`'s own trace finds the Slab at frame 106.
 
 `Stake:Tick` traces its own path each frame and decides by hand what a hit
 means; four things went wrong in the port and each was a native, not physics
-(2026-09-05, probes `stake_mobs.lua` / `stake_arc.lua` in the session
-scratchpad: two zombies at 14 units, one given 1000 health, shot at spawn).
+(probe: two zombies at 14 units, one given 1000 health, shot at spawn).
 
 - **It flew through every enemy, and never attached on a kill.** On a kill the
   script reads `PHYSICS.GetHavokBodyPosition(he)` to keep the struck limb at a
@@ -2100,7 +2084,7 @@ Three natives stood between the port and that (2026-09-06):
   item; it now answers by the world-object flag, and the world itself (entity
   0) stays true.
 
-Measured (`stake_nail.lua`: zombie 3.4 units before the bare wall behind
+Measured (zombie 3.4 units before the bare wall behind
 Cathedral's spawn, player 13 units back): the kill binds the corpse, three
 ticks of drag teleport the struck limb along, `PinHavokBody` fires when the
 stake meets the wall, `Pinned` is set and the limb stays at the wall for the
@@ -2197,18 +2181,6 @@ as its pose is the animation's.
 
 ## What is missing
 
-Since this list was written the player controller and ragdolls have both
-landed — see [`PlayerMovement.md`](PlayerMovement.md) and
-[`Hitboxes.md`](Hitboxes.md). What is left:
-
-- **A few props leave the level.** One Cathedral barrel travels 27 units, and
-  seven vases drift. Those are individual shapes or placements, not the
-  systematic 1.08 above.
-- **The renderer and the physics world resolve entities differently.** Cathedral
-  gives physics 135 props with nothing unresolved, while the renderer places 218
-  models and leaves 420 entities unresolved. Most of that gap is entities that
-  legitimately have no model, but the hull view also shows at least one hull
-  with nothing drawn at it, so the two disagree somewhere real.
 - **No water buoyancy, no ladders, no ice.** Each is a named piece of the
   original: `EnableUnderwaterWorld` and `Tweak.Underwater`,
   `World::NearLadder`, `World::OnIce`. Glass breaks but does not shatter
