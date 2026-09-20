@@ -91,6 +91,12 @@ public:
 	// RGB multiplier on placed coronas and billboards: the level's
 	// BloomFX.DimScale while bloom is on (Billboard::Draw). Particles.md, "Bloom dims".
 	void SetColorScale(float k) { colorScale_ = k; }
+	// Pf.Mode96. Coronas are exempt: a soft radial gradient quantises into
+	// concentric rings. Sprites, the Spr_ immediates and the beams take it.
+	void SetMode96(bool on, float mipLevel, float colors) {
+		mode96_ = on; mode96Mip_ = mipLevel;
+		mode96Colors_ = colors;
+	}
 	// Cfg.Coronas (Renderer+0x5d6be8): off, Billboard::Draw treats every corona as
 	// past its OffDistance and it fades out. Menu.md, "Video options"
 	void SetCoronasEnabled(bool on) { coronasEnabled_ = on; }
@@ -178,6 +184,9 @@ private:
 	bgfx::VertexLayout layout_;
 	bgfx::ProgramHandle program_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle sDiffuse_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uMode96_ = BGFX_INVALID_HANDLE;
+	bool mode96_ = false; // Pf.Mode96
+	float mode96Mip_ = 0.f, mode96Colors_ = 0.f;
 };
 
 } // namespace painful

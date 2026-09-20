@@ -33,6 +33,8 @@ public:
 	void Shutdown();
 	// Drops the dome and keeps the program - a level switch.
 	void Unload();
+	// Pf.Mode96: one mip level for the two layer textures.
+	void SetMode96(bool on, float mipLevel) { mode96_ = on; mode96Mip_ = mipLevel; }
 
 	bool Load(const std::string& mapsRoot, const LevelInfo& info, TextureCache& textures);
 
@@ -79,6 +81,9 @@ private:
 	bgfx::UniformHandle uXform1_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uXform2_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uRot_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uMode96_ = BGFX_INVALID_HANDLE;
+	bool mode96_ = false; // Pf.Mode96
+	float mode96Mip_ = 0.f;
 	bgfx::TextureHandle white_ = BGFX_INVALID_HANDLE;
 };
 

@@ -85,6 +85,15 @@ public:
 	}
 	// How much of the occluded light comes off, 0..1 (ShadowMapStrength).
 	void SetLightShadowStrength(float k) { lightShadowStrength_ = k; }
+	// Pf.Mode96: no gloss highlights on the world mesh; lightmaps and the
+	// dynamic lights' diffuse are untouched.
+	void SetSpecularEnabled(bool on) { specularEnabled_ = on; }
+	// Pf.Mode96: one mip level for every surface, and levels per channel for
+	// the albedo. Docs/Reference/Mode96.md.
+	void SetMode96(bool on, float mipLevel, float colors) {
+		mode96_ = on; mode96Mip_ = mipLevel;
+		mode96Colors_ = colors;
+	}
 	// The M key's lighting-only view: unblended materials take 0.8 grey for albedo.
 	void SetLightingOnly(bool on) { lightingOnly_ = on; }
 	// A depth pass into `map`: every opaque chunk inside its frustum. Called
@@ -208,6 +217,9 @@ private:
 	bgfx::UniformHandle uParams_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uAmbient_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uFogColor_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uMode96_ = BGFX_INVALID_HANDLE; // Pf.Mode96
+	bool mode96_ = false; // Pf.Mode96
+	float mode96Mip_ = 0.f, mode96Colors_ = 0.f;
 	bgfx::UniformHandle uFog_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uClip_ = BGFX_INVALID_HANDLE; // the water passes' surface clip
 	bgfx::UniformHandle uUvAnim_ = BGFX_INVALID_HANDLE;
@@ -265,6 +277,8 @@ private:
 	const std::vector<ShadowedLight>* shadowedLights_ = nullptr;
 	const LightShadowAtlas* lightAtlas_ = nullptr;
 	float lightShadowStrength_ = 1.f;
+	// Pf.Mode96 clears it.
+	bool specularEnabled_ = true;
 	bool lightingOnly_ = false;
 	size_t shadowDrawCalls_ = 0;
 	size_t bakedShadowSlots_ = 0;

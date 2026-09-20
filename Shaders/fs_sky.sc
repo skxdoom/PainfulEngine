@@ -29,6 +29,9 @@ SAMPLER2D(s_lmap, 3);
 uniform vec4 u_tex1Xform; // panU, panV, tileU, tileV  (pan already scaled by time)
 uniform vec4 u_tex2Xform;
 uniform vec4 u_skyRot; // rot1, rot2, unused, unused (radians)
+// Pf.Mode96. x: the mip level the layer textures sample. z: the switch. The
+// mask and the lightmap keep hardware mip selection.
+uniform vec4 u_mode96;
 
 vec2 AnimateUv(vec2 uv, vec4 xform, float rot)
 {
@@ -42,8 +45,12 @@ vec2 AnimateUv(vec2 uv, vec4 xform, float rot)
 
 void main()
 {
-	vec4 t1 = texture2D(s_tex1, AnimateUv(v_texcoord0, u_tex1Xform, u_skyRot.x));
-	vec4 t2 = texture2D(s_tex2, AnimateUv(v_texcoord0, u_tex2Xform, u_skyRot.y));
+	vec2 uv1 = AnimateUv(v_texcoord0, u_tex1Xform, u_skyRot.x);
+	vec2 uv2 = AnimateUv(v_texcoord0, u_tex2Xform, u_skyRot.y);
+	vec4 t1 = u_mode96.z > 0.5 ? texture2DLod(s_tex1, uv1, u_mode96.x)
+			: texture2D(s_tex1, uv1);
+	vec4 t2 = u_mode96.z > 0.5 ? texture2DLod(s_tex2, uv2, u_mode96.x)
+			: texture2D(s_tex2, uv2);
 
 	// The mask and lightmap are fitted to the dome via the second UV channel;
 	// only the two animated layer textures use the first.

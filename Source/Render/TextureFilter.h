@@ -19,9 +19,19 @@ TextureFilter CurrentTextureFilter();
 bool TextureFilterFromName(const std::string& name, TextureFilter& out);
 const char* TextureFilterName(TextureFilter filter);
 
+// Pf.Mode96: point on all three filter bits for every scene texture. Separate
+// from the setting above because R3D.SetTexFiltering re-reads
+// Cfg.TextureFiltering and would overwrite a value stored there.
+void SetForcePoint(bool on);
+bool ForcePoint();
+
 // A material's sampler flags with the current filter in the min/mag/mip
 // bits. Point sampling (texenv "point") is the material's own and stays.
-uint32_t FilteredSampler(uint32_t materialFlags);
+uint32_t FilteredSampler(uint32_t materialFlags, bool lightmap = false);
+
+// For a bind that passes no flags (particles, billboards): the point flags
+// while Pf.Mode96 is on, UINT32_MAX otherwise.
+uint32_t Mode96Sampler();
 
 // Cfg.TextureFiltering as the scripts hold it; an unknown word is logged and
 // leaves the setting alone. Boot and R3D.SetTexFiltering both come here.

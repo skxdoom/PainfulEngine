@@ -92,6 +92,12 @@ public:
 	void SetDetail(int detail) { detail_ = detail; }
 	// The level fog, applied to sprite colour the way D3D vertex fog did with
 	// the original's `simple` vertex shader. Colour is 0-255 as authored.
+	// Pf.Mode96: one mip level for every surface, and levels per channel for
+	// the albedo. Docs/Reference/Mode96.md.
+	void SetMode96(bool on, float mipLevel, float colors) {
+		mode96_ = on; mode96Mip_ = mipLevel;
+		mode96Colors_ = colors;
+	}
 	void SetFog(int mode, float start, float end, float density, const Vec3& color255) {
 		fog_[0] = float(mode); fog_[1] = start; fog_[2] = end; fog_[3] = density;
 		for (int i = 0; i < 3; ++i) fogColor_[i] = color255[i] / 255.f;
@@ -187,6 +193,9 @@ private:
 	float fogColor_[4] = {0, 0, 0, 1.f};
 	bgfx::UniformHandle uFog_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uFogColor_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uMode96_ = BGFX_INVALID_HANDLE; // Pf.Mode96
+	bool mode96_ = false; // Pf.Mode96
+	float mode96Mip_ = 0.f, mode96Colors_ = 0.f;
 	size_t effects_ = 0, unresolved_ = 0, live_ = 0, drawCalls_ = 0;
 	// The original draws with C rand(); this keeps the same uniform shape
 	// without disturbing any other rand() user in the process.

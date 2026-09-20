@@ -1,3 +1,4 @@
+#include "TextureFilter.h"
 #include "ParticleRenderer.h"
 #include "ShaderLoad.h"
 #include "../Core/Check.h"
@@ -101,6 +102,7 @@ bool ParticleRenderer::Init(const std::string& shaderDir) {
 	sDiffuse_ = bgfx::createUniform("s_diffuse", bgfx::UniformType::Sampler);
 	uFog_ = bgfx::createUniform("u_fog", bgfx::UniformType::Vec4);
 	uFogColor_ = bgfx::createUniform("u_fogColor", bgfx::UniformType::Vec4);
+	uMode96_ = bgfx::createUniform("u_mode96", bgfx::UniformType::Vec4);
 	// The particle_warp technique. Particles.md, "The warp sprites".
 	bgfx::ShaderHandle wvs = LoadShader(shaderDir, "vs_particle_warp");
 	bgfx::ShaderHandle wfs = LoadShader(shaderDir, "fs_particle_warp");
@@ -124,6 +126,7 @@ void ParticleRenderer::Shutdown() {
 	if (bgfx::isValid(sWarp_)) { bgfx::destroy(sWarp_); sWarp_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uFog_)) { bgfx::destroy(uFog_); uFog_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uFogColor_)) { bgfx::destroy(uFogColor_); uFogColor_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uMode96_)) { bgfx::destroy(uMode96_); uMode96_ = BGFX_INVALID_HANDLE; }
 	program_ = BGFX_INVALID_HANDLE;
 	sDiffuse_ = BGFX_INVALID_HANDLE;
 	emitters_.clear();
@@ -676,7 +679,9 @@ void ParticleRenderer::DrawEmitters(bgfx::ViewId view, const Camera& camera, boo
 		FogColorForBlend(e.params->blendMode, fogColor_, fogColor);
 		bgfx::setUniform(uFog_, fog_);
 		bgfx::setUniform(uFogColor_, fogColor);
-		bgfx::setTexture(0, sDiffuse_, e.texture);
+		{ const float rv[4] = {mode96Mip_, mode96_ ? mode96Colors_ : 0.f, mode96_ ? 1.f : 0.f, 0.f};
+			bgfx::setUniform(uMode96_, rv); }
+		bgfx::setTexture(0, sDiffuse_, e.texture, Mode96Sampler());
 		if (warp) {
 			bgfx::setTexture(1, sScene_, scene);
 			bgfx::setTexture(2, sWarp_, bgfx::isValid(e.warpTexture) ? e.warpTexture : e.texture);

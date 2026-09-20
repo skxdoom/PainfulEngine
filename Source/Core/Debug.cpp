@@ -42,6 +42,7 @@ Row g_rows[] = {
 	{"PAINFUL_ECULL", Kind::kInt, "entity cull mode: 1 normal, 2 off (tells winding from missing geometry)"},
 	{"PAINFUL_NOATEST", Kind::kFlag, "drop the alpha test on entities"},
 	{"PAINFUL_SHADOWMAP", Kind::kInt, "flashlight shadow map size in texels; 0 turns both shadow maps off"},
+	{"PAINFUL_MODE96", Kind::kInt, "Pf.Mode96 override: 1 on, 0 off"},
 	{"PAINFUL_SHADOWVIEW", Kind::kInt, "draw the shadow terms alone: 1 all of them, 2 the placed lights' only on the models"},
 	{"PAINFUL_BLOOM", Kind::kInt, "0 turns the bloom post-process off (Render/Bloom.h)"},
 	{"PAINFUL_MSAA", Kind::kInt, "multisample count instead of Cfg.Multisample: 0 off, 2, 4, 8, 16"},

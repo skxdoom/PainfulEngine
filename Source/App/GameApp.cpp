@@ -456,6 +456,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	// Screen-space ambient occlusion over the scene (Render/Ssao.h).
 	Ssao ssao;
 	const bool ssaoInit = sceneInit && ssao.Init(shaderDir);
+	// Pf.Mode96, read in applySettings and used by the frame below.
+	bool mode96 = false;
 	bool ssaoOn = false;
 	// The map's fog and light volumes (Render/VolumeRenderer.h).
 	VolumeRenderer volumes;
@@ -476,17 +478,33 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			vmSize = -1;
 	float characterStrength = 0.6f;
 	unsigned appliedSettings = 0;
+	// Declared before applySettings, which hands it the mode 96 mip level.
+	SkyRenderer sky;
 	auto applySettings = [&]() {
 		appliedSettings = Settings().generation();
 		const EngineConfig& cfg = Settings();
-		const bool anyMaps = DebugInt("PAINFUL_SHADOWMAP", 1) > 0;
+		// Pf.Mode96 (console: pfmode96), one switch for a 1996 look. It overrides
+		// the settings below without rewriting them, so turning it off restores
+		// them with nothing reloaded. Docs/Reference/Mode96.md.
+		mode96 = DebugInt("PAINFUL_MODE96", cfg.GetBool("Mode96", false) ? 1 : 0) > 0;
+		SetForcePoint(mode96);
+		entities.SetSpecularEnabled(!mode96);
+		world.SetSpecularEnabled(!mode96);
+		const float mip = float(std::max(cfg.GetInt("Mode96MipLevel", 2), 0));
+		const float colors = float(std::max(cfg.GetInt("Mode96Colors", 16), 0));
+		world.SetMode96(mode96, mip, colors);
+		entities.SetMode96(mode96, mip, colors);
+		particles.SetMode96(mode96, mip, colors);
+		billboards.SetMode96(mode96, mip, colors);
+		sky.SetMode96(mode96, mip);
+		const bool anyMaps = DebugInt("PAINFUL_SHADOWMAP", 1) > 0 && !mode96;
 
 		const int aspect = cfg.GetInt("HudAspect", 2);
 		hud.SetAspect(aspect == 0 ? HudRenderer::Aspect::kStretch
 				: aspect == 1 ? HudRenderer::Aspect::kCentered
 				: HudRenderer::Aspect::kAnchored);
 
-		int size = cfg.GetBool("FlashlightShadows", true) ? cfg.GetInt("FlashlightShadowMapSize", 512) : 0;
+		int size = !mode96 && cfg.GetBool("FlashlightShadows", true) ? cfg.GetInt("FlashlightShadowMapSize", 512) : 0;
 		size = DebugInt("PAINFUL_SHADOWMAP", size);
 		if (size != shadowSize) {
 			shadow.Shutdown();
@@ -528,12 +546,11 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		world.SetLightShadowStrength(float(cfg.GetInt("ShadowMapStrength", 80)) / 100.f);
 
 		bloom.SetQuality(cfg.GetInt("BloomScale", 2), cfg.GetInt("BloomKernel", 0));
-		ssaoOn = ssaoInit && cfg.GetBool("SSAO", false);
+		ssaoOn = !mode96 && ssaoInit && cfg.GetBool("SSAO", false);
 		ssao.SetRadius(float(std::max(cfg.GetInt("SSAOScreenRadius", 40), 1)) / 1000.f);
 		ssao.SetIntensity(float(std::max(cfg.GetInt("SSAOIntensity", 500), 0)) / 100.f);
 	};
 	applySettings();
-	SkyRenderer sky;
 	const bool skyInit = sky.Init(shaderDir);
 	bool skyReady = false;
 	CollisionMesh collision;
@@ -1348,14 +1365,14 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			// bloom one. Docs/Reference/DemonFx.md.
 			const bool demonOn = demonInit && worldReady && ws.demonFx &&
 					DebugInt("PAINFUL_DEMONFX", 1) > 0;
-			const bool bloomOn = !demonOn && bloomInit && worldReady && ws.bloom &&
+			const bool bloomOn = !mode96 && !demonOn && bloomInit && worldReady && ws.bloom &&
 					ws.bloomMultiplier > 0.f && (ws.bloomOverlay & 0xffffff) != 0 &&
 					DebugInt("PAINFUL_BLOOM", 1) > 0;
 			// The scene goes to its target whenever either pass wants it.
 			sceneTargets.SetMsaa(renderer.msaaSamples());
 			// The heat-haze sprites read the frame, so a frame with one keeps the
 			// scene in its target too. Particles.md, "The warp sprites".
-			warpOn = particlesReady && particles.HasWarp();
+			warpOn = !mode96 && particlesReady && particles.HasWarp();
 			// The fog and light volumes read the scene's depth, so they keep it too.
 			volumesThisFrame = volumesInit && worldReady && volumes.AnyInView(camera, window.width(), window.height());
 			// Not under wireframe: bgfx's flag reaches the fullscreen present too, which

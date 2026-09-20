@@ -144,6 +144,7 @@ bool EntityRenderer::Init(const std::string& shaderDir) {
 	uUv0_ = bgfx::createUniform("u_uv0", bgfx::UniformType::Vec4);
 	uTile_ = bgfx::createUniform("u_tile", bgfx::UniformType::Vec4);
 	uSpecular_ = bgfx::createUniform("u_specular", bgfx::UniformType::Vec4);
+	uMode96_ = bgfx::createUniform("u_mode96", bgfx::UniformType::Vec4);
 	uSpecColor_ = bgfx::createUniform("u_specColor", bgfx::UniformType::Vec4);
 	uSpecOrigin_ = bgfx::createUniform("u_specOrigin", bgfx::UniformType::Vec4);
 	sStage1_ = bgfx::createUniform("s_stage1", bgfx::UniformType::Sampler);
@@ -206,6 +207,7 @@ void EntityRenderer::Shutdown() {
 	if (bgfx::isValid(uUv0_)) { bgfx::destroy(uUv0_); uUv0_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uTile_)) { bgfx::destroy(uTile_); uTile_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uSpecular_)) { bgfx::destroy(uSpecular_); uSpecular_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uMode96_)) { bgfx::destroy(uMode96_); uMode96_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uSpecColor_)) { bgfx::destroy(uSpecColor_); uSpecColor_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uSpecOrigin_)) { bgfx::destroy(uSpecOrigin_); uSpecOrigin_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uDirColor_)) { bgfx::destroy(uDirColor_); uDirColor_ = BGFX_INVALID_HANDLE; }
@@ -951,6 +953,8 @@ void EntityRenderer::DrawCaster(bgfx::ViewId view, bgfx::ProgramHandle program,
 		const float tile[4] = {mat.tile0[0], mat.tile0[1], 1.f, 1.f};
 		bgfx::setUniform(uParams_, params);
 		bgfx::setUniform(uUvAnim_, uvAnim);
+		{ const float rv[4] = {mode96Mip_, mode96_ ? mode96Colors_ : 0.f, mode96_ ? 1.f : 0.f, 0.f};
+			bgfx::setUniform(uMode96_, rv); }
 		bgfx::setUniform(uUv0_, identityUv);
 		bgfx::setUniform(uTile_, tile);
 		bgfx::setTransform(transform ? transform : instance.transform.m);
@@ -1503,6 +1507,8 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			bgfx::setUniform(uFogColor_, fogValue);
 			bgfx::setUniform(uParams_, params);
 			bgfx::setUniform(uUvAnim_, uvAnim);
+			{ const float rv[4] = {mode96Mip_, mode96_ ? mode96Colors_ : 0.f, mode96_ ? 1.f : 0.f, 0.f};
+			bgfx::setUniform(uMode96_, rv); }
 			bgfx::setUniform(uUv0_, identityUv);
 			bgfx::setUniform(uTile_, tile);
 			const float stage1[4] = {
@@ -1516,8 +1522,13 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 				spec = {worldMeshSpecular_[0], worldMeshSpecular_[1], worldMeshSpecular_[2],
 						worldMeshSpecular_[3]};
 			if (unlit) spec = {0.f, 0.f, 0.f, 1.f};
+			// specMask is u_specColor in the plain program: zeroing it takes the
+			// directional highlight and the dynamic lights with it. Pf.Mode96.
 			const float specParams[4] = {spec[3], 1.f, kSpecularGate, specSlots};
-			const float specColor[4] = {spec[0], spec[1], spec[2], 0.f};
+			const float specColor[4] = {
+				specularEnabled_ ? spec[0] : 0.f,
+				specularEnabled_ ? spec[1] : 0.f,
+				specularEnabled_ ? spec[2] : 0.f, 0.f};
 			bgfx::setUniform(uSpecular_, specParams);
 			bgfx::setUniform(uSpecColor_, specColor);
 			bgfx::setTransform(instance.transform.m);
@@ -1587,7 +1598,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			const Part& ownerPart = model.parts[owner < model.parts.size() ? owner : partIndex];
 			const bool posedRot = usePosed && owner < instance.posedRot.size() &&
 					bgfx::isValid(instance.posedRot[owner]);
-			const bool bump = !demonDraw && instance.normalMaps && bgfx::isValid(programNm_) &&
+			const bool bump = specularEnabled_ && !demonDraw && instance.normalMaps && bgfx::isValid(programNm_) &&
 					bgfx::isValid(part.normalMap) && (posedRot || bgfx::isValid(ownerPart.bindRot));
 			if (bump) {
 				if (posedRot) bgfx::setVertexBuffer(1, instance.posedRot[owner]);

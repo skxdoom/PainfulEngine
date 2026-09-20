@@ -50,6 +50,9 @@ const EngineConfig::Known kKnown[] = {
 	{"SSAOIntensity", "500", false, "SSAO intensity"},
 	{"BloomScale", "2", false, "bloom is blurred at 1/N of the screen; the original is 2"},
 	{"BloomKernel", "0", false, "bloom blur: 0 the Gaussian to three sigma, 1 the original 13 taps"},
+	{"Mode96", "false", true, "mode 96: point-filtered textures, no post, no shadows, no specular"},
+	{"Mode96MipLevel", "2", false, "mode 96: the mip level every surface samples; higher is blockier"},
+	{"Mode96Colors", "16", false, "mode 96: levels per channel for the albedo, blue at half"},
 };
 
 const EngineConfig::Known* FindKnown(const std::string& key) {

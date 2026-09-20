@@ -9,12 +9,22 @@ namespace painful {
 namespace {
 
 TextureFilter g_filter = TextureFilter::Trilinear;
+bool g_forcePoint = false;
 
 } // namespace
 
 void SetTextureFilter(TextureFilter filter) { g_filter = filter; }
 
 TextureFilter CurrentTextureFilter() { return g_filter; }
+
+void SetForcePoint(bool on) { g_forcePoint = on; }
+
+bool ForcePoint() { return g_forcePoint; }
+
+uint32_t Mode96Sampler() {
+	return g_forcePoint ? (BGFX_SAMPLER_MIN_POINT | BGFX_SAMPLER_MAG_POINT |
+			BGFX_SAMPLER_MIP_POINT) : UINT32_MAX;
+}
 
 bool TextureFilterFromName(const std::string& name, TextureFilter& out) {
 	if (name == "Bilinear") { out = TextureFilter::Bilinear; return true; }
@@ -32,7 +42,15 @@ const char* TextureFilterName(TextureFilter filter) {
 	return "?";
 }
 
-uint32_t FilteredSampler(uint32_t materialFlags) {
+uint32_t FilteredSampler(uint32_t materialFlags, bool lightmap) {
+	// Pf.Mode96. The lightmap keeps its filtering: point-sampling it reads as
+	// blocky shading rather than crunchy texels.
+	if (g_forcePoint && !lightmap) {
+		const uint32_t kKeep = ~(BGFX_SAMPLER_MIN_MASK | BGFX_SAMPLER_MAG_MASK |
+				BGFX_SAMPLER_MIP_MASK);
+		return (materialFlags & kKeep) | BGFX_SAMPLER_MIN_POINT |
+				BGFX_SAMPLER_MAG_POINT | BGFX_SAMPLER_MIP_POINT;
+	}
 	// The engine skips only filter byte 2 (point); bilinear_nomips is
 	// overridden with the rest. bgfx: no bits = linear on all three.
 	if (materialFlags & BGFX_SAMPLER_MIN_POINT) return materialFlags;

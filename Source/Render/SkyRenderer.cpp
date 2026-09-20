@@ -73,6 +73,7 @@ bool SkyRenderer::Init(const std::string& shaderDir) {
 	uXform1_ = bgfx::createUniform("u_tex1Xform", bgfx::UniformType::Vec4);
 	uXform2_ = bgfx::createUniform("u_tex2Xform", bgfx::UniformType::Vec4);
 	uRot_ = bgfx::createUniform("u_skyRot", bgfx::UniformType::Vec4);
+	uMode96_ = bgfx::createUniform("u_mode96", bgfx::UniformType::Vec4);
 	return true;
 }
 
@@ -91,7 +92,7 @@ void SkyRenderer::Unload() {
 void SkyRenderer::Shutdown() {
 	Unload();
 	bgfx::UniformHandle* uniforms[] = {&sTex1_, &sTex2_, &sMask_, &sLmap_,
-			&uXform1_, &uXform2_, &uRot_};
+			&uXform1_, &uXform2_, &uRot_, &uMode96_};
 	for (bgfx::UniformHandle* u : uniforms) {
 		if (bgfx::isValid(*u)) { bgfx::destroy(*u); *u = BGFX_INVALID_HANDLE; }
 	}
@@ -237,6 +238,8 @@ void SkyRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int h
 			bgfx::setUniform(uXform1_, xform1);
 			bgfx::setUniform(uXform2_, xform2);
 			bgfx::setUniform(uRot_, rotAngles);
+			const float m96[4] = {mode96Mip_, 0.f, mode96_ ? 1.f : 0.f, 0.f};
+			bgfx::setUniform(uMode96_, m96);
 			bgfx::setTransform(world.m);
 			bgfx::setVertexBuffer(0, p.vbo);
 			bgfx::setIndexBuffer(p.ibo, 0, p.indexCount);

@@ -29,6 +29,16 @@ SAMPLER2D(s_mask2, 4);
 
 uniform vec4 u_params; // x: has lightmap, y: alpha-test ref (<0 off), z: terrain blend, w: lighting-only view
 uniform vec4 u_uvanim; // xy: stage-0 scroll offset, zw: stage-1 scroll offset
+// Pf.Mode96. x: the mip level every surface samples. y: levels per channel
+// for the albedo, blue at half. z: the switch, so the sample keeps hardware
+// mip selection when it is off.
+uniform vec4 u_mode96;
+
+vec3 Mode96Quantize(vec3 c, float levels) {
+	if (levels < 1.5) return c;
+	vec3 n = vec3(levels, levels, max(levels * 0.5, 2.0)) - 1.0;
+	return floor(c * n + 0.5) / n;
+}
 uniform vec4 u_detail; // xy: detail tiling, z: detail on/off
 uniform vec4 u_uv0; // diffuse slot UV transform: scale xy, offset zw
 uniform vec4 u_tile; // tile[N]: xy stage 0, zw stage 1
@@ -58,7 +68,9 @@ void main()
 	// (uv * slotXform + pan * t) * tile - tile is applied last, so it scales
 	// the scroll too (Engine.dll 0x1009e5a0).
 	vec2 uvDiffuse = (v_texcoord0 * u_uv0.xy + u_uv0.zw + u_uvanim.xy) * u_tile.xy;
-	vec4 base = texture2D(s_diffuse, uvDiffuse);
+	// Pf.Mode96: one mip level for every surface, whatever the distance.
+	vec4 base = u_mode96.z > 0.5 ? texture2DLod(s_diffuse, uvDiffuse, u_mode96.x)
+			: texture2D(s_diffuse, uvDiffuse);
 
 	// Terrain blending: two TILED textures mixed by a mask that maps once
 	// across the surface (so the mask rides the second UV set). The mask
@@ -134,7 +146,7 @@ void main()
 		return;
 	}
 	light = lightShadowed * modelShadow;
-	vec3 color = albedo * light;
+	vec3 color = Mode96Quantize(albedo, u_mode96.y) * light;
 	color += albedo * lit;
 
 	// The raw lightmap masks the highlight - the shadowed one, so a model's

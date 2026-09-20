@@ -122,6 +122,16 @@ public:
 	// frame with heat-haze sprites, so the haze reads a frame without it.
 	enum DrawSet { kAll, kSceneOnly, kViewModelOnly };
 	void SetDrawSet(DrawSet s) { drawSet_ = s; }
+
+	// Pf.Mode96: no specular on a model. The object-space normal map goes with
+	// it - that path masks specular with the map's alpha, not a uniform.
+	void SetSpecularEnabled(bool on) { specularEnabled_ = on; }
+	// Pf.Mode96: one mip level for every surface, and levels per channel for
+	// the albedo. Docs/Reference/Mode96.md.
+	void SetMode96(bool on, float mipLevel, float colors) {
+		mode96_ = on; mode96Mip_ = mipLevel;
+		mode96Colors_ = colors;
+	}
 	// The M key's lighting-only view: unblended materials take 0.8 grey for albedo.
 	void SetLightingOnly(bool on) { lightingOnly_ = on; }
 	// ENTITY.EnableDemonic: drawn by the demon pass while it is on.
@@ -413,6 +423,7 @@ private:
 	bgfx::UniformHandle uDemonFresnel_ = BGFX_INVALID_HANDLE;
 	bool demonOn_ = false;
 	DrawSet drawSet_ = kAll;
+	bool specularEnabled_ = true; // Pf.Mode96 clears it
 	bool lightingOnly_ = false;
 	bgfx::ViewId demonView_ = 0;
 	bgfx::TextureHandle demonDetail_ = BGFX_INVALID_HANDLE;
@@ -441,6 +452,9 @@ private:
 	bgfx::UniformHandle uDirDir_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uEye_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uSpecular_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uMode96_ = BGFX_INVALID_HANDLE; // Pf.Mode96
+	bool mode96_ = false; // Pf.Mode96
+	float mode96Mip_ = 0.f, mode96Colors_ = 0.f;
 	bgfx::UniformHandle uSpecColor_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uSpecOrigin_ = BGFX_INVALID_HANDLE;
 	float worldMeshSpecular_[4] = {0.5f, 0.5f, 0.5f, 20.f};

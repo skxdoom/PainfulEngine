@@ -1,3 +1,4 @@
+#include "TextureFilter.h"
 #include "BillboardRenderer.h"
 #include "ShaderLoad.h"
 #include "../Core/Check.h"
@@ -94,6 +95,7 @@ bool BillboardRenderer::Init(const std::string& shaderDir) {
 	}
 	program_ = bgfx::createProgram(vs, fs, true);
 	sDiffuse_ = bgfx::createUniform("s_diffuse", bgfx::UniformType::Sampler);
+	uMode96_ = bgfx::createUniform("u_mode96", bgfx::UniformType::Vec4);
 	uFog_ = bgfx::createUniform("u_fog", bgfx::UniformType::Vec4);
 	uFogColor_ = bgfx::createUniform("u_fogColor", bgfx::UniformType::Vec4);
 
@@ -108,6 +110,7 @@ bool BillboardRenderer::Init(const std::string& shaderDir) {
 void BillboardRenderer::Shutdown() {
 	if (bgfx::isValid(program_)) bgfx::destroy(program_);
 	if (bgfx::isValid(sDiffuse_)) bgfx::destroy(sDiffuse_);
+	if (bgfx::isValid(uMode96_)) { bgfx::destroy(uMode96_); uMode96_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uFog_)) { bgfx::destroy(uFog_); uFog_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uFogColor_)) { bgfx::destroy(uFogColor_); uFogColor_ = BGFX_INVALID_HANDLE; }
 	program_ = BGFX_INVALID_HANDLE;
@@ -459,7 +462,12 @@ void BillboardRenderer::Draw(bgfx::ViewId view, bgfx::ViewId coronaView, const C
 		FogColorForBlend(s.blendMode, fogColor_, fogColor);
 		bgfx::setUniform(uFog_, fog_);
 		bgfx::setUniform(uFogColor_, fogColor);
-		bgfx::setTexture(0, sDiffuse_, s.texture);
+		// Coronas are exempt: a gradient quantises into rings.
+		const bool rOn = mode96_ && !s.corona;
+		const float rv[4] = {mode96Mip_, rOn ? mode96Colors_ : 0.f,
+				rOn ? 1.f : 0.f, 0.f};
+		bgfx::setUniform(uMode96_, rv);
+		bgfx::setTexture(0, sDiffuse_, s.texture, rOn ? Mode96Sampler() : UINT32_MAX);
 		bgfx::submit(s.corona ? coronaView : view, program_);
 		++drawCalls_;
 	}
@@ -513,7 +521,9 @@ void BillboardRenderer::Draw(bgfx::ViewId view, bgfx::ViewId coronaView, const C
 		const float fogBlack[4] = {0.f, 0.f, 0.f, 1.f};
 		bgfx::setUniform(uFog_, fog_);
 		bgfx::setUniform(uFogColor_, fogBlack);
-		bgfx::setTexture(0, sDiffuse_, s.texture);
+		const float rv[4] = {mode96Mip_, mode96_ ? mode96Colors_ : 0.f, mode96_ ? 1.f : 0.f, 0.f};
+		bgfx::setUniform(uMode96_, rv);
+		bgfx::setTexture(0, sDiffuse_, s.texture, Mode96Sampler());
 		bgfx::submit(view, program_);
 		++drawCalls_;
 	}
@@ -591,7 +601,9 @@ void BillboardRenderer::Draw(bgfx::ViewId view, bgfx::ViewId coronaView, const C
 		const float fogBlack[4] = {0.f, 0.f, 0.f, 1.f};
 		bgfx::setUniform(uFog_, fog_);
 		bgfx::setUniform(uFogColor_, fogBlack);
-		bgfx::setTexture(0, sDiffuse_, strip.texture);
+		const float rv[4] = {mode96Mip_, mode96_ ? mode96Colors_ : 0.f, mode96_ ? 1.f : 0.f, 0.f};
+		bgfx::setUniform(uMode96_, rv);
+		bgfx::setTexture(0, sDiffuse_, strip.texture, Mode96Sampler());
 		bgfx::submit(view, program_);
 		++drawCalls_;
 	}

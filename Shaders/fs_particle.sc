@@ -11,10 +11,23 @@ $input v_color0, v_texcoord0, v_viewdist
 SAMPLER2D(s_diffuse, 0);
 uniform vec4 u_fogColor; // rgb: level fog colour
 uniform vec4 u_fog; // x: mode (0 none, 1 exp, 2 exp2, 3 linear), y: start, z: end, w: density
+// Pf.Mode96. x: the mip level every surface samples. y: levels per channel
+// for the albedo, blue at half. z: the switch, so the sample keeps hardware
+// mip selection when it is off.
+uniform vec4 u_mode96;
+
+vec3 Mode96Quantize(vec3 c, float levels) {
+	if (levels < 1.5) return c;
+	vec3 n = vec3(levels, levels, max(levels * 0.5, 2.0)) - 1.0;
+	return floor(c * n + 0.5) / n;
+}
 
 void main()
 {
-	vec4 color = texture2D(s_diffuse, v_texcoord0) * v_color0;
+	// Pf.Mode96: a sprite is unlit, so its colour is quantised with its tint.
+	vec4 color = (u_mode96.z > 0.5 ? texture2DLod(s_diffuse, v_texcoord0, u_mode96.x)
+			: texture2D(s_diffuse, v_texcoord0)) * v_color0;
+	color.rgb = Mode96Quantize(color.rgb, u_mode96.y);
 	float fog = 1.0;
 	if (u_fog.x > 2.5)
 		fog = (u_fog.z - v_viewdist) / max(u_fog.z - u_fog.y, 0.001);

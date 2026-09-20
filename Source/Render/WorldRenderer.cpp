@@ -113,6 +113,7 @@ bool WorldRenderer::Init(const std::string& shaderDir) {
 	uParams_ = bgfx::createUniform("u_params", bgfx::UniformType::Vec4);
 	uAmbient_ = bgfx::createUniform("u_ambient", bgfx::UniformType::Vec4);
 	uFogColor_ = bgfx::createUniform("u_fogColor", bgfx::UniformType::Vec4);
+	uMode96_ = bgfx::createUniform("u_mode96", bgfx::UniformType::Vec4);
 	uFog_ = bgfx::createUniform("u_fog", bgfx::UniformType::Vec4);
 	uClip_ = bgfx::createUniform("u_clip", bgfx::UniformType::Vec4);
 	uUvAnim_ = bgfx::createUniform("u_uvanim", bgfx::UniformType::Vec4);
@@ -171,6 +172,7 @@ void WorldRenderer::Shutdown() {
 	if (bgfx::isValid(uParams_)) { bgfx::destroy(uParams_); uParams_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uAmbient_)) { bgfx::destroy(uAmbient_); uAmbient_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uFogColor_)) { bgfx::destroy(uFogColor_); uFogColor_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uMode96_)) { bgfx::destroy(uMode96_); uMode96_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uFog_)) { bgfx::destroy(uFog_); uFog_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uClip_)) { bgfx::destroy(uClip_); uClip_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uUvAnim_)) { bgfx::destroy(uUvAnim_); uUvAnim_ = BGFX_INVALID_HANDLE; }
@@ -640,6 +642,8 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 	const float fogValue[4] = {info.fogColor[0] / 255.f, info.fogColor[1] / 255.f,
 			info.fogColor[2] / 255.f, 1.f};
 	bgfx::setUniform(uFogColor_, fogValue);
+	{ const float rv[4] = {mode96Mip_, mode96_ ? mode96Colors_ : 0.f, mode96_ ? 1.f : 0.f, 0.f};
+			bgfx::setUniform(uMode96_, rv); }
 	// Fog per CLevel.lua: mode 0 none, 1 exp, 2 exp2, 3 linear.
 	const float fogParams[4] = {float(info.fogMode), info.fogStart, info.fogEnd,
 								info.fogDensity};
@@ -738,8 +742,10 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 				c.material.pan1[1] * timeSeconds};
 		const float tile[4] = {c.material.tile0[0], c.material.tile0[1],
 				c.material.tile1[0], c.material.tile1[1]};
+		// Pf.Mode96 drops the detail layer.
+		const bool detailDraw = detailOn_ && !mode96_;
 		const float detail[4] = {detailTile_[0], detailTile_[1],
-				detailOn_ ? 1.f : 0.f, 0.f};
+				detailDraw ? 1.f : 0.f, 0.f};
 		// Water takes the reflection program instead. The two nv20 passes -
 		// the lightmap alone, then "blend modulate" over it - multiply out to
 		// one expression, so they fold into a single draw here.
@@ -789,6 +795,8 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 				bgfx::setUniform(uWaterMode_, mode);
 				bgfx::setUniform(uEye_, eye);
 				bgfx::setUniform(uFogColor_, fogValue);
+				{ const float rv[4] = {mode96Mip_, mode96_ ? mode96Colors_ : 0.f, mode96_ ? 1.f : 0.f, 0.f};
+			bgfx::setUniform(uMode96_, rv); }
 				bgfx::setUniform(uFog_, fogParams);
 				bgfx::setTransform(c.transform.m);
 				bgfx::setVertexBuffer(0, c.vbo);
@@ -796,7 +804,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 				bgfx::setTexture(0, sNormal_, normal, FilteredSampler(0));
 				bgfx::setTexture(1, sCube_, cube);
 				bgfx::setTexture(2, sLightmap_, b.lightmap,
-						FilteredSampler(c.material.lightmapSampler));
+						FilteredSampler(c.material.lightmapSampler, true));
 				bgfx::setTexture(3, sRefl_, family >= 2 ? reflectionTex_ : fallback);
 				bgfx::setTexture(4, sRefr_, family == 3 ? refractionTex_ : fallback);
 				bgfx::setState(state);
@@ -877,7 +885,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 		float glossPos[kGlossLights][4] = {};
 		float glossColor[kGlossLights][4] = {};
 		float glossMask[kGlossLights][4] = {};
-		if (c.specular && drawDynLights_ == 2) {
+		if (specularEnabled_ && c.specular && drawDynLights_ == 2) {
 			int n = 0;
 			const auto add = [&](const LightSource& l, float invRange, float gain, float unmasked) {
 				for (int k = 0; k < 3; ++k) {
@@ -936,7 +944,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 					FilteredSampler(c.material.sampler[0]));
 			// Every stage takes Cfg.TextureFiltering, as the engine's
 			// MaterialSystem::SetTexFiltering applies it (Render/TextureFilter.h).
-			bgfx::setTexture(2, sDetail_, detailOn_ ? detailTex_ : b.diffuse,
+			bgfx::setTexture(2, sDetail_, detailDraw ? detailTex_ : b.diffuse,
 					FilteredSampler(0));
 			bgfx::setTexture(3, sBlend2_, b.blended ? b.blend2 : b.diffuse,
 					FilteredSampler(0));
@@ -948,7 +956,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 			bgfx::setTexture(0, sDiffuse_, b.diffuse,
 					FilteredSampler(c.material.sampler[0]));
 			bgfx::setTexture(1, sLightmap_, b.lightmap,
-					FilteredSampler(c.material.lightmapSampler));
+					FilteredSampler(c.material.lightmapSampler, true));
 			bgfx::setState(state);
 			bgfx::submit(view, program_);
 			++drawCalls_;
