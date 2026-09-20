@@ -67,6 +67,7 @@ private:
 	std::string error_;
 	std::vector<Entry> entries_;
 	std::FILE* fp_ = nullptr;
+	uint64_t fileSize_ = 0; // bounds the per-entry sizes a corrupt file can claim
 	mutable std::mutex ioMutex_; // guards seek+read on the shared handle
 };
 

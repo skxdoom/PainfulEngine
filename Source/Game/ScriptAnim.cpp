@@ -123,8 +123,14 @@ int AnimNatives::L_MDL_SetAnim(lua_State* L) {
 		if (e->blendFrom && e->blendLeft > 0.f && e->blendTotal > 1e-6f && skel &&
 				!skel->bones.empty()) {
 			const float u = 1.f - e->blendLeft / e->blendTotal;
-			if (e->pose.tracks.size() != skel->bones.size() || e->pose.anim != previous)
+			if (e->pose.tracks.size() != skel->bones.size() || e->pose.anim != previous) {
 				ResolveAnimTracks(skel->bones, *previous, e->pose.tracks);
+				// pose.anim must keep naming what pose.tracks hold, or a later
+				// reader matches on the name and samples the other animation's
+				// tracks. PosedBones then re-resolves for the new one.
+				e->pose.anim = previous;
+				e->pose.time = -1.f;
+			}
 			Vec3 at;
 			self->CurveOffset(*e, skel, e->animIndex, e->pose.tracks, e->animTime, at);
 			if (!e->blendFromLocal.empty()) {
@@ -330,8 +336,16 @@ void ScriptEngine::AnimMovement(Entity& e, int index, float delta, Vec3& out) {
 	if (ResolveCurveBone(slot, *skel) < 0) return;
 
 	// The curve is read off the animation named by this slot, which is not
-	// necessarily the one playing - the scripts pass an explicit index.
-	ResolveAnimTracks(skel->bones, *slot.anim, curveTracks_);
+	// necessarily the one playing - the scripts pass an explicit index. When
+	// it IS the one playing, PosedBones has already resolved it; resolving
+	// again costs a name-keyed map and one node per bone, per walking monster
+	// per tick.
+	const std::vector<const AnimTrack*>* tracks = &curveTracks_;
+	if (e.pose.anim == slot.anim && e.pose.tracks.size() == skel->bones.size()) {
+		tracks = &e.pose.tracks;
+	} else {
+		ResolveAnimTracks(skel->bones, *slot.anim, curveTracks_);
+	}
 
 	const float t0 = e.animTime;
 	// Held at the last key rather than wrapped. A looping animation crossing
@@ -341,8 +355,8 @@ void ScriptEngine::AnimMovement(Entity& e, int index, float delta, Vec3& out) {
 	const float t1 = std::min(t0 + delta * e.animScale, slot.length);
 
 	Vec3 a, b;
-	if (!ComputeBonePositionAtTime(skel->bones, curveTracks_, slot.curveBoneIndex, t0, a) ||
-			!ComputeBonePositionAtTime(skel->bones, curveTracks_, slot.curveBoneIndex, t1, b))
+	if (!ComputeBonePositionAtTime(skel->bones, *tracks, slot.curveBoneIndex, t0, a) ||
+			!ComputeBonePositionAtTime(skel->bones, *tracks, slot.curveBoneIndex, t1, b))
 		return;
 
 	// MovingCurve, Definitions.lua: ETransX 1, ETransY 2, ETransZ 4. ERot (8)

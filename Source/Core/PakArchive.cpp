@@ -145,7 +145,9 @@ bool ReadDirectory(std::FILE* fp, std::vector<RawEntry>& out, std::string& error
 	};
 	uint32_t count;
 	if (!u32(count)) { error = "truncated directory"; return false; }
-	out.reserve(count);
+	// A corrupt count would otherwise reserve up to 4G. An entry needs at
+	// least four u32 and a name byte, so the directory bounds it.
+	out.reserve(std::min<size_t>(count, dir.size() / 17 + 1));
 	for (uint32_t i = 0; i < count; ++i) {
 		RawEntry e;
 		uint32_t nameLen;
@@ -240,6 +242,15 @@ bool PakArchive::Open(const std::string& path) {
 #endif
 	std::vector<RawEntry> raw;
 	if (!ReadDirectory(fp_, raw, error_)) return false;
+	if (Seek64(fp_, 0) == 0) {
+#ifdef _WIN32
+		_fseeki64(fp_, 0, SEEK_END);
+		fileSize_ = static_cast<uint64_t>(_ftelli64(fp_));
+#else
+		fseeko(fp_, 0, SEEK_END);
+		fileSize_ = static_cast<uint64_t>(ftello(fp_));
+#endif
+	}
 
 	entries_.clear();
 	entries_.reserve(raw.size());
@@ -286,6 +297,12 @@ size_t PakArchive::VerifyNameFormula(const std::string& path, size_t* entriesOut
 bool PakArchive::Read(const Entry& e, std::vector<uint8_t>& out) const {
 	if (e.isDirectory || !fp_) return false;
 	if (e.uncompressedSize == 0) { out.clear(); return true; }
+	// Save.dat is a pak the USER's filesystem owns, so its numbers are not
+	// trusted: a corrupt entry claiming 4G would throw bad_alloc, which
+	// nothing here catches.
+	if (fileSize_ && (uint64_t(e.offset) + e.compressedSize > fileSize_ ||
+			e.uncompressedSize > fileSize_ * 64))
+		return false;
 
 	std::vector<uint8_t> comp(e.compressedSize);
 	{
