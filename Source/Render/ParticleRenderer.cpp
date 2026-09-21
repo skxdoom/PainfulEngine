@@ -499,6 +499,15 @@ void ParticleRenderer::StopScriptEmitter(int slot) {
 	e.spawnedTotal = std::max(e.spawnedTotal, std::max(1, e.params->maxParticles));
 }
 
+void ParticleRenderer::RestartScriptEmitter(int slot) {
+	if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < emitters_.size(),
+			"ParticleRenderer: emitter slot %d of %zu", slot, emitters_.size()))
+		return;
+	Emitter& e = emitters_[slot];
+	e.spawnedTotal = 0;
+	e.spawnAccum = 0.f;
+}
+
 void ParticleRenderer::SetupScriptEmitter(int slot, float refScale,
 		const Vec3& refOffset,
 		const Vec3& refRotDegrees) {

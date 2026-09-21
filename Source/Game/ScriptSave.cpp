@@ -44,8 +44,9 @@ constexpr char kSideSuffix[] = ".pksv";
 // An older save still loads with what it has: no light state at 1, bound
 // effects on their parent's origin at 2 - the behaviour each was written with.
 // 5 the music streams, which the scripts delete on a load and never restart;
-// 6 the sounds the scripts hold, at the IDs their tables keep.
-constexpr uint32_t kVersion = 6;
+// 6 the sounds the scripts hold, at the IDs their tables keep; 7
+// PARTICLE.SetImmortal, which nothing re-runs on a restored effect.
+constexpr uint32_t kVersion = 7;
 constexpr uint32_t kMinVersion = 1;
 
 // One class reads and writes, so a field is listed once. `ok` goes false on a
@@ -184,6 +185,7 @@ void ArchiveEntity(Archive& ar, ScriptEngine::Entity& e, bool& hadBody, bool& ha
 	ar.F(e.parentRotBound); ar.F(e.parentRot);
 	if (version >= 3) ar.F(e.parentJointIndex);
 	if (version >= 4) { ar.F(e.meshCentred); ar.F(e.localPose); ar.F(e.localScale); }
+	if (version >= 7) ar.F(e.pfxImmortal);
 	ar.F(e.collisionGroup); ar.F(e.movedByExplosions); ar.F(e.isProjectile); ar.F(e.isGrenade);
 	ar.F(e.bodyFriction); ar.F(e.bodyRestitution);
 	ar.F(e.bodyType); ar.F(e.bodyArgScale); ar.F(e.bodyMass); ar.F(e.bodyFreedomMode);

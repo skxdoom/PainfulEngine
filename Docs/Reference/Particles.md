@@ -288,6 +288,26 @@ trigger is released. The port stops the emitters spawning and lets the spent
 one-shot reaping in `TickLifetimes` collect the entity when the last particle
 has gone.
 
+### `PARTICLE.SetImmortal` and `PARTICLE.Restart`
+
+Two names, two levels — and `Immortal` means something different at each.
+
+`PARTICLE.SetImmortal(e, on = true)` (`0x1013A050`) writes a bool at
+`Entity+0xCAA`. It is the **effect** that is immortal: a spent one-shot
+normally takes its entity with it, and this keeps a reusable effect alive to be
+started again. Unrelated to the `.ini` `[sizelife] Immortal` flag above, which
+pins individual particles to the owner and restarts them in place.
+
+`PARTICLE.Restart(e)` (`0x1013A190` → `ParticleEffect::Restart`) re-runs
+`SetupEmitters`, restarts every emitter, and resets the effect's bounds to
+±FLT_MAX with a radius of 5. Particles already in the air are left alone. The
+port resets each emitter's spawn budget and accumulator, which is the visible
+half of it; the bounds reset has no equivalent here.
+
+The pair is always used together — `CAction:Action_SetEvolvePFX` and the
+minigun's barrel smoke both make the effect immortal once and then restart it
+on every burst.
+
 ## Simulation
 
 Per emitter, per frame (`ParticleEmitter::Tick`):

@@ -17,6 +17,8 @@ struct InputNatives : ScriptNativesBase {
 	static int L_INP_IsFireSwitched(lua_State* L);
 	static int L_INP_LoadBindings(lua_State* L);
 	static int L_INP_Reset(lua_State* L);
+	static int L_INP_GetTimeDelta(lua_State* L);
+	static int L_INP_ResetTimer(lua_State* L);
 	static int L_PO_SetAction(lua_State* L);
 	static int L_PO_AddAction(lua_State* L);
 	static int L_PO_IsActionState(lua_State* L);
@@ -118,6 +120,25 @@ int InputNatives::L_INP_Reset(lua_State* L) {
 	return 0;
 }
 
+// INP.GetTimeDelta() -> the frame delta the engine last handed the game
+// (0x1011CF60 reads PCFSystem+0x10C). The menu drives its character preview's
+// animation with it, outside the game tick that would otherwise supply one.
+int InputNatives::L_INP_GetTimeDelta(lua_State* L) {
+	lua_pushnumber(L, From(L)->frameDelta_);
+	return 1;
+}
+
+// INP.ResetTimer() - SystemDriver::ResetTimer (0x1011CD60). The scripts call
+// it at the end of a level load and after a save is restored: without it the
+// next frame is handed the whole load as its delta, and everything that
+// integrates - timers, lifetimes, the first physics step - takes it.
+int InputNatives::L_INP_ResetTimer(lua_State* L) {
+	ScriptEngine* self = From(L);
+	self->timerReset_ = true;
+	self->frameDelta_ = 0.f;
+	return 0;
+}
+
 // ENTITY.PO_SetAction(e, mask) / PO_AddAction(e, mask) - the action bitmask
 // on the physics object (PlayerAction reads it from this+0x78). SetAction
 // replaces, AddAction ORs.
@@ -205,6 +226,8 @@ void BindInput(ScriptEngine& engine, LuaHost& host) {
 		{"INP", "IsFireSwitched", InputNatives::L_INP_IsFireSwitched},
 		{"INP", "LoadBindings", InputNatives::L_INP_LoadBindings},
 		{"INP", "Reset", InputNatives::L_INP_Reset},
+		{"INP", "GetTimeDelta", InputNatives::L_INP_GetTimeDelta},
+		{"INP", "ResetTimer", InputNatives::L_INP_ResetTimer},
 		{"ENTITY", "PO_SetAction", InputNatives::L_PO_SetAction},
 		{"ENTITY", "PO_AddAction", InputNatives::L_PO_AddAction},
 		{"ENTITY", "PO_IsActionState", InputNatives::L_PO_IsActionState},

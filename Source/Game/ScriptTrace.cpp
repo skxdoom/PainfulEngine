@@ -520,14 +520,30 @@ void ScriptEngine::PlaceViewAttached(Entity& entity) {
 	// the camera's own basis keeps this independent of how a rotation is
 	// spelled as a quaternion, and that basis is the one already driving both
 	// the view matrix and the player's movement.
-	const float cp = std::cos(camPitch_), sp = std::sin(camPitch_);
-	const float cy = std::cos(camYaw_), sy = std::sin(camYaw_);
+	// The DISPLACED angles, for the reason the displaced eye is used below: a
+	// hit kicks the view through CAM.SetRotationDisplacement, and a weapon
+	// built from the undisplaced ones would swing against it.
+	const float vPitch = camPitch_ - camRotDisplacement_[0];
+	const float vYaw = camYaw_ + camRotDisplacement_[1];
+	const float cp = std::cos(vPitch), sp = std::sin(vPitch);
+	const float cy = std::cos(vYaw), sy = std::sin(vYaw);
 	const Vec3 fwd{cy * cp, sp, sy * cp};
-	const Vec3 right{-sy, 0.f, cy};
+	Vec3 right{-sy, 0.f, cy};
 	// up = right x forward, which tilts with the pitch as the view does.
-	const Vec3 up{right[1] * fwd[2] - right[2] * fwd[1],
+	Vec3 up{right[1] * fwd[2] - right[2] * fwd[1],
 			right[2] * fwd[0] - right[0] * fwd[2],
 			right[0] * fwd[1] - right[1] * fwd[0]};
+	// Roll spins both about the view axis, the same turn Camera::ViewProj
+	// gives the up hint.
+	if (camRotDisplacement_[2] != 0.f) {
+		const float c = std::cos(camRotDisplacement_[2]), s = std::sin(camRotDisplacement_[2]);
+		// Rodrigues about fwd, where fwd x up = right and fwd x right = -up.
+		const Vec3 r0 = right, u0 = up;
+		for (int i = 0; i < 3; ++i) {
+			right[i] = r0[i] * c - u0[i] * s;
+			up[i] = u0[i] * c + r0[i] * s;
+		}
+	}
 	// Anchored to the DISPLACED eye, which is the one actually rendered:
 	// TakeCameraPose hands the renderer camPos_ + camDisplacement_, and
 	// CPlayer drives the head bob through CAM.SetPositionDisplacement. Hung off

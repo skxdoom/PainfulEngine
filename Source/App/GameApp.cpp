@@ -862,7 +862,11 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			}
 		}
 		const auto now = std::chrono::steady_clock::now();
-		const float dt = std::chrono::duration<float>(now - previous).count();
+		// INP.ResetTimer during the last frame: a level load or a save restore
+		// ran inside it, so the span since `previous` is the load, not a frame.
+		const float dt = engine.TakeTimerReset()
+				? 0.f
+				: std::chrono::duration<float>(now - previous).count();
 		previous = now;
 		const float elapsed = std::chrono::duration<float>(now - startTime).count();
 
@@ -1131,7 +1135,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			// Tick2 is where the view is steered, so take the result: the eye
 			// rides PO_GetPawnHeadPos less PLAYER.GetCameraFix, at the angles
 			// the scripts accumulated from MOUSE.GetDelta.
-			if (scriptView) engine.TakeCameraPose(camera.pos, camera.yaw, camera.pitch);
+			if (scriptView) {
+				engine.TakeCameraPose(camera.pos, camera.yaw, camera.pitch);
+				camera.roll = engine.cameraRoll();
+			}
 			t0 = CostClock::now();
 			host.CallGlobal("Game_Tick3", d, 1);
 			costAcc.scripts += msSince(t0);

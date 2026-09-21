@@ -237,14 +237,62 @@ Two of them are not free no-ops:
 - **The MPByte pair is not multiplayer-only, despite the name.** `CPlayer:Tick`
   writes it unconditionally (`CPlayer.lua:646`) and `PPlayerAnimation:Tick`
   reads it back as the animation state, so the third-person player body needs
-  it. Its companion `PLAYER.GetPitch` is still a stub, and that one *divides*:
-  `PLAYER.GetPitch(e) / -(32767*0.75)` raises the moment that process ticks,
-  which is why nothing has reached `GetMPByte` yet.
+  it. Its companion `PLAYER.GetPitch` is read in the next line of that same
+  tick and *divides*, so it had to land with it.
+
+`PLAYER.GetPitch(e)` (`0x10139070` → `PhysicsObject::GetPlayerPitch`) answers a
+**short**, and the caller turns it back into radians itself:
+
+```lua
+self.Pitch = PLAYER.GetPitch(e) / -(32767*0.75)   -- PPlayerAnimation:Tick
+local q = Quaternion:New_FromEuler(self.Pitch, ENTITY.GetOrientation(e), 0)
+```
+
+The quotient goes into the X slot of an engine Euler, so the quantity is the
+**engine elevation** (positive looks down, the inverse of our `camPitch_`) at
+32767 per 1.3333 rad. The scripts clamp the view to ±80° and the quantisation
+saturates at 76.4°, so the last few degrees of a full look-up flatten - which
+the original does too. Only the local player has a view here; a remote pawn
+reports level.
 
 The deviation to remember: the original keeps the byte on the `PhysicsObject`
 and answers 0 for an entity that has none. Here it is a field on the entity, so
 a bodyless one remembers what was written. No shipped script reads the byte for
 anything but the player, which has a body either way.
+
+## Entity lifetime: four natives, three of them not what they sound like
+
+`WORLD.RemoveEntity` does **not** delete. `World::RemoveEntity` (`0x10058EA0`,
+reached through `0x10136D40`) unlinks the entity from the world's lists and
+clears its back-pointer, and that is all; `ENTITY.Release` is the call that
+frees it. The `:Delete()` paths make both, in that order, and the paths that
+make only the first mean it:
+
+```lua
+ENTITY.EnableDraw(cw._Entity, false, true)   -- CPlayer:DeactivateWeapon
+WORLD.RemoveEntity(cw._Entity)               -- out of the world, still alive
+```
+
+The holstered weapon, the multiplayer model's head and muzzle, and every
+weapon a respawn resets come back through `WORLD.AddEntity`.
+
+| native | in the binary | here |
+|---|---|---|
+| `WORLD.RemoveEntity(e)` | unlink from the world | `inWorld = false` and the draw off |
+| `WORLD.DeleteDyingEntities()` | `0x1005D570`: walks the world list and kills whatever its dying timer has run out on | the `SetTimeToDie` sweep, run out of turn |
+| `WORLD.DeleteDelayedEntities()` | `0x1005DB90`: flushes the deferred-delete queue | the same sweep — `ReleaseEntity` here frees immediately, so there is no queue |
+| `WORLD.AdvanceFrameCounter()` / `GetFrameCounter()` | `0x1011E4F0` / `0x1011E480`, `World+0x0` | a counter the scripts own outright |
+
+The frame counter is not the engine's frame loop: the menu steps it by hand so
+the character preview animates while the game is not running, pairing it with
+`INP.GetTimeDelta()` (`0x1011CF60`, `PCFSystem+0x10C`) as that preview's clock.
+
+**`INP.ResetTimer()`** (`0x1011CD60` → `SystemDriver::ResetTimer`) is the one
+with teeth. The scripts call it at the end of a level load and after a save is
+restored (`Game.lua:1113`, `2290`, `SaveGame.lua:329`, `501`). Without it the
+next frame is handed the whole load as its delta and everything that
+integrates takes it. Here it raises a flag the frame loop consumes, and that
+frame's delta is zero.
 
 ## Script-driven level loading (Source/Game)
 
@@ -582,6 +630,31 @@ advances the reported turn by exactly 2° and the elevation by 1° per frame,
 from the level's own starting angle, and `CAM.GetPos` matches
 `ENTITY.PO_GetPawnHeadPos` exactly.
 
+### The two displacements
+
+The camera object carries two vectors the scripts write and never read back,
+so a shake never disturbs the angles `CAM.GetRawRotation` reports:
+
+| native | camera field | units |
+|---|---|---|
+| `CAM.SetPositionDisplacement(x,y,z)` (`0x10128060`) | `+0x2C` | world |
+| `CAM.SetRotationDisplacement(x,y,z)` (`0x10128140`) | `+0x38` | degrees |
+
+Both are absolute, not additive, and both are zeroed by the process that set
+them (`TPlayerHit:Delete`, `TStomp`, the Giant). A close hit rings the rotation
+out over a second at `math.random(-5,5)` and `math.random(-3,3)`
+(`CPlayer.lua:1756` → `TPlayerHit:Add`), scaled by `(1-t)·cos(tπ/2)`.
+
+**Assumed: which argument is which axis.** The camera's own update is not
+decompiled. The order here is (elevation, turn, roll), taken from the scripts -
+`TPlayerHit` names its two `cameraRotAmountX`/`...Y` and every other engine
+Euler in the game is built that way. Every other caller shakes all three
+symmetrically and cannot tell it apart. A melee hit that kicks the view
+sideways further than it kicks it up would mean the first two are reversed.
+
+Roll has no slot in the port's camera pose, so it is carried separately
+(`ScriptEngine::cameraRoll`) and spun into the look-at up vector.
+
 ## Traces, and the intersection solver
 
 `WORLD.LineTrace(x1,y1,z1, x2,y2,z2)` returns ten values, and every caller
@@ -629,6 +702,11 @@ forward vector reduces to at a turn of zero. Measured against the shipped
 offsets: the weapon sits 1.167 ahead, 0.495 down and 0.382 to the side, for
 authored values of 1.2 / 0.49 / 0.39 (the forward difference is the pull-back
 `CWeapon:ClientTick2` applies above 90° FOV).
+
+It is built from the **displaced** camera — both displacements, all four
+angles — and not from `camPos_`/`camYaw_`/`camPitch_` alone. Hung off the
+undisplaced ones the gun stands still while the view bobs and kicks around it,
+and the difference reads as the weapon swinging with every step and every hit.
 
 ## The rotation conventions, settled by three findings that agree
 
@@ -758,7 +836,7 @@ from C++ between the entities and the portals. Its layout is decoded
 reads it ("Loading an original save" below). `WORLD.SaveGame` writes it too
 ([`Formats.md`](Formats.md), "Writing the original world save"), which is what lets
 the original load our saves. Our own file goes beside it as
-`<level>.World.pksv` (`PKSV`, version 6; `Source/Game/ScriptSave.cpp`), carrying
+`<level>.World.pksv` (`PKSV`, version 7; `Source/Game/ScriptSave.cpp`), carrying
 what the original format has no room for. `WORLD.LoadGame` prefers ours when it is
 there. The original never sees it: it lists only `*.C*` object files. Both files
 follow the same contract: every entity comes back at the HANDLE it had, because the scripts

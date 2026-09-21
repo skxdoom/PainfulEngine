@@ -312,6 +312,9 @@ What the implemented natives buy:
   accumulates onto `CAM.GetRawRotation` and writes back through `CAM.SetPos` /
   `SetAng`; the C++ loop feeds the mouse in and adopts the result. The free
   camera keeps its own look for noclip and for levels with no player yet.
+  Both displacements ride on top without disturbing those angles, so a hit
+  kicks the view and an earthquake shakes it, roll included
+  ([`LuaHost.md`](Reference/LuaHost.md), "The two displacements").
 - **Triggers fire.** CBox ambushes poll the player globals in Lua, engine
   regions post `REGION_ENTERED` / `REGION_LEFT` into `Game_GetMsg`, and hard
   landings post `PLAYER_HIT_GROUND`.
@@ -433,8 +436,12 @@ inventory.
   parsed but not simulated ([`Physics.md`](Reference/Physics.md), "The binary
   .hke"); `SetRagdollHardDeactivator` / `SetRagdollBreakablesThreshold` are
   stubs.
-- **Lifetime and world state.** `WORLD.RemoveEntity` / `DeleteDyingEntities`,
-  `PHYSICS.SetGravity`, `PARTICLE.Restart` and `SetImmortal` are still stubs.
+- **Lifetime and world state** are in: `WORLD.RemoveEntity` unlinks without
+  freeing, `DeleteDyingEntities` / `DeleteDelayedEntities` run the reap out of
+  turn, the world frame counter and `INP.ResetTimer` are the menu's and the
+  loader's clock, and `PARTICLE.SetImmortal` / `Restart` keep a reusable effect
+  alive ([`LuaHost.md`](Reference/LuaHost.md), "Entity lifetime").
+  `PHYSICS.SetGravity` is multiplayer-only and stays a stub.
 - No buoyancy, ladders or ice. See [`Physics.md`](Reference/Physics.md).
 - `PLAYER.GetCameraFix` answers a literal 0, so there is no view bob or crouch
   offset on the camera.

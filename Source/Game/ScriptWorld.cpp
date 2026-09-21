@@ -4,6 +4,7 @@
 #include "../Core/Check.h"
 #include "../Core/Vectors.h"
 #include <algorithm>
+#include <cstdlib>
 #include <cctype>
 #include <string>
 #include <vector>
@@ -35,6 +36,15 @@ struct WorldNatives : ScriptNativesBase {
 	static int L_WORLD_DemonFXWarp(lua_State* L);
 	static int L_WORLD_SetFarClipDist(lua_State* L);
 	static int L_WORLD_AmbientColor(lua_State* L);
+	static int L_WORLD_GetAmbientColor(lua_State* L);
+	static int L_WORLD_RemoveEntity(lua_State* L);
+	static int L_WORLD_AdvanceFrameCounter(lua_State* L);
+	static int L_WORLD_GetFrameCounter(lua_State* L);
+	static int L_WORLD_DeleteDyingEntities(lua_State* L);
+	static int L_WORLD_MakeUnderwater(lua_State* L);
+	static int L_WORLD_IsUnderwater(lua_State* L);
+	static int L_MESH_GetRandomPoint(lua_State* L);
+	static int L_PHYSICS_GetHavokBodyActiveGroup(lua_State* L);
 	static int L_WORLD_LoadSky(lua_State* L);
 	static int L_WORLD_LoadLowQualitySky(lua_State* L);
 	static int L_WORLD_SetupSkyLayer(lua_State* L);
@@ -740,7 +750,116 @@ int WorldNatives::L_WORLD_AmbientColor(lua_State* L) {
 	ScriptEngine* self = From(L);
 	for (int i = 0; i < 3; ++i)
 		self->world_.ambient[i] = float(luaL_optnumber(L, 1 + i, 128));
+	// The gun ambient multiplier, the fourth argument, default 1 (0x1011FB70
+	// writes World+0x17CC). Nothing here lights the view model from it yet;
+	// it is kept so the menu's save-and-restore round-trips.
+	self->world_.gunAmbient = float(luaL_optnumber(L, 4, 1));
 	return 0;
+}
+
+// WORLD.GetAmbientColor() -> r, g, b, gun multiplier (0x1011FC80). PainMenu
+// stores the four, overrides them to light the character preview, and puts
+// them back.
+int WorldNatives::L_WORLD_GetAmbientColor(lua_State* L) {
+	ScriptEngine* self = From(L);
+	for (int i = 0; i < 3; ++i) lua_pushnumber(L, self->world_.ambient[i]);
+	lua_pushnumber(L, self->world_.gunAmbient);
+	return 4;
+}
+
+// WORLD.RemoveEntity(e) - unlinks the entity from the world without freeing it
+// (0x10136D40 -> World::RemoveEntity). ENTITY.Release is the separate call that
+// frees it; the Delete paths make both. A deactivated weapon and the
+// multiplayer model's head and muzzle leave the world this way and come back
+// through WORLD.AddEntity.
+int WorldNatives::L_WORLD_RemoveEntity(lua_State* L) {
+	ScriptEngine* self = From(L);
+	if (Entity* e = self->Find(HandleArg(L, 1))) {
+		// Only the world membership: EnableDraw owns e->visible, and a
+		// holstered weapon that came back through AddEntity would stay
+		// invisible if this touched it too.
+		e->inWorld = false;
+		self->SyncPose(*e);
+	}
+	return 0;
+}
+
+// WORLD.AdvanceFrameCounter() / WORLD.GetFrameCounter() - World+0x0
+// (0x1011E4F0, 0x1011E480). The menu steps it by hand so the character
+// preview's animation advances while the game itself is not running.
+int WorldNatives::L_WORLD_AdvanceFrameCounter(lua_State* L) {
+	++From(L)->worldFrame_;
+	return 0;
+}
+
+int WorldNatives::L_WORLD_GetFrameCounter(lua_State* L) {
+	lua_pushnumber(L, From(L)->worldFrame_);
+	return 1;
+}
+
+// WORLD.MakeUnderwater(on) / WORLD.IsUnderwater() - 0x101200B0 and 0x10120030,
+// PhysicsWorld::EnableUnderwaterWorld and its reader. CLevel pushes its
+// IsUnderwater out on every apply, and no shipped level sets it, so the flag is
+// kept and read back but the physics behind it is unexercised and not built.
+int WorldNatives::L_WORLD_MakeUnderwater(lua_State* L) {
+	From(L)->world_.underwater = lua_toboolean(L, 1) != 0;
+	return 0;
+}
+
+int WorldNatives::L_WORLD_IsUnderwater(lua_State* L) {
+	lua_pushboolean(L, From(L)->world_.underwater);
+	return 1;
+}
+
+// WORLD.DeleteDyingEntities() - reaps whatever SetTimeToDie has run out on,
+// now (0x101210E0). TickLifetimes already does this every frame, so this only
+// matters to a caller that wants it before the next tick; GameMP's round reset
+// is the one. WORLD.DeleteDelayedEntities is its twin over the engine's
+// deferred-delete queue, which this port has no equivalent of - ReleaseEntity
+// frees immediately - so that one binds to the same sweep.
+int WorldNatives::L_WORLD_DeleteDyingEntities(lua_State* L) {
+	From(L)->ReapExpiredEntities();
+	return 0;
+}
+
+// MESH.GetRandomPoint(e) -> a point on the mesh, in the entity's own space
+// (0x1012F250 -> WorldMesh::GetRandomPoint, which picks a random vertex and
+// scales it by the mesh scale - not a point on a face, and not in world
+// space). CItem hands it straight to PARTICLE.SetParentOffset to sit a flame
+// somewhere on a burning piece of wreckage.
+int WorldNatives::L_MESH_GetRandomPoint(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const Entity* e = self->Find(HandleArg(L, 1));
+	Vec3 out{0.f, 0.f, 0.f};
+	const MapObject* object = e ? self->MeshGeometry(*e) : nullptr;
+	if (object && object->vertexCount() > 0) {
+		object->position(size_t(std::rand()) % object->vertexCount(), out);
+		for (int c = 0; c < 3; ++c) out[c] *= e->scale;
+	}
+	for (int c = 0; c < 3; ++c) lua_pushnumber(L, out[c]);
+	return 3;
+}
+
+// PHYSICS.GetHavokBodyActiveGroup(h) -> the collision group of the body behind
+// a contact handle (0x101298F0). CLevel:OnCollision is the caller: a world
+// mesh with no script object of its own reports a contact, and the group is
+// what picks the impact sound set (SoundsDefsGroups, 20..31 -
+// WORLD.SetCollisionGroupMeshGroup is what put them there).
+int WorldNatives::L_PHYSICS_GetHavokBodyActiveGroup(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const int slot = lua_isnumber(L, 1) ? int(lua_tonumber(L, 1)) : -1;
+	// CollisionGroups.Fixed, what a world body that never got a group reports.
+	int group = 1;
+	const auto it = self->bodyToEntity_.find(slot);
+	if (it != self->bodyToEntity_.end()) {
+		if (const Entity* e = self->Find(it->second)) group = e->collisionGroup;
+	} else {
+		int owner = 0, joint = -1;
+		if (self->LimbFromHandle(slot, owner, joint))
+			if (const Entity* e = self->Find(owner)) group = e->collisionGroup;
+	}
+	lua_pushnumber(L, group);
+	return 1;
 }
 
 // WORLD.LoadSky("../Data/Maps/<dome>") -> layer count, read out of the dome
@@ -978,6 +1097,16 @@ void BindWorld(ScriptEngine& engine, LuaHost& host) {
 		{"WORLD", "DemonFXWarp", WorldNatives::L_WORLD_DemonFXWarp},
 		{"WORLD", "SetFarClipDist", WorldNatives::L_WORLD_SetFarClipDist},
 		{"WORLD", "AmbientColor", WorldNatives::L_WORLD_AmbientColor},
+		{"WORLD", "GetAmbientColor", WorldNatives::L_WORLD_GetAmbientColor},
+		{"WORLD", "RemoveEntity", WorldNatives::L_WORLD_RemoveEntity},
+		{"WORLD", "AdvanceFrameCounter", WorldNatives::L_WORLD_AdvanceFrameCounter},
+		{"WORLD", "GetFrameCounter", WorldNatives::L_WORLD_GetFrameCounter},
+		{"WORLD", "DeleteDyingEntities", WorldNatives::L_WORLD_DeleteDyingEntities},
+		{"WORLD", "DeleteDelayedEntities", WorldNatives::L_WORLD_DeleteDyingEntities},
+		{"WORLD", "MakeUnderwater", WorldNatives::L_WORLD_MakeUnderwater},
+		{"WORLD", "IsUnderwater", WorldNatives::L_WORLD_IsUnderwater},
+		{"MESH", "GetRandomPoint", WorldNatives::L_MESH_GetRandomPoint},
+		{"PHYSICS", "GetHavokBodyActiveGroup", WorldNatives::L_PHYSICS_GetHavokBodyActiveGroup},
 		{"WORLD", "LoadSky", WorldNatives::L_WORLD_LoadSky},
 		{"WORLD", "LoadLowQualitySky", WorldNatives::L_WORLD_LoadLowQualitySky},
 		{"WORLD", "SetupSkyLayer", WorldNatives::L_WORLD_SetupSkyLayer},

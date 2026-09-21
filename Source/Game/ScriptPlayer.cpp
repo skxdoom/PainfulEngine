@@ -37,6 +37,8 @@ struct PlayerNatives : ScriptNativesBase {
 	static int L_MOUSE_GetDelta(lua_State* L);
 	static int L_MOUSE_SetSensitivity(lua_State* L);
 	static int L_CAM_SetPositionDisplacement(lua_State* L);
+	static int L_CAM_SetRotationDisplacement(lua_State* L);
+	static int L_PLAYER_GetPitch(lua_State* L);
 	static int L_PLAYER_SetMPByte(lua_State* L);
 	static int L_PLAYER_GetMPByte(lua_State* L);
 };
@@ -485,8 +487,10 @@ bool ScriptEngine::TakeCameraPose(Vec3& pos, float& yaw, float& pitch) {
 	if (!camPoseDirty_) return false;
 	camPoseDirty_ = false;
 	for (int i = 0; i < 3; ++i) pos[i] = camPos_[i] + camDisplacement_[i];
-	yaw = camYaw_;
-	pitch = camPitch_;
+	// The rotation displacement rides on top, in our own sense: elevation is
+	// the engine's and runs the other way from pitch, turn matches yaw.
+	yaw = camYaw_ + camRotDisplacement_[1];
+	pitch = camPitch_ - camRotDisplacement_[0];
 	return true;
 }
 
@@ -556,6 +560,41 @@ int PlayerNatives::L_CAM_SetPositionDisplacement(lua_State* L) {
 	return 0;
 }
 
+// CAM.SetRotationDisplacement(x, y, z) - the rotational twin of the position
+// displacement, in degrees about the camera's own axes: elevation, turn, roll
+// (0x10128140 writes the camera's second vector at +0x38, beside the position
+// one at +0x2C). A close hit kicks the view this way, TPlayerHit ringing out
+// +-5 and +-3 over a second, and TStomp and the Giant's tornado shake it.
+//
+// Assumed: which argument is which axis. The camera's own update is not
+// decompiled, so the order comes from the scripts, which name TPlayerHit's two
+// `cameraRotAmountX`/`...Y` and build every other engine Euler as
+// (elevation, turn, roll). A symmetrical shake cannot tell it apart; a melee
+// hit that kicks sideways more than up would mean this is reversed.
+int PlayerNatives::L_CAM_SetRotationDisplacement(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const float k = kPi / 180.f;
+	for (int i = 0; i < 3; ++i)
+		self->camRotDisplacement_[i] = float(luaL_optnumber(L, i + 1, 0)) * k;
+	self->camPoseDirty_ = true;
+	return 0;
+}
+
+// PLAYER.GetPitch(e) -> the view pitch as the short the engine keeps on the
+// player's controller (0x10139070 -> PhysicsObject::GetPlayerPitch). The one
+// caller divides by -(32767*0.75) and feeds the result into a Euler as the
+// elevation, so this is the engine elevation quantised at 32767 per 1.333 rad.
+// Only the local player has a view here; a remote pawn reports level.
+int PlayerNatives::L_PLAYER_GetPitch(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const int handle = HandleArg(L, 1);
+	float raw = 0.f;
+	if (handle != 0 && handle == self->playerHandle_)
+		raw = EngineElevation(self->camPitch_) * -(32767.f * 0.75f);
+	lua_pushnumber(L, float(std::max(-32768.f, std::min(32767.f, raw))));
+	return 1;
+}
+
 
 // PLAYER.SetMPByte(e, v) truncates to a uchar and drops the write when the
 // entity is gone; GetMPByte always answers a number, 0 when never set. The
@@ -601,6 +640,8 @@ void BindPlayer(ScriptEngine& engine, LuaHost& host) {
 		{"MOUSE", "GetDelta", PlayerNatives::L_MOUSE_GetDelta},
 		{"MOUSE", "SetSensitivity", PlayerNatives::L_MOUSE_SetSensitivity},
 		{"CAM", "SetPositionDisplacement", PlayerNatives::L_CAM_SetPositionDisplacement},
+		{"CAM", "SetRotationDisplacement", PlayerNatives::L_CAM_SetRotationDisplacement},
+		{"PLAYER", "GetPitch", PlayerNatives::L_PLAYER_GetPitch},
 		{"PLAYER", "GetCameraFix", PlayerNatives::L_PLAYER_GetCameraFix},
 		{nullptr, "CreatePlayer", PlayerNatives::L_CreatePlayer},
 		{nullptr, "GetPlayerSpeed", PlayerNatives::L_GetPlayerSpeed},

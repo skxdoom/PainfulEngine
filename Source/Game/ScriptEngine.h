@@ -13,6 +13,7 @@
 #include "../Assets/Waypoints.h"
 #include "Console.h"
 #include "MenuSystem.h"
+#include "../Assets/Dat.h"
 #include "../Assets/Mpk.h"
 #include "../Assets/Rde.h"
 #include "../Assets/Hke.h"
@@ -128,6 +129,8 @@ public:
 		// with four arguments - so the flag is on - and expects it to go when
 		// the pickup does. Without honouring it the corona outlives the thing
 		// it was drawn for and hangs in the air.
+		// PARTICLE.SetImmortal (Entity+0xCAA): the spent-effect sweep skips it.
+		bool pfxImmortal = false;
 		bool dieWithParent = true;
 		std::string soundName;
 		// A Sound entity's own voice, set up by SND.Setup3D and started by
@@ -468,6 +471,12 @@ public:
 		Vec3 fogColor; // 0-255
 		float farClip = 1024.f;
 		Vec3 ambient{128, 128, 128}; // 0-255
+		// WORLD.AmbientColor's fourth argument, the gun ambient multiplier
+		// (World+0x17CC). Stored so GetAmbientColor round-trips; the view
+		// model does not read it yet.
+		float gunAmbient = 1.f;
+		// WORLD.MakeUnderwater. No shipped level sets it.
+		bool underwater = false;
 		// Cfg.Bloom (R3D.EnableBloom / ApplyVideoSettings, render flag 8) and
 		// CLevel.BloomFX via WORLD.BloomFXParams. With bloom on and Multiplier
 		// > 0 every particle and corona is drawn at DimScale. Particles.md.
@@ -644,6 +653,9 @@ public:
 	// takes the engine's own frame time inside PlayerAction rather than the
 	// delta the script was called with; set this before the tick chain.
 	void SetFrameDelta(float dt) { frameDelta_ = dt; }
+	// INP.ResetTimer asked for the next frame to start from zero. Consumed by
+	// the frame loop, which owns the clock.
+	bool TakeTimerReset() { const bool r = timerReset_; timerReset_ = false; return r; }
 	// The world speed: what the frame delta is multiplied by before the game
 	// tick (PCFSystem::TickEngine 0x10051110). LuaHost.md, "The time multiplier".
 	float timeMultiplier() const { return timeMultiplier_; }
@@ -697,6 +709,14 @@ public:
 	// Counts down ENTITY.SetTimeToDie and reaps whatever has run out. Call
 	// once per frame; transient debris and spent projectiles depend on it.
 	void TickLifetimes(float dt);
+	// The reaping half of TickLifetimes, without the countdown: what
+	// WORLD.DeleteDyingEntities asks for out of turn.
+	void ReapExpiredEntities();
+	// The geometry a Mesh entity was built from, or nullptr: the named object
+	// inside its .dat pack, or the map object a world mesh stands for. Loads
+	// the pack on demand and remembers the last one, which is all the callers
+	// need - they walk one pack's pieces in a loop.
+	const MapObject* MeshGeometry(const Entity& e);
 	// Contacts the physics step recorded, reported to the scripts as
 	// COLLISION_WITH_OTHER_ENTITY.
 	void TickCollisions(float dt);
@@ -749,6 +769,9 @@ public:
 	// any, so the game loop can adopt it. Returns false when they have not
 	// moved the camera since the last call.
 	bool TakeCameraPose(Vec3& pos, float& yaw, float& pitch);
+	// CAM.SetRotationDisplacement's third axis, which TakeCameraPose has no
+	// slot for: the camera carries roll separately.
+	float cameraRoll() const { return camRotDisplacement_[2]; }
 
 	// The camera the CAM.* reads report (position, yaw and pitch in
 	// radians). The game loop feeds it every frame; headless runs keep the
@@ -1041,6 +1064,7 @@ private:
 	PlayerPawn* pawn_ = nullptr;
 	Input* input_ = nullptr;
 	float frameDelta_ = 1.f / 60.f;
+	bool timerReset_ = false; // INP.ResetTimer, consumed by the frame loop
 	int playerHandle_ = 0;
 	bool pawnEnabled_ = true;
 	// What MOUSE.Lock/IsLocked report. The SCRIPTS own this - they lock on
@@ -1060,6 +1084,10 @@ private:
 	Vec3 camPos_;
 	float camYaw_ = 0.f, camPitch_ = 0.f;
 	Vec3 camDisplacement_;
+	// CAM.SetRotationDisplacement, in RADIANS: elevation, turn, roll. Held
+	// apart from camYaw_/camPitch_ so the angles the scripts read back stay the
+	// ones they set.
+	Vec3 camRotDisplacement_;
 	float playerSpeedOverride_ = -1.f;
 	float jumpStrengthOverride_ = -1.f;
 	std::string dataRoot_;
@@ -1105,6 +1133,12 @@ private:
 	// one frame and the set is only ever a couple of entities deep.
 	std::vector<int> excludedSlots_;
 	std::vector<int> expired_; // scratch for TickLifetimes
+	// World+0x0, stepped by WORLD.AdvanceFrameCounter. The scripts own it
+	// entirely - the engine's own frame loop is a different counter.
+	int worldFrame_ = 0;
+	// MeshGeometry's one-entry pack memo, keyed by the resolved path.
+	std::string meshPackPath_;
+	DatPack meshPack_;
 	AnimationCache animations_;
 	SkeletonCache skeletons_;
 

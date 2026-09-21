@@ -66,6 +66,9 @@ public:
 	// PARTICLE.Die: no more spawning, ever; what is alive plays out and then
 	// ScriptEmitterFinished answers true.
 	void StopScriptEmitter(int slot);
+	// PARTICLE.Restart: the one-shot budget goes back to zero so a burst plays
+	// again. Live particles are left alone, as ParticleEmitter::Restart does.
+	void RestartScriptEmitter(int slot);
 	// A one-shot emitter that has spent its budget and outlived its last
 	// particle. An effect whose emitters have all finished is over, and the
 	// entity holding them can go - AddPFX creates one per impact and never

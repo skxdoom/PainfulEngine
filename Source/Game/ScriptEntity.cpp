@@ -51,9 +51,16 @@ struct EntityNatives : ScriptNativesBase {
 	static int L_ENTITY_RegisterChild(lua_State* L);
 	static int L_ENTITY_ComputeChildMatrix(lua_State* L);
 	static int L_ENTITY_GetIndex(lua_State* L);
+	static int L_ENTITY_TransformLocalPointToWorld(lua_State* L);
+	static int L_ENTITY_ComputeLocalPoint(lua_State* L);
+	static int L_ENTITY_GetCenter(lua_State* L);
+	static int L_ENTITY_GetFileName(lua_State* L);
+	static int L_ENTITY_Exist(lua_State* L);
 	static int L_ENTITY_GetPtrByIndex(lua_State* L);
 	static int L_PARTICLE_SetParentOffset(lua_State* L);
 	static int L_PARTICLE_Die(lua_State* L);
+	static int L_PARTICLE_Restart(lua_State* L);
+	static int L_PARTICLE_SetImmortal(lua_State* L);
 	static int L_PO_MaintainPosition(lua_State* L);
 	static int L_PO_MaintainVelocity(lua_State* L);
 	static int L_PO_MaintainLinearMovement(lua_State* L);
@@ -531,17 +538,26 @@ int EntityNatives::L_SetTimeToDie(lua_State* L) {
 
 void ScriptEngine::TickLifetimes(float dt) {
 	if (dt <= 0.f) return;
-	expired_.clear();
 	// Decal::Tick, then World::DeleteEntityDelayed on the ones that ran out.
 	decals_.Tick(dt);
+	// The countdown stops AT zero rather than going negative: negative is how
+	// "no timer" is spelt, so a timer that overshot would read as one that was
+	// never set and the entity would never be reaped.
+	for (auto& kv : entities_)
+		if (kv.second.timeToDie > 0.f)
+			kv.second.timeToDie = std::max(0.f, kv.second.timeToDie - dt);
+	ReapExpiredEntities();
+}
+
+// The sweep without the countdown, so WORLD.DeleteDyingEntities can ask for it
+// out of turn.
+void ScriptEngine::ReapExpiredEntities() {
+	expired_.clear();
 	for (auto& kv : entities_) {
 		Entity& e = kv.second;
-		if (e.timeToDie >= 0.f) {
-			e.timeToDie -= dt;
-			if (e.timeToDie <= 0.f) {
-				expired_.push_back(kv.first);
-				continue;
-			}
+		if (e.timeToDie == 0.f) { // a timer that ran out; -1 is "no timer"
+			expired_.push_back(kv.first);
+			continue;
 		}
 		if (e.decalSlot >= 0 && decals_.Finished(e.decalSlot)) {
 			expired_.push_back(kv.first);
@@ -552,7 +568,7 @@ void ScriptEngine::TickLifetimes(float dt) {
 		// burnt its budget and its last particle has gone, the effect is
 		// over. A level-placed effect never reaches this, because its
 		// emitters are forced to keep evolving.
-		if (e.type == kParticleFX && particles_ && !e.emitterSlots.empty()) {
+		if (e.type == kParticleFX && !e.pfxImmortal && particles_ && !e.emitterSlots.empty()) {
 			bool done = true;
 			for (int slot : e.emitterSlots)
 				if (slot >= 0 && !particles_->ScriptEmitterFinished(slot)) done = false;
@@ -560,6 +576,28 @@ void ScriptEngine::TickLifetimes(float dt) {
 		}
 	}
 	for (int handle : expired_) ReleaseEntity(handle);
+}
+
+const MapObject* ScriptEngine::MeshGeometry(const Entity& e) {
+	if (e.type != kMesh) return nullptr;
+	// A world mesh: the map object LoadMap already holds.
+	if (e.worldObject || e.activeMesh >= 0) {
+		if (e.activeMesh >= 0 && size_t(e.activeMesh) < map_.objects.size())
+			return &map_.objects[size_t(e.activeMesh)];
+		for (size_t i = 0; i < map_.objects.size(); ++i)
+			if (EqualsCI(map_.objects[i].name, e.name.c_str())) return &map_.objects[i];
+		return nullptr;
+	}
+	if (e.source.empty()) return nullptr;
+	const std::string path = host_->ResolvePath(e.source);
+	if (path != meshPackPath_) {
+		meshPackPath_ = path;
+		meshPack_ = DatPack();
+		DatPack::Load(path, meshPack_);
+	}
+	for (const MapObject& o : meshPack_.objects)
+		if (EqualsCI(o.name, e.mesh.c_str())) return &o;
+	return nullptr;
 }
 
 int EntityNatives::L_SetPosition(lua_State* L) {
@@ -740,6 +778,17 @@ int EntityNatives::L_PARTICLE_SetupEmitter(lua_State* L) {
 // (the flag exists to freeze effects while the editor scrubs), and fixed
 // transforms only matter once effects are bound to moving entities.
 int EntityNatives::L_NoOpNative(lua_State*) { return 0; }
+
+// Bound to L_NoOpNative because this port has nothing for them to do, not
+// because they are unwritten:
+//
+//   ENTITY.RecreateRagdollIfNone (0x10134790 -> Model::CreateRagdollIfNone)
+//       builds the ragdoll object when the model has none. Ours is built on
+//       demand by EnableRagdoll, which is the next line at the one call site.
+//   PLAYER.AttachToUnderBody / DetachFromUnderBody (0x10138F30, 0x10138FD0)
+//       bind the player to a body it rides. The pawn is carried by whatever
+//       it stands on instead, so there is no attachment to release when the
+//       handcar lets go.
 
 // BILLBOARD.SetupCorona(e, alpha, fadeIn, fadeOut, minSize, minDistance,
 // size, maxDistance, offDistance, traceMargin, tex, packedColor, blendMode,
@@ -1247,6 +1296,105 @@ int EntityNatives::L_ENTITY_GetPtrByIndex(lua_State* L) {
 	return 1;
 }
 
+namespace {
+
+// The entity's own matrix applied to a point in its local space. Composed the
+// same way JointToWorld composes its model->world half, so a point that comes
+// back through ComputeLocalPoint lands where it started.
+Vec3 EntityLocalToWorld(const ScriptEngine::Entity& e, const Vec3& local) {
+	float rot9[9];
+	EngineQuatToRot9(e.rot, rot9);
+	Vec3 out;
+	for (int c = 0; c < 3; ++c)
+		out[c] = e.pos[c] + e.scale * (local[0] * rot9[0 * 3 + c] +
+				local[1] * rot9[1 * 3 + c] + local[2] * rot9[2 * 3 + c]);
+	return out;
+}
+
+Vec3 PointArg(lua_State* L, int first) {
+	return Vec3{float(luaL_optnumber(L, first, 0)), float(luaL_optnumber(L, first + 1, 0)),
+			float(luaL_optnumber(L, first + 2, 0))};
+}
+
+int PushVec3(lua_State* L, const Vec3& v) {
+	for (int c = 0; c < 3; ++c) lua_pushnumber(L, v[c]);
+	return 3;
+}
+
+} // namespace
+
+// ENTITY.TransformLocalPointToWorld(e, x, y, z) -> world x, y, z (0x1012FF80
+// runs the point through the entity's matrix; zeros when the handle is dead).
+// StickyBomb asks where its fuse tip is, the Swamp's stones where they are
+// about to land, C4L1's fireworks where to emit from.
+int EntityNatives::L_ENTITY_TransformLocalPointToWorld(lua_State* L) {
+	const Entity* e = From(L)->Find(HandleArg(L, 1));
+	return PushVec3(L, e ? EntityLocalToWorld(*e, PointArg(L, 2)) : Vec3{0.f, 0.f, 0.f});
+}
+
+// ENTITY.ComputeLocalPoint(e, x, y, z) -> the same point in the entity's local
+// space (0x1012FE40: the entity matrix INVERTED, then the same transform).
+// butla stores its contents' offsets this way and hands them back to
+// TransformLocalPointToWorld once the bottle has moved.
+int EntityNatives::L_ENTITY_ComputeLocalPoint(lua_State* L) {
+	const Entity* e = From(L)->Find(HandleArg(L, 1));
+	if (!e || e->scale == 0.f) return PushVec3(L, Vec3{0.f, 0.f, 0.f});
+
+	const Vec3 world = PointArg(L, 2);
+	float rot9[9];
+	EngineQuatToRot9(e->rot, rot9);
+	// The rotation is orthonormal, so its inverse is its transpose: the
+	// forward transform reads rot9 down a column, the inverse across a row.
+	Vec3 out;
+	for (int r = 0; r < 3; ++r) {
+		float d = 0.f;
+		for (int c = 0; c < 3; ++c) d += (world[c] - e->pos[c]) * rot9[r * 3 + c];
+		out[r] = d / e->scale;
+	}
+	return PushVec3(L, out);
+}
+
+// ENTITY.GetCenter(e) -> the middle of the entity's box in world space
+// (0x10132E60 calls Entity's own GetCenter slot). SetLocalBBox wins when the
+// script set one; otherwise a model measures its posed mesh bounds, the same
+// box the monster body sizer reads. Nothing else here carries geometry the
+// script side can see, so those report the position - which is what the
+// shipped callers want anyway (a soul pack at a dead player's middle, the
+// editor's look-at).
+int EntityNatives::L_ENTITY_GetCenter(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const Entity* e = self->Find(HandleArg(L, 1));
+	if (!e) return PushVec3(L, Vec3{0.f, 0.f, 0.f});
+
+	Vec3 local{0.f, 0.f, 0.f};
+	if (e->hasLocalBox) {
+		for (int c = 0; c < 3; ++c) local[c] = 0.5f * (e->localBoxMin[c] + e->localBoxMax[c]);
+	} else if (e->type == kModel) {
+		if (const SkeletonCache::Entry* skel = self->skeletons_.Get(e->source)) {
+			local[0] = 0.5f * (skel->lo[0] + skel->hi[0]);
+			local[1] = 0.5f * (skel->poseLo + skel->poseHi);
+			local[2] = 0.5f * (skel->lo[2] + skel->hi[2]);
+		}
+	}
+	return PushVec3(L, EntityLocalToWorld(*e, local));
+}
+
+// ENTITY.GetFileName(e) -> what the entity was made from, "" when it has no
+// file (0x10133080). CPlayer:SndEnt maps the model name back to the multiplayer
+// character whose voice to use.
+int EntityNatives::L_ENTITY_GetFileName(lua_State* L) {
+	const Entity* e = From(L)->Find(HandleArg(L, 1));
+	lua_pushstring(L, e ? e->source.c_str() : "");
+	return 1;
+}
+
+// ENTITY.Exist(e) -> is the handle still live (0x1012F740). EndOfMatch follows
+// a corpse only while there is one.
+int EntityNatives::L_ENTITY_Exist(lua_State* L) {
+	lua_pushboolean(L, From(L)->Find(HandleArg(L, 1)) != nullptr);
+	return 1;
+}
+
 // PARTICLE.SetParentOffset(pfx, x, y, z, joint, ...)
 //
 // Where a bound effect sits on the thing it is bound to. Arguments 2..4 are the
@@ -1310,6 +1458,31 @@ int EntityNatives::L_PARTICLE_Die(lua_State* L) {
 	if (self->particles_)
 		for (int slot : e->emitterSlots)
 			if (slot >= 0) self->particles_->StopScriptEmitter(slot);
+	return 0;
+}
+
+// PARTICLE.Restart(e) - the effect plays again from the start (0x1013A190 ->
+// ParticleEffect::Restart, which re-runs SetupEmitters and restarts each
+// emitter; the particles already in the air are left alone). The minigun
+// restarts its barrel smoke on every burst.
+int EntityNatives::L_PARTICLE_Restart(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e) return 0;
+	for (Entity::EmitterRec& rec : e->emitterRecs) rec.stopped = false;
+	if (self->particles_)
+		for (int slot : e->emitterSlots)
+			if (slot >= 0) self->particles_->RestartScriptEmitter(slot);
+	return 0;
+}
+
+// PARTICLE.SetImmortal(e, on = true) - Entity+0xCAA (0x1013A050). It is the
+// effect that is immortal, not its particles: a spent one-shot normally takes
+// its entity with it, and this is what keeps a reusable effect - the minigun's
+// smoke, anything Action_SetEvolvePFX drives - alive to be restarted.
+int EntityNatives::L_PARTICLE_SetImmortal(lua_State* L) {
+	if (Entity* e = From(L)->Find(HandleArg(L, 1)))
+		e->pfxImmortal = lua_isnone(L, 2) ? true : (lua_toboolean(L, 2) != 0);
 	return 0;
 }
 
@@ -1615,7 +1788,12 @@ void BindEntity(ScriptEngine& engine, LuaHost& host) {
 		{"PARTICLE", "SetupEmitter", EntityNatives::L_PARTICLE_SetupEmitter},
 		{"PARTICLE", "SetParentOffset", EntityNatives::L_PARTICLE_SetParentOffset},
 		{"PARTICLE", "Die", EntityNatives::L_PARTICLE_Die},
+		{"PARTICLE", "Restart", EntityNatives::L_PARTICLE_Restart},
+		{"PARTICLE", "SetImmortal", EntityNatives::L_PARTICLE_SetImmortal},
 		{"PARTICLE", "SetFixedTransform", EntityNatives::L_NoOpNative},
+		{"ENTITY", "RecreateRagdollIfNone", EntityNatives::L_NoOpNative},
+		{"PLAYER", "AttachToUnderBody", EntityNatives::L_NoOpNative},
+		{"PLAYER", "DetachFromUnderBody", EntityNatives::L_NoOpNative},
 		{"BILLBOARD", "SetupCorona", EntityNatives::L_BILLBOARD_SetupCorona},
 		{"ENTITY", "GetVelocity", EntityNatives::L_GetVelocity},
 		{"ENTITY", "SetVelocity", EntityNatives::L_SetVelocity},
@@ -1636,6 +1814,12 @@ void BindEntity(ScriptEngine& engine, LuaHost& host) {
 		{"ENTITY", "PO_AccumulateRotation", EntityNatives::L_PO_AccumulateRotation},
 		{"ENTITY", "GetPtrByIndex", EntityNatives::L_ENTITY_GetPtrByIndex},
 		{"ENTITY", "GetIndex", EntityNatives::L_ENTITY_GetIndex},
+		{"ENTITY", "TransformLocalPointToWorld",
+				EntityNatives::L_ENTITY_TransformLocalPointToWorld},
+		{"ENTITY", "ComputeLocalPoint", EntityNatives::L_ENTITY_ComputeLocalPoint},
+		{"ENTITY", "GetCenter", EntityNatives::L_ENTITY_GetCenter},
+		{"ENTITY", "GetFileName", EntityNatives::L_ENTITY_GetFileName},
+		{"ENTITY", "Exist", EntityNatives::L_ENTITY_Exist},
 		{"ENTITY", "RegisterChild", EntityNatives::L_ENTITY_RegisterChild},
 		{"ENTITY", "ComputeChildMatrix", EntityNatives::L_ENTITY_ComputeChildMatrix},
 		{"ENTITY", "EnableNetworkSynchronization",

@@ -832,6 +832,25 @@ Measured on C4L4_Alastor: `group = -1` armed **1987** bodies, `group = 5` armed
 impulse lands at a point). The impulse window itself was not isolated in a
 measurement; it is a transcription of the two constants above.
 
+### The collision group is also the impact sound
+
+Groups 20..31 are not arbitrary. `WORLD.SetCollisionGroupMeshGroup` assigns one
+per mesh group at level start, and `SoundsDefsGroups[20..31]` names a sound set
+per group — 20 cemetery stones, 21 asylum chair, 22 opera trashcan, and so on
+(`Definitions.lua:676`). Which is why `CLevel` arms contact reporting over
+exactly that band.
+
+The loop closes through `PHYSICS.GetHavokBodyActiveGroup(h)` (`0x101298F0`),
+which takes a **body handle, not an entity** — `Game_GetMsg` routes a contact
+whose entity has no script object to `Lev:OnCollision(x,y,z, e_other, h_me,
+e_me)`, and that handler reads the group off `h_me` to pick the sound and the
+impact effect. A gravestone shoved over sounds like stone because its mesh
+group was put in group 20 and this native reports it.
+
+Here a body handle is the script-body slot or a limb handle, so the group comes
+back off the entity the slot belongs to; a world body that was never given one
+reports `CollisionGroups.Fixed`.
+
 ## Mesh groups
 
 **This family is not campaign-wide level scripting, and gates do not use it.**

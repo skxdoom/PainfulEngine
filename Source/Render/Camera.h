@@ -10,6 +10,9 @@ struct Camera {
 	Vec3 pos;
 	float yaw = 0.f; // radians, around world up
 	float pitch = 0.f; // radians, clamped to avoid gimbal flip
+	// CAM.SetRotationDisplacement's roll: the up hint spun about the view
+	// axis. Zero except while something is shaking the view.
+	float roll = 0.f;
 	float fovDegrees = 70.f;
 	// Has to clear the closest the eye can ever get to a surface, or standing
 	// against a wall cuts a hole in it. The pawn's collision sphere is 0.40
