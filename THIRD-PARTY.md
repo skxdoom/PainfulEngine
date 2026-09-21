@@ -12,10 +12,9 @@ relicenses nothing.
 |---|---|---|
 | **Lua 5.0.2** | MIT | Vendored in `External/lua-5.0.2/` |
 | **SDL** | zlib | Submodule `External/SDL` |
-| **bgfx**, **bx**, **bimg** | BSD 2-clause | Submodules under `External/bgfx` |
-| **bgfx.cmake** | CC0 1.0 | Submodule `External/bgfx` (the build wrapper) |
-| **miniz** | MIT | Header-only, from `External/bgfx/bimg/3rdparty/tinyexr/deps/miniz` |
-| **stb_truetype**, **stb_rect_pack** | MIT or public domain | From `External/bgfx/bgfx/3rdparty/stb` (HUD and menu text) |
+| **bgfx**, **bx**, **bimg** | BSD 2-clause | Submodule `External/bgfx`, which is bgfx.cmake (CC0 1.0) and carries the three as its own submodules |
+| **miniz** | MIT | Header-only, inside bimg (`tinyexr/deps/miniz`) - the `.pak` reader |
+| **stb_truetype**, **stb_rect_pack** | MIT or public domain | Header-only, inside bgfx (`3rdparty/stb`) - HUD and menu text |
 | **Jolt Physics** | MIT | Submodule `External/JoltPhysics` |
 | **minimp3** | CC0 1.0 | Vendored header in `External/minimp3/` (music streams) |
 

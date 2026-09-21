@@ -64,17 +64,8 @@ renderer, physics engine and audio stack. Ultimately it's just a passion project
 
 ## Third-party
 
-All dependencies use permissive, GPL-compatible licences and keep their own
-terms. [`THIRD-PARTY.md`](THIRD-PARTY.md) lists them with the paths to their
-licence texts.
+SDL, bgfx, Jolt Physics, Lua 5.0.2, minimp3, miniz and stb. All permissive,
+all GPL-compatible, each keeping its own terms; nothing here is relicensed and
+every licence text ships with its code.
 
-| Component | Licence | Where it comes from |
-|---|---|---|
-| **Lua 5.0.2** | MIT | Vendored in `External/lua-5.0.2/` |
-| **SDL** | zlib | Submodule `External/SDL` |
-| **bgfx**, **bx**, **bimg** | BSD 2-clause | Submodules under `External/bgfx` |
-| **bgfx.cmake** | CC0 1.0 | Submodule `External/bgfx` (the build wrapper) |
-| **miniz** | MIT | Header-only, from `External/bgfx/bimg/3rdparty/tinyexr/deps/miniz` |
-| **stb_truetype**, **stb_rect_pack** | MIT or public domain | From `External/bgfx/bgfx/3rdparty/stb` (HUD and menu text) |
-| **Jolt Physics** | MIT | Submodule `External/JoltPhysics` |
-| **minimp3** | CC0 1.0 | Vendored header in `External/minimp3/` (music streams) |
+[`THIRD-PARTY.md`](THIRD-PARTY.md) has the licence and the path for each.
