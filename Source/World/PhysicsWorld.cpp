@@ -5,6 +5,8 @@
 
 #include "PhysicsWorldInternal.h"
 #include "../Core/Vectors.h"
+#include <cmath>
+#include <functional>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -12,6 +14,10 @@
 namespace painful {
 
 namespace {
+
+// What to call a body in a report. Built by Update, which is where the
+// slot and ragdoll tables are.
+using NameBody = std::function<std::string(uint32_t)>;
 
 // An active body with no broadphase entry is the one state a step cannot
 // take: Jolt's assert for it is off in Release and the fault lands a step
@@ -30,6 +36,44 @@ void SleepStrays(JPH::PhysicsSystem& system) {
 	for (const JPH::BodyID& id : strays) system.GetBodyInterface().DeactivateBody(id);
 }
 
+// A body whose state has gone non-finite. Jolt is built with
+// JPH_FLOATING_POINT_EXCEPTIONS_ENABLED (its own default), so its worker
+// threads run with invalid/div-zero/overflow UNMASKED - the next
+// JobIntegrateVelocity raises 0xC0000091 and the process dies naming only the
+// job. Catching it here costs one pass over the active set and reports WHICH
+// body and with what, which the fault does not.
+// Docs/Reference/Physics.md, "A diverged body".
+bool Finite(const JPH::Vec3& v) {
+	return std::isfinite(v.GetX()) && std::isfinite(v.GetY()) && std::isfinite(v.GetZ());
+}
+
+void SleepDiverged(JPH::PhysicsSystem& system, const NameBody& name) {
+	const JPH::BodyID* active = system.GetActiveBodiesUnsafe(JPH::EBodyType::RigidBody);
+	const uint32_t n = system.GetNumActiveBodies(JPH::EBodyType::RigidBody);
+	const JPH::BodyInterface& peek = system.GetBodyInterfaceNoLock();
+	std::vector<JPH::BodyID> bad;
+	for (uint32_t i = 0; i < n; ++i) {
+		const JPH::BodyID id = active[i];
+		if (!peek.IsAdded(id)) continue; // SleepStrays has this one
+		const JPH::Vec3 v = peek.GetLinearVelocity(id);
+		const JPH::Vec3 w = peek.GetAngularVelocity(id);
+		const JPH::RVec3 p = peek.GetPosition(id);
+		// The message is only formatted when the check fails, so naming the
+		// body costs nothing on the ordinary path.
+		if (PAINFUL_CHECK(Finite(v) && Finite(w) && Finite(JPH::Vec3(p)),
+				"diverged body %s: pos %.3g,%.3g,%.3g vel %.3g,%.3g,%.3g ang %.3g,%.3g,%.3g",
+				name(id.GetIndex()).c_str(), float(p.GetX()), float(p.GetY()), float(p.GetZ()),
+				v.GetX(), v.GetY(), v.GetZ(), w.GetX(), w.GetY(), w.GetZ()))
+			continue;
+		bad.push_back(id);
+	}
+	for (const JPH::BodyID& id : bad) {
+		JPH::BodyInterface& bodies = system.GetBodyInterface();
+		bodies.SetLinearAndAngularVelocity(id, JPH::Vec3::sZero(), JPH::Vec3::sZero());
+		bodies.DeactivateBody(id);
+	}
+}
+
 } // namespace
 
 PhysicsWorld::PhysicsWorld() {
@@ -38,6 +82,31 @@ PhysicsWorld::PhysicsWorld() {
 }
 
 PhysicsWorld::~PhysicsWorld() = default;
+
+// What a body is, for a report: the corpse and limb it belongs to, the script
+// body slot, or the world. Only reached when something has already gone wrong.
+std::string PhysicsWorld::NameOfBody(uint32_t index) const {
+	for (size_t r = 0; r < impl_->ragdolls.size(); ++r) {
+		const Impl::RagdollInst& inst = impl_->ragdolls[r];
+		if (inst.ragdoll == nullptr) continue;
+		const JPH::Array<JPH::BodyID>& ids = inst.ragdoll->GetBodyIDs();
+		for (size_t p = 0; p < ids.size(); ++p) {
+			if (ids[p].GetIndex() != index) continue;
+			const std::string bone = p < inst.bones.size() ? inst.bones[p] : "?";
+			return "ragdoll " + std::to_string(r) + " " + inst.model + " limb " + bone +
+					(inst.simulated ? " (dead)" : " (driven)");
+		}
+	}
+	for (size_t i = 0; i < impl_->scriptBodies.size(); ++i)
+		if (impl_->scriptBodies[i].body.GetIndex() == index)
+			return "script body slot " + std::to_string(i);
+	for (const Impl::Prop& prop : impl_->props)
+		if (prop.body.GetIndex() == index) return "prop, map object " + std::to_string(prop.entity);
+	if (impl_->worldBody.GetIndex() == index) return "the world";
+	if (impl_->probe.GetIndex() == index) return "the camera probe";
+	if (impl_->pawnProbe.GetIndex() == index) return "the pawn probe";
+	return "body " + std::to_string(index);
+}
 
 bool PhysicsWorld::loaded() const { return !impl_->worldBody.IsInvalid(); }
 size_t PhysicsWorld::staticTriangles() const { return impl_->worldTriangles; }
@@ -493,6 +562,7 @@ void PhysicsWorld::Update(float dt) {
 		StepCharacters();
 		StepMovers();
 		SleepStrays(impl_->system);
+		SleepDiverged(impl_->system, [this](uint32_t i) { return NameOfBody(i); });
 		impl_->system.Update(kStep, 1, &impl_->temp, &impl_->jobs);
 		impl_->accumulator -= kStep;
 		RecordStep();

@@ -589,6 +589,9 @@ private:
 	bool BuildStaticWorld(const MapMesh& map, float worldScale, bool promoteActiveMeshes);
 	// Tweak.lua and gravity; level independent, read once.
 	void LoadTweaks(const std::string& dataRoot);
+	// What a body is, for a report, by its Jolt body index: the corpse and limb,
+	// the script slot, the prop or the world.
+	std::string NameOfBody(uint32_t index) const;
 
 	struct Impl;
 	std::unique_ptr<Impl> impl_;

@@ -359,6 +359,7 @@ int PhysicsWorld::CreateRagdoll(const std::string& model, const Hke& def, float 
 	Impl::RagdollInst inst;
 	inst.ragdoll = cached->CreateRagdoll(impl_->nextRagdollGroup++, 0, &impl_->system);
 	if (inst.ragdoll == nullptr) return -1;
+	inst.model = model;
 	inst.bones = order;
 	inst.pinned.assign(order.size(), 0);
 	inst.ragdoll->AddToPhysicsSystem(JPH::EActivation::Activate);

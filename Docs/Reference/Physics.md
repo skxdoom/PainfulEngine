@@ -461,6 +461,36 @@ Activate)` on the body `PO_Enable` had just removed. The crash log named only
 with one and matching each frame's instruction bytes in the new image: the code
 had shifted by a constant 0x20B0, so the .pdb named every frame.
 
+## A diverged body, and why divergence is a crash and not a glitch
+
+Jolt is built with `JPH_FLOATING_POINT_EXCEPTIONS_ENABLED` — its own CMake
+default, `FLOATING_POINT_EXCEPTIONS_ENABLED:BOOL=ON` in the cache — and
+`JobSystemThreadPool::ThreadMain` opens every worker thread with
+`FPExceptionsEnable`. So **invalid, divide-by-zero and overflow are unmasked on
+every physics thread.** A body whose state goes non-finite does not quietly
+produce an infinity and a wrong-looking corpse: the next
+`JobIntegrateVelocity` raises `0xC0000091` (`EXCEPTION_FLT_OVERFLOW`) and the
+process dies, with a stack that names the job and nothing else.
+
+Seen in play as a ragdoll "stretching all over the place" and then a crash.
+Stretch is the visible half: the limbs separate at their constraints because
+the solver is chasing a state it cannot satisfy. Ordinary stretch under a
+strong hit is a different, bounded thing ("Solver steps" below, and the
+30/8 iteration counts that tame it) — a diverging corpse does not recover.
+
+`PhysicsWorld::Update` therefore sweeps the active list for a non-finite
+position, linear velocity or angular velocity before every step, beside
+`SleepStrays`. It reports the body under a `PAINFUL_CHECK` — through
+`NameOfBody`, so the line names the corpse, the model and the limb rather than
+a Jolt index — then zeroes its velocities and puts it to sleep. That converts
+an information-free crash into a named line in the log.
+
+**It does not fix the divergence, and is not meant to.** What actually put a
+NaN into a limb is not known; `MakeRigid` (`ScriptDeath.cpp`) already
+guarantees a proper right-handed basis on the way *in*, so the pose handed to
+`SetPose` is not the obvious suspect. The next occurrence should print the
+model and limb, which is the thing to chase.
+
 ## A corpse is not a wall
 
 `PhysicsWorld::RayCast` resolved the body it hit against `scriptBodies` only.

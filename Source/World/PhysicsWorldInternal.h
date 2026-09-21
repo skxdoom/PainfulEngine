@@ -778,6 +778,7 @@ struct PhysicsWorld::Impl {
 	std::unordered_map<std::string, std::vector<std::string>> ragdollBones;
 	struct RagdollInst {
 		JPH::Ref<JPH::Ragdoll> ragdoll;
+		std::string model; // for the reports; the bones alone do not say whose
 		std::vector<std::string> bones;
 		bool simulated = false; // dynamic (dead) rather than driven (alive)
 		// The ECollisionGroups value MDL.EnableRagdoll or SetRagdollCollisionGroup
