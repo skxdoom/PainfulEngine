@@ -78,12 +78,12 @@ int main(int argc, char** argv) {
 
 #ifdef _WIN32
 // The executable builds for the GUI subsystem so double-clicking it opens no
-// console window. When launched FROM a console, attach to it so the CLI
+// console window. When launched from a console, attach to it so the CLI
 // commands still print. __argc/__argv are populated by the CRT.
 #include <windows.h>
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	// Keep stdout/stderr as-is when the parent already redirected them (a
-	// pipe or a file); rebinding to CONOUT$ would steal that output.
+	// pipe or a file); rebinding to conout$ would steal that output.
 	HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
 	const bool redirected = out != nullptr && out != INVALID_HANDLE_VALUE;
 	if (AttachConsole(ATTACH_PARENT_PROCESS) && !redirected) {

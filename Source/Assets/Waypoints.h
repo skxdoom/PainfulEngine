@@ -22,7 +22,7 @@ namespace painful {
 //       u32 linkCount        how many links belong to this waypoint
 //   }                        23 bytes, unpadded
 //   u32  linkTotal           repeats the sum of every linkCount
-//   f32  cost[linkTotal]     TWO PARALLEL ARRAYS, not interleaved records -
+//   f32  cost[linkTotal]     two parallel arrays, not interleaved records -
 //   u32  index[linkTotal]    every cost, then every neighbour
 //   ...                      the floors section, which routing does not need
 //
@@ -33,8 +33,7 @@ namespace painful {
 struct WaypointSet {
 	struct Node {
 		Vec3 pos;
-		// 24-bit floor index. The Cathedral uses 0..52 and its floors section
-		// opens with 53, which is what identifies these three bytes.
+		// 24-bit floor index, identified by the floors section's own count.
 		uint32_t floor = 0;
 		uint32_t linkStart = 0;
 		uint32_t linkCount = 0;
@@ -56,7 +55,7 @@ struct WaypointSet {
 	// its route across the map.
 	int Closest(const Vec3& p, float maxDist = 0.f) const;
 
-	// Shortest route from one waypoint to another, as node indices INCLUDING
+	// Shortest route from one waypoint to another, as node indices including
 	// both ends. Returns false when they are not connected.
 	//
 	// A* over the file's own edge costs, with straight-line distance as the

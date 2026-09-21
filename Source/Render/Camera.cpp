@@ -24,9 +24,9 @@ void Camera::ViewProj(int width, int height, float far, float* view, float* proj
 	bx::mtxLookAt(view, eye, at, {u[0], u[1], u[2]}, bx::Handedness::Right);
 	bx::mtxProj(proj, fovDegrees, float(width) / float(height), nearPlane, far,
 			bgfx::getCaps()->homogeneousDepth, bx::Handedness::Right);
-	// A clipped camera keeps its projection: the world shader discards the
-	// wrong side of y = mirrorY instead. An oblique near plane was tried and
-	// its skewed far plane cut the distant reflection off in a ring.
+	// A clipped camera keeps its projection and the world shader discards the
+	// wrong side of y = mirrorY. An oblique near plane would skew the far
+	// plane with it and cut the distant reflection off in a ring.
 }
 
 } // namespace painful

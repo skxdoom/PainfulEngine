@@ -26,8 +26,8 @@ namespace painful {
 //     10 destalpha      DESTALPHA     ONE              add       off
 //     11 modulate2x     DESTCOLOR     SRCCOLOR         add       on
 //
-// Note "alpha" is NOT ordinary alpha blending - it is additive weighted by the
-// source alpha. "translucent" is the ordinary one.
+// Note "alpha" is not ordinary alpha blending - it is additive weighted by the
+// source alpha. "translucent" is the ordinary ONE.
 enum BlendMode {
 	kBlendNone = 0,
 	kBlendAlpha = 1,
@@ -48,7 +48,7 @@ enum BlendMode {
 // Field-for-field from ParticleSystem::LoadEmitter (Engine.dll 0x100a4b40);
 // every default below is the one ParticleEmitter's constructor installs, which
 // is also exactly what Emitters/Default.ini spells out. Two keys the file
-// format carries are parsed and then DISCARDED by the original, so they are
+// format carries are parsed and then discarded by the original, so they are
 // deliberately absent here:
 //
 //   UseColorRange - the constructor hard-enables the colour-over-life ramp and
@@ -84,7 +84,7 @@ struct EmitterParams {
 
 	Vec3 velMin{-80, -6, 0}; // [Velocity] Min/Max
 	Vec3 velMax{-64, 6, 0};
-	// Acceleration.* writes BOTH ends of the range; AccelMax.* then overrides
+	// Acceleration.* writes both ends of the range; AccelMax.* then overrides
 	// the maximum, so a file with only Acceleration gets a constant.
 	Vec3 accelMin{0, -0.1f, 0};
 	Vec3 accelMax{0, -0.1f, 0};
@@ -98,7 +98,7 @@ struct EmitterParams {
 	Vec3 colorMax{1.f, 0.5f, 0};
 	float alphaMin = 0.8f, alphaMax = 0.f;
 	float alphaMid = 0.f; // defaults to AlphaMax when absent
-	// Fade and velocity-blend timings are PERCENTAGES of a particle's life.
+	// Fade and velocity-blend timings are percentages of a particle's life.
 	// Both default to 100, i.e. the mid value is never reached.
 	float fadeTimeMin = 100.f, fadeTimeMax = 100.f;
 	float velBlendMin = 100.f, velBlendMax = 100.f;

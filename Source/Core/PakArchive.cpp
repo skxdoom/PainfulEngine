@@ -297,7 +297,7 @@ size_t PakArchive::VerifyNameFormula(const std::string& path, size_t* entriesOut
 bool PakArchive::Read(const Entry& e, std::vector<uint8_t>& out) const {
 	if (e.isDirectory || !fp_) return false;
 	if (e.uncompressedSize == 0) { out.clear(); return true; }
-	// Save.dat is a pak the USER's filesystem owns, so its numbers are not
+	// Save.dat is a pak the user's filesystem owns, so its numbers are not
 	// trusted: a corrupt entry claiming 4G would throw bad_alloc, which
 	// nothing here catches.
 	if (fileSize_ && (uint64_t(e.offset) + e.compressedSize > fileSize_ ||

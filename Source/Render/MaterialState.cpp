@@ -108,7 +108,7 @@ MaterialState MaterialState::FromPass(const ShaderPass& pass, std::string* warni
 	};
 	readPair("pan[0]", out.pan0, 0.f, 0.f);
 	readPair("pan[1]", out.pan1, 0.f, 0.f);
-	// tile[N] is the stage scale, applied AFTER the pan - see
+	// tile[N] is the stage scale, applied after the pan - see
 	// Docs/Reference/TextureTransforms.md. Absent means 1, i.e. no change at all, which
 	// is what keeps every material that never mentions it identical.
 	readPair("tile[0]", out.tile0, 1.f, 1.f);

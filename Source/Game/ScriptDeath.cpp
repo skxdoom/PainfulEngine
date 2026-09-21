@@ -54,7 +54,7 @@ struct DeathNatives : ScriptNativesBase {
 namespace {
 
 // What EffectRotateActor does with the spin ScriptEntity accumulated: below
-// kSpinKick it has a one-in-eight chance of being multiplied UP to it, and it
+// kSpinKick it has a one-in-eight chance of being multiplied up to it, and it
 // is then clamped to +/-50 rad/s (0x42480000 / 0xc2480000, against
 // _DAT_102af16c = 10).
 constexpr float kSpinKick = 10.f;
@@ -62,8 +62,8 @@ constexpr float kSpinClamp = 50.f;
 
 // A bone matrix composed with the entity transform is not a rotation, and a
 // rigid body needs one. Two things are wrong with it: it carries the entity's
-// SCALE, and a rig with mirrored left/right bones carries a NEGATIVE
-// DETERMINANT with it. Normalising the rows fixes the first and leaves the
+// scale, and a rig with mirrored left/right bones carries a negative
+// determinant with it. Normalising the rows fixes the first and leaves the
 // second - a left-handed frame, from which Jolt reads a quaternion that is not
 // a rotation at all, and the solver answers by throwing the corpse across the
 // level. Measured on evilmonkv2, whose r_l_* and r_p_* bones are mirrors:
@@ -108,17 +108,17 @@ void MakeRigid(Mat4& m) {
 
 // ---------------------------------------------------------------- death
 //
-// MDL.EnableRagdoll(e, on, collisionGroup) is what dying IS. CActor:OnDamage
+// MDL.EnableRagdoll(e, on, collisionGroup) is what dying is. CActor:OnDamage
 // calls EnableRagdoll(true, true) the moment health reaches zero, having first
 // stopped the actor and disabled its physics object, and from then on the
 // solver owns the pose: CActor sets _CurAnimLength to 99999 so the animation
 // clock stops, because there is no longer an animation to run.
 //
-// The engine's shape is Ragdoll::Activate(bone matrices, group) - the SAME
+// The engine's shape is Ragdoll::Activate(bone matrices, group) - the same
 // matrices the renderer poses with, handed to the simulation as a starting
 // state. So the corpse begins exactly where the monster was standing, in the
 // exact frame of whatever it was doing, and falls from there.
-// Where each ragdoll body sits RELATIVE TO THE BONE that drives it, once per
+// Where each ragdoll body sits relative to the bone that drives it, once per
 // model.
 //
 // A limb body is at the limb's centre and the bone is at its end, so the two
@@ -129,7 +129,7 @@ void MakeRigid(Mat4& m) {
 // nun happened to survive it, which is exactly the kind of near-miss that
 // makes this look like a per-model problem rather than a missing transform.
 //
-// Off = Rest * inverse(Bind), both in MODEL units, so a posed bone matrix M
+// Off = Rest * inverse(Bind), both in model units, so a posed bone matrix M
 // puts its body at Off * M.
 const std::vector<Mat4>& ScriptEngine::RagdollOffsets(const std::string& model,
 		const std::vector<std::string>& parts,
@@ -152,13 +152,13 @@ const std::vector<Mat4>& ScriptEngine::RagdollOffsets(const std::string& model,
 		out[p] = Mat4::Mul(rest, Mat4::InvertAffine(skel.bindWorld[size_t(bone)]));
 	}
 
-	// WHICH LIMBS ARE NOT PART OF THE BODY - the weapons.
+	// Which limbs are not part of the body - the weapons.
 	//
 	// The .hke gives a monster's weapon a rigid body with no constraint
 	// attaching it to anything: evilmonkv2's axeL and axeR, zombie's joint1,
 	// 213 such bodies across 99 models. On activation they are free bodies and
 	// they fall away, which is the original dropping whatever the monster was
-	// carrying. So they must NOT be re-anchored to the parent chain the way a
+	// carrying. So they must not be re-anchored to the parent chain the way a
 	// real limb is: an axe that has left the hand has no bone length left to
 	// preserve, and pinning it to the wrist welds the mesh back on while the
 	// collision shape sails off on its own.
@@ -247,10 +247,10 @@ bool ScriptEngine::EnableRagdoll(Entity& e, bool enable, const std::vector<Mat4>
 			LogInfo("rdseed %s round-trip worst %.4f (%s)", e.source.c_str(), worst,
 					worstName.c_str());
 
-			// ARE THE CONSTRAINTS ALREADY TORN? Each one joins an anchor in one
+			// Are the constraints already torn? Each one joins an anchor in one
 			// body to an anchor in the other, and the two coincide only if the
 			// bodies are in the relative configuration the file was authored
-			// in. Placing them from an ANIMATION pose does not guarantee that -
+			// in. Placing them from an animation pose does not guarantee that -
 			// and every unit of gap here is error the solver has to eat on the
 			// first step, which is what a corpse snapping instead of slumping
 			// looks like.
@@ -290,7 +290,7 @@ bool ScriptEngine::EnableRagdoll(Entity& e, bool enable, const std::vector<Mat4>
 	}
 	e.ragdollSlot = slot;
 
-	// SPEND WHAT THE KILLING SHOT PUT ON IT. Ragdoll::Activate does this first
+	// Spend what the killing shot put on it. Ragdoll::Activate does this first
 	// thing, by calling PhysicsObject::EffectRotateActor - the spin the pellets
 	// accumulated while the monster was still alive becomes the corpse's
 	// angular velocity the instant it becomes a corpse. Without it a body that
@@ -329,10 +329,10 @@ bool ScriptEngine::EnableRagdoll(Entity& e, bool enable, const std::vector<Mat4>
 
 // Read the solver back into the pose the renderer draws, once per frame.
 //
-// THE RAGDOLL ONLY NAMES A DOZEN BONES OF SIXTY. Everything it does not drive
+// The ragdoll only names a dozen bones of sixty. Everything it does not drive
 // - hands, hair, the fingers - has to follow its nearest driven ancestor, or
 // the corpse keeps its arms and loses everything hanging off them. Walking the
-// hierarchy in order and composing each undriven bone from its BIND-LOCAL
+// hierarchy in order and composing each undriven bone from its bind-local
 // transform against its parent's new matrix does that: the undriven parts stay
 // rigidly attached exactly as they were posed.
 void ScriptEngine::TickRagdolls() {
@@ -350,7 +350,7 @@ void ScriptEngine::TickRagdolls() {
 		std::vector<float> got(parts.size() * 16, 0.f);
 		if (!physics_->GetRagdollPose(e.ragdollSlot, got.data())) continue;
 
-		// PAINFUL_RAGDOLL_DEBUG: the part positions in WORLD space, straight
+		// PAINFUL_RAGDOLL_DEBUG: the part positions in world space, straight
 		// out of the solver. Everything the scripts can see goes through the
 		// entity transform, so a ragdoll falling rigidly and a ragdoll whose
 		// pose is not being updated at all look identical from Lua.
@@ -370,7 +370,7 @@ void ScriptEngine::TickRagdolls() {
 			if ((++debugFrame % 30) == 1) physics_->LogRagdollJoints(e.ragdollSlot);
 		}
 
-		// THE ENTITY FOLLOWS ITS OWN CORPSE. The solver moves the body across
+		// The entity follows its own corpse. The solver moves the body across
 		// the floor; leaving the entity where it died would leave every
 		// distance test, sound and effect anchored to a spot the corpse is no
 		// longer at, and would cull it from the wrong place.
@@ -406,14 +406,14 @@ void ScriptEngine::TickRagdolls() {
 				if (skel->bones[b].name == parts[p]) {
 					Mat4 w;
 					for (int i = 0; i < 16; ++i) w.m[i] = got[p * 16 + i];
-					// MAKE IT RIGID BEFORE UNDOING THE OFFSET, not after.
+					// Make it rigid before undoing the offset, not after.
 					//
 					// E carries the entity's scale, so W * E^-1 comes back
 					// with a basis 1/scale long - about 8x. Composing Off^-1
-					// onto that multiplies ITS translation by the same 8x, and
+					// onto that multiplies its translation by the same 8x, and
 					// the offset is a limb length, so every bone lands metres
 					// from its own body: measured, the root bone 1.3 below its
-					// pelvis and the hips 2.5 ABOVE the neck.
+					// pelvis and the hips 2.5 above the neck.
 					Mat4 partModel = Mat4::Mul(w, toModel);
 					MakeRigid(partModel);
 					e.ragdollPose[b] = Mat4::Mul(Mat4::InvertAffine(offsets[p]), partModel);
@@ -426,11 +426,11 @@ void ScriptEngine::TickRagdolls() {
 				}
 
 		// Bones the ragdoll does not drive have to follow the ones it does,
-		// and they can sit on EITHER SIDE of it in the hierarchy.
+		// and they can sit on either side of it in the hierarchy.
 		//
 		// Below is the obvious case - hands, fingers, hair - and they chain
-		// down from their parent. ABOVE is the one that bites: the zombie's
-		// ragdoll starts at k_sub_root, so its `root` bone is an ANCESTOR of
+		// down from their parent. above is the one that bites: the zombie's
+		// ragdoll starts at k_sub_root, so its `root` bone is an ancestor of
 		// every driven bone and has no driven parent to inherit from. Left on
 		// its bind transform it stays at standing height above an entity now
 		// lying on the floor, which measured as a root bone 1.5 units above
@@ -462,17 +462,17 @@ void ScriptEngine::TickRagdolls() {
 				Mat4::Mul(Mat4::InvertAffine(restLocal(i, size_t(par))), e.ragdollPose[i]);
 			driven[size_t(par)] = true;
 		}
-		// ONE DOWNWARD PASS FIXES EVERY POSITION FROM ITS PARENT.
+		// One downward pass fixes every position from its parent.
 		//
-		// BONE LENGTHS ARE FIXED; ONLY ROTATIONS ARE NOT. Taking each bone's
+		// Bone lengths are fixed; only rotations are not. Taking each bone's
 		// position from its own body lets the solver's residual constraint
 		// error - a few millimetres per joint, which is normal and which Jolt
 		// never drives to zero - land in the skin. The mesh is weighted across
 		// neighbouring bones, so two origins drifting apart stretch every
 		// vertex between them and a forearm ends up visibly longer than it was
-		// modelled. Measured before this: 13% on k_zebra -> k_szyja.
+		// modelled.
 		//
-		// It has to be EVERY bone, not just the driven ones. k_szyja's parent
+		// It has to be every bone, not just the driven ones. k_szyja's parent
 		// is k_ramiona, which the ragdoll does not drive, so a pass that only
 		// relates driven bones to driven parents skips exactly the joints that
 		// stretch most.
@@ -489,7 +489,7 @@ void ScriptEngine::TickRagdolls() {
 			// re-anchoring it to the wrist is what welded the axe back on
 			// while its collision shape sailed away on its own.
 			if (loose[b]) continue;
-			// A DRIVEN BONE KEEPS ITS BODY'S POSITION. This pass used to
+			// A driven bone keeps its body's position. This pass used to
 			// override it from the parent chain to stop the skin stretching -
 			// but the stretch was a bug in the hinge anchors (see
 			// BuildConstraint), not something inherent. With those correct the
@@ -516,7 +516,7 @@ void ScriptEngine::TickRagdolls() {
 			driven[b] = true;
 		}
 
-		// AND PUSH IT TO THE RENDERER HERE, because nothing else will.
+		// And push it to the renderer here, because nothing else will.
 		//
 		// TickAnimations is what normally hands a pose to the renderer, and it
 		// returns early for any entity with no animation running:
@@ -530,8 +530,8 @@ void ScriptEngine::TickRagdolls() {
 		// must not look like, and it looks like nothing is happening at all.
 		// PAINFUL_RAGDOLL_DEBUG: how far each body is from the bone it drives.
 		//
-		// The bone-length pass takes a bone's ROTATION from its body but its
-		// POSITION from the parent chain, so the two are allowed to disagree by
+		// The bone-length pass takes a bone's rotation from its body but its
+		// position from the parent chain, so the two are allowed to disagree by
 		// whatever the solver left unresolved. A small residual is normal and
 		// is exactly what that pass exists to keep out of the skin; a large one
 		// means the constraints are not actually holding and the ragdoll only
@@ -578,7 +578,7 @@ int DeathNatives::L_MDL_EnableRagdoll(lua_State* L) {
 	Entity* e = self->Find(HandleArg(L, 1));
 	if (!e) return 0;
 	self->EnableRagdoll(*e, lua_toboolean(L, 2) != 0);
-	// The THIRD argument is the corpse's collision group, and 53 of the
+	// The third argument is the corpse's collision group, and 53 of the
 	// shipped monsters pass RagdollNonColliding here.
 	if (lua_isnumber(L, 3) && self->physics_ && e->ragdollSlot >= 0)
 		self->physics_->SetRagdollCollisionGroup(e->ragdollSlot, int(lua_tonumber(L, 3)));
@@ -602,7 +602,7 @@ int DeathNatives::L_MDL_GetRagdollCollisionGroup(lua_State* L) {
 	return 1;
 }
 
-// MDL.IsRagdoll(e) - does this actor HAVE a ragdoll. CActor:EnableRagdoll
+// MDL.IsRagdoll(e) - does this actor have a ragdoll. CActor:EnableRagdoll
 // guards both directions on it, so answering wrongly either does the work
 // twice or refuses to do it at all.
 int DeathNatives::L_MDL_IsRagdoll(lua_State* L) {
@@ -691,7 +691,7 @@ const Hke* ScriptEngine::RagdollDef(const std::string& model) {
 			LogInfo("ragdoll: %s: %s", model.c_str(), slot.error.c_str());
 
 		// A gib whose .hke will not parse (none shipped, now that the binary
-		// form decodes): the live ragdoll cut where the gib MESH is cut - a
+		// form decodes): the live ragdoll cut where the gib mesh is cut - a
 		// constraint survives when a gib mesh spans it. Physics.md, "Gibs".
 		const size_t n = model.size();
 		if (n > 4 && model.compare(n - 4, 4, "_gib") == 0) {
@@ -765,12 +765,12 @@ std::string ScriptEngine::JointName(Entity& e, int joint) {
 }
 
 // MDL.JointsLinked(e, a, b) - are these two joints connected through the
-// RAGDOLL, as opposed to through the skeleton?
+// ragdoll, as opposed to through the skeleton?
 //
-// THE SKELETON WOULD ALWAYS SAY YES. It is a tree, so every bone reaches the
+// The skeleton would always say yes. It is a tree, so every bone reaches the
 // root by definition - evilmonkv2's axeL runs axeL -> dlo_lewa_root ->
 // r_l_lokiec -> r_l_bark -> ... -> root. The ragdoll is a different graph: the
-// .hke gives a weapon a rigid body with NO constraint attaching it to
+// .hke gives a weapon a rigid body with no constraint attaching it to
 // anything, so axeL is linked to nothing at all.
 //
 // That is what the question is for. Stake, BoltStick and PainHead ask it
@@ -788,10 +788,10 @@ bool ScriptEngine::JointsLinked(Entity& e, int a, int b) {
 	if (const Hke* def = RagdollDef(e.source))
 		return def->Linked(RagdollBoneForJoint(e, *def, a), RagdollBoneForJoint(e, *def, b));
 
-	// NO DECODED RAGDOLL: answer as the SKELETON does, yes. False here is not
-	// a neutral default but the DETACHABLE-ELEMENT answer, which made the 19
+	// No decoded ragdoll: answer as the skeleton does, yes. False here is not
+	// a neutral default but the detachable-element answer, which made the 19
 	// monsters with a binary .hke immune to stake, bolt and PainHead alike.
-	// Docs/Reference/Physics.md, "STAND-IN: JointsLinked with a binary .hke"
+	// Docs/Reference/Physics.md, "stand-in: JointsLinked with a binary .hke"
 	const auto it = ragdolls_.find(e.source); // RagdollDef may rehash
 	return a >= 0 && b >= 0 && it != ragdolls_.end() && it->second.binary;
 }
@@ -824,15 +824,15 @@ int DeathNatives::L_MDL_EnableJoint(lua_State* L) {
 	return 0;
 }
 
-// PHYSICS.RemoveHavokBodyFromIS(he, on) - take ONE BODY out of the traces.
+// PHYSICS.RemoveHavokBodyFromIS(he, on) - take one body out of the traces.
 //
 // The finest grain in the whole intersection-solver family: the entity pair
 // switches a whole actor, the ragdoll pair switches all of its limbs, and this
 // switches a single limb. The stake needs exactly that - it has just hit a
-// weapon, wants to know what is BEHIND it, and cannot afford to make the rest
+// weapon, wants to know what is behind it, and cannot afford to make the rest
 // of the monster invisible to do so.
 //
-// The argument reads backwards and does in the engine too: `true` REMOVES.
+// The argument reads backwards and does in the engine too: `true` removes.
 int DeathNatives::L_PHYSICS_RemoveHavokBodyFromIS(lua_State* L) {
 	ScriptEngine* self = From(L);
 	if (!lua_isnumber(L, 1)) return 0;
@@ -937,7 +937,7 @@ int DeathNatives::L_PHYSICS_PinHavokBody(lua_State* L) {
 //
 // - because a body can be gone by the time the hit is resolved (the thing
 // gibbed, and Ragdoll.Remove took it). Unimplemented, the call returned nil,
-// `not nil` is true, and `he` was cleared on EVERY hit. Every
+// `not nil` is true, and `he` was cleared on every hit. Every
 // WORLD.HitPhysicObject below that line then got nothing, which is why the alt
 // fire moved debris - spawned fresh and hit through another path - but never
 // shoved an intact prop.
@@ -961,7 +961,7 @@ int DeathNatives::L_PHYSICS_IsHavokBodyInWorld(lua_State* L) {
 
 // The limb boxes of one model, derived once and kept.
 //
-// Deriving them means loading the model again for its SKIN WEIGHTS, which the
+// Deriving them means loading the model again for its skin weights, which the
 // skeleton cache does not keep - it holds bones and bind matrices only. That is
 // once per model type for the life of the process, against a box set that never
 // changes: the boxes live in bone space, so animation moves them for free.
@@ -1010,10 +1010,10 @@ int ScriptEngine::RagdollPartOfJoint(Entity& e, int joint) {
 // MDL.MakeGib(e, group, velocityJoint) is how a monster comes apart.
 // World::GibModel (0x10060D90) with Model::SetupGib (0x101E1A40):
 //
-//   1. the gib is a NEW entity of the model "<name>_gib", at the source's
+//   1. the gib is a new entity of the model "<name>_gib", at the source's
 //      position, rotation and scale (CreateEntity type 4);
 //   2. SetupGib poses both skeletons and copies the source's bone matrices
-//      into the gib's BY BONE NAME, then Ragdoll::Animate puts the gib's
+//      into the gib's by bone name, then Ragdoll::Animate puts the gib's
 //      limbs there - so the pieces start exactly where the body was;
 //   3. Ragdoll::Activate hands them to the solver, and SetVelocities gives
 //      every limb the source's linear and angular velocity - the body's, or
@@ -1022,7 +1022,7 @@ int ScriptEngine::RagdollPartOfJoint(Entity& e, int joint) {
 //   4. a gib model with no ragdoll is removed again and nothing is returned,
 //      which is the `if gib then` every caller wraps this in.
 //
-// The bursting apart is NOT here: CActor:CreateGib turns explosions off on
+// The bursting apart is not here: CActor:CreateGib turns explosions off on
 // the gib, and two ticks later turns them back on and calls
 // RagdollSelfExplosion with the template's GibExplosionStrength * 0.2..0.25
 // and GibExplosionRange. The scripts then release the source entity and
@@ -1036,7 +1036,7 @@ int ScriptEngine::MakeGib(Entity& src, int group, const char* velocityJoint) {
 		return 0;
 	}
 
-	// What the source was doing, read BEFORE anything is created.
+	// What the source was doing, read before anything is created.
 	Vec3 lin, ang;
 	if (src.physicsBody >= 0) {
 		physics_->GetScriptBodyVelocity(src.physicsBody, lin);
@@ -1137,7 +1137,7 @@ int DeathNatives::L_MDL_ApplyVelocitiesToAllJoints(lua_State* L) {
 
 // MDL.ApplyPositionToJoint(e, joint, x, y, z) -> Ragdoll::Joint_SetPosition,
 // and SetJointPositionLowLevel -> Joint_SetPositionLL. This is how a monster
-// HOLDS a body: Leper_monk poses its hostage's joint every tick, and so do
+// holds a body: Leper_monk poses its hostage's joint every tick, and so do
 // Preacher, Skull and Pinokio. What "low level" skips is not recovered, so
 // both place the limb. Docs/Reference/Physics.md, "Holding a body by one joint".
 int DeathNatives::L_MDL_ApplyPositionToJoint(lua_State* L) {
@@ -1152,7 +1152,7 @@ int DeathNatives::L_MDL_ApplyPositionToJoint(lua_State* L) {
 	return 0;
 }
 
-// MDL.ApplyRotationToJoint(e, joint, ...) takes EITHER form: three numbers are
+// MDL.ApplyRotationToJoint(e, joint, ...) takes either form: three numbers are
 // an Euler (converted as FUN_1011BEA0 does), four are a quaternion in w,x,y,z.
 // The thunk decides on whether argument 6 exists. Leper_monk uses both.
 int DeathNatives::L_MDL_ApplyRotationToJoint(lua_State* L) {
@@ -1224,7 +1224,7 @@ int DeathNatives::L_MDL_IsPinnedJoint(lua_State* L) {
 	return 1;
 }
 
-// MDL.GetRagdollJointPos / GetRagdollJointRotation - where the SOLVER has a
+// MDL.GetRagdollJointPos / GetRagdollJointRotation - where the solver has a
 // limb, not where the animation would put it. Both answer for an absent
 // ragdoll (0,0,0 and identity) because Apoc_zombie feeds them to a Vector and
 // a Quaternion constructor without checking.
@@ -1277,7 +1277,7 @@ int DeathNatives::L_MDL_ApplyVelocitiesToJointLinked(lua_State* L) {
 }
 
 // PHYSICS.IsHavokBodyPinned(he) / SetHavokBodyVelocity(he, x, y, z) - the same
-// two questions asked of a LIMB handle rather than an entity.
+// two questions asked of a limb handle rather than an entity.
 int DeathNatives::L_PHYSICS_IsHavokBodyPinned(lua_State* L) {
 	ScriptEngine* self = From(L);
 	int entity = 0, joint = -1, part = -1;

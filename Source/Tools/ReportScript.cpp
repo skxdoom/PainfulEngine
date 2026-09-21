@@ -624,7 +624,7 @@ int LuaCmd(const char* dataRoot, int frames, const char* level,
 	engine.AttachPhysics(&physics, dataRoot);
 	engine.AttachPlayer(&pawn);
 	engine.AttachInput(&input);
-	// The texture INDEX only (createWhite=false, so no graphics device). It
+	// The texture index only (createWhite=false, so no graphics device). It
 	// gives MATERIAL.Size real dimensions, which is what the HUD scripts lay
 	// themselves out from - without it Hud:Render aborts on its own
 	// "material not found" diagnostic and takes the rest of PostRender with it.
@@ -694,7 +694,7 @@ int LuaCmd(const char* dataRoot, int frames, const char* level,
 			engine.TickLifetimes(sim);
 			// The same tail the game loop runs. Without these the headless path
 			// is not the game minus a window: bound entities never follow what
-			// they hang off, and CONTACTS ARE NEVER REPORTED - so a destructible
+			// they hang off, and contacts are never reported - so a destructible
 			// could not break here even though the physics under it is real.
 			engine.UpdateAttached();
 			engine.TickSounds(sim);
@@ -708,7 +708,7 @@ int LuaCmd(const char* dataRoot, int frames, const char* level,
 			audio.Update();
 			// PAINFUL_REALTIME=1 paces the loop at 60 Hz wall time so the
 			// mixer, which runs on the device clock, keeps up with the policy
-			// clock - the only way to see a voice actually END.
+			// clock - the only way to see a voice actually end.
 			if (realtime) std::this_thread::sleep_for(std::chrono::microseconds(16667));
 		}
 	}
@@ -826,7 +826,7 @@ int WpsCmd(const char* path) {
 			floorHist.empty() ? 0 : floorHist.begin()->first,
 			floorHist.empty() ? 0 : floorHist.rbegin()->first);
 
-	// Connectivity first. Routing between the bounding box's two CORNERS
+	// Connectivity first. Routing between the bounding box's two corners
 	// reports "no path" on most levels, and that is the test being wrong
 	// rather than the graph: a corner is exactly where a sealed pocket, an
 	// out-of-bounds marker or a separate island tends to sit. What matters is
@@ -861,7 +861,7 @@ int WpsCmd(const char* path) {
 			components, largest, wps.nodes.size(),
 			100.0 * double(largest) / double(wps.nodes.size()));
 
-	// Then the farthest apart pair WITHIN that component, which is a route
+	// Then the farthest apart pair within that component, which is a route
 	// that must exist. Walked distance over straight-line distance is how much
 	// the level makes an actor bend - the number that was 1.00 before any of
 	// this, because a straight line was all there was.
@@ -939,12 +939,12 @@ int SoundCmd(const char* root, const char* name, const char* seconds) {
 }
 
 
-// One axis-aligned box of STATIC world geometry.
+// One axis-aligned box of static world geometry.
 //
 // Six faces, four vertices each so every face carries its own normal. The
 // winding is the exporter's, not the intuitive one: the geometric normal of
-// each triangle must OPPOSE its vertex normal (see MapMesh::Write). Corners
-// are handed in counter-clockwise order as seen from OUTSIDE the box, which
+// each triangle must oppose its vertex normal (see MapMesh::Write). Corners
+// are handed in counter-clockwise order as seen from outside the box, which
 // would give a geometric normal along +n, so the indices are emitted reversed.
 // Wound the other way a step is invisible from the front and the player walks
 // through it.
@@ -953,7 +953,7 @@ static void AddBoxFace(MapObject& o, const Vec3& c0, const Vec3& c1,
 		float uvPerUnit) {
 	const uint16_t base = uint16_t(o.vertexCount());
 	const float* corner[4] = {c0, c1, c2, c3};
-	// Planar UVs off the two axes the face does NOT point along, so the
+	// Planar UVs off the two axes the face does not point along, so the
 	// texture keeps its world scale on every face.
 	const int axis = (std::fabs(n[0]) > 0.5f) ? 0 : (std::fabs(n[1]) > 0.5f ? 1 : 2);
 	const int u = (axis == 0) ? 2 : 0;
@@ -989,7 +989,7 @@ static MapObject MakeStepBox(const std::string& name, float cx, float cz, float 
 	MapObject box;
 	// A plain name is plain solid geometry - no portal, zone, barrier or
 	// physics substring - which is what MapObject::isCollidable answers true
-	// for. These are STATIC world mesh, not props: nothing can shove them and
+	// for. These are static world mesh, not props: nothing can shove them and
 	// they need no body of their own.
 	box.name = name;
 	box.uvChannels = 2;
@@ -1073,16 +1073,12 @@ int MkLevelCmd(const char* dataRoot, const char* levelName, float extent,
 	const std::string root = dataRoot;
 	const std::string name = levelName;
 	// Slot 1 on every object. A flat white bitmap is a neutral lightmap: the
-	// surface renders unlit-looking but the RECORD matches shipped geometry.
+	// surface renders unlit-looking but the record matches shipped geometry.
 	const std::string lightmap = (lightmapArg && *lightmapArg) ? lightmapArg : "LM";
-	// ONE QUAD, NOT A GRID.
-	//
-	// A flat floor needs two triangles; the texture tiles through UVs greater
-	// than 1, not through geometry. It used to be a 64x64 grid, which put 8192
-	// COPLANAR triangles in a single object - something no shipped map does,
-	// and the classic pathological input for a spatial-partition builder. The
-	// original engine hangs rather than crashes on this level, which is what
-	// that looks like from outside.
+	// One quad, not a grid: a flat floor needs two triangles and the texture
+	// tiles through UVs greater than 1, not through geometry. Thousands of
+	// coplanar triangles in one object is the pathological input for a
+	// spatial-partition builder, and no shipped map has it.
 	constexpr int kCells = 1;
 	const float step = (extent * 2.f) / float(kCells);
 	// One texture repeat every 8 world units, so a 400-unit floor tiles 50
@@ -1095,7 +1091,7 @@ int MkLevelCmd(const char* dataRoot, const char* levelName, float extent,
 	// which is what MapObject::isCollidable answers for anything without one
 	// of those tokens.
 	floor.name = "floor_generated";
-	// LIGHTMAPPED, like every shipped world object that carries one.
+	// Lightmapped, like every shipped world object that carries one.
 	//
 	// uvChannels 2 changes the vertex record: the normal leaves the inline
 	// slot for its own array and the freed floats become the second UV set.
@@ -1125,13 +1121,13 @@ int MkLevelCmd(const char* dataRoot, const char* levelName, float extent,
 
 	// Wound to match the shipped exporter, which is measured rather than
 	// assumed: 283457 of the 283501 triangles in 1x01_Chaos have a geometric
-	// normal OPPOSING their vertex normal. Going round the quad the obvious
+	// normal opposing their vertex normal. Going round the quad the obvious
 	// way - (a, b, c) then (a, c, d) with the grid laid out +x, +z - happens
 	// to give exactly that, because cross(+x, +x+z) points -y.
 	//
 	// Which is the whole point of matching it. The renderer culls CCW and
 	// PhysicsWorld feeds Jolt the reverse of each triangle; a floor wound the
-	// intuitive way would be invisible from above AND let bodies through.
+	// intuitive way would be invisible from above and let bodies through.
 	const int stride = kCells + 1;
 	floor.indices.reserve(size_t(kCells) * kCells * 6);
 	for (int iz = 0; iz < kCells; ++iz) {
@@ -1195,7 +1191,7 @@ int MkLevelCmd(const char* dataRoot, const char* levelName, float extent,
 		return 1;
 	}
 
-	// The rest of a level is text. o.Scale multiplies the WORLD MESH and
+	// The rest of a level is text. o.Scale multiplies the world mesh and
 	// nothing else, so 1 keeps mesh units and world units the same and makes
 	// the numbers above mean what they say.
 	char settings[1024];
@@ -1225,10 +1221,10 @@ int MkLevelCmd(const char* dataRoot, const char* levelName, float extent,
 		return 1;
 	}
 
-	// A monster spawn point. NOT the player start - that is the level's own
+	// A monster spawn point. not the player start - that is the level's own
 	// o.Pos, which CLevel:Synchronize pushes out through CAM.SetPos and
 	// Game:CreatePlayerSP then seats the player at. This is CSpawnPoint, which
-	// every shipped level carries and which spawns ACTORS; it is written here
+	// every shipped level carries and which spawns actors; it is written here
 	// because a level with no entity directories at all is unlike anything the
 	// original tools have seen.
 	//
@@ -1362,12 +1358,12 @@ int PoseCmd(const char* modelPath, const char* animName, const char* timeArg) {
 // What the ragdoll definition names, and how big each limb actually is.
 //
 // The .rde carries no shape at all - only mass and material - so this is the
-// check that the shapes CAN be derived from the model, and that the bone names
+// check that the shapes can be derived from the model, and that the bone names
 // in the two files agree. A limb the .rde names but the model never weights a
 // vertex to would come back with no box, and that is worth seeing.
 // What the .hke actually says, and whether it agrees with everything else.
 //
-// Given one model it dumps the ragdoll; given a DIRECTORY it sweeps every .hke
+// Given one model it dumps the ragdoll; given a directory it sweeps every .hke
 // beside it and reports the totals. The sweep is the real test: a parser that
 // reads one file proves nothing about a format nobody has documented, and the
 // `unknown keywords` count is what says the coverage is complete rather than

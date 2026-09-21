@@ -7,7 +7,7 @@
 
 namespace painful {
 
-// The last key. After Load has rebased the timeline that IS the length, which
+// The last key. After Load has rebased the timeline that is the length, which
 // is how the engine reports it: the loader stores the final rebased key into
 // the field GetAnimationTotalTime reads back (Model::GetAnimationTotalTime,
 // 0x101de730, returns *(float*)(anim + 0x10)). The engine takes it from the
@@ -62,7 +62,7 @@ bool Animation::Load(const std::string& path, Animation& out) {
 
 	// Rebase the timeline to zero.
 	//
-	// A .ani is a SLICE of a longer authored take and keeps that take's own
+	// A .ani is a slice of a longer authored take and keeps that take's own
 	// timestamps rather than starting at zero. PKW.obrot's nine keys run
 	// 2.84 -> 3.16; PKW.idle's run 1.4 -> 5.8. That is not a handful of odd
 	// files: 103 of the 1228 shipped animations begin somewhere other than
@@ -74,14 +74,14 @@ bool Animation::Load(const std::string& path, Animation& out) {
 	// whole 3.16s loop clamped to key 0 and only moves in the last 0.32s.
 	//
 	// Engine.dll's loader (the Animation vtable's Load, 0x10049310) takes the
-	// first key of the FIRST track as the origin and subtracts it from every
+	// first key of the first track as the origin and subtracts it from every
 	// key of every track:
 	//     fVar3   = **(float **)(iVar2 + 0x10);   // track 0, key 0
 	//     *pfVar5 = *pfVar1 - fVar3;              // every key, stride 0xa0
 	// It then stores the last rebased key as the animation's total time, which
 	// is why duration() reads the same place.
 	//
-	// The header float is NOT that length. It is the authored total including
+	// The header float is not that length. It is the authored total including
 	// one trailing frame step - 0.36 against obrot's 0.32, 0.52 against
 	// rozkrecenie's 0.48 - so a script's `animTime == GetAnimLength` finish
 	// test would never fire if we reported it.

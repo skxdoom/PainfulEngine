@@ -19,12 +19,12 @@ namespace painful {
 //    kEyeAboveFloor.
 //  - Positions are head-anchored: head = centre + 0.9h, floor = centre -
 //    1.1h with h the half-height (GetPawnHeadPos / GetPawnFloorPos, the
-//    0.9/1.1 at 0x102c8510/0x102c7c04). SetPawnHeadPos takes the EYE
+//    0.9/1.1 at 0x102c8510/0x102c7c04). SetPawnHeadPos takes the eye
 //    position - Lev.Pos is eye level.
 //  - The mover is an impulse toward a target velocity, mass * f * (target -
 //    v) once per frame: f = 0.2 walking, 0.5 on a step rung (with a vertical
 //    target of 0.4/0.5/0.8 of the speed), 1 for a jump, StrongAirControl /
-//    WeakAirControl in the air. So there IS a walk ramp, about ten frames.
+//    WeakAirControl in the air. So there is a walk ramp, about ten frames.
 //  - jumpVelocity = JumpStrength * PlayerSpeed * 0.7 (the 0.7 at
 //    0x102c8648) = 5.6 m/s stock, an 0.8 m hop at gravity 19.62.
 //  - Bunny-hop: a jump pressed within SecondsWhenYouCanBunnyHopBeforeLanding
@@ -32,14 +32,14 @@ namespace painful {
 //    currentSpeed += (MaximalBunnyHopSpeed - currentSpeed) *
 //    BunnyHopAcceleration, clamped at the maximum. Standing on the ground
 //    past the AfterLanding window resets currentSpeed to PlayerSpeed.
-//  - Air control is CPMA-style: the MOUSE steers a jump, the keys do not. The
+//  - Air control is CPMA-style: the mouse steers a jump, the keys do not. The
 //    input mask freezes at takeoff and is re-accumulated each frame against
 //    the current camera basis, so turning reverses the travel at full speed.
 //    Live input only cancels: the opposition is the live mask against the
 //    takeoff mask - camera-independent, since both use the same basis - and an
 //    opposite key bleeds speed by SlowdownDuringJump * speed * opposition
 //    (halved while it exceeds the speed) until the player drops in place.
-//  - MULTIPLAYER IS A SECOND MOVER, MultiPlayerAction (0x10194580), with its
+//  - Multiplayer is a second mover, MultiPlayerAction (0x10194580), with its
 //    own tweak block; its reversal drops speed to 1.0 outright.
 //    Docs/Reference/PlayerMovement.md, "The two movers"
 class PlayerPawn {
@@ -56,7 +56,7 @@ public:
 	// neither slows walking nor drives the player into the floor - the
 	// forward vector it is also handed carries a Y component and is not used
 	// for this. Of the mask it consumes only Act::MoveMask.
-	// dt is the REAL frame time - the mover keeps real time in slow motion -
+	// dt is the real frame time - the mover keeps real time in slow motion -
 	// and simDt the world's, for what it borrows from the simulation (a
 	// platform's carry). PlayerMovement.md, "Slow motion".
 	// Not const: a blocked pawn shoves the character in its way.
@@ -65,7 +65,7 @@ public:
 
 	const float* headPos() const { return head_; }
 	void SetHeadPos(const Vec3& p);
-	// A teleport addressed to the ENTITY, whose origin is the feet.
+	// A teleport addressed to the entity, whose origin is the feet.
 	void SetFloorPos(const Vec3& p) {
 		const Vec3 head{p[0], p[1] + kEyeAboveFloor, p[2]};
 		SetHeadPos(head);
@@ -86,7 +86,7 @@ public:
 	// session. Our port has no such session yet, so the -mp launch flag stands
 	// in. Docs/Reference/PlayerMovement.md, "The two movers"
 	void SetMultiplayer(bool on) { mp_ = on; }
-	// Whether the LAST Move actually performed a jump. ENTITY.PO_JumpedInLastAction
+	// Whether the last Move actually performed a jump. ENTITY.PO_JumpedInLastAction
 	// answers with this: CPlayer:Tick plays hero_jump on it, and inferring it
 	// from "left the ground" made every stair play the sound.
 	bool jumpedLastMove() const { return jumpedThisMove_; }
@@ -142,7 +142,7 @@ public:
 	// PlayerAction queues PLAYER_HIT_GROUND when the touchdown speed times the
 	// world speed passes kHitGroundSpeed; fall damage itself is script-side,
 	// in OnHitGround. Its velocities are in simulation units (real / s), so
-	// that product is the REAL speed; the pawn's are real already.
+	// that product is the real speed; the pawn's are real already.
 	// PlayerMovement.md, "Slow motion".
 	//
 	// Returns the fall speed to report, or 0 for a soft landing. Clears the
@@ -164,7 +164,7 @@ private:
 	// 1.0 for the player, which the mass confirms (80 = 0.2^3 * 10000 at
 	// bodyScale 1). So the eye sits exactly 2.0 above the floor contact.
 	//
-	// Not 2.31: that came from scaling the player_box MODEL (14.90 units at
+	// Not 2.31: that came from scaling the player_box model (14.90 units at
 	// 0.155) and treating its half-height as the multiplier, which made the
 	// player a noticeable 15% too tall. The four-sphere collision stack is
 	// the authority, and it agrees - centres -0.63/-0.10/+0.50/+0.90 with
@@ -173,10 +173,10 @@ private:
 	// matches it far better than a scaled 0.92 would.
 	static constexpr float kEyeAboveFloor = 2.0f;
 	// GetPawnHeadPos = centre + 0.9, GetPawnFloorPos = centre - 1.1. The
-	// stack's bottom is 0.96 below the centre and the body RESTS ON IT - a
+	// stack's bottom is 0.96 below the centre and the body rests on it - a
 	// dynamic body does not hover - so the floor point the scripts read sits
-	// 0.14 under the mesh and the eye 1.86 over it. A 0.14 hover was tried
-	// and put every rung 0.14 too high. PlayerMovement.md, "The pawn".
+	// 0.14 under the mesh and the eye 1.86 over it. Hover stays zero: adding
+	// it raises every step rung with it. PlayerMovement.md, "The pawn".
 	static constexpr float kEyeAboveCentre = 0.9f;
 	static constexpr float kFloorBelowCentre = 1.1f;
 	static constexpr float kHover = 0.f;

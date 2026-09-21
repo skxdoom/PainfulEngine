@@ -74,7 +74,7 @@ void ScriptEngine::AttachInput(Input* input) {
 	input_ = input;
 }
 
-// THE PLAYER ENTITY SITS AT THE FEET, not at the eyes.
+// The player entity sits at the feet, not at the eyes.
 //
 // Three shipped scripts agree, and none of them would work otherwise:
 //   CPlayer:IsOnGround traces from GetPosition()+0.5 down to -0.6 looking for
@@ -82,7 +82,7 @@ void ScriptEngine::AttachInput(Input* input) {
 //   BindSoundToEntity parks a player's sound at offset (0, 2, 0) with the
 //     comment "-- head", and kEyeAboveFloor is exactly 2;
 //   PainHead:Tick flies the returning blade to GetPosition()+1.62, which is
-//     chest height off the floor and a good half-metre OVER the head off the
+//     chest height off the floor and a good half-metre over the head off the
 //     eyes - which is where the blades were going.
 //
 // ENTITY.PO_GetPawnHeadPos is what the weapons ask when they want the eye, and
@@ -120,7 +120,7 @@ void ScriptEngine::SyncFromPhysics(bool activeOnly) {
 		if (!e) continue;
 		// A projectile's body is kinematic and carries the velocity
 		// SetVelocity gave it, so the physics step moves it too - and reading
-		// that back ADDED a second advance on top of the one TickProjectiles
+		// that back added a second advance on top of the one TickProjectiles
 		// had already made. A stake configured for 70 m/s flew at 140, and
 		// every distance-dependent thing in the scripts came out at half the
 		// range: Stake:Tick's arc starts on a timer, so it began its dive 28m
@@ -149,7 +149,7 @@ void ScriptEngine::CreateRendererInstance(Entity& e) {
 	if (!renderer_ || !textures_ || e.rendererInstance >= 0) return;
 	if (e.worldObject && e.activeMesh >= 0 && size_t(e.activeMesh) < map_.objects.size()) {
 		// A world object physics owns: drawn by the entity path, at the body.
-		// Re-based on the ORIGIN the body was made at, not the pose: after a
+		// Re-based on the origin the body was made at, not the pose: after a
 		// load the two differ by however far the object had moved.
 		e.rendererInstance = renderer_->CreateWorldObject(
 				map_.objects[size_t(e.activeMesh)], world_.scale, e.activeOrigin, *textures_,

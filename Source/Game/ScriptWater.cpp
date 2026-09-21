@@ -1,6 +1,6 @@
 // ScriptEngine: water surfaces, and the ENTITY.IsWater the weapons ask about.
 //
-// A surface is water because of its NAME. WorldMesh::SetupFlags (0x101d7050)
+// A surface is water because of its name. WorldMesh::SetupFlags (0x101d7050)
 // runs plain lowercase strstr tests over the object name and sets 0x8000000 for
 // "water" - and 0x8000000 is bit 27, which is exactly the bit ENTITY.IsWater
 // (0x10136050) reads off the entity after checking its type is 1, ETypes.Mesh.
@@ -8,7 +8,7 @@
 // and nothing about it is file data. See Docs/Reference/Water.md.
 //
 // The port has a complication the original does not. In PainEngine the level's
-// geometry IS entities, so a trace naturally reports which object it hit and
+// geometry is entities, so a trace naturally reports which object it hit and
 // the scripts can ask about it. Here the collidable world is one anonymous
 // body, and - worse - every shipped water object is also named `noclip`
 // (`water_noclip_ashape` in City on Water), which is one of the tokens

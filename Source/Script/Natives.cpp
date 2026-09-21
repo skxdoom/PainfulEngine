@@ -95,7 +95,7 @@ uint32_t ArgU32(lua_State* L, int i) {
 	return static_cast<uint32_t>(static_cast<int64_t>(luaL_checknumber(L, i)));
 }
 
-// The script-facing quaternion is DOUBLE: the Lua stack is doubles and these
+// The script-facing quaternion is double: the Lua stack is doubles and these
 // natives compose in that precision. Core's float Quat is the engine-internal
 // one; the two must not be mixed, which is what the D distinguishes.
 struct QuatD { double w, x, y, z; };
@@ -197,7 +197,7 @@ int L_NoOp(lua_State*) { return 0; } // the luaProfiler_* family
 int L_True(lua_State* L) { lua_pushboolean(L, 1); return 1; }
 int L_False(lua_State* L) { lua_pushboolean(L, 0); return 1; }
 
-// Game:Init refuses to run unless BOTH version strings are exactly "1.4" -
+// Game:Init refuses to run unless both version strings are exactly "1.4" -
 // the internal engine/exe version pair, not the marketing patch number.
 // GetPainkillerVersionString is registered by Painkiller.exe rather than
 // Engine.dll, which is why the recovered native list does not carry it.
@@ -255,10 +255,10 @@ int L_ReplaceBitFlag(lua_State* L) {
 //   w = cz*cy*cx + sx*sz*sy      x = cz*cy*sx - sz*sy*cx
 //   y = sy*cz*cx + sz*sx*cy      z = sz*cy*cx - sy*sx*cz
 //
-// which is exactly qz * qy * qx, output as [w,x,y,z]. So the rotation is
-// Rz*Ry*Rx - X applied first. This used to compose qx*qy*qz, the reverse,
-// and a reversed quaternion product is a different rotation, not the inverse
-// of one; every scripted Euler rotation was wrong away from the axes.
+// Which is exactly qz * qy * qx, output as [w,x,y,z]. So the rotation is
+// Rz*Ry*Rx - X applied first. The order is load-bearing: a reversed
+// quaternion product is a different rotation, not the inverse of one, and it
+// reads correct on the axes and wrong everywhere else.
 
 QuatD QuatFromAxisAngle(double angle, double x, double y, double z) {
 	const double len = std::sqrt(x * x + y * y + z * z);
@@ -338,7 +338,7 @@ int L_RotateQuatByAxisAngle(lua_State* L) {
 // given normal. The Lua Quaternion class routes all three through the Z
 // variant, so exactness beyond Z matters little.
 //
-// Built in the ENGINE's convention, which rotates a vector as q^-1 * v * q -
+// Built in the engine's convention, which rotates a vector as q^-1 * v * q -
 // so this is the conjugate of the textbook shortest arc, and the round trip
 // that matters is `NormalZToQuat(n)` then `TransformVector(0,0,1)` giving
 // back n. Getting it the textbook way round points every shot backwards:
@@ -523,9 +523,9 @@ int L_MOUSE_GetPos(lua_State* L) {
 
 // FS.GetBaseObjInfo(path): pre-scans an instance file for its BaseObj
 // assignment and sets it on the global `o`. Load-bearing: instance files
-// reference template fields on their FIRST line (o.Explosion.Range = ...)
+// reference template fields on their first line (o.Explosion.Range = ...)
 // while declaring `o.BaseObj = "Explosion.CAction"` at the bottom, so LoadObj
-// must know the base to clone BEFORE running the file.
+// must know the base to clone before running the file.
 int L_FS_GetBaseObjInfo(lua_State* L) {
 	const std::string path = LuaHost::FromState(L)->ResolvePath(luaL_checkstring(L, 1));
 	std::vector<uint8_t> bytes;
@@ -664,8 +664,8 @@ int L_FS_FindFiles(lua_State* L) {
 // appends, File_Close commits - to disk, or into the pak that CreatePAK
 // opened, under the file's basename. Docs/Reference/LuaHost.md, "Saving".
 //
-// The writer is FULL userdata with its own metatable, not a bare pointer: a
-// lightuserdata of another kind used to be written through as if it were one.
+// The writer is full userdata with its own metatable, not a bare pointer, so
+// a lightuserdata of another kind cannot be written through as if it were one.
 // __gc also reclaims a writer the scripts abandon.
 
 struct ScriptFile {
@@ -817,7 +817,7 @@ int L_FS_RemoveDirectory(lua_State* L) {
 	return 0;
 }
 
-// FS.DeleteFiles(dir): every FILE directly in dir (0x10142f10 lists "*.*"
+// FS.DeleteFiles(dir): every file directly in dir (0x10142f10 lists "*.*"
 // and DeleteFileA's each); subdirectories stay.
 int L_FS_DeleteFiles(lua_State* L) {
 	const std::string dir = LuaHost::FromState(L)->ResolvePath(luaL_optstring(L, 1, ""));

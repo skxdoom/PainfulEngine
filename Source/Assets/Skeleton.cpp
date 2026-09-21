@@ -156,7 +156,7 @@ Mat4 BlendPose(const Mat4& a, const Mat4& b, float u) {
 namespace {
 
 // A script's own rotation on top of the animation. `local` maps this bone's
-// space into its parent's, so PRE-multiplying applies the turn in the BONE's
+// space into its parent's, so pre-multiplying applies the turn in the bone's
 // frame - the head turns where it sits. Post-multiplying would apply it in the
 // parent's frame and swing the head around the neck instead.
 Mat4 ApplyJointOverride(Mat4 local, size_t bone,
@@ -231,7 +231,7 @@ void ComputeBoneWorldBlended(const std::vector<Bone>& bones,
 	u = std::min(1.f, std::max(0.f, u));
 	outWorld.assign(bones.size(), Mat4{});
 	for (size_t i = 0; i < bones.size(); ++i) {
-		// The script's own joint rotation goes on AFTER the cross-fade, not
+		// The script's own joint rotation goes on after the cross-fade, not
 		// into either side of it: a head turned to follow the player is
 		// turned by that much throughout the blend, not faded in with it.
 		const Mat4 a = LocalAtTime(bones, tracksA, i, timeA, nullptr, 0);
@@ -358,7 +358,7 @@ void SkinMeshVertices(const ModelMesh& mesh, const std::vector<Mat4>& skin,
 			px += double(t[0]) * inf.weight;
 			py += double(t[1]) * inf.weight;
 			pz += double(t[2]) * inf.weight;
-			// The normal rides the same matrix WITHOUT its translation.
+			// The normal rides the same matrix without its translation.
 			// Feeding it through TransformPoint would drag it to wherever the
 			// bone sits and light the model as if every face pointed there.
 			const float rx = nx * mtx[0] + ny * mtx[4] + nz * mtx[8];

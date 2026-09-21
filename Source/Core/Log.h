@@ -4,11 +4,9 @@
 // One log: stdout always, plus painful.log beside the executable once LogOpen
 // has been called. The tools never call LogOpen and print to the console only.
 //
-// There used to be three files - painful.log plus filtered copies of the script
-// and shader lines. The copies held nothing but a timestamp in any run that did
-// not fail, so the categories are line prefixes now and grep replaces the files.
-// A crash still gets painful_crash.log of its own: it is the file worth handing
-// to someone else, and it is written while the process is dying.
+// Categories are line prefixes, so grep serves in place of separate files. A
+// crash gets painful_crash.log of its own: it is the file worth handing to
+// someone else, and it is written while the process is dying.
 //
 // The emitters are C variadic rather than variadic templates so the format
 // string can be annotated: GCC and Clang then reject a mismatched argument at
@@ -46,7 +44,7 @@ void LogInfo(PAINFUL_FORMAT_STRING(const char* fmt), ...) PAINFUL_FORMAT_ATTR(1,
 // The high-volume diagnostic stream: instrumented stubs and the traces. First
 // thing dropped when the level is turned down.
 void LogTrace(PAINFUL_FORMAT_STRING(const char* fmt), ...) PAINFUL_FORMAT_ATTR(1, 2);
-// A script ERROR - the scripts' own print output goes through LogInfo with a
+// A script error - the scripts' own print output goes through LogInfo with a
 // "lua:" tag, so an error and a Game:Print do not read alike. And a shader the
 // loader could not resolve. Their own tags rather than their own files.
 void LogScript(PAINFUL_FORMAT_STRING(const char* fmt), ...) PAINFUL_FORMAT_ATTR(1, 2);

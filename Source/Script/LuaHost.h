@@ -88,9 +88,9 @@ public:
 	void FrameTick(double delta);
 
 	// Game_GetMsg(msg, ...) - the engine's event pump into the scripts
-	// (REGION_ENTERED, PLAYER_HIT_GROUND, EXPLOSION, ...). Numeric arguments
+	// (REGION_ENTERED, PLAYER_HIT_GROUND, explosion, ...). Numeric arguments
 	// follow the message name, the shape every handler reads via arg[N].
-	// `tail` appends one STRING argument after the numbers: IN_DEATH_ZONE ends
+	// `tail` appends one string argument after the numbers: IN_DEATH_ZONE ends
 	// with the zone's name, which CPlayer:InDeathZone matches "wat" against.
 	bool PostMsg(const char* msg, const double* args = nullptr, int nargs = 0,
 			const char* tail = nullptr);

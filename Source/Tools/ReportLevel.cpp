@@ -258,7 +258,7 @@ int FitCmd(const char* levelDir, const char* dataRoot) {
 // Given a level it goes all the way into gameplay: LoadLevel then
 // Game:OnPlay, so the player exists and the whole tick chain runs - actors,
 // weapons, pickup polling, triggers. That is what makes the report a
-// measurement of the GAME rather than of the boot. `exec` then runs one
+// measurement of the game rather than of the boot. `exec` then runs one
 // chunk between OnPlay and the first tick, which is how a scripted situation
 // gets set up headlessly (teleport into a trigger, poke a template).
 

@@ -24,12 +24,12 @@ namespace painful {
 namespace {
 
 // Two different limits, because a handle and a mixing slot are not the same
-// thing. The scripts CREATE a sound long before they play it - a flamethrower
+// thing. The scripts create a sound long before they play it - a flamethrower
 // loop, an elevator, a torch - and hold that handle for the life of the
-// entity. Cathedral alone holds ninety-odd at once, none of them audible.
-// Those cost nothing to mix, so the slot table starts generous and grows...
+// entity, most of them never audible. Those cost nothing to mix, so the slot
+// table starts generous and grows...
 constexpr size_t kMaxVoices = 512;
-// ...while what actually costs something, the REAL voices being mixed this
+// ...while what actually costs something, the real voices being mixed this
 // instant, is capped at what the original's Miles mixer reports
 // (DIG_MIXER_CHANNELS: 64). Which logical sounds hold a real voice is
 // TryToPlayReal's decision - Docs/Reference/Sound.md, "Virtual voices".
@@ -186,7 +186,7 @@ AudioEngine::Sample* AudioEngine::Load(const std::string& name) {
 	}
 	const std::string path = root_ + "/" + name + ".wav";
 
-	// Through the engine's VFS, NOT SDL_LoadWAV's own file opening. The
+	// Through the engine's VFS, not SDL_LoadWAV's own file opening. The
 	// shipped game reads its data out of .pak archives, and a loader that
 	// takes a filesystem path finds nothing there: every sound in the game
 	// goes missing and the whole thing is silent, while a loose-file data root
@@ -397,7 +397,7 @@ AudioEngine::Voice AudioEngine::Create(const std::string& name, bool positional)
 	return Open(name, positional, true);
 }
 
-// Play2D/Play3D are FIRE AND FORGET. Almost every caller drops the handle
+// Play2D/Play3D are fire and forget. Almost every caller drops the handle
 // without ever telling us, so these must not be held: a held voice keeps its
 // slot after it finishes, and ninety-six dropped one-shots later nothing can
 // play at all. The handle still works for the few callers that keep it - it
@@ -444,7 +444,7 @@ AudioEngine::Voice AudioEngine::Play3D(const std::string& name, const Vec3& pos,
 
 // ------------------------------------------------------------ real voices
 //
-// The original keeps every sound the scripts asked for as a LOGICAL sound and
+// The original keeps every sound the scripts asked for as a logical sound and
 // hands only some of them a Miles handle. What decides it, per file, is
 // SOUND.SetSoundProperties - how many instances may sound at once and how
 // close together two may start - and, per sound, how loud it would be:
@@ -539,7 +539,7 @@ void AudioEngine::TryToPlayReal(Playing& p, uint32_t nowMs) {
 
 	// The file's own cap first, then the mixer's. A 3D newcomer takes a voice
 	// only from something it clearly outscores; a 2D one always displaces the
-	// file's OLDEST 2D instance - the rule that keeps a burst of menu hovers or
+	// file's oldest 2D instance - the rule that keeps a burst of menu hovers or
 	// Painkiller wall hits from queueing up. Docs/Reference/Sound.md
 	if (file.real >= maxInstances) {
 		Playing* victim = nullptr;
@@ -958,7 +958,7 @@ std::vector<AudioEngine::VoiceState> AudioEngine::VoiceStates() const {
 		s.name = p.sample->name;
 		s.forget = !p.held;
 		s.sameSpeed = p.sameSpeed;
-		// SaveGame_PauseSounds stops what is audible into the pause set. ASSUMED: a
+		// SaveGame_PauseSounds stops what is audible into the pause set. assumed: a
 		// script's own Pause is a stop there (two SOUND2D natives reach Sound2D_Stop).
 		s.resumes = p.playing && !p.paused;
 		double cursor = p.cursor;
@@ -1107,7 +1107,7 @@ void AudioEngine::RefillStreams() {
 				if (!ms->DecodeFrame()) { ms->eof = true; break; }
 				continue;
 			}
-			// Flush BEFORE the flag: a callback that sees eof with data still
+			// Flush before the flag: a callback that sees eof with data still
 			// inside conv reads short, clears playing, and drops the tail.
 			SDL_FlushAudioStream(ms->conv);
 			ms->eof = true;

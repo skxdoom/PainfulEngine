@@ -62,9 +62,9 @@ inline bool EqualsCI(const std::string& a, const char* b) {
 	return i == a.size() && !b[i];
 }
 
-// The names a native body uses unqualified, which used to come from being a
-// member of ScriptEngine. Each family struct derives from this; friendship is
-// not inherited, so each still needs its own friend line in ScriptEngine.h.
+// The names a native body uses unqualified. Each family struct derives from
+// this; friendship is not inherited, so each also needs its own friend line in
+// ScriptEngine.h.
 struct ScriptNativesBase {
 	using Entity = ScriptEngine::Entity;
 	using EType = ScriptEngine::EType;
@@ -99,7 +99,7 @@ inline void RegisterFamily(ScriptEngine& engine, LuaHost& host, const ScriptNati
 
 // One binder per family, each defined in its own Script*.cpp beside the
 // natives it registers. ScriptEngine::Bind calls them in turn; adding a native
-// touches only that file, and only adding a FAMILY touches this header.
+// touches only that file, and only adding a family touches this header.
 void BindDecal(ScriptEngine& engine, LuaHost& host);
 void BindMenu(ScriptEngine& engine, LuaHost& host);
 void BindSound(ScriptEngine& engine, LuaHost& host);

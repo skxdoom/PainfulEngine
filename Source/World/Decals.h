@@ -52,7 +52,7 @@ struct DecalInstance {
 	std::string textureOverride; // SpawnStaticDecal's texture
 	float scale = 1.f; // CreateEntity's scale argument
 	// Row-vector basis: X and Y span the box (length = full width), Z is the
-	// depth axis pointing INTO the surface, T the spawn point.
+	// depth axis pointing into the surface, T the spawn point.
 	float basis[12] = {1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0};
 	Vec3 normal{0, 1, 0}; // out of the surface; the render nudge
 	std::vector<DecalVertex> verts;
@@ -61,7 +61,7 @@ struct DecalInstance {
 	bool finished = false;
 	uint8_t alpha = 255; // the fade factor, 0x01010101 * alpha
 	int objects = 0; // map objects appended, for diagnostics
-	// Cut on a body that moves: the vertices and normal are in the ENTITY's
+	// Cut on a body that moves: the vertices and normal are in the entity's
 	// frame and `transform` is its pose, refreshed every frame (the original
 	// registers the decal as the mesh's child). Decals.md, "On a moving mesh".
 	bool attached = false;

@@ -7,7 +7,7 @@
 
 namespace painful {
 
-// How PainEngine lights MODELS. The world mesh has baked lightmaps; entities
+// How PainEngine lights models. The world mesh has baked lightmaps; entities
 // have none, and are lit at runtime instead:
 //
 //   ambient          from the level's o.Ambient, overwritten by whichever
@@ -16,14 +16,14 @@ namespace painful {
 //                    over the box's DirLight.FadeTime when the entity
 //                    changes box
 //   the nearest      picked by attenuated intensity and handed to the shader
-//   positional ones  as positions, so they are evaluated PER PIXEL
+//   positional ones  as positions, so they are evaluated per pixel
 //
 // The original does the last part differently, and worse. Entity::
-// ComputeVSLights (0x1d1dc0) evaluates four lights at the ENTITY ORIGIN and
+// ComputeVSLights (0x1d1dc0) evaluates four lights at the entity origin and
 // hands the vertex shader a pre-attenuated colour, direction and half-vector
 // each (c12..c23, ambient at c11) - so a monster is lit as a whole, with a cone
 // edge that cannot follow the beam and no projector cookie. Against a wall lit
-// by the world's own light pass, which IS per pixel and DOES sample the cookie,
+// by the world's own light pass, which is per pixel and does sample the cookie,
 // the model reads as pasted on.
 //
 // So the positional lights go through the same per-pixel evaluation as the
@@ -35,7 +35,7 @@ namespace painful {
 // through the script layer, a chapel can place a dozen candles, and there is no
 // reason left to drop the ones that do not fit four vertex-shader slots.
 //
-// The number comes from the build, because the SHADERS declare their uniform
+// The number comes from the build, because the shaders declare their uniform
 // arrays with it too and bgfx pairs the two by name at runtime - a value that
 // disagreed would be silently wrong lighting rather than a build error. Set it
 // in the top-level CMakeLists.txt, nowhere else.
@@ -53,7 +53,7 @@ constexpr int kMaxCharacterShadows = PAINFUL_MAX_CHAR_SHADOWS;
 
 // One light, level-placed or created at runtime by LIGHT.Setup. The runtime
 // ones are the flashlight, the torches monsters carry and the flashes an
-// action fires off; they are the only lights the WORLD mesh is lit by, because
+// action fires off; they are the only lights the world mesh is lit by, because
 // the placed ones are already in its lightmap.
 // Docs/Reference/Lighting.md
 struct LightSource {
@@ -71,8 +71,8 @@ struct LightSource {
 	// range, linear between. The engine stores range first.
 	float range = 10.f;
 	float startFalloff = 0.f;
-	// LIGHT.SetFalloff takes ONE cone angle and derives both cosines from it:
-	// cos(a) is the outer edge and cos(0.8a) the inner one, with a in DEGREES
+	// LIGHT.SetFalloff takes one cone angle and derives both cosines from it:
+	// cos(a) is the outer edge and cos(0.8a) the inner one, with a in degrees
 	// straight through (0x10137720). There is no ConeOuterAngle property.
 	float coneCos = -1.f, coneOuterCos = -1.f;
 	bool fakeSpecular = false;
@@ -90,17 +90,17 @@ struct LightSource {
 
 // Light::GetAttIntensity (0x101d4380) - the score Entity::AddLight ranks the
 // slots by. In the original it is also a point light's whole falloff on a
-// MODEL; here only the ranking survives, because the shading uses the world
+// model; here only the ranking survives, because the shading uses the world
 // pass's quadratic curve for models too. Docs/Reference/Lighting.md
-// `radius` scores a SPHERE rather than a point: a light that reaches any part
+// `radius` scores a sphere rather than a point: a light that reaches any part
 // of a model has to score above zero, because a zero score costs it a slot and
 // the model goes unlit whole. Pass 0 for a genuine point probe.
 float LightAttenuation(const LightSource& l, const Vec3& at, float radius = 0.f);
-// How far the light can possibly reach, for culling. A SPOT runs `range` along
+// How far the light can possibly reach, for culling. A spot runs `range` along
 // its axis, so the rim of its cone sits further out than that - cull it by the
 // sphere and the beam is cut off at a chunk boundary. Docs/Reference/Lighting.md
 float LightReach(const LightSource& l);
-// Fills coneCos / coneOuterCos from ONE authored angle in degrees.
+// Fills coneCos / coneOuterCos from one authored angle in degrees.
 void SetCone(LightSource& l, float degrees);
 
 // Everything a model needs for one frame.
@@ -141,10 +141,9 @@ public:
 	//
 	// lightsFromScripts leaves the CLights out. With the script layer running,
 	// CLight:Apply places every one of them through LIGHT.Setup and they
-	// arrive as dynamic lights instead - measured on Cemetery, 61 script
-	// lights against the file's 60, the extra being the flashlight. Reading
-	// both lists would count each placed light twice. The viewer and the
-	// reports have no script layer and take the file.
+	// arrive as dynamic lights instead, so reading both lists would count each
+	// placed light twice. The viewer and the reports have no script layer and
+	// take the file.
 	void Build(const Level& level, TemplateCache& templates, bool lightsFromScripts = false);
 	void Clear();
 	// The world ambient the scripts set through WORLD.AmbientColor (0-255),

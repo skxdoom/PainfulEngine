@@ -246,7 +246,7 @@ void HudRenderer::QuadRotated(Material handle, float x, float y, float w, float 
 		const Mat& m = materials_[size_t(handle) - 1];
 		if (m.used) tex = m.texture;
 	}
-	// Centred on the PIVOT, turned in the authored 1024x768, then stretched
+	// Centred on the pivot, turned in the authored 1024x768, then stretched
 	// like the dial behind it - which is why x,y does not place the quad and
 	// the width is not rigid on screen. Docs/Reference/Hud.md
 	// The authored space is the canvas the scripts laid out against.
@@ -340,7 +340,7 @@ float HudRenderer::Text(const std::string& fontName, int size, float x, float y,
 	// One anchor for the whole string, by its centre, so it never splits.
 	x += OffsetFor(x + width * 0.5f);
 
-	// y is the TOP of the line: the scripts lay out from the top edge, and
+	// y is the top of the line: the scripts lay out from the top edge, and
 	// the engine puts the tallest glyph's top there (GFont: the baseline
 	// sits the printable glyphs' reach below it, not the font's ascent).
 	const float baseline = y + font->extentTop;

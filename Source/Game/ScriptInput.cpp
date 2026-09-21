@@ -31,7 +31,7 @@ struct InputNatives : ScriptNativesBase {
 
 // ----------------------------------------------------------------- input
 //
-// The player's controls are a SCRIPT path in this engine, and these natives
+// The player's controls are a script path in this engine, and these natives
 // are its two ends. CPlayer:Tick reads INP.GetActionStatus into an Actions
 // bitmask, overrides bits of it (weapon select, switched fire, rocket jump),
 // stores it with ENTITY.PO_SetAction, and then calls PLAYER.ExecAction - and
@@ -174,7 +174,7 @@ int InputNatives::L_PO_JumpedInLastAction(lua_State* L) {
 
 // PLAYER.ExecAction(e, 0, fx,fy,fz, rx,ry,rz) - run the mover for one frame.
 // The two vectors are the camera basis; PlayerAction takes them as Vector&
-// param_1 and param_2 and builds the ground direction from the RIGHT one
+// param_1 and param_2 and builds the ground direction from the right one
 // alone. Only the player has a pawn, so this is a no-op for anything else.
 int InputNatives::L_PLAYER_ExecAction(lua_State* L) {
 	ScriptEngine* self = From(L);

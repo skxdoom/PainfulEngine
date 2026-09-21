@@ -46,7 +46,7 @@ public:
 
 	// `name` is a path under Sounds without the extension, exactly as the
 	// scripts write it: "actor/evilmonkv2/monk_attack", "misc/gas-outflow-5sec".
-	// A ONE-SHOT. Arg 3 is the scripts sameSpeedInBulletTime, not a loop -
+	// A one-shot. Arg 3 is the scripts sameSpeedInBulletTime, not a loop -
 	// taking it as one left the checkpoint heartbeat stacking endless voices.
 	// Docs/Reference/Sound.md
 	Voice Play2D(const std::string& name, float volume, bool sameSpeedInBulletTime,
@@ -68,7 +68,7 @@ public:
 	void SetPosition(Voice v, const Vec3& pos);
 	void SetHearingDistance(Voice v, float dist1, float dist2);
 	// Counts down: 0 or 1 plays once, n plays n times, negative loops forever.
-	// NOT the scripts' convention - Miles reads 0 as forever - so the native
+	// Not the scripts' convention - Miles reads 0 as forever - so the native
 	// translates. See L_SND_SetLoopCount.
 	void SetLoopCount(Voice v, int count);
 	void SetSpeed(Voice v, float speed);
@@ -216,7 +216,7 @@ private:
 		float dist1 = 0.f, dist2 = 0.f;
 		int loopsLeft = 0; // <0 forever
 		bool positional = false;
-		// playing is the LOGICAL state - the script asked for it and it has
+		// playing is the logical state - the script asked for it and it has
 		// not finished. real is whether it currently owns one of the audible
 		// voices; a logical sound without one waits, and a one-shot that
 		// waits past its own length just ends (Miles3DSound wants-to-play,

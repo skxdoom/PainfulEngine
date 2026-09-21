@@ -53,7 +53,7 @@ public:
 	std::vector<DirEntry> List(const std::string& dir) const;
 
 	// Every file below dir (archives and disk merged, sorted), as paths
-	// RELATIVE to dir with '/' separators.
+	// relative to dir with '/' separators.
 	std::vector<std::string> ListRecursive(const std::string& dir) const;
 
 	// --- packs mounted at an arbitrary directory (FS.RegisterPack) --------
@@ -65,7 +65,7 @@ public:
 	void UnmountPack(int handle);
 
 	// --- writing (FS.File_*, FS.CreatePAK / ClosePAK) ---------------------
-	// Between BeginPak and EndPak every WriteFile goes INTO the pak under its
+	// Between BeginPak and EndPak every WriteFile goes into the pak under its
 	// basename, which is how the original's GFileManager::CreateFileWriter
 	// behaves while a pak is open; otherwise WriteFile is a plain disk write.
 	bool BeginPak(const std::string& pakPath);
@@ -123,7 +123,7 @@ private:
 // from disk. Every asset loader goes through this.
 bool ReadFile(const std::string& path, std::vector<uint8_t>& out);
 
-// Writes to DISK, creating parent directories. There is deliberately no pak
+// Writes to disk, creating parent directories. There is deliberately no pak
 // path here: the archives are read-only, and generated content lands as loose
 // files in the data root, which ReadFile falls through to when no archive
 // serves the name.

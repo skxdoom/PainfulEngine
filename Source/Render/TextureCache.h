@@ -7,7 +7,7 @@ namespace painful {
 
 // Resolves PainEngine texture references to GPU textures.
 //
-// References do NOT match the files on disk: models ask for "Models/foo.tga"
+// References do not match the files on disk: models ask for "Models/foo.tga"
 // while the shipped file is "Models/foo.dds", and map materials store bare names
 // with no extension at all. Lookup is therefore extension-agnostic and
 // case-insensitive, with map textures also searched under Levels/<mapName>/.
@@ -56,7 +56,7 @@ public:
 	// has not been loaded, or resolved to the white fallback.
 	bool Size(const std::string& reference, int& w, int& h) const;
 
-	// Pixel size WITHOUT a graphics device: resolves the reference and parses
+	// Pixel size without a graphics device: resolves the reference and parses
 	// the image header on the CPU, recording the result for Size(). This is
 	// what lets a headless run lay the HUD out - MATERIAL.Size is how every
 	// HUD script scales itself, and the layout is not part of the drawing.

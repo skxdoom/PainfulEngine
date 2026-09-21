@@ -20,7 +20,7 @@ public:
 	Window(const Window&) = delete;
 	Window& operator=(const Window&) = delete;
 
-	// Opens HIDDEN, so the mode can be set before anything is on screen;
+	// Opens hidden, so the mode can be set before anything is on screen;
 	// Show puts it up (PAINFUL_HIDDEN keeps it down).
 	bool Open(const std::string& title, int width, int height);
 	void SetTitle(const std::string& title);
@@ -44,14 +44,14 @@ public:
 	// any of them mean.
 	bool TakeDebugToggle(int index);
 
-	// Windows VIRTUAL-KEY state, which is the space the scripts speak:
+	// Windows virtual-key state, which is the space the scripts speak:
 	// Definitions.lua's `Keys` table is the standard VK list. 256 entries,
 	// indexed by code, mouse buttons included at 1/2/4. Edge detection is
 	// not here - Input owns that, because INP.Key's tri-state is a script
 	// contract rather than a windowing one.
 	const bool* VirtualKeys() const { return vkDown_; }
 	// Key presses since the last call, in order, as virtual-key codes and
-	// WITH auto-repeat - what a text field wants, where the held-state array
+	// with auto-repeat - what a text field wants, where the held-state array
 	// above is what a game wants. Cleared by the call.
 	std::vector<int> TakeKeyPresses();
 	// Typed text since the last call (UTF-8), which only arrives while text

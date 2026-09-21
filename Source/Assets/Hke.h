@@ -6,29 +6,29 @@
 
 namespace painful {
 
-// PainEngine .hke - the RAGDOLL ITSELF, and the file nobody knew shipped.
+// PainEngine .hke - the ragdoll itself, and the file nobody knew shipped.
 //
-// 324 of them sit LOOSE in Data/Models, in no .pak, which is why extracting the
+// 324 of them sit loose in Data/Models, in no .pak, which is why extracting the
 // archives never produced one. Ragdoll::Init (Engine.dll 0x1019cca0) is a thin
 // wrapper; the real constructor (FUN_101c02f0) opens exactly these, checks a
 // magic and puts up "Critical error: error in ragdoll hke!!!" when it fails.
 //
 // It is a Havok world export, and it carries everything the .rde does not: a
-// CONVEX HULL per limb, the mass and material, and - the part that was holding
-// the whole system up - the JOINT LIMITS, as hkRagdollConstraint (cone/twist/
+// convex hull per limb, the mass and material, and - the part that was holding
+// the whole system up - the joint limits, as hkRagdollConstraint (cone/twist/
 // plane) and hkHingeConstraint (min/max angle).
 //
-// That reframes the .rde as an OVERRIDE file: `Mass = -1.0` on all 2076 limbs
+// That reframes the .rde as an override file: `Mass = -1.0` on all 2076 limbs
 // in all 220 files means "take the mass from here".
 //
-// TWO ENCODINGS. The first byte is 'A' for the text form (192 files) and 'B'
-// for a binary one (132, including templar, vamp_v2 and the Catacombs bridge).
+// Two encodings. The first byte is 'A' for the text form (192 files) and 'B'
+// for a binary one (132).
 // The binary form is the same grammar with each keyword replaced by its ELF
 // hash; Hke.cpp decodes it back to text and both go through one parser.
 // Docs/Reference/Physics.md, "The binary .hke".
 //
-// UNITS ARE THE MODEL'S OWN, ten times the world's. The file declares
-// GRAVITY 0 -98.099998 0 against Tweak.lua's 19.62, matching the *0.1 rule
+// Units are the model's own, ten times the world's. The file declares
+// gravity 0 -98.099998 0 against Tweak.lua's 19.62, matching the *0.1 rule
 // models are already built with. Hull vertices, translations and hinge
 // positions all live in that space.
 
@@ -45,14 +45,14 @@ struct HkeGeometry {
 	size_t triangleCount() const { return tris.size() / 3; }
 };
 
-// One limb: a rigid body named by its BONE, with the hull carried by its
+// One limb: a rigid body named by its bone, with the hull carried by its
 // primitive.
 struct HkeBody {
 	std::string bone; // BEGIN_RIGID_BODY <name> - the bone name
 	float elasticity = 0.f; // ELLASTICITY (sic), the restitution
 	float staticFriction = 1.f;
 	float dynamicFriction = 1.f;
-	// ANGLE-AXIS, not a quaternion: `0.349955 1 0 0` is 20 degrees about +X,
+	// Angle-axis, not a quaternion: `0.349955 1 0 0` is 20 degrees about +X,
 	// and a primitive's identity is `0 0 0 0`, which is no rotation about no
 	// axis. Read as a quaternion the first is not normalised and the second is
 	// not a rotation at all.
@@ -72,10 +72,10 @@ struct HkeBody {
 	Vec3 primRotAxis;
 	Vec3 primTranslation;
 
-	// The body's authored transform in MODEL units, as a row-vector 4x4 - the
+	// The body's authored transform in model units, as a row-vector 4x4 - the
 	// form the rest of the engine holds matrices in.
 	//
-	// A limb body sits at the limb's CENTRE, not at its bone's origin, so this
+	// A limb body sits at the limb's centre, not at its bone's origin, so this
 	// is what says where a body belongs relative to the bone that drives it.
 	// Posing bodies straight onto bone origins displaces every constraint
 	// anchor by up to a limb length and the solver throws the corpse across
@@ -85,14 +85,14 @@ struct HkeBody {
 
 // One constraint. The two kinds are Havok's own and each maps onto a Jolt
 // constraint almost one-to-one - Ragdoll onto SwingTwistConstraint, Hinge onto
-// HingeConstraint. Angles are RADIANS.
+// HingeConstraint. Angles are radians.
 struct HkeConstraint {
 	// Three kinds, not two. StiffSpring holds two bodies a fixed distance
 	// apart and carries no limits at all.
 	enum Kind { kHinge, kRagdoll, kStiffSpring };
 	Kind kind = kRagdoll;
 	std::string name;
-	// Hinge names its bodies A/B; Ragdoll names them REFERENCE/ATTACHED. Both
+	// Hinge names its bodies A/B; Ragdoll names them reference/attached. Both
 	// land here, reference first.
 	std::string bodyA, bodyB;
 	bool twoBodied = true;
@@ -116,7 +116,7 @@ struct HkeConstraint {
 	float coneMin = 0.f, coneMax = 0.f;
 	float planeMin = 0.f, planeMax = 0.f;
 
-	// --- the WORLD-SPACE form of both ---
+	// --- the world-space form of both ---
 	//
 	// A constraint states its frame one of two ways and the files use both.
 	// The body-local form is the matrices and HINGE_*_IN_A/B above; the world
@@ -181,13 +181,13 @@ struct Hke {
 
 	// Is `bone` connected to `root` through the constraint graph?
 	//
-	// THIS IS THE WEAPON RULE. A monster's weapon gets a rigid body with NO
+	// This is the weapon rule. A monster's weapon gets a rigid body with no
 	// constraint attaching it to anything - evilmonkv2's unconstrained bodies
 	// are exactly axeL and axeR, zombie's is joint1 - so it is a limb you can
 	// hit that is not part of the body. Ragdoll::Joint_AreLinked answers this,
 	// and Stake, BoltStick and PainHead all ask it before doing damage, to
 	// tell "the body" from "some detachable element, e.g. a scythe or a
-	// pauldron". A shield is the opposite case and IS constrained.
+	// pauldron". A shield is the opposite case and is constrained.
 	bool Linked(const std::string& a, const std::string& b) const;
 
 	static bool Load(const std::string& path, Hke& out);

@@ -56,12 +56,12 @@ int RagdollDropCmd(const char* levelDir, const char* dataRoot, const char* model
 		for (int c = 0; c < 3; ++c) at[c] = level.entities().front().pos[c];
 	at[1] += 3.f;
 
-	// SEED IT AT ITS OWN REST POSE, ROTATIONS AND ALL. The constraints were
+	// Seed it at its own rest pose, rotations and all. The constraints were
 	// built from the authored transforms, so handing the solver the authored
 	// translations with identity rotations violates every one of them at t=0
 	// and the ragdoll tears itself apart before gravity gets a say.
 	//
-	// Our Mat4 is row-vector with the basis in its ROWS, so row i is the image
+	// Our Mat4 is row-vector with the basis in its rows, so row i is the image
 	// of basis vector i: m[i*4+j] = R(j,i) for the column-vector R that
 	// Rodrigues gives.
 	std::vector<float> pose(n * 16, 0.f);
@@ -92,7 +92,7 @@ int RagdollDropCmd(const char* levelDir, const char* dataRoot, const char* model
 	// the widest gap watched frame by frame while the chain absorbs it.
 	if (impulse != 0.f) physics.AddRagdollPartImpulse(slot, 0, at, Vec3{impulse, 0.f, 0.f});
 
-	// A BODY THAT HELD TOGETHER KEEPS ITS OWN SIZE, WHATEVER WAY UP IT LANDS.
+	// A body that held together keeps its own size, whatever way up it lands.
 	// Per-axis extents cannot say that: a figure that starts standing and ends
 	// lying down has swapped its height for its depth without anything having
 	// gone wrong. So compare the widest distance between any two parts, which
@@ -474,7 +474,7 @@ int RagdollCmd(const char* path, const char* modelsRoot) {
 				for (const RagdollLimb& limb : rde.limbs)
 					if (!hke.Body(limb.bone)) ++rdeNoBody;
 			}
-			// THE WEAPON RULE, counted across the whole set: a body that no
+			// The weapon rule, counted across the whole set: a body that no
 			// constraint touches is a limb you can hit which is not part of
 			// the body.
 			bool any = false;
@@ -557,7 +557,7 @@ int RagdollCmd(const char* path, const char* modelsRoot) {
 		}
 	}
 
-	// Do the constraint anchors coincide at the pose the file was AUTHORED in?
+	// Do the constraint anchors coincide at the pose the file was authored in?
 	// Each two-bodied constraint names a point in each body; if those two do
 	// not land on the same spot at rest, the ragdoll is torn before anything
 	// has touched it, and every joint inherits that error.
@@ -583,7 +583,7 @@ int RagdollCmd(const char* path, const char* modelsRoot) {
 			rb.TransformPoint(lb[0], lb[1], lb[2], wb);
 			float d2 = 0.f;
 			for (int k = 0; k < 3; ++k) d2 += (wa[k] - wb[k]) * (wa[k] - wb[k]);
-			// A stiff spring holds its two points a LENGTH apart, not together.
+			// A stiff spring holds its two points a length apart, not together.
 			if (spring) {
 				LogInfo("  stiff spring %s: %s->%s authored %.3f, SPRING_LENGTH %.3f",
 						c.name.c_str(), c.bodyA.c_str(), c.bodyB.c_str(), std::sqrt(d2),
@@ -631,7 +631,7 @@ int RagdollCmd(const char* path, const char* modelsRoot) {
 		}
 	}
 
-	// Which limbs are NOT part of the body - the answer Ragdoll::Joint_AreLinked
+	// Which limbs are not part of the body - the answer Ragdoll::Joint_AreLinked
 	// gives the stake, and the reason a thrown weapon is not a hit.
 	std::string root = hke.Body("root") ? "root" : (hke.Body("ROOOT") ? "ROOOT" : "");
 	if (root.empty() && !hke.bodies.empty()) root = hke.bodies.front().bone;

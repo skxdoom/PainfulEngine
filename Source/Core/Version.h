@@ -1,9 +1,9 @@
 #pragma once
 
-// The PORT's version, and the name it puts on the window and at the head of
+// The port's version, and the name it puts on the window and at the head of
 // painful.log. Bump the two numbers; everything else composes from them.
 //
-// THIS IS NOT THE VERSION THE SCRIPTS ASK ABOUT. Game:Init refuses to run
+// This is not the version the scripts ask about. Game:Init refuses to run
 // unless GetEngineVersionString answers exactly "1.4" (Script/Natives.cpp) -
 // that is the original engine's own number, a gate the data depends on, and it
 // must never follow this one.

@@ -68,7 +68,7 @@ int Traceback(lua_State* L) {
 	lua_pushstring(L, kTracebackKey);
 	lua_gettable(L, LUA_REGISTRYINDEX);
 	if (!lua_isfunction(L, -1)) { lua_pop(L, 1); return 1; }
-	// Lua 5.0 traceback takes the message ALONE - the level argument only
+	// Lua 5.0 traceback takes the message alone - the level argument only
 	// arrived in 5.1, and passing one here appends it to the text.
 	lua_pushvalue(L, 1);
 	lua_call(L, 1, 1);
@@ -115,7 +115,7 @@ bool LuaHost::Init(const std::string& dataRoot) {
 
 	// io.open resolves a bare path the way DoFile does. Cfg:Save writes
 	// "config.ini" through io.open, and the plain library opens that against
-	// the PROCESS working directory - so a launch from anywhere but Bin/ read
+	// the process working directory - so a launch from anywhere but Bin/ read
 	// Bin/config.ini and then saved a copy somewhere else, and every setting
 	// the menu applied was lost by the next start. Same rule both ways now.
 	lua_getglobal(L_, "io");
@@ -160,7 +160,7 @@ std::string LuaHost::ResolvePath(const std::string& scriptPath) const {
 		slash == std::string::npos ? std::string(".") : dataRoot_.substr(0, slash);
 	if (StartsWithCI(scriptPath, "../")) return parent + "/" + scriptPath.substr(3);
 
-	// A BARE relative path is relative to the original's WORKING DIRECTORY,
+	// A bare relative path is relative to the original's working directory,
 	// which is Bin/ - the same fact that makes every data path start "../Data".
 	// Cfg.lua reads "config.ini" this way, and resolving it against our own
 	// working directory instead finds nothing, so every volume, key binding
@@ -183,7 +183,7 @@ std::string LuaHost::ResolvePath(const std::string& scriptPath) const {
 		};
 		for (const std::string& c : candidates)
 			if (!c.empty() && std::filesystem::exists(c, ec)) return c;
-		// Nothing exists yet - hand back the place a WRITE should land.
+		// Nothing exists yet - hand back the place a write should land.
 		return homeDir_.empty() ? scriptPath : homeDir_ + "/" + scriptPath;
 	}
 	return scriptPath;

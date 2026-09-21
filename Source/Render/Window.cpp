@@ -183,7 +183,7 @@ std::vector<std::string> Window::DisplayModes() const {
 	for (int i = 0; i < count; ++i) {
 		char buf[32];
 		snprintf(buf, sizeof buf, "%dx%d", modes[i]->w, modes[i]->h);
-		// One entry per SIZE: the display reports a mode per refresh rate, and
+		// One entry per size: the display reports a mode per refresh rate, and
 		// the menu offers sizes.
 		if (std::find(out.begin(), out.end(), buf) == out.end()) out.push_back(buf);
 	}
@@ -222,7 +222,7 @@ bool Window::PumpEvents() {
 			}
 			if (e.key.key == SDLK_ESCAPE && !e.key.repeat) {
 				escapePressed_ = true;
-				// In the script-driven game Escape belongs to the MENU, so the
+				// In the script-driven game Escape belongs to the menu, so the
 				// window must not consume it: the caller clears escapeQuits_
 				// and reads TakeEscape() instead. The diagnostic viewers keep
 				// the old behaviour - release the mouse, then quit - because
@@ -379,7 +379,7 @@ void Window::SetMouseCaptured(bool captured) {
 }
 
 void Window::SetSystemCursorVisible(bool visible) {
-	// The menu draws its OWN pointer (HUD/kursor), so the system one has to go
+	// The menu draws its own pointer (HUD/kursor), so the system one has to go
 	// while it is up or there are two cursors on screen. Relative mode hides
 	// the system cursor by itself, which is why this only matters once capture
 	// is released for the menu.

@@ -105,7 +105,7 @@ public:
 		int coronaBlend = 1;
 		bool coronaSpriteOnly = false;
 		// REGION.BuildFromPoint volume: the points' AABB, held in the
-		// entity's LOCAL space and offset by pos at test time. That is the
+		// entity's local space and offset by pos at test time. That is the
 		// shipped convention - CreateRegion and Teleport.CBox both author
 		// extents about the origin and then call ENTITY.SetPosition. CArea
 		// authors world points and never positions the entity, so it would
@@ -117,15 +117,15 @@ public:
 		Vec3 velocity; // ENTITY.SetVelocity, for bodyless entities
 		// ENTITY.RegisterChild: entities bound to this one, chiefly the looping
 		// sounds BindSoundToEntity attaches. GetChildByName searches these by
-		// SOUND name, which SND.Setup3D is what supplies.
+		// sound name, which SND.Setup3D is what supplies.
 		std::vector<int> children;
 
-		// ENTITY.RegisterChild's fifth argument, which DEFAULTS TO TRUE: the
+		// ENTITY.RegisterChild's fifth argument, which defaults to true: the
 		// engine writes it to child+0x11a (0x1012fad0) and Entity::
 		// KillAllChildren (0x1d2bc0) deletes a child only when it is set.
 		//
 		// Every pickup relies on it. IShotgunFZ:Client_OnCreateEntity makes a
-		// SEPARATE billboard entity for its corona and registers it as a child
+		// separate billboard entity for its corona and registers it as a child
 		// with four arguments - so the flag is on - and expects it to go when
 		// the pickup does. Without honouring it the corona outlives the thing
 		// it was drawn for and hangs in the air.
@@ -150,7 +150,7 @@ public:
 		float collisionMinStrength = 0.6f;
 		float collisionCooldown = 0.f;
 		// ENTITY.EnableCollisionsToRagdoll(e, joint, minTime, minStren): the
-		// same gate per LIMB (Ragdoll::Joint_SetCollisionCallbacks). A corpse
+		// same gate per limb (Ragdoll::Joint_SetCollisionCallbacks). A corpse
 		// reports the joints listed here when they land, which is what plays
 		// the fall sound and spawns the blood. Docs/Reference/Physics.md, "Contacts".
 		struct RagdollCallback {
@@ -171,7 +171,7 @@ public:
 		// The map object its geometry was cut from, when it was exactly one.
 		// A pane that breaks takes the decals stuck to it with it.
 		int decalObject = -1;
-		// ENTITY.SetLocalBBox, the entity's own box in LOCAL space.
+		// ENTITY.SetLocalBBox, the entity's own box in local space.
 		Vec3 localBoxMin, localBoxMax;
 		bool hasLocalBox = false;
 		// The mesh group this belongs to: `actgrp<N>` in the name for an active
@@ -194,7 +194,7 @@ public:
 		// What this entity is bound to, and where on it.
 		//
 		// ENTITY.RegisterChild names the parent; PARTICLE.SetParentOffset gives
-		// the offset and, usually, the JOINT it hangs off. CActor:BindFX does
+		// the offset and, usually, the joint it hangs off. CActor:BindFX does
 		// both for every effect a monster carries. Without the pair being
 		// acted on, a bound effect never moves: it stays wherever it was made,
 		// which is the world origin - and DevilMonk decides whether to poison
@@ -204,7 +204,7 @@ public:
 		Vec3 parentOffset;
 		std::string parentJoint; // empty = the parent's own transform
 		int parentJointIndex = -2; // -2 not resolved, -1 absent
-		// RegisterChild on a mesh or model: the child's own pose and scale ARE its
+		// RegisterChild on a mesh or model: the child's own pose and scale are its
 		// local transform, multiplied through the parent's matrix, scale included
 		// (Entity::UpdateTransform 0x101D2CB0). A particle's offset is not scaled.
 		bool localPose = false;
@@ -212,7 +212,7 @@ public:
 		bool parentBound = false; // SetParentOffset was called
 		// SetParentOffset's optional 9th..11th arguments: an Euler rotation the
 		// effect carries relative to its joint (ParticleEffect+0xc88/+0xc8c).
-		// Without it a jointed effect takes the PARENT's rotation, not the
+		// Without it a jointed effect takes the parent's rotation, not the
 		// joint's. ParticleEffect::Tick, 0x101e59a0.
 		bool parentRotBound = false;
 		Quat parentRot;
@@ -255,7 +255,7 @@ public:
 		// body's gravity factor is a value nothing reads - TickProjectiles has
 		// to integrate this itself, or Stake:Tick's arc never happens.
 		bool gravityOn = false;
-		// ENTITY.PO_Enable / PO_IsEnabled. This is how a projectile STOPS:
+		// ENTITY.PO_Enable / PO_IsEnabled. This is how a projectile stops:
 		// Stake:Tick answers a hit with PO_Enable(false), moves itself half a
 		// length back into the surface and returns, and every later tick exits
 		// at its opening PO_IsEnabled check until TimeToLive removes it. That
@@ -267,7 +267,7 @@ public:
 		// second (PhysicsObject::SetAngularVel, 0x10132260). The stake tumbles
 		// nose-down with this once it starts to fall.
 		Vec3 angVel;
-		// ENTITY.SetPosAndRotRelativeToCamera: a viewmodel, held in CAMERA
+		// ENTITY.SetPosAndRotRelativeToCamera: a viewmodel, held in camera
 		// space. The world pose is re-derived from the final camera each frame
 		// rather than baked once during the tick - the shake moves the eye
 		// after the scripts have run, and a weapon placed from the older eye
@@ -295,7 +295,7 @@ public:
 		// is read on the client's collision path.
 		std::string synchroString;
 
-		// The animation clock. MDL.SetAnim hands the scripts an INDEX which
+		// The animation clock. MDL.SetAnim hands the scripts an index which
 		// they keep as _CurAnimIndex and pass back to every other MDL call,
 		// so the indices have to be stable per entity: a slot is appended the
 		// first time an animation is named and never moves afterwards.
@@ -327,7 +327,7 @@ public:
 		float animScale = 1.f; // MDL.Get/SetAnimTimeScale; 0 pauses
 		bool animLoop = false;
 
-		// Where this entity's bones are, in MODEL space, for the animation
+		// Where this entity's bones are, in model space, for the animation
 		// and time above. Built on demand and only when something asks: most
 		// entities are never queried for a joint, and an actor is queried
 		// several times in one tick, so it is cached against what produced it
@@ -342,7 +342,7 @@ public:
 		};
 		Pose pose;
 
-		// The animation being faded OUT of, frozen at the moment the new one
+		// The animation being faded out of, frozen at the moment the new one
 		// started. MDL.SetAnim's fifth argument is how long that fade lasts -
 		// the templates carry one per animation, and CActor falls back to
 		// 0.201 s - and without it an actor snaps from walking to attacking
@@ -360,7 +360,7 @@ public:
 
 		// MDL.ApplyJointRotation, one entry per bone the scripts steer. They
 		// pass an absolute angle every frame (a gun recomputes its barrel
-		// pitch from scratch each tick), so a call SETS the bone's rotation
+		// pitch from scratch each tick), so a call sets the bone's rotation
 		// rather than adding to it. The version bumps on any change, which is
 		// what tells the cached pose above to rebuild even though the
 		// animation and its time have not moved.
@@ -382,7 +382,7 @@ public:
 		// velocity every tick - PhysicsWorld::StepCharacters. Until the flag
 		// arrives the body is an ordinary dynamic prop.
 		bool isMonster = false;
-		// ENTITY.PO_Move's vector (PhysicsObject+0x34), a VELOCITY: CActor
+		// ENTITY.PO_Move's vector (PhysicsObject+0x34), a velocity: CActor
 		// passes `mv * (1/delta)`. Forwarded to the character body; kept here
 		// for an actor that has none yet.
 		Vec3 moveWish;
@@ -405,7 +405,7 @@ public:
 		// so a shot does not hit whatever fired it - that is what the
 		// "intersection solver" is, a trace visibility set.
 		bool inSolver = true;
-		// The RAGDOLL's own line-trace collision, which is a SEPARATE switch
+		// The ragdoll's own line-trace collision, which is a separate switch
 		// from the body's. The engine keeps the two objects at different
 		// offsets on the entity - PhysicsObject at +0xac, Ragdoll at +0x7b8 -
 		// and gives each its own EnableLineTraceCollision:
@@ -413,22 +413,22 @@ public:
 		// AddRagdollToIntersectionSolver (0x10134830) sets only this one.
 		// TraceLimbs honours this flag; the body exclusion honours inSolver.
 		bool ragdollInSolver = true;
-		// Joints MDL.EnableJoint has switched OFF, which takes that limb out
+		// Joints MDL.EnableJoint has switched off, which takes that limb out
 		// of the ragdoll entirely. The scripts use it on a weapon the monster
 		// has already thrown - EvilMonkV2 does it to axeL/axeR inside
 		// CustomOnGib - so the bone stays in the rig while its body stops
 		// being part of the ragdoll.
 		std::vector<int> disabledJoints;
 		// The ragdoll this actor has been handed to, or -1. MDL.EnableRagdoll
-		// creates it; while it exists the SOLVER owns the pose and the
+		// creates it; while it exists the solver owns the pose and the
 		// animation does not, which is what PosedBones checks.
 		int ragdollSlot = -1;
 		// MDL.SetRagdoll*Damping, kept for a ragdoll not yet created: the
-		// bridge items set both BEFORE EnableRagdoll. -1 = never set.
+		// bridge items set both before EnableRagdoll. -1 = never set.
 		float ragdollLinearDamping = -1.f, ragdollAngularDamping = -1.f;
 		// MDL.SetRagdollMovedByExplosions: bit 0x10 of the Ragdoll's flag byte
 		// (Ragdoll::IsMovedByExplosions 0x1019CBB0). FUN_101B0DC0 tests it
-		// before doing ANYTHING to a ragdoll - push or damage - so a corpse
+		// before doing anything to a ragdoll - push or damage - so a corpse
 		// with it off is invisible to blasts. CActor:CreateGib clears it on a
 		// fresh gib for two ticks, so the rocket that made the gib does not
 		// also launch it, then restores it and bursts the gib itself.
@@ -436,7 +436,7 @@ public:
 
 	// The death spin, and the shot that caused it.
 	//
-	// A killing shot lands BEFORE the ragdoll exists: the shotgun fires its
+	// A killing shot lands before the ragdoll exists: the shotgun fires its
 	// pellets, calls PO_AccumulateRotation for each and PO_Hit for the lethal
 	// one, and only afterwards does OnDamage reduce health to zero and create
 	// the ragdoll. So the momentum has to be held on the entity and spent when
@@ -450,7 +450,7 @@ public:
 		// the ragdoll only names a dozen or so bones and the rest have to
 		// follow their nearest driven ancestor or the corpse loses its hands.
 		std::vector<Mat4> ragdollPose;
-		// Each bone's LOCAL transform in the pose the ragdoll was seeded from. A
+		// Each bone's local transform in the pose the ragdoll was seeded from. A
 		// bone with no body (ankle, head, hand) keeps this against its driven
 		// parent; the bind pose put the foot 35 degrees off the shin at the seed.
 		std::vector<Mat4> ragdollLocal;
@@ -632,7 +632,7 @@ public:
 	void SetWorldObjectVisibility(std::function<void(size_t, bool)> handler) {
 		worldObjectVisible_ = std::move(handler);
 	}
-	// R3D.SetCameraFOV / GetCameraFOV: Cfg.FOV, the HORIZONTAL field of view
+	// R3D.SetCameraFOV / GetCameraFOV: Cfg.FOV, the horizontal field of view
 	// in degrees (Game:Init applies it; PainMenu:OpenMenu sets 90 for the
 	// menu and restores it). The app derives the vertical angle for the
 	// window's aspect each frame.
@@ -659,10 +659,10 @@ public:
 	// The world speed: what the frame delta is multiplied by before the game
 	// tick (PCFSystem::TickEngine 0x10051110). LuaHost.md, "The time multiplier".
 	float timeMultiplier() const { return timeMultiplier_; }
-	// ENTITY.PO_Enable on the player: whether the pawn walks. NOT a test for
+	// ENTITY.PO_Enable on the player: whether the pawn walks. not a test for
 	// who owns the camera - a dead player and one standing in the end-of-level
 	// teleport both have it false, and neither flies. Game:Tick2 gates the
-	// script camera on the MOUSE LOCK instead; mouseLocked() is that flag.
+	// script camera on the mouse lock instead; mouseLocked() is that flag.
 	bool pawnEnabled() const { return pawnEnabled_; }
 	// Writes the pawn's position back into the player entity, so the scripts
 	// read where the player actually is. Call after every pawn move.
@@ -699,7 +699,7 @@ public:
 	void UpdateAttached();
 
 	// The per-limb hitboxes of every model near a point, posed and in world
-	// space, as wireframe. What a shot SHOULD be tested against, drawn so it
+	// space, as wireframe. What a shot should be tested against, drawn so it
 	// can be compared against what it currently is tested against.
 	void CollectHitboxLines(const Vec3& around, float radius,
 			std::vector<DebugLine>& out);
@@ -751,7 +751,7 @@ public:
 	// the ROOOT joint; rootOffset[1] is always 0.
 	bool MonsterBodyScale(Entity& e, float& k, Vec3& rootOffset);
 
-	// Advances every entity's animation clock. Call once per frame BEFORE
+	// Advances every entity's animation clock. Call once per frame before
 	// the tick chain: CActor:Tick reads the time the same frame.
 	void TickAnimations(float dt);
 
@@ -788,7 +788,7 @@ public:
 	// means asleep and asleep is exactly what the per-frame sync skips.
 	// Reads every active ragdoll back out of the solver into the pose the
 	// renderer draws, and moves the entity along with its own corpse. Once per
-	// frame, AFTER the physics step.
+	// frame, after the physics step.
 	void TickRagdolls();
 
 	void SyncFromPhysics(bool activeOnly = true);
@@ -860,7 +860,7 @@ private:
 	void AnimMovement(Entity& e, int index, float delta, Vec3& out);
 	static int ResolveCurveBone(Entity::AnimSlot& slot, const SkeletonCache::Entry& skel);
 
-	// Bone-local point to WORLD, through the entity's own transform. Used by
+	// Bone-local point to world, through the entity's own transform. Used by
 	// every joint query, so they cannot disagree about the entity's placement.
 	bool JointToWorld(Entity& e, int joint, const Vec3& local, Vec3& out);
 	// The bone's orientation composed with the entity's own: a world rotation,
@@ -896,7 +896,7 @@ private:
 		Vec3 normal;
 	};
 
-	// THE SHOOTING SHAPE, as opposed to the walking one.
+	// The shooting shape, as opposed to the walking one.
 	//
 	// A monster's movement body is three stacked spheres sized off its rig's
 	// root - what you bump into and cannot stand inside. Testing a shot
@@ -906,7 +906,7 @@ private:
 	//
 	// maxDistance clamps the search to whatever the world trace already found,
 	// so a shot that stops at a wall cannot reach the monster behind it. Pass
-	// a NEGATIVE maxDistance for the whole segment.
+	// a negative maxDistance for the whole segment.
 	// ignoreEntity: skip that actor's limbs - the shooter, whose gun hand is
 	// inside its own box (Havok reports no hit for a ray born inside a shape).
 	bool TraceLimbs(const Vec3& from, const Vec3& to, float maxDistance,
@@ -923,7 +923,7 @@ private:
 	bool SplitPackSource(const std::string& source, std::string& packName) const;
 
 	// --- natives ---
-	// ENTITY.EnableDraw's alsoChildren: a bound effect is a child ENTITY, so
+	// ENTITY.EnableDraw's alsoChildren: a bound effect is a child entity, so
 	// hiding the parent alone leaves it burning.
 	void SetDrawEnabled(Entity& e, bool on, bool alsoChildren, int depth);
 	void ReleaseEntity(int handle);
@@ -941,16 +941,16 @@ private:
 	// excludedSlots_ list in step, so a Remove cannot be leaked or doubled.
 	void SetSolverBody(Entity& e, bool on);
 	// PHYSICS.GetHavokBodyInfo(he) -> type, entity, joint. The engine's own
-	// shape (0x101291a0) returns a DIFFERENT NUMBER OF VALUES per kind: 1 for
+	// shape (0x101291a0) returns a different number of values per kind: 1 for
 	// an unknown body, 2 for a plain physics object, 3 for a ragdoll limb.
 	// That is why every caller writes `if j then` - a body that is not a limb
 	// leaves the joint nil rather than reporting -1.
 	// MDL.GetJointFromHavokBody(e, he) -> joint, or -1. The engine checks the
-	// body belongs to THAT entity's ragdoll (0x1012d320); so does this.
+	// body belongs to that entity's ragdoll (0x1012d320); so does this.
 	// MDL.JointsLinked(e, a, b) -> are these two joints connected through the
 	// ragdoll? MDL.EnableJoint(e, joint, on) takes one out of it.
 	// MDL.EnableRagdoll(e, on, group) - hand the actor to the solver, or take
-	// it back. This is what death is. `seedPose` is MODEL-space bone matrices
+	// it back. This is what death is. `seedPose` is model-space bone matrices
 	// to start from instead of the entity's own pose: MakeGib seeds the gib
 	// with the pose of the actor it replaces.
 	bool EnableRagdoll(Entity& e, bool enable, const std::vector<Mat4>* seedPose = nullptr);
@@ -959,7 +959,7 @@ private:
 	int MakeGib(Entity& source, int group, const char* velocityJoint);
 	// The ragdoll part a joint drives, or -1 (the .hke names a dozen bones).
 	int RagdollPartOfJoint(Entity& e, int joint);
-	// PHYSICS.RemoveHavokBodyFromIS(he, on) - one BODY out of the traces.
+	// PHYSICS.RemoveHavokBodyFromIS(he, on) - one body out of the traces.
 	// The ragdoll part a hit joint belongs to: the joint's own body, or the
 	// nearest ancestor bone that has one (a hitbox on a hand is the forearm's
 	// body in Havok terms). -1 when the entity has no ragdoll.
@@ -976,7 +976,7 @@ private:
 			const Vec3& normal);
 	int SpawnDecalEntity(lua_State* L, bool oriented, const char* staticTexture);
 	// The blast itself: collects what it reached, pushes it, and posts one
-	// EXPLOSION per entity. Docs/Reference/Physics.md carries the falloff.
+	// explosion per entity. Docs/Reference/Physics.md carries the falloff.
 	void Explosion(const Vec3& centre, float strength, float range,
 			double killer, double attackType, float damage);
 	static const Entity::AnimSlot* AnimSlotArg(const Entity* e, lua_State* L, int arg);
@@ -992,7 +992,7 @@ private:
 	void ReleaseDestructible(size_t index, const float* blast);
 	// Twin body slots that a blast or a group activation reported.
 	void ReleaseTwins(const std::vector<int>& twinSlots, const float* blast);
-	// Level_GetActiveMeshesData(name), the Lua global the ENGINE calls per
+	// Level_GetActiveMeshesData(name), the Lua global the engine calls per
 	// active mesh; 1 means "use WORLD.Init's ActiveMeshesMassScale".
 	float ActiveMeshMassScale(const std::string& objectName);
 
@@ -1067,13 +1067,13 @@ private:
 	bool timerReset_ = false; // INP.ResetTimer, consumed by the frame loop
 	int playerHandle_ = 0;
 	bool pawnEnabled_ = true;
-	// What MOUSE.Lock/IsLocked report. The SCRIPTS own this - they lock on
+	// What MOUSE.Lock/IsLocked report. The scripts own this - they lock on
 	// entering play and unlock for menus - and nothing on the C++ side may
 	// write it: Game:Tick branches on it, and an unlocked mouse runs the
-	// EDITOR tick, where the player globals never update. Driving it from
+	// editor tick, where the player globals never update. Driving it from
 	// the window's click-to-capture state is what once left the player
 	// falling at the world origin. True at boot, as the engine enters play.
-	// False until the play transition, because a level LOADS unlocked: that
+	// False until the play transition, because a level loads unlocked: that
 	// is what lets CLevel:Synchronize push Lev.Pos/Lev.Ang into the camera
 	// and seat the view where the level says. Starting locked inverts the
 	// synchronise and overwrites Lev.Pos with wherever our camera happened
@@ -1084,7 +1084,7 @@ private:
 	Vec3 camPos_;
 	float camYaw_ = 0.f, camPitch_ = 0.f;
 	Vec3 camDisplacement_;
-	// CAM.SetRotationDisplacement, in RADIANS: elevation, turn, roll. Held
+	// CAM.SetRotationDisplacement, in radians: elevation, turn, roll. Held
 	// apart from camYaw_/camPitch_ so the angles the scripts read back stay the
 	// ones they set.
 	Vec3 camRotDisplacement_;
@@ -1098,7 +1098,7 @@ private:
 	DecalSystem decals_;
 	std::unordered_map<int, int> bodyToEntity_; // body slot -> entity handle
 	// The debris ExplodeItem made, per item that blew up. CItem:DestroyItemFX
-	// asks for it by the ITEM's handle straight after exploding it, and walks
+	// asks for it by the item's handle straight after exploding it, and walks
 	// the answer to texture the parts and set them alight.
 	std::unordered_map<int, std::vector<int>> lastExploded_;
 	std::unordered_map<std::string, std::vector<LimbBounds>> hitboxes_;
@@ -1106,7 +1106,7 @@ private:
 	// entry too - a miss is an answer, not something to retry every frame.
 	std::unordered_map<std::string, Hke> ragdolls_;
 	std::unordered_map<std::string, std::vector<Mat4>> ragdollOffsets_;
-	// Per model, which ragdoll parts the constraint graph does NOT hold - the
+	// Per model, which ragdoll parts the constraint graph does not hold - the
 	// weapons. Parallel to the part order, so it shares RagdollOffsets' cache.
 	std::unordered_map<std::string, std::vector<char>> ragdollFree_;
 	// Limb body handles, dense and permanent for the life of the process. A
@@ -1122,8 +1122,8 @@ private:
 	// TickMonsters, which already walks exactly this set.
 	std::vector<int> limbShadowed_;
 	// Limb handles PHYSICS.RemoveHavokBodyFromIS has taken out of the traces.
-	// Per BODY, where the solver flags are per entity: the stake removes the
-	// ONE limb it just hit and traces again, to see what is behind it.
+	// Per body, where the solver flags are per entity: the stake removes the
+	// one limb it just hit and traces again, to see what is behind it.
 	std::vector<int> suppressedLimbs_;
 	// Scratch for TraceRay: excludedSlots_ followed by limbShadowed_. A member
 	// so a shotgun's dozen traces in one frame do not each allocate.
@@ -1199,7 +1199,7 @@ private:
 	// scripts pass stay the raw pixels they scaled themselves.
 	int HudFontPixels(int size) const;
 	// The font a call draws with. A named font wins; an empty name is
-	// PrintXY's `SetFont(0)`, which selects slot 0 - the default - and NOT
+	// PrintXY's `SetFont(0)`, which selects slot 0 - the default - and not
 	// whatever HUD.SetFont last set.
 	void HudResolveFont(const char* name, int size, std::string& outName,
 			int& outPixels) const;
@@ -1227,7 +1227,7 @@ private:
 	std::vector<ScriptContact> contactScratch_;
 	// The level's water surfaces, one entity each, registered when the map
 	// loads. WorldMesh::SetupFlags marks an object as water purely from its
-	// NAME, so that is what identifies them here too - see Water.md.
+	// name, so that is what identifies them here too - see Water.md.
 	struct WaterSurface {
 		int entity = 0;
 		float y = 0.f; // world-space surface height (they are flat)
@@ -1237,7 +1237,7 @@ private:
 	std::vector<WaterSurface> water_;
 	// The level's death zones, named `deathzone*` in the map and identified the
 	// same way water is. Enabled at load: Babel's start box switches three of
-	// them OFF, which is only meaningful if they came up on. Physics.md.
+	// them off, which is only meaningful if they came up on. Physics.md.
 	struct DeathZone {
 		std::string name;
 		Vec3 lo, hi; // world-space AABB

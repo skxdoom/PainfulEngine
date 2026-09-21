@@ -35,7 +35,7 @@ bool Near(const Vec3& a, const Vec3& b, float eps = 1e-5f) {
 }
 
 void TestLayout() {
-	// The whole premise of the incremental conversion: a Vec3 IS a float[3].
+	// The whole premise of the incremental conversion: a Vec3 is a float[3].
 	Vec3 v(1.f, 2.f, 3.f);
 	const float* p = v; // implicit, the read side
 	Ok(p[0] == 1.f && p[1] == 2.f && p[2] == 3.f, "implicit const float* sees the members");
@@ -175,7 +175,7 @@ void TestQuat() {
 	Ok(Near(Quat().Rotate(Vec3(1.f, 2.f, 3.f)), Vec3(1.f, 2.f, 3.f)),
 			"the identity Quat is a no-op");
 
-	// Composition order: a * b applies a FIRST. Rotate is conj(q) * v * q, so
+	// Composition order: a * b applies a first. Rotate is conj(q) * v * q, so
 	// conj(ab) v (ab) = conj(b) (conj(a) v a) b - row-vector order, the same one
 	// Matrix.h states for EngineRot9Mul.
 	const Quat qa = Quat::FromEuler(0.4f, 0.f, 0.f);

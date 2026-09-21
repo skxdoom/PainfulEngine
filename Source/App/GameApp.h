@@ -1,7 +1,6 @@
 #pragma once
 
-// The game itself: the script-driven run. One function, not a class - the
-// header used to imply otherwise.
+// The game itself: the script-driven run. One function, not a class.
 //
 // Game:LoadLevel reads the level and creates its entities through the native
 // API, Game:OnPlay creates the player, and the frame loop ticks the script
@@ -21,7 +20,7 @@ namespace painful {
 
 // shotPath: capture one frame to a .tga and exit. exec: a Lua chunk run once
 // the world is up, or null. devUI: the -dev launch flag - the debug overlay,
-// the M , . / toggles and noclip on F, and it puts the SCRIPTS into their developer
+// the M , . / toggles and noclip on F, and it puts the scripts into their developer
 // build too (debugMarek, IsFinalBuild). PAINFUL_DEV is the same switch, and
 // there is no way to turn any of it on mid-run: it is a build, not an option.
 int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,

@@ -48,7 +48,7 @@ uint32_t CoronaBlendStored(int index) {
 	}
 }
 
-// A point in a .hke body's own frame: the inverse of its translation and ROTATION.
+// A point in a .hke body's own frame: the inverse of its translation and rotation.
 Vec3 LocalFromWorld(const HkeBody& b, const Vec3& point) {
 	Vec3 v;
 	for (int i = 0; i < 3; ++i) v[i] = point[i] - b.translation[i];
@@ -65,7 +65,7 @@ Vec3 LocalFromWorld(const HkeBody& b, const Vec3& point) {
 }
 
 // A constraint pivot in the Havok body's space: the .hke's, plus the body's
-// DISPLACEMENT, times the scale (C3L1_LampA joint6: (7.474 + 124.109) * 0.72 = 94.74).
+// displacement, times the scale.
 void HavokPivot(const HkeBody& b, const Vec3& local, float scale, float out[4]) {
 	for (int i = 0; i < 3; ++i) out[i] = (local[i] + b.displacement[i]) * scale;
 	out[3] = 0.f;
@@ -533,7 +533,7 @@ void ScriptEngine::BuildWorldSave(WorldSave& out) {
 				WsParticle::Emitter em;
 				em.file = Z(rec.file);
 				em.b = 1.f;
-				// ASSUMED: which of the five emitter bits is which (ParticleEffect::LoadEntity
+				// Assumed: which of the five emitter bits is which (ParticleEffect::LoadEntity
 				// stores them unnamed); the census's 10100 / 10110 / 10001 read as below.
 				em.flags[0] = 1;
 				em.flags[2] = rec.setup ? 1 : 0;

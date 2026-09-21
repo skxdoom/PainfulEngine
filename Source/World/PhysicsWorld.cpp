@@ -38,9 +38,9 @@ void SleepStrays(JPH::PhysicsSystem& system) {
 
 // A body whose state has gone non-finite. Jolt is built with
 // JPH_FLOATING_POINT_EXCEPTIONS_ENABLED (its own default), so its worker
-// threads run with invalid/div-zero/overflow UNMASKED - the next
+// threads run with invalid/div-zero/overflow unmasked - the next
 // JobIntegrateVelocity raises 0xC0000091 and the process dies naming only the
-// job. Catching it here costs one pass over the active set and reports WHICH
+// job. Catching it here costs one pass over the active set and reports which
 // body and with what, which the fault does not.
 // Docs/Reference/Physics.md, "A diverged body".
 bool Finite(const JPH::Vec3& v) {
@@ -201,7 +201,7 @@ void PhysicsWorld::CreatePawnProbe() {
 	if (impl_->pawnProbeRadius <= 0.f) return;
 	if (!impl_->playerShape) impl_->playerShape = Impl::MakePlayerShape();
 	if (!impl_->playerShape) return;
-	// A kinematic SENSOR in the player's own silhouette: contacts are reported
+	// A kinematic sensor in the player's own silhouette: contacts are reported
 	// (a can, an axe, a landing corpse), nothing is pushed by it. Moving the
 	// props is the pawn's slide plus PushProps; a solid kinematic shoved them
 	// at infinite mass. PlayerMovement.md, "What the player collides with".
@@ -317,7 +317,7 @@ bool PhysicsWorld::BuildStaticWorld(const MapMesh& map, float worldScale,
 	// The static world, from the same object set the original hands Havok:
 	// MapObject::isCollidable rejects portals, zones, volumetric-light helpers
 	// and anything named "noclip", and the original gives those no body either.
-	// Triangles are built in RENDERED space - raw mesh coordinates times the
+	// Triangles are built in rendered space - raw mesh coordinates times the
 	// level o.Scale - which is the space entity positions and the camera live
 	// in.
 	JPH::VertexList vertices;
@@ -343,7 +343,7 @@ bool PhysicsWorld::BuildStaticWorld(const MapMesh& map, float worldScale,
 		for (size_t t = 0; t + 2 < o.indices.size(); t += 3) {
 			const uint32_t a = o.indices[t], b = o.indices[t + 1], c = o.indices[t + 2];
 			if (a >= o.vertexCount() || b >= o.vertexCount() || c >= o.vertexCount()) continue;
-			// WOUND BACKWARDS ON PURPOSE. Jolt takes counter-clockwise as the
+			// Wound backwards on purpose. Jolt takes counter-clockwise as the
 			// front face; the world exporter winds the other way, which is why
 			// the renderer draws these meshes with CULL_CCW. Feeding them in
 			// as authored gives every floor a downward face, and simulated
@@ -403,8 +403,7 @@ void PhysicsWorld::LoadProps(const Level& level, TemplateCache& templates,
 		// the game gets every body from the scripts.)
 		if (e.type == "CActor") continue;
 		// A placed instance can carry the call itself, which wins over its
-		// template: Cathedral's barrels each declare
-		// o.StartCommand = "o:PO_Create(BodyTypes.FromMesh)".
+		// template: o.StartCommand = "o:PO_Create(BodyTypes.FromMesh)".
 		int bodyType = TemplateCache::BodyTypeInScript(e.props.String("StartCommand"));
 		if (bodyType < 0) bodyType = templates.PhysicsBodyType(e.baseObj);
 		if (bodyType < 0) continue;
@@ -450,7 +449,7 @@ void PhysicsWorld::LoadProps(const Level& level, TemplateCache& templates,
 		//     if self.Restitution then ENTITY.PO_SetRestitution(...) end
 		//     if self._Class == "CItem" then ENTITY.PO_SetFriction(entity, 1) end
 		//     if self.Friction then ENTITY.PO_SetFriction(...) end
-		// The level's DefaultMeshRestitution is the WORLD mesh's surface, not
+		// The level's DefaultMeshRestitution is the world mesh's surface, not
 		// every prop's - handing it to the props made barrels bounce and
 		// topple when they landed.
 		const bool pinned = templates.ResolveBool(e.baseObj, "Pinned", false);
@@ -557,7 +556,7 @@ void PhysicsWorld::Update(float dt) {
 					impl_->pawnProbePos[2]),
 					JPH::Quat::sIdentity(), kStep);
 		}
-		// Monsters are re-commanded per STEP, as PhysicsObject::Tick is run
+		// Monsters are re-commanded per step, as PhysicsObject::Tick is run
 		// per physics tick: the 0.5 carry-over is a per-tick decay.
 		StepCharacters();
 		StepMovers();

@@ -6,7 +6,7 @@ namespace painful {
 
 // View frustum as six inward-facing planes, extracted from a row-vector
 // view*projection matrix (clip = v * V * P, the convention everywhere in this
-// engine). Gribb-Hartmann: each plane is a combination of matrix COLUMNS.
+// engine). Gribb-Hartmann: each plane is a combination of matrix columns.
 struct Frustum {
 	float plane[6][4]; // nx, ny, nz, d - inside is dot(n,p)+d >= 0
 

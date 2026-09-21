@@ -25,7 +25,7 @@ struct Material {
 	const std::string& lightmap() const { return slots[1].name; }
 };
 
-// A single world-mesh object. The NAME carries engine semantics - see the shipped
+// A single world-mesh object. The name carries engine semantics - see the shipped
 // "Pain Engine - MPK Substrings" document. These substrings are the level's entity
 // system (portals, antiportals, zones, barriers, breakable glass, physics props),
 // so a source port must honour them rather than treating names as labels.
@@ -101,7 +101,7 @@ struct MapObject {
 // PainEngine .mpk world mesh.
 //   u32 magic = 0xDEAFBABE
 //   objects until u32 terminator = 0xDEADBEEF
-// See RE/FINDINGS.md for the full field layout.
+// See RE/findings.md for the full field layout.
 struct MapMesh {
 	static constexpr uint32_t kMagic = 0xDEAFBABEu;
 	static constexpr uint32_t kTerminator = 0xDEADBEEFu;
@@ -130,7 +130,7 @@ struct MapMesh {
 	//   * verts is 8 floats per vertex. With uvChannels == 1 that is
 	//     position, normal, uv; with 2 it is position, uv0, uv1 and the
 	//     normals live in their own array.
-	//   * the exporter winds triangles so the geometric normal OPPOSES the
+	//   * The exporter winds triangles so the geometric normal opposes the
 	//     vertex normal - 283457 of 283501 triangles in 1x01_Chaos do. The
 	//     renderer culls CCW to suit, and PhysicsWorld reverses each triangle
 	//     so Jolt's CCW-front rule agrees. Wound the intuitive way instead, a

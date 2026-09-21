@@ -229,7 +229,7 @@ bool MapMesh::Write(const std::string& path, const MapMesh& mesh) {
 		PutU32(out, uint32_t(o.indices.size()));
 		for (uint16_t i : o.indices) PutU16(out, i);
 
-		// The loader PEEKS at the material block without moving its cursor and
+		// The loader peeks at the material block without moving its cursor and
 		// then resynchronises by scanning for the next valid header, so this
 		// block is read but not consumed. That is fine as long as it holds no
 		// byte sequence that looks like a header - short slot names keep it

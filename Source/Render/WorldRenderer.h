@@ -97,13 +97,13 @@ public:
 	// The M key's lighting-only view: unblended materials take 0.8 grey for albedo.
 	void SetLightingOnly(bool on) { lightingOnly_ = on; }
 	// A depth pass into `map`: every opaque chunk inside its frustum. Called
-	// AFTER Draw. The flashlight's map also reuses Draw's zone set - the
+	// after Draw. The flashlight's map also reuses Draw's zone set - the
 	// light sits at the camera, so the camera's rooms are the beam's rooms.
 	void DrawShadow(bgfx::ViewId view, const ShadowMap& map, float timeSeconds);
 	// The same into any depth view: every opaque chunk inside `frustum`.
 	void DrawShadowInto(bgfx::ViewId view, const Frustum& frustum, bgfx::ProgramHandle program,
 			float timeSeconds, bool byZones);
-	// The world into the faces of the DYNAMIC lights picked for the atlas: a light
+	// The world into the faces of the dynamic lights picked for the atlas: a light
 	// spawned at runtime is in no lightmap, so the world's shadow has to be cast.
 	// A placed light's is baked, and its faces take the models alone. After Draw.
 	void DrawLightShadows(const LightShadowAtlas& atlas, const std::vector<ShadowedLight>& picks,
@@ -157,7 +157,7 @@ public:
 	// Returns how many of its batches found a <texture>_s map.
 	int SetMeshSpecular(const std::string& object, float power, const int lights[2]);
 
-	// Diagnostic: 0 = CCW, 1 = CW, 2 = none.
+	// Diagnostic: 0 = CCW, 1 = cw, 2 = none.
 	void SetCullMode(int mode) { cullMode_ = mode; }
 	size_t trianglesUploaded() const { return triangles_; }
 
@@ -168,10 +168,9 @@ private:
 		bgfx::TextureHandle diffuse = BGFX_INVALID_HANDLE;
 		bgfx::TextureHandle lightmap = BGFX_INVALID_HANDLE;
 		// Terrain blending: a material with all four slots filled mixes two
-		// TILED terrain textures through a mask. Which slots are which is not
-		// guesswork - the tiled pair carry large scale factors (Enclave's
-		// ground is 30x30 and 20x20) while the lightmap and mask are 1x1 and
-		// map once across the surface.
+		// tiled terrain textures through a mask. Which slots are which is not
+		// guesswork - the tiled pair carry large scale factors, while the
+		// lightmap and mask are 1x1 and map once across the surface.
 		bgfx::TextureHandle blend2 = BGFX_INVALID_HANDLE;
 		bgfx::TextureHandle mask = BGFX_INVALID_HANDLE;
 		bool blended = false;

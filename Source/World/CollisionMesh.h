@@ -16,7 +16,7 @@ namespace painful {
 // a physics engine. It is deliberately not tied to billboards: line-of-sight,
 // projectile hits and AI visibility all want the same query.
 //
-// Triangles are stored in RENDERED space (raw mesh coordinates times the level
+// Triangles are stored in rendered space (raw mesh coordinates times the level
 // o.Scale), which is the space entity positions and the camera already live in.
 class CollisionMesh {
 public:

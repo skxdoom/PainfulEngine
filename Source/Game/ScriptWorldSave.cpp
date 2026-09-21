@@ -179,7 +179,7 @@ bool ScriptEngine::LoadWorldSave(const std::vector<uint8_t>& buf, const std::str
 			e.pos = m.pos;
 			e.rot = FileQuat(m.rot);
 			e.characterShadow = m.shadow != 0;
-			// ASSUMED: the visibility bytes follow the .pkmdl's mesh order; the counts agree.
+			// Assumed: the visibility bytes follow the .pkmdl's mesh order; the counts agree.
 			if (const std::vector<std::string>* names = meshesOf(e.source))
 				for (size_t i = 0; i < m.meshVisible.size() && i < names->size(); ++i)
 					if (!m.meshVisible[i]) e.hiddenMeshes[(*names)[i]] = false;
@@ -358,9 +358,9 @@ bool ScriptEngine::LoadWorldSave(const std::vector<uint8_t>& buf, const std::str
 
 	// Corpses and ragdoll props, from the limb poses the solver held. Parts are
 	// matched by bone name; the file's bodies follow the .hke's order. A saved
-	// position is the Havok body's, which sits DISPLACEMENT (times the scale) short
-	// of our part frame: C3L1_LampA's joint6 is 124.1 * 0.72 = 89.4 below it. A
-	// fixed part (.hke mass 0) keeps the seed; the original never moves one.
+	// position is the Havok body's, which sits the body's displacement times
+	// the scale short of our part frame. A fixed part (.hke mass 0) keeps the
+	// seed; the original never moves one.
 	size_t ragdollsPosed = 0;
 	float worstSeedGap = 0.f;
 	std::string worstSeedModel;
@@ -425,7 +425,7 @@ bool ScriptEngine::LoadWorldSave(const std::vector<uint8_t>& buf, const std::str
 		++ragdollsPosed;
 	}
 
-	// PATH handles are Pathfinder2 slots from 0 (0x1013aa20). A live one keeps its
+	// path handles are Pathfinder2 slots from 0 (0x1013aa20). A live one keeps its
 	// next point and destination, and WaypointGPath2::Load routes between them again.
 	paths_.assign(save.paths.size(), Route{});
 	size_t livePaths = 0;

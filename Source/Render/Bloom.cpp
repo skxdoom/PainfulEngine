@@ -119,7 +119,7 @@ void Bloom::SetQuality(int scale, int kernel) {
 }
 
 // Weights the way FUN_100a8f60 makes them, Multiplier included - it is applied
-// in BOTH passes, so a level's 1.5 is 2.25 on the result. The extended kernel
+// in both passes, so a level's 1.5 is 2.25 on the result. The extended kernel
 // is scaled to the original's total so the intensity does not move with it.
 void Bloom::BuildKernel() {
 	kernelDirty_ = false;

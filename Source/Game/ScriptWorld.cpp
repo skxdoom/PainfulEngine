@@ -94,7 +94,7 @@ void ScriptEngine::BuildDeathZones() {
 }
 
 // One IN_DEATH_ZONE per entity that asks to be tested, carrying the zone's
-// NAME as a fifth argument - Game_GetMsg turns the test off again and hands
+// name as a fifth argument - Game_GetMsg turns the test off again and hands
 // the object x, y, z and that name, which it matches "wat" against.
 void ScriptEngine::TickDeathZones() {
 	if (!host_ || deathZones_.empty()) return;
@@ -140,7 +140,7 @@ void ScriptEngine::BuildGlass() {
 	if (!glass_.empty()) LogInfo("glass: %zu panes", glass_.size());
 }
 
-// The original identifies the pane from the BODY the caller hit and spends the
+// The original identifies the pane from the body the caller hit and spends the
 // radius on which shards to start. Ours has one static world body, so the
 // point and radius pick the pane instead - the deviation is in Physics.md.
 bool ScriptEngine::BreakGlassAt(const Vec3& at, float radius) {
@@ -172,7 +172,7 @@ bool ScriptEngine::BreakGlassAt(const Vec3& at, float radius) {
 }
 
 // WORLD.CheckStartGlass(he, x, y, z, radius = 0.5, vx, vy, vz) -> was it glass.
-// The return value is gameplay, not decoration: BoltStick passes THROUGH what
+// The return value is gameplay, not decoration: BoltStick passes through what
 // it breaks and ElectroDisk does not bounce off it.
 int WorldNatives::L_WORLD_CheckStartGlass(lua_State* L) {
 	ScriptEngine* self = From(L);
@@ -234,7 +234,7 @@ int WorldNatives::L_WORLD_SetCollisionGroupMeshGroup(lua_State* L) {
 }
 
 // WORLD.SetTimeToDeleteMeshGroup(group, time, randomize) - time 0 removes the
-// group NOW (World::MeshesActiveGroupRemove; the sentinel at 0x103a74ac reads
+// group now (World::MeshesActiveGroupRemove; the sentinel at 0x103a74ac reads
 // 0.0, and Alastor's WallsTimeToDelete is exactly 0.0), otherwise it schedules
 // the removal at time + rand(0..randomize). The script's 4th argument is not
 // read by the engine.
@@ -278,8 +278,8 @@ int WorldNatives::L_ENTITY_EnableDeathZoneTest(lua_State* L) {
 	return 0;
 }
 
-// WORLD.EnableDeathZone(name, on = FALSE) - note the default, which is why
-// `EnableDeathZone:'x'` with no argument turns one OFF (0x1013E180).
+// WORLD.EnableDeathZone(name, on = false) - note the default, which is why
+// `EnableDeathZone:'x'` with no argument turns one off (0x1013E180).
 int WorldNatives::L_WORLD_EnableDeathZone(lua_State* L) {
 	ScriptEngine* self = From(L);
 	const char* name = luaL_optstring(L, 1, "");
@@ -389,7 +389,7 @@ int WorldNatives::L_WORLD_IsAntiPortalEnabled(lua_State* L) {
 // renderer upload.
 // Every "phys" object of the map becomes a rigid body and an entity, as
 // World::LoadMeshPakFile + PhysicsWorld::AddMesh make them. The level's mass
-// factor comes from the Lua global the ENGINE calls, Level_GetActiveMeshesData
+// factor comes from the Lua global the engine calls, Level_GetActiveMeshesData
 // (CLevel.lua:970), substring-matched on the lowercased name; 1 means "use
 // ActiveMeshesMassScale", which WORLD.Init brings a moment later.
 float ScriptEngine::ActiveMeshMassScale(const std::string& objectName) {
@@ -454,9 +454,9 @@ void ScriptEngine::CreateActiveMeshes() {
 		}
 	}
 	// The intact twins, paired with their pieces by name (FUN_101BA530's
-	// prefix). Each piece goes to the LONGEST matching prefix: Enclave's
-	// grob2 would otherwise take grob22's pieces. ASSUMED - the original's
-	// matcher is not located yet. Docs/Reference/Physics.md, "Destructibles".
+	// prefix). Each piece goes to the longest matching prefix, or `grob2`
+	// takes `grob22`'s pieces. Assumed - the original's matcher is not located
+	// yet. Docs/Reference/Physics.md, "Destructibles".
 	std::vector<std::string> prefixes;
 	for (size_t i = 0; i < map_.objects.size(); ++i) {
 		const MapObject& o = map_.objects[i];
@@ -578,8 +578,8 @@ int WorldNatives::L_WORLD_LoadMap(lua_State* L) {
 	// The map's .EVolumetric entities apply after this, to its own objects.
 	self->volumeParams_.clear();
 
-	// With physics attached the static world is built HERE, synchronously:
-	// the entity bodies follow through PO_Create later in this same level
+	// With physics attached the static world is built here, synchronously:
+	// The entity bodies follow through PO_Create later in this same level
 	// load, and they need something to rest on.
 	// A map was already up: this is a level switch, and the scripts have just
 	// released their own entities in Game:Clear. Drop what is ours.
@@ -623,7 +623,7 @@ int WorldNatives::L_WORLD_LoadMap(lua_State* L) {
 }
 
 void ScriptEngine::ResetLevelState() {
-	// The active meshes are entities the ENGINE made from the map's `phys`
+	// The active meshes are entities the engine made from the map's `phys`
 	// objects (CreateActiveMeshes); GObjects:Clear never sees them.
 	std::vector<int> engineOwned;
 	for (const auto& kv : entities_)
@@ -637,7 +637,7 @@ void ScriptEngine::ResetLevelState() {
 	contactVelocity_.clear();
 	excludedSlots_.clear();
 	// Limb handles name (entity, joint), and ReleaseWorld(true) restarts
-	// handles at 1 - so anything left here would hide a joint of a NEW
+	// handles at 1 - so anything left here would hide a joint of a new
 	// entity for the rest of the session. An unbalanced Remove bracket (a
 	// script error between Stake.lua's Add/Remove pair) is how that happens.
 	suppressedLimbs_.clear();

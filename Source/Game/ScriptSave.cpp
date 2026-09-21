@@ -38,7 +38,7 @@ constexpr char kMagic[4] = {'P', 'K', 'S', 'V'};
 // Our file's name beside the world file: "C1L1_Cathedral.World.pksv". The original
 // lists only "*.C*" object files, so it never sees it.
 constexpr char kSideSuffix[] = ".pksv";
-// 2 added the LIGHT.* block; 3 the parent joint INDEX, which BindFX binds by
+// 2 added the LIGHT.* block; 3 the parent joint index, which BindFX binds by
 // (a number from MDL.GetJointIndex) and which the name field cannot carry; 4
 // the centred-mesh flag and a child's local transform.
 // An older save still loads with what it has: no light state at 1, bound
@@ -141,7 +141,7 @@ private:
 };
 
 // The derived slots (renderer, body, emitters, sprite, voice, ragdoll, the
-// pose caches, the anim pointers) are NOT here: RebuildEntity makes them.
+// pose caches, the anim pointers) are not here: RebuildEntity makes them.
 void ArchiveEntity(Archive& ar, ScriptEngine::Entity& e, bool& hadBody, bool& hadRagdoll,
 		Vec3& bodyVel, uint32_t version) {
 	ar.F(e.type); ar.F(e.source); ar.F(e.mesh); ar.F(e.name);
@@ -159,7 +159,7 @@ void ArchiveEntity(Archive& ar, ScriptEngine::Entity& e, bool& hadBody, bool& ha
 	ar.F(e.hasCorona); ar.F(e.coronaArgs); ar.F(e.coronaTex); ar.F(e.coronaColor);
 	ar.F(e.coronaBlend); ar.F(e.coronaSpriteOnly);
 
-	// The light this entity IS. It has to be carried: the shipped CLight has no
+	// The light this entity is. It has to be carried: the shipped CLight has no
 	// RestoreFromSave, so nothing re-runs LIGHT.Setup on the restored entity -
 	// CEnvironment, which does have one, re-Applies itself instead. The
 	// original does not need the script's help because Light::SaveEntity /
@@ -328,7 +328,7 @@ void ScriptEngine::RebuildEntity(int handle, Entity& src) {
 	src.spriteSlot = -1;
 	src.soundVoice = AudioEngine::kNoVoice;
 	src.emitterSlots.clear();
-	// A joint given by NAME is resolved again against the rebuilt parent; one
+	// A joint given by name is resolved again against the rebuilt parent; one
 	// given by index (BindFX, RegisterChild with a number) is the index itself.
 	if (!src.parentJoint.empty()) src.parentJointIndex = -2;
 	src.pose = Entity::Pose();

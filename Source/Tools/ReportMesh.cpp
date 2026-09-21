@@ -135,7 +135,7 @@ int BonesCmd(const char* path, const char* animName, const char* timeArg,
 	if (!Model::Load(path, m)) { LogInfo("failed"); return 2; }
 	LogInfo("%s: %zu bones", path, m.bones.size());
 	// Every bone, not the first handful: the question this answers is
-	// usually about ONE named bone deep in the list - where a weapon or a
+	// usually about one named bone deep in the list - where a weapon or a
 	// shield hangs off the rig - and a truncated dump cannot answer it.
 	for (size_t i = 0; i < m.bones.size(); ++i) {
 		const Bone& b = m.bones[i];
@@ -203,7 +203,7 @@ int BonesCmd(const char* path, const char* animName, const char* timeArg,
 
 		// "<joint>:<ax>,<ay>,<az>" applies MDL.ApplyJointRotation's own
 		// override and reports which bones moved. A rotation at one joint must
-		// move that bone's descendants and NOTHING else - the check that it
+		// move that bone's descendants and nothing else - the check that it
 		// turns where it sits rather than swinging about its parent.
 		if (rotArg) {
 			JointOverride ov;
@@ -255,7 +255,7 @@ int MapCmd(const char* path, const char* nameFilter) {
 	// failure is reported rather than fatal.
 	if (!MapMesh::Load(path, m)) LogWarn("%s: %s", path, m.error.c_str());
 	// With a filter: every object whose name contains it, with its raw bounds -
-	// the way to find WHERE a named piece of the world is.
+	// the way to find where a named piece of the world is.
 	if (nameFilter && nameFilter[0]) {
 		size_t shown = 0;
 		for (const MapObject& o : m.objects) {
@@ -301,7 +301,7 @@ int MapCmd(const char* path, const char* nameFilter) {
 	// Which way the exporter winds its triangles, measured rather than assumed:
 	// for each triangle, does cross(b-a, c-a) agree with the vertex normals or
 	// oppose them? PhysicsWorld reverses the winding on the strength of this,
-	// and anything that WRITES a .mpk has to match it or the floor comes out
+	// and anything that writes a .mpk has to match it or the floor comes out
 	// one-sided the wrong way.
 	size_t agree = 0, oppose = 0;
 	for (const MapObject& o : m.objects) {
@@ -505,7 +505,7 @@ int HitboxesCmd(const char* modelPath) {
 			missing, unweighted);
 
 	// The .hke hulls the game traces against, beside the skin boxes above: each
-	// shape's bind-pose bounds in MODEL space, so the two sets compare directly.
+	// shape's bind-pose bounds in model space, so the two sets compare directly.
 	std::string hkePath = rdePath.substr(0, rdePath.size() - 4) + ".hke";
 	Hke def;
 	if (!Hke::Load(hkePath, def)) { LogInfo("  no usable %s: the game keeps the skin boxes", hkePath.c_str()); return 0; }
@@ -567,7 +567,7 @@ int ModelCmd(const char* path) {
 	// Per-mesh names and material texture references. The mesh name is what a
 	// .shader script keys off for a per-object material override, so it has to
 	// be visible to tell why a model did or did not pick one up.
-	// Do the normals point OUT? For a roughly closed character mesh most
+	// Do the normals point out? For a roughly closed character mesh most
 	// vertices should have their normal pointing away from the model centre.
 	// A majority pointing inward means the file's normals are inverted, which
 	// no amount of tuning the lighting will fix.

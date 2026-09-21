@@ -60,7 +60,7 @@ int PlayerNatives::L_CreatePlayer(lua_State* L) {
 	self->entities_.emplace(handle, e);
 	++self->created_;
 	self->playerHandle_ = handle;
-	// Born with its physics object DISABLED. Game:SwitchPlayerToPhysics is
+	// Born with its physics object disabled. Game:SwitchPlayerToPhysics is
 	// the level start's last step (SaveGame.lua: LoadLevel, OnPlay, Switch,
 	// MOUSE.Lock), and it only seats the pawn at the camera and seeds
 	// Player.Pos when PO_IsEnabled is false. Created enabled, it returned
@@ -126,12 +126,12 @@ int PlayerNatives::L_EDITOR_OutputText(lua_State* L) {
 	return 0;
 }
 
-// IsFinalBuild() -> is this a RETAIL build.
+// IsFinalBuild() -> is this a retail build.
 //
 // The shipped scripts gate their own debug tooling on `not IsFinalBuild()` -
 // 24 places across 7 files, from the key that hides the viewmodel to actor
 // state readouts. Left unimplemented this returned nothing, nil is falsy, and
-// every one of those branches was live in our build BY ACCIDENT: retail
+// every one of those branches was live in our build by accident: retail
 // behaviour is the default the engine should present, and debug is something
 // asked for.
 //
@@ -154,10 +154,10 @@ int PlayerNatives::L_PO_Enable(lua_State* L) {
 		const bool wasEnabled = e->poEnabled;
 		e->poEnabled = enable;
 		// Snapshot the velocity before the body leaves the world. This is the
-		// last moment it exists: CItem:DestroyItemFX disables the body and THEN
+		// last moment it exists: CItem:DestroyItemFX disables the body and then
 		// calls ExplodeItem, whose parts are meant to inherit it, so without
 		// this the wreckage of a barrel a rocket just hit falls straight down.
-		// ON THE TRANSITION ONLY. DestroyItemFX disables the body twice, and the
+		// On the transition only. DestroyItemFX disables the body twice, and the
 		// second call reads the already-disabled body as zero - which clobbered
 		// the snapshot and left the wreckage with no inherited velocity at all.
 		if (wasEnabled && !enable && self->physics_ && e->physicsBody >= 0)
@@ -226,7 +226,7 @@ int PlayerNatives::L_GetDimensions(lua_State* L) {
 // PLAYER.GetDistanceFromPoint(e, x, y, z) - the pickup poll: every CItem
 // measures the player's distance against its takeDistance each tick, and
 // OnTake fires inside that radius.
-// PLAYER.GetDistanceFromPoint(e, x,y,z) - TO THE BODY'S AXIS, NOT ITS CENTRE.
+// PLAYER.GetDistanceFromPoint(e, x,y,z) - to the body's axis, not its centre.
 //
 // PhysicsObject::GetDistanceFromPoint (0x1018CF70) holds a second point at
 // PhysicsObject+0x5c, projects the query onto the segment between it and the
@@ -234,7 +234,7 @@ int PlayerNatives::L_GetDimensions(lua_State* L) {
 // segment is the body axis, feet to head.
 //
 // A single point cannot stand in for it. CItem:CheckDistFromPlayers asks about
-// self.Pos.Y - 1, so a coin lying on the floor asks about a point 0.9 BELOW
+// self.Pos.Y - 1, so a coin lying on the floor asks about a point 0.9 below
 // the floor: against the segment the nearest end is the feet, 0.9 away and
 // inside CoinG's takeDistance of 1.6; against a centre at +0.9 it is 1.8 away
 // and no coin in the game could ever be picked up.
@@ -284,7 +284,7 @@ int PlayerNatives::L_IsDrawEnabled(lua_State* L) {
 }
 
 // GetPlayerSpeed() -> speed, jumpStrength; SetPlayerSpeed(speed [, jump]) -
-// the natives at 0x1011df50/0x1011dea0 read and write the LIVE tweak fields
+// the natives at 0x1011df50/0x1011dea0 read and write the live tweak fields
 // (+0xc and +0x14 of the physics engine's tweak block), which is how demon
 // mode and powerups retune movement.
 int PlayerNatives::L_GetPlayerSpeed(lua_State* L) {
@@ -359,7 +359,7 @@ void ScriptEngine::TickTriggers() {
 	if (!player) return;
 
 	// A region is a PHYSICS volume - PhysicsWorld::CreateRegionFromPoints - so
-	// entry is the player's BODY overlapping it, not a point inside it. The
+	// entry is the player's body overlapping it, not a point inside it. The
 	// pawn's extent stands in for the real overlap: feet to head, widened by
 	// its radius. Docs/Reference/LuaHost.md, "Triggers and events"
 	Vec3 lo, hi;
@@ -450,8 +450,8 @@ static float CamYawFromTurn(float turn) {
 	return turn - kPi * 0.5f;
 }
 
-// The engine's elevation runs the OTHER WAY from our pitch: positive is
-// looking DOWN. That is not arbitrary - the scripts feed the elevation into
+// The engine's elevation runs the other way from our pitch: positive is
+// looking down. That is not arbitrary - the scripts feed the elevation into
 // the X slot of the engine Euler (CPlayer:SetupAction builds
 // FromEuler(elevation, turn, 0)), and a positive rotation about X in a
 // Y-up, Z-forward frame tilts forward toward -Y. Report our pitch without
@@ -518,7 +518,7 @@ int PlayerNatives::L_PLAYER_GetCameraFix(lua_State* L) {
 	return 1;
 }
 
-// CAM.GetRawRotation() -> the accumulated look angles in DEGREES - Game's
+// CAM.GetRawRotation() -> the accumulated look angles in degrees - Game's
 // camera tick wraps them with math.mod(...,360). The scripts own the view:
 // Game:UpdateViewFromPlayer adds MOUSE.GetDelta's real degrees to these and
 // writes the result back through CAM.SetAng.

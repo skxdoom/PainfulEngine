@@ -13,7 +13,7 @@ class MenuSystem;
 //
 // The state and the key vocabulary are Engine.dll's Console (embedded in the
 // HUD object at renderer+0x5d6bd0; constructor 0x10029f10, key handler
-// 0x1002aef0, Activate 0x10029860). What it does with a line is the SCRIPTS':
+// 0x1002aef0, Activate 0x10029860). What it does with a line is the scripts':
 // Enter hands the text to Hud_OnConsoleCommand (or Hud_OnSayToAll /
 // Hud_OnSayToTeam in the chat modes) and Tab to Hud_OnConsoleTab, and
 // Console.lua dispatches from there. Docs/Reference/Console.md.
@@ -39,14 +39,14 @@ public:
 		return o;
 	}
 
-	// CONSOLE.AddMessage / Print: one line into the log AND the on-screen
+	// CONSOLE.AddMessage / Print: one line into the log and the on-screen
 	// strip. A '\n' splits into several lines, as the original's strchr does.
 	void AddMessage(const std::string& text, uint32_t argb = kMessageColor);
 
 	// CONSOLE.SetCurrentText / GetCurrentText: the input line.
 	void SetCurrentText(const std::string& text);
 	const std::string& currentText() const { return text_; }
-	// CONSOLE.GetCursorPos: the SCROLL position, 1 = newest line at the bottom.
+	// CONSOLE.GetCursorPos: the scroll position, 1 = newest line at the bottom.
 	int scrollPos() const { return scroll_; }
 
 	// CONSOLE.SetFont(name, size) and the SetMPMsg* trio HUD:LoadData calls.

@@ -8,7 +8,7 @@
 // should depend on the other, which is why it lives in Core.
 namespace painful {
 
-// PainEngine stores 4x4 affine matrices ROW-MAJOR in ROW-VECTOR convention
+// PainEngine stores 4x4 affine matrices row-major in row-vector convention
 // (v' = v * M), with the translation in row 3. Note that glTF's column-major
 // column-vector layout is the transpose, which means the same 16 floats can be
 // handed to glTF verbatim - no transposition is needed.
@@ -47,7 +47,7 @@ struct Mat4 {
 };
 
 // Engine-order (w,x,y,z) quaternion to the row-vector 3x3 the renderers use -
-// the engine's own textbook form (FUN_1000bb90), NOT transposed. Pre-transposing
+// the engine's own textbook form (FUN_1000bb90), not transposed. Pre-transposing
 // mirrored every rotation. A quaternion shorter than 1e-6 yields the identity.
 void EngineQuatToRot9(const Quat& q, float out[9]);
 

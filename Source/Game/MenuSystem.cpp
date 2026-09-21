@@ -81,7 +81,7 @@ void MenuSystem::ClearScreen() {
 	if (backgroundMaterial_ > 0 && hud_) hud_->ReleaseMaterial(backgroundMaterial_);
 	backgroundMaterial_ = 0;
 	background_.clear();
-	// The cursor is deliberately NOT released here: it belongs to the menu
+	// The cursor is deliberately not released here: it belongs to the menu
 	// rather than to a screen, and survives every screen change.
 }
 
@@ -152,7 +152,7 @@ void MenuSystem::MoveFocus(int delta) {
 			reachable.push_back(i);
 	if (reachable.empty()) return;
 
-	// Up and down walk the screen the way it LOOKS, top to bottom and then
+	// Up and down walk the screen the way it looks, top to bottom and then
 	// left to right, not the way the items were declared. Declaration order is
 	// the order `next()` happened to walk the screen's Lua table, which is
 	// arbitrary - opening the main menu seated the highlight on Options rather
@@ -240,7 +240,7 @@ void MenuSystem::NavActivate() {
 	}
 }
 
-// MenuItemSlider::SendEvent (0x10086d30): an arrow moves the value by ONE in
+// MenuItemSlider::SendEvent (0x10086d30): an arrow moves the value by one in
 // the units the script passed (a float slider arrives x100), plays
 // scroller-move, and runs the action; at the end of the range nothing moves.
 // NumRange is taken to step the same way - its SendEvent is not exported.
@@ -352,7 +352,7 @@ void MenuSystem::Update(float mouseX, float mouseY, bool clicked, bool rightClic
 	// The mouse wins over the keyboard whenever it is over a row: hover moves
 	// focus, so the description text and the highlight follow the pointer.
 	if (showMouse_ && capture_.empty() && dragging_.empty() && !arrowClicked) {
-		// The SMALLEST box under the pointer wins, not the first declared: a
+		// The smallest box under the pointer wins, not the first declared: a
 		// centred row (the save screen's Delete, x = -1) is hit-tested as the
 		// whole menu row, and Save and Load sit on that same line at their
 		// own x. Declaration order gave Delete the pointer over all three.
@@ -377,7 +377,7 @@ void MenuSystem::Update(float mouseX, float mouseY, bool clicked, bool rightClic
 			// Which key cell of a row the pointer is over.
 			if (item->kind == Kind::KeyControl)
 				keyColumn_ = (keyColumn2X_ > 0.f && mouseX >= keyColumn2X_) ? 2 : 1;
-			// MenuItem::SendEvent (0x1006ff70) acts on the button's RELEASE
+			// MenuItem::SendEvent (0x1006ff70) acts on the button's release
 			// over the row that took its press. A value widget answers it
 			// itself; the slider's bar and arrows were handled above, so a
 			// click on its label does nothing.
@@ -428,19 +428,19 @@ void MenuSystem::Draw(int screenW, int screenH) {
 		return;
 	}
 
-	// The background fills the CANVAS, in whatever mode the HUD is in: the
+	// The background fills the canvas, in whatever mode the HUD is in: the
 	// map screen and the board place their pieces against it, so it has to
 	// stay in the same space they are laid out in. Covering the window
 	// instead misaligned them. Docs/Reference/Menu.md, "Widescreen".
 	if (backgroundMaterial_ > 0)
 		hud_->Quad(backgroundMaterial_, 0.f, 0.f, float(screenW), float(screenH), 0xffffffffu);
 
-	// MenuScreen::Render (0x10071070) draws in type PASSES, each walking the
+	// MenuScreen::Render (0x10071070) draws in type passes, each walking the
 	// items in the order they were added: tab groups; borders named
 	// "*Settings*" (the tab boxes); the other borders (the panels, which is
 	// what covers the tab boxes' overhang and puts the Controls key table
 	// over the General tab's panel); Load/Save; everything else; checkboxes
-	// last. A tab group's own tab is its ALIGN - Left the first, anything
+	// last. A tab group's own tab is its align - Left the first, anything
 	// else the second (MenuItemTabGroup::Render, 0x100639a0).
 	const Item* focusedItem = nullptr;
 
@@ -559,16 +559,15 @@ void MenuSystem::Draw(int screenW, int screenH) {
 		// x < 0 is "centre me", the same convention HUD.PrintXY carries. A real
 		// x is in 1024-wide authoring units and scales to the window.
 		//
-		// MenuAlign is ONE-BASED (Definitions.lua: None 1, Left 2, Right 3,
+		// MenuAlign is one-based (Definitions.lua: None 1, Left 2, Right 3,
 		// Center 4), so alignment only decides which edge of the string sits
 		// at x. Read as zero-based it sends every left-aligned item off the
-		// left of the screen and every right-aligned one off the right, which
-		// is exactly what the bottom bar did before this was checked.
-		// A negative x does NOT simply mean "centre on screen" - it means "let
+		// left of the screen and every right-aligned one off the right.
+		// A negative x does not simply mean "centre on screen" - it means "let
 		// the alignment place me inside the menu box", and the box is
 		// menuWidth wide (PainMenu defaults 720 authoring units) centred on the
 		// screen. VideoOptions is what proves it: TextureQualityWeapons and
-		// TextureQualityCharacters are BOTH declared x = -1, y = 330, and
+		// TextureQualityCharacters are both declared x = -1, y = 330, and
 		// differ only in align - Left and Right. They are one two-column row,
 		// and centring both drew them on top of each other.
 		//
@@ -636,7 +635,7 @@ void MenuSystem::Draw(int screenW, int screenH) {
 		hud_->Text(item->fontBig, size, labelX, labelY, label, ArgbToAbgr(colour),
 				FontTexture(*item, true));
 
-		// The hit target is the ROW, not the word. PMENU.SetMenuWidth is what
+		// The hit target is the row, not the word. PMENU.SetMenuWidth is what
 		// says how wide a row is - PainMenu defaults it to 720 authoring units
 		// - and hit-testing the glyphs alone leaves most of the row dead, so
 		// the pointer only highlights an item while it is literally over the
@@ -840,11 +839,11 @@ void MenuSystem::DrawValue(const Item& item, float x, float y, int size, uint32_
 //   ramka_gorna_srodek / dolna_srodek / lewa / prawa         the four edges
 //   tlo_paski / tlo_paski_ciemne                             the fill, light and dark
 //
-// Every piece is TILED at its native size rather than stretched, which is why
+// Every piece is tiled at its native size rather than stretched, which is why
 // the art is small - the fill is 32x32 and the edges are about 30 across.
 //
 // The overhangs below (-3, -5, -7, -11, -22...) are the original's, in raw
-// pixels and deliberately not scaled: the frame sits slightly OUTSIDE the
+// pixels and deliberately not scaled: the frame sits slightly outside the
 // rectangle it is given, so the panel's content area is the rectangle itself.
 void MenuSystem::DrawFrame(float x, float y, float w, float h) {
 	Item panel;
@@ -891,7 +890,7 @@ void MenuSystem::DrawBorder(const Item& item) {
 		hud_->Tiles(item.dark ? fillDark : fill, x, y + headerH, w, h - headerH, white);
 	} else {
 		// Columns alternate light and dark, which is what gives a list its
-		// banding. The LAST column takes whatever width is left rather than
+		// banding. The last column takes whatever width is left rather than
 		// its declared one, so rounding never leaves a gap at the right edge.
 		float at = 0.f;
 		for (size_t c = 0; c < item.columns.size(); ++c) {
@@ -946,7 +945,7 @@ void MenuSystem::DrawBorder(const Item& item) {
 
 // A slider: an arrow at each end, the red line between, the knob at the
 // value, the number right-aligned to the value column. Read off the shipped
-// Video Options: with a 720-unit menu box the number ENDS at
+// Video Options: with a 720-unit menu box the number ends at
 // menuLeft + sliderCtrlWidth (700) and the bar of sliderWidth (370) ends
 // thirty units short of it. A row with an explicit x lays the bar after its
 // own label instead.
@@ -965,7 +964,7 @@ void MenuSystem::DrawSlider(const Item& item, float labelX, float y, int size, u
 	// The bar is sliderWidth less "9.99" in the font the item had when it
 	// was added - the engine's default, painfont 40. The left arrow stands
 	// at (x + sliderCtrlWidth - bar - two arrows) from the screen's left,
-	// less "9.99" in the final font, with x the DECLARED value (-1 included);
+	// less "9.99" in the final font, with x the declared value (-1 included);
 	// the value centres in a "9.99" slot past the right arrow.
 	const float aw = 62.f * SX, ah = 40.f * SY;
 	const float slot40 = hud_->TextWidth("painfont", int(std::lround(40.0 * double(SY))), "9.99");
@@ -986,7 +985,7 @@ void MenuSystem::DrawSlider(const Item& item, float labelX, float y, int size, u
 	const_cast<Item&>(item).barH = 40.f * SY;
 	const_cast<Item&>(item).barArrowW = aw;
 
-	// The LARGE set is the slider's: strzalka_duza points right, kreska_duza
+	// The large set is the slider's: strzalka_duza points right, kreska_duza
 	// is a stretch of horizontal line, dzwigienka_duza the upright knob. (The
 	// small set is vertical - the list scroller's.)
 	const int arrow = MapMat("HUD/border/strzalka_duza");
@@ -994,7 +993,7 @@ void MenuSystem::DrawSlider(const Item& item, float labelX, float y, int size, u
 	const int knob = MapMat("HUD/border/dzwigienka_duza");
 	// MenuItemSlider::Render (0x10085e90): the arrows centre on the text, the
 	// knob (45 x 59) sits 6 units above them, and the line (kreska_duza,
-	// 27 x 34) starts 16 units above the text's middle at its UNSCALED height
+	// 27 x 34) starts 16 units above the text's middle at its unscaled height
 	// - so on any screen taller than 768 it rides above the arrows' axis. The
 	// port scales the line and centres it on the arrows instead.
 	const float arrowTop = std::round(cy - ah * 0.5f);
@@ -1002,7 +1001,7 @@ void MenuSystem::DrawSlider(const Item& item, float labelX, float y, int size, u
 	if (line > 0)
 		hud_->Tiles(line, barLeft, std::round(arrowTop + ah * 0.5f - lineH * 0.5f),
 				barRight - barLeft, lineH);
-	// The spearheads point INTO the line: the file's right-pointing arrow
+	// The spearheads point into the line: the file's right-pointing arrow
 	// stands at the left end, its mirror at the right.
 	if (arrow > 0) {
 		hud_->Quad(arrow, barLeft - aw, arrowTop, aw, ah, 0xffffffffu);
@@ -1031,11 +1030,11 @@ void MenuSystem::DrawCheckbox(const Item& item, float x, float y, float w, float
 // fifty units below the group's y (the shipped VideoOptions group at 122,70
 // 776x560 draws its panel from y 120 to 630; ControlsConfig declares the
 // same panel as an explicit EmptyBorder at y 110). The script places the tab
-// LABELS itself, as ordinary rows, and shifts the inactive one eight units
+// labels itself, as ordinary rows, and shifts the inactive one eight units
 // down - which is why "Advanced" sits lower than "General" in the original.
 void MenuSystem::DrawTabGroup(const Item& item, int index, int count) {
 	// The visible group draws the whole strip: every tab 180 apart from the
-	// group's x, its own full height in the DARK stripe (tlo_paski_ciemne,
+	// group's x, its own full height in the dark stripe (tlo_paski_ciemne,
 	// the +0x15c texture), the others 10 lower in the light one.
 	for (int i = 0; i < count; ++i) {
 		Item tab = item;
@@ -1064,7 +1063,7 @@ void MenuSystem::DrawTabGroup(const Item& item, int index, int count) {
 // primaryText, alternativeText, primaryKey, alternativeKey) declares one
 // action's row; PMENU.SetKeyItemIndex places it, 0 being the disabled header
 // row ("Action | Primary | Alternative"). The rows carry no position of their
-// own: they are a TABLE inside the border the script names KeyBorder - at
+// own: they are a table inside the border the script names KeyBorder - at
 // (50,110), 924 x 410, a 50-high header band and three columns of 328/308/308
 // authoring units - twelve rows visible (maxVisible) of fourteen, the rest
 // reached by scrolling.
@@ -1139,7 +1138,7 @@ bool MenuSystem::ScrollerInput(const std::string& id, float x, float top, float 
 	return true;
 }
 
-// MenuItemScroller::Render (0x100807c0): the SMALL set - strzalka_mala
+// MenuItemScroller::Render (0x100807c0): the small set - strzalka_mala
 // flipped at the top and upright at the bottom, kreska_mala between them,
 // dzwigienka_mala the lever at top + arrow + travel * t less 2, where the
 // travel is the height less 14 and the two arrows. The original draws the
@@ -1255,10 +1254,10 @@ void MenuSystem::DrawKeyRow(Item& item, bool focused) {
 // FUN_1006b620): an 824-unit-wide table whose frame sits 20 units out on each
 // side, 850 wide, listMaxHeight + 40 tall, with a 40-unit header band and
 // columns of 400 / 126 / 200 / 140. Rows are one text height apart, the
-// header row four units ABOVE the item's y and the first data row 16 below
+// header row four units above the item's y and the first data row 16 below
 // it. Column texts: the level name at x (centred in 380 for the header),
 // playtime centred in [380, 510], saved-at in [506, 716], difficulty in
-// [716, 826]. The selected row draws in the DISABLED colour, the row under
+// [716, 826]. The selected row draws in the disabled colour, the row under
 // the pointer in the under-mouse colour. Docs/Reference/Menu.md.
 namespace {
 constexpr float kListW = 824.f, kListPad = 20.f, kListFrameW = 850.f, kListHeaderH = 40.f;
@@ -1625,7 +1624,7 @@ void MenuSystem::KeyPressed(int vk) {
 // its own map. Choosing a level runs Game:LoadLevel('<dir>'), the string
 // Painkiller.exe carries.
 //
-// STAND-IN LAYOUT. The art is the original's - HUD/Map/Map, the cyferka*
+// Stand-in layout. The art is the original's - HUD/Map/Map, the cyferka*
 // chapter digits (clean/normal/glow/pressed), the karta* cards, the level
 // sketches - but where MapSelect's renderer places each piece has not been
 // read out of the binary. Chapters run down the left as digit buttons; the
@@ -1714,7 +1713,7 @@ void MenuSystem::EnterMap() {
 	// PAINFUL_MAP_CURSOR=<k>: a diagnostic that puts the focus on the k-th
 	// level of the chapter on show, for captures of the ring.
 	if (const int cur = DebugInt("PAINFUL_MAP_CURSOR", -1); cur >= 0) MapMoveCursor(cur);
-	// The plate starts ON the chosen level; it slides only for later moves.
+	// The plate starts on the chosen level; it slides only for later moves.
 	plateAngle_ = float(mapCursor_) * (kPi / 3.f);
 	plateClock_ = std::chrono::steady_clock::now();
 	// PAINFUL_MAP_PICK=<dir>: a diagnostic that chooses a level the moment the
@@ -1867,7 +1866,7 @@ void MenuSystem::DrawMap() {
 			: nullptr;
 	const bool playable = shown && (shown->status == 1 || shown->status == 2);
 
-	// The sketch goes UNDER the map. Map.dds is DXT3 and its black window is
+	// The sketch goes under the map. Map.dds is DXT3 and its black window is
 	// transparent (alpha 0), so what is drawn before it shows through the
 	// window and stops under the opaque straps that cross it - which is how
 	// the original's scrap sits behind the leather. The scrap's picture is
@@ -1886,7 +1885,7 @@ void MenuSystem::DrawMap() {
 	// The levels around the ring, thirty degrees apart clockwise from the
 	// top, level 1 at the top. The ring's own art holds a padlock at every
 	// spot: an open level gets its digit drawn over the lock, a locked one
-	// keeps the lock. The arched okienko plate is the SELECTOR - it sits on
+	// keeps the lock. The arched okienko plate is the selector - it sits on
 	// the chosen level's spot, turned to follow the ring, with the digit in
 	// its cutout (so with level 1 chosen it is the tab at the top) - and the
 	// spot under the pointer shows the plate too, as the original's hover.
@@ -1894,11 +1893,11 @@ void MenuSystem::DrawMap() {
 	{
 		const int plate = MapMat("HUD/Map/okienko");
 		const float pw = kOkienkoW * 0.83f, ph = kOkienkoH * 0.83f;
-		// SIX fixed slots sixty degrees apart, level 1 at the top; a chapter
+		// Six fixed slots sixty degrees apart, level 1 at the top; a chapter
 		// has four to six levels and the slots past its count stay locked.
 		const float step = 2.f * kPi / 6.f;
 
-		// The selector plate SLIDES around the ring from the level it was
+		// The selector plate slides around the ring from the level it was
 		// on to the one chosen, the short way round, at about a third of a
 		// second per slot.
 		{
@@ -1914,7 +1913,7 @@ void MenuSystem::DrawMap() {
 			else plateAngle_ += diff > 0.f ? maxStep : -maxStep;
 		}
 		if (plate > 0) {
-			// The plate is turned in AUTHORING space, where the ring is a
+			// The plate is turned in authoring space, where the ring is a
 			// circle, and its four corners are then scaled to the screen one
 			// by one. The screen scales the two axes differently on a
 			// widescreen window, so a rectangle rotated on screen keeps its
@@ -2073,7 +2072,7 @@ void MenuSystem::DrawMap() {
 // MagicBoard_UpdateCardsStatus(), which reads the result back through
 // IsCardInSlot and writes Game.CardsSelected.
 //
-// STAND-IN: a click moves a card between its row and the first free large
+// Stand-in: a click moves a card between its row and the first free large
 // slot of its kind, and the board's gold cost of equipping (MagicBoard::
 // GetCash / SetCash, the counter beside the crystal) is not charged. The
 // crystal accepts and returns to the map; so does Escape.

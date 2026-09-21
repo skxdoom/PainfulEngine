@@ -93,7 +93,7 @@ static void BuildViewProj(const Camera& camera, int width, int height, float out
 // the perspective divide would mirror it back into view and hang a label on
 // the wrong side of the screen.
 //
-// AND FALSE WHEN IT IS OUTSIDE THE FRUSTUM, which w > 0 alone does not catch.
+// And false when it is outside the frustum, which w > 0 alone does not catch.
 // A point beside the camera is in front of the eye plane by a hair, so w is
 // near zero and x/w is enormous - the label does not go quietly off-screen, it
 // sweeps across it as the camera turns. The clip-space test is the same one
@@ -283,10 +283,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	// Two different questions, so two independent overlays rather than one
 	// mode with three positions:
 	//
-	//   M   the GEOMETRY - every triangle the renderer draws, world and
+	//   M   the geometry - every triangle the renderer draws, world and
 	//       entities, in wireframe. What is actually on screen. A second press
 	//       gives the lighting-only view: 0.8 grey albedo, everything else kept.
-	//   ,   the dynamic COLLISION - what physics thinks is there, level left
+	//   ,   the dynamic collision - what physics thinks is there, level left
 	//       out. What the world can actually be hit by.
 	//
 	// Having them on together is the useful state: where the two disagree is
@@ -316,16 +316,16 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	};
 	constexpr float kNameplateRadius = 20.f;
 
-	// Slash stops the monsters THINKING, which is not the same as stopping them
+	// Slash stops the monsters thinking, which is not the same as stopping them
 	// ticking. CAiBrain:PreUpdate and OnUpdate are the deciding - target,
 	// approach, attack - while CActor:Tick carries animation, damage
 	// reactions and the ragdoll. Stubbing the brain alone leaves an enemy
 	// standing there alive and fully hittable, which is exactly the bench you
 	// want for hitboxes and ragdolls.
 	//
-	// Every actor holds its OWN brain: CActor makes it with Clone(CAiBrain),
+	// Every actor holds its own brain: CActor makes it with Clone(CAiBrain),
 	// and Clone is a shallow copy, so the functions are copied by value. The
-	// class has to be stubbed for actors spawned later AND every live brain
+	// class has to be stubbed for actors spawned later and every live brain
 	// for the ones already standing. Re-enabling walks the same two places.
 	bool aiDisabled = DebugFlag("PAINFUL_NOAI");
 	bool aiApplied = false;
@@ -340,7 +340,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	//                  viewmodel to actor readouts.
 	//
 	// Both move together, and both move with `dev`, because in the original
-	// they distinguished one BUILD from another rather than being options that
+	// they distinguished one build from another rather than being options that
 	// could be flipped mid-run. -dev and PAINFUL_DEV are the same switch, and
 	// it is the whole of what makes this a developer build: the overlay, the
 	// M , . / toggles, noclip on F, and these two.
@@ -430,7 +430,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 
 	// --- the level session ------------------------------------------------
 	//
-	// Everything from here to the game loop belongs to ONE loaded level and is
+	// Everything from here to the game loop belongs to one loaded level and is
 	// rebuilt when the scripts load another: the map's renderer and sky, the
 	// corona collision, the camera seat, the fog. The original does the same
 	// inside Game:LoadLevel - Game:Clear drops the old level, WORLD.LoadMap
@@ -592,7 +592,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	// The seating is already done by this point - the level loaded with the
 	// mouse unlocked, so CLevel:Synchronize pushed Lev.Pos and Lev.Ang out
 	// through CAM.SetPos/SetAng - so all that is left is to adopt the pose
-	// into our own camera. This ORDER is load-bearing: CreatePlayerSP seats
+	// into our own camera. This order is load-bearing: CreatePlayerSP seats
 	// the player at Lev.Pos, and locking any earlier inverts the
 	// synchronise, so the level records our camera instead of pushing its
 	// own pose and the player spawns at the world origin.
@@ -615,7 +615,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	// Model lighting. In this path there is no Level object at all - the script
 	// layer creates the entities and hands the renderer state over through the
 	// WORLD.* natives - so only the CEnvironment boxes are read from the file
-	// here. The LIGHTS all arrive through LIGHT.Setup instead: CLight:Apply
+	// here. The lights all arrive through LIGHT.Setup instead: CLight:Apply
 	// places the level's own, and the flashlight, the torches monsters carry
 	// and the flashes an action fires off come through the same door.
 	// Docs/Reference/Lighting.md
@@ -746,7 +746,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	// The pose the level pushed out through CAM.SetPos/SetAng during load,
 	// captured at the play transition above. Reading Lev.Pos here instead
 	// would be too late: the mouse is locked by now, so CLevel:Synchronize
-	// has started writing the camera INTO Lev.Pos rather than out of it.
+	// has started writing the camera into Lev.Pos rather than out of it.
 	if (seated) {
 		for (int i = 0; i < 3; ++i) camera.pos[i] = seatPos[i];
 		camera.yaw = seatYaw;
@@ -849,9 +849,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			if (engine.menu().TakePendingLevel(nextDir, nextName, nextSketch)) {
 				presentLoading(nextName, nextSketch);
 				tearDown();
-				// A level LOADS UNLOCKED: CLevel:Synchronize pushes Lev.Pos out
+				// A level loads unlocked: CLevel:Synchronize pushes Lev.Pos out
 				// through the camera only while the mouse is free, and pulls
-				// our camera INTO Lev.Pos otherwise.
+				// our camera into Lev.Pos otherwise.
 				engine.SetMouseLocked(false);
 				host.RunString("Game:LoadLevel('" + nextDir + "')");
 				bringUp(nextDir, false);
@@ -994,13 +994,13 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		renderer.SetWireframe(wireframe);
 		world.SetLightingOnly(lightingOnly);
 		entities.SetLightingOnly(lightingOnly);
-		// Who steers the view. While a player exists it is the SCRIPTS:
+		// Who steers the view. While a player exists it is the scripts:
 		// Game:Tick2 calls UpdateViewFromPlayer, which reads MOUSE.GetDelta,
 		// accumulates onto CAM.GetRawRotation and writes back through
 		// CAM.SetPos/SetAng - so the mouse motion above is consumed there,
 		// not here, and the camera adopts the result after the tick.
 		//
-		// THE GATE IS THE MOUSE LOCK, NOT THE PAWN. Game:Tick2 reads
+		// The gate is the mouse lock, not the pawn. Game:Tick2 reads
 		// `Player and self.CameraFromPlayer and MOUSE.IsLocked()`, and
 		// SwitchPlayerToPhysics - the scripts' own fly mode, itself behind
 		// `not IsFinalBuild()` - is the only thing that unlocks it during
@@ -1057,7 +1057,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 
 		// A hard landing is fall damage, script-side: the same
 		// PLAYER_HIT_GROUND PlayerAction queues, on the pawn's own test.
-		// PlayerAction (0x101925BF) NEGATES the speed before queueing, and
+		// PlayerAction (0x101925BF) negates the speed before queueing, and
 		// CPlayer:OnHitGround tests `speed < -collisionMinSpeed`; a positive
 		// number was a landing the script never saw.
 		const float impact = pawn.TakeGroundHit();
@@ -1076,7 +1076,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		// LuaHost.md, "The time multiplier".
 		const float sim = std::min(dt * engine.timeMultiplier(), 1.f);
 		const double d[1] = {sim};
-		// The player mover keeps REAL time: PlayerAction divides its target speed
+		// The player mover keeps real time: PlayerAction divides its target speed
 		// and jump by the world speed and puts g/s^2 on the body, so slow motion
 		// slows everything but the player. PlayerMovement.md, "Slow motion".
 		engine.SetFrameDelta(dt);
@@ -1105,7 +1105,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			if (Settings().generation() != appliedSettings) applySettings();
 		}
 
-		// Paused freezes the SIMULATION and nothing else: no actor tick, no
+		// Paused freezes the simulation and nothing else: no actor tick, no
 		// physics step, no animation. Rendering and the render callbacks carry
 		// on below, so the HUD still draws behind the menu and the world stays
 		// on screen rather than going black.
@@ -1492,7 +1492,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			volumes.Draw(sceneTargets, camera, world, Renderer::kVolumeViewBase, Renderer::kVolumeViewCount,
 					ws.bloomMultiplier > 0.f ? ws.bloomDimScale : 1.f, info.farClip);
 		}
-		// The heat haze reads the frame BEFORE the fire and the weapon go on:
+		// The heat haze reads the frame before the fire and the weapon go on:
 		// a copy of the scene, the warp sprites over it, then the view model in
 		// a view of its own after them (bgfx orders views, and within one it
 		// puts the opaque weapon before any blended sprite).
@@ -1515,7 +1515,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		const bgfx::ViewId lateView = Renderer::kAfterWarpView;
 		// Particles then coronas last, exactly as in the hand-driven loop:
 		// blended, no depth writes, and coronas ignore depth entirely.
-		// Paused stops the SIMULATION but not the drawing, here as everywhere
+		// Paused stops the simulation but not the drawing, here as everywhere
 		// else: the effects keep their last frame on screen rather than
 		// vanishing behind the menu, but they stop advancing. Ticking these
 		// from the render section is what let them keep running when the rest
@@ -1548,7 +1548,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 
 		// The collision wireframe, drawn over the finished world so it reads
 		// against what the renderer actually put on screen - the whole point
-		// is to see where the two DISAGREE.
+		// is to see where the two disagree.
 		if (collisionWire && debugLinesReady) {
 			// Dynamic only. The static level is a few hundred thousand
 			// triangles of blue that buries whatever you are looking at, and
@@ -1562,14 +1562,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			// land, and seeing both at once is what makes the gap obvious.
 			engine.CollectHitboxLines(camera.pos, kPhysicsDebugRadius, debugWireframe);
 
-			// A green box on every script entity that has NO physics body.
-			//
-			// Without this the overlay silently omits most of the level: of
-			// Cathedral's 38 actors only 6 carry a body, and of its 68 items
-			// only 3. Those are drawn by the renderer and can be shot at, but
-			// the physics world has never heard of them - so the honest
-			// wireframe of them is a marker at the entity, not a shape, and
-			// seeing a sea of green IS the finding.
+			// A green box on every script entity that has no physics body.
+			// Most of a level is these: the renderer draws them and they can
+			// be shot at, but the physics world has never heard of them, so
+			// the honest wireframe is a marker at the entity, not a shape.
 			for (const auto& kv : engine.entities()) {
 				const auto& e = kv.second;
 				if (e.physicsBody >= 0) continue; // already drawn, in its own colour
@@ -1660,7 +1656,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 					[](const Plate& a, const Plate& b) { return a.depth > b.depth; });
 			for (const Plate& p : plates) {
 				const float w = hud.TextWidth("arial", 14, p.text);
-				// NEVER NEGATIVE. HudRenderer::Text reads any x < 0 as the
+				// Never negative. HudRenderer::Text reads any x < 0 as the
 				// scripts' "centre me on the screen", so a label centred on
 				// something near the left edge - or on anything the projection
 				// put off-screen - jumped to the middle instead of being

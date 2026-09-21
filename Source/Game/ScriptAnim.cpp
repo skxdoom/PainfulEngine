@@ -46,7 +46,7 @@ void Normalize3x3Rows(float m[9]) {
 
 // ------------------------------------------------------------ the anim clock
 //
-// This is the half of animation the GAME waits on, as opposed to the half the
+// This is the half of animation the game waits on, as opposed to the half the
 // eye does. CActor:Tick opens its whole animation-event loop with
 //
 //     local animSpeed = MDL.GetAnimTimeScale(self._Entity, self._CurAnimIndex)
@@ -164,7 +164,7 @@ int AnimNatives::L_MDL_SetAnim(lua_State* L) {
 	e->animIndex = index;
 	e->animTime = 0.f;
 	// Every default here is Engine.dll's own (SetAnim, 0x1013BFC0): looping is
-	// GetBool(3, TRUE), not false - a plain SetAnim(e, "idle") is a looping
+	// GetBool(3, true), not false - a plain SetAnim(e, "idle") is a looping
 	// idle, and several shipped call sites rely on that by omitting the
 	// argument entirely.
 	e->animLoop = lua_isnil(L, 3) || lua_isnone(L, 3) ? true : lua_toboolean(L, 3) != 0;
@@ -286,7 +286,7 @@ int AnimNatives::L_MDL_LoadAnim(lua_State* L) {
 //
 //     movement = curve(t + delta * speed) - curve(t)
 //
-// The curve is a NAMED BONE, set by SetAnim's 6th and 7th arguments and
+// The curve is a named bone, set by SetAnim's 6th and 7th arguments and
 // defaulting to "ROOOT" in the engine's own argument default - which is the
 // name of bone 0 in the shipped rigs. The mask says which components count;
 // a turn animation asks for ETransX + ETransZ + ERot, deliberately leaving out
@@ -337,7 +337,7 @@ void ScriptEngine::AnimMovement(Entity& e, int index, float delta, Vec3& out) {
 
 	// The curve is read off the animation named by this slot, which is not
 	// necessarily the one playing - the scripts pass an explicit index. When
-	// it IS the one playing, PosedBones has already resolved it; resolving
+	// it is the one playing, PosedBones has already resolved it; resolving
 	// again costs a name-keyed map and one node per bone, per walking monster
 	// per tick.
 	const std::vector<const AnimTrack*>* tracks = &curveTracks_;
@@ -403,7 +403,7 @@ const std::vector<Mat4>* ScriptEngine::PosedBones(Entity& e) {
 	const SkeletonCache::Entry* skel = skeletons_.Get(e.source);
 	if (!skel || skel->bones.empty()) return nullptr;
 
-	// ONCE THE SOLVER HAS IT, THE ANIMATION DOES NOT. A ragdoll is not a pose
+	// Once the solver has it, the animation does not. A ragdoll is not a pose
 	// the clock can advance - CActor stops the clock itself by setting
 	// _CurAnimLength to 99999 - so everything that asks where a bone is, from
 	// the draw to GetJointPos to the limb traces, has to be answered from the
@@ -449,7 +449,7 @@ const std::vector<Mat4>* ScriptEngine::PosedBones(Entity& e) {
 		e.pose.time = e.animTime;
 		e.pose.rotVersion = e.jointRotVersion;
 		e.pose.blendU = blendU;
-		// Take the root motion back out of the POSE.
+		// Take the root motion back out of the pose.
 		//
 		// An animation with a movement curve carries its own travel: the walk
 		// cycle slides ROOOT 25.9 model units down +Z, and every bone hangs off
@@ -462,9 +462,9 @@ const std::vector<Mat4>* ScriptEngine::PosedBones(Entity& e) {
 		// forward travel out and deliberately leaves the vertical, so the
 		// actor still bobs as it walks.
 		//
-		// BOTH SIDES OF A CROSS-FADE, weighted the same way the pose is.
+		// Both sides of a cross-fade, weighted the same way the pose is.
 		//
-		// A blended pose contains the OUTGOING animation's bones too, and its
+		// A blended pose contains the outgoing animation's bones too, and its
 		// root travel is still in them. Subtracting only the incoming
 		// animation's curve left the walk's accumulated stride in the blend:
 		// switching to idle snapped the mesh 2.922 units in one frame and slid
@@ -556,7 +556,7 @@ int AnimNatives::L_MDL_GetJointName(lua_State* L) {
 // plus that bone's rotation: x,y,z,rw,rx,ry,rz. It is how a muzzle flash sits
 // at the barrel and how anything else rides a skeleton.
 //
-// The point arrives in the BONE's own space, which is why the scripts treat
+// The point arrives in the bone's own space, which is why the scripts treat
 // TransformPointByJoint(e, j, 0,0,0) and GetJointPos(e, j) as the same
 // question - and they say so, in a comment at CActor's own call site.
 //
@@ -603,7 +603,7 @@ int AnimNatives::L_MDL_GetJointPos(lua_State* L) {
 // animation. Radians: the shipped gun clamps its barrel to math.pi/3 before
 // passing it here.
 //
-// This SETS the bone's rotation rather than accumulating, because every
+// This sets the bone's rotation rather than accumulating, because every
 // shipped caller recomputes an absolute angle each tick and passes it again -
 // a turret's _barrelPitch, an actor's head angle toward the player. Made
 // additive, a turret would wind up and spin.
@@ -650,7 +650,7 @@ int AnimNatives::L_MDL_ApplyJointRotation(lua_State* L) {
 // levels besides. The guard above it only prints when the joint is missing; it
 // does not stop the timer.
 // MDL.GetVelocitiesFromJoint(e, joint) -> vx,vy,vz, |v|, wx,wy,wz, |w|
-// (0x1012D560). Zeros unless the ragdoll is ACTIVE: a live monster's limbs
+// (0x1012D560). Zeros unless the ragdoll is active: a live monster's limbs
 // are driven along the animation, not simulated, and the engine reads no
 // velocity off them.
 int AnimNatives::L_MDL_GetVelocitiesFromJoint(lua_State* L) {
@@ -729,7 +729,7 @@ void ScriptEngine::TickAnimations(float dt) {
 		// Hand the pose to the renderer. Headless runs have none attached,
 		// which is why the clock is useful on its own.
 		//
-		// The bones are posed HERE rather than in the renderer so that a joint
+		// The bones are posed here rather than in the renderer so that a joint
 		// query and the drawn mesh cannot disagree. It costs one pass over the
 		// skeleton per animated entity - about forty of them in a level, sixty
 		// bones each - while the expensive half, deforming the vertices, stays
@@ -752,7 +752,7 @@ void ScriptEngine::TickAnimations(float dt) {
 // MDL.SetMeshVisibility(entity, meshName, on)
 //
 // One named mesh of one model, shown or hidden. 0x1013c780 reads the handle,
-// the name and a BOOL DEFAULTING TO FALSE, and skips anything that is not a
+// the name and a bool defaulting to false, and skips anything that is not a
 // Model (it tests the entity's type against 4 before touching it).
 //
 // The Painkiller's alt fire hides nine of them - polySurfaceShape28, 49, 46,

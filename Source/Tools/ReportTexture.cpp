@@ -81,7 +81,7 @@ int SkyDumpCmd(const char* path) {
 // The failure modes this exists to catch are not subtle but they are invisible
 // without a number: constraints built in the wrong frame make the parts fly
 // apart, a missed unit conversion makes the ragdoll ten times too big, and a
-// degenerate hull or basis makes everything NaN. So it measures the SPREAD of
+// degenerate hull or basis makes everything NaN. So it measures the spread of
 // the parts against the pose the .hke was authored in - a ragdoll that holds
 // together keeps roughly its own dimensions however it lands - and it reports
 // how far the whole thing travelled and whether it came to rest.

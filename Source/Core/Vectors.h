@@ -108,11 +108,11 @@ inline Vec3& AsVec3(float a[3]) { return *reinterpret_cast<Vec3*>(a); }
 
 
 
-// The engine's rotation, in ENGINE ORDER (w, x, y, z) - not the (x,y,z,w) most
+// The engine's rotation, in engine order (w, x, y, z) - not the (x,y,z,w) most
 // libraries use, and the source of the port's most persistent class of bug.
 // The type exists mainly so the order and the composition rule are enforced by
 // the compiler rather than by comments: a bgfx uniform or a UV transform is
-// also four floats, and used to be indistinguishable from a rotation.
+// also four floats, and nothing else tells them apart.
 //
 // Layout-compatible with float[4], the same way Vec3 is with float[3], so it
 // still meets the Lua stack, the .pkmdl/.ani files and Jolt where they speak

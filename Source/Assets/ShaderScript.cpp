@@ -91,7 +91,7 @@ bool ShaderLibrary::LoadDirectory(const std::string& dir) {
 					continue;
 				}
 				if (depth == 0) {
-					// shader[<variant>] NAME [copy BASE]
+					// shader[<variant>] name [copy base]
 					std::string head = Lower(tok);
 					if (head.rfind("shader", 0) != 0) {
 						errors_.push_back(file + ":" + std::to_string(lineNo) +

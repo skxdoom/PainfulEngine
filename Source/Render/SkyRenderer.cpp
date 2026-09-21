@@ -23,7 +23,7 @@ namespace painful {
 namespace {
 
 // Sky dome objects name their layer: "layer01shape", "_trans_layer03shape".
-// The order of objects in the mesh does NOT match layer order, so the name is
+// The order of objects in the mesh does not match layer order, so the name is
 // the only reliable pairing.
 int LayerFromName(const std::string& name) {
 	std::string lower = name;
@@ -53,7 +53,7 @@ bool IsTransparentShell(const std::string& name) {
 bool SkyRenderer::Init(const std::string& shaderDir) {
 	layout_ = MakeMeshLayout();
 	namespace fs = std::filesystem;
-	// The sky borrows the WORLD vertex shader - a dome is world geometry, it
+	// The sky borrows the world vertex shader - a dome is world geometry, it
 	// just shades differently. bgfx links a program by the varying signature,
 	// so fs_sky must $input everything vs_world writes; a varying added to
 	// vs_world and not to fs_sky fails here and the sky silently stops
@@ -182,7 +182,7 @@ bool SkyRenderer::Load(const std::string& mapsRoot, const LevelInfo& info,
 	}
 	if (layerCount_ == 0) {
 		// LowQuality path: one opaque layer showing a single texture. Only
-		// THIS path takes the authored rotation - the engine passes Angle to
+		// this path takes the authored rotation - the engine passes Angle to
 		// LoadLowQualitySky but LoadSky (the layered dome) has no angle
 		// parameter at all, so the full dome must render as authored.
 		angle_ = info.skyAngle;
@@ -231,7 +231,7 @@ void SkyRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int h
 									layer.anim2.rotSpeed * timeSeconds, 0.f, 0.f};
 
 		for (const Part& p : parts_) {
-			// Shells are matched to layers BY NAME, because the order of objects
+			// Shells are matched to layers by name, because the order of objects
 			// inside the mesh does not follow layer order.
 			if (layered_ && p.layer != layer.number) continue;
 

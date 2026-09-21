@@ -255,7 +255,7 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
 			}
 		}
 
-		// ONE PART PER MATERIAL SLOT. The slots are triangle runs over a shared
+		// One part per material slot. The slots are triangle runs over a shared
 		// vertex array (see ModelMaterial), so the vertices - and, when the mesh
 		// is skinned, the single posed buffer built from them - are shared, and
 		// each slot brings only its own slice of the index array. Drawing the
@@ -299,11 +299,11 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
 			part.diffuse = s < mesh.materials.size()
 					? textures.Get(mesh.materials[s].texture, "")
 					: textures.White();
-			// The override key is the MESH name, matching how the world path keys
+			// The override key is the mesh name, matching how the world path keys
 			// off each object's name. Swamp_dirtywater.pkmdl holds a mesh called
 			// "dirtywater", which is the skin.shader entry that makes the swamp
 			// water scroll; keying off the file name found nothing.
-			// THE MESH NAME PICKS THE SHADER FAMILY, for models exactly as it does
+			// The mesh name picks the shader family, for models exactly as it does
 			// for pack meshes a few lines down. evilmonkv2 has meshes called
 			// "polySurfa_2sided" (the robe) and "spodnica_2sided" (the skirt), and
 			// skin.shader ships `shader palskinned2sided copy palskinned { pass {
@@ -412,7 +412,7 @@ bool EntityRenderer::GetPack(const std::string& packName, const std::string& mes
 	Vec3 lo(1e30f), hi(-1e30f);
 	for (const MapObject& o : pack.objects) {
 		// o.Mesh selects one object; when it matches nothing (or is empty),
-		// every object is drawn - DEAD packs hold loose fragments.
+		// every object is drawn - dead packs hold loose fragments.
 		if (!meshName.empty() && o.name != meshName && pack.objects.size() > 1) continue;
 		const size_t vertexCount = o.vertexCount();
 		if (vertexCount == 0 || o.indices.empty()) continue;
@@ -518,11 +518,11 @@ void EntityRenderer::Build(const Level& level, TemplateCache& templates,
 		const Entity& e = placedEntities[entityIndex];
 		if (e.baseObj.empty()) continue;
 
-		// Scrolling barriers (the Slab class) start HIDDEN: Slab:OnPlay calls
+		// Scrolling barriers (the Slab class) start hidden: Slab:OnPlay calls
 		// Open(true) for any instance not marked Closed, which disables
 		// drawing and sinks the plate below its start position until an
 		// ambush raises it. Drawing them anyway paints floating plates the
-		// player is never meant to see (all 26 in Cemetery, for example).
+		// player is never meant to see.
 		// "Closed" only exists on this class, so its presence identifies one.
 		if (e.props.Has("Closed") || templates.ResolveHas(e.baseObj, "Closed")) {
 			const bool closed = e.props.Has("Closed")
@@ -744,9 +744,9 @@ void EntityRenderer::SetScriptSkinning(int slot, const Mat4* skin, size_t count)
 	if (!skin || count == 0) { inst.skin.clear(); return; }
 	inst.skin.assign(skin, skin + count);
 
-	// A posed model leaves its bind-pose box - the Catacombs bridge sags five
-	// units below it - so grow the culling bounds to every bone's posed
-	// centre, padded by the model's half-diagonal.
+	// A posed model leaves its bind-pose box - a jointed prop can sag well
+	// below it - so grow the culling bounds to every bone's posed centre,
+	// padded by the model's half-diagonal.
 	const GpuModel& model = models_[inst.model];
 	UpdateBounds(inst, model);
 	const Vec3 centre = (model.bboxLo + model.bboxHi) * 0.5f;
@@ -909,8 +909,8 @@ void EntityRenderer::PickViewModelLights(ViewModelShadows& vm, const Vec3& centr
 
 void EntityRenderer::DrawViewModelShadows(const ViewModelShadows& vm, float timeSeconds) {
 	if (!vm.ready() || !bgfx::isValid(vm.program())) return;
-	// The weapon on itself, and nothing else: the world and the other models
-	// were tried as casters and read as wrong on a thing held at the eye.
+	// The weapon casts on itself and on nothing else; the world and the other
+	// models are not casters for a thing held at the eye.
 	for (int i = 0; i <= ViewModelShadows::kLights; ++i) {
 		const ViewModelShadows::Cell& cell = vm.cell(i);
 		if (!cell.active) continue;
@@ -1087,7 +1087,7 @@ void EntityRenderer::DrawLightShadows(float timeSeconds) {
 }
 
 // One named mesh of one instance. A model mesh split across material slots is
-// several parts under the SAME name, so every match is set - hiding "blades"
+// several parts under the same name, so every match is set - hiding "blades"
 // must take all of it, not just its first material run.
 // MDL.SetMaterial(entity, name). CActor gives every gib the template's
 // gibShader ("palskinned_bloody" in 64 of them) and the freeze effect swaps
@@ -1243,7 +1243,7 @@ void EntityRenderer::UpdateBounds(Instance& instance, const GpuModel& model) con
 void EntityRenderer::SetScaleMultiplier(float k) {
 	if (k == scaleMultiplier_) return;
 	scaleMultiplier_ = k;
-	// The whole layout scales about the SHARED origin - world (0,0,0), the
+	// The whole layout scales about the shared origin - world (0,0,0), the
 	// frame every o.Pos is expressed in - so positions scale together with
 	// sizes. A multiplier that makes everything land correctly would expose a
 	// hidden unit factor in the entity coordinates.
@@ -1373,7 +1373,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 				bgfx::update(instance.posed[i], 0,
 						bgfx::copy(posedVerts_.data(), bytes));
 
-				// The normal map's rotation: the vertex's FIRST bone, as the
+				// The normal map's rotation: the vertex's first bone, as the
 				// original's vertex shader takes it (Skin.fxo, FXSkinBump). Its rows
 				// carry the bind axes to the posed model.
 				if (!instance.normalMaps || !bgfx::isValid(part.normalMap)) continue;
@@ -1401,7 +1401,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			lighting_.UpdateFade(instance.pos, timeSeconds, instance.lightFade);
 			continue;
 		}
-		// This model's lighting. The SELECTION is still made at the origin -
+		// This model's lighting. The selection is still made at the origin -
 		// which of the level's lights are worth a slot is a per-model question,
 		// as it is in Entity::AddLight - but the lights themselves are handed
 		// over whole and shaded per pixel, the same way the world mesh gets
@@ -1478,7 +1478,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			// No lightmaps on entities, so u_ambient.w (the lightmap scale) is
 			// never sampled; alpha test comes from the material scripts.
 			//
-			// The ambient is THIS MODEL'S, not the level's: the CEnvironment it
+			// The ambient is this model's, not the level's: the CEnvironment it
 			// stands in may have overwritten it, which is the whole reason
 			// those boxes exist.
 			// Unlit (MESH.SetLighting, MDL.SetMeshLighting): c11 = the flat colour,

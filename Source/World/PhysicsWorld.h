@@ -41,13 +41,13 @@ struct ScriptContact {
 	// slot and the part index (RagdollBones order). -1 when it is not one.
 	int ragdollA = -1, partA = -1;
 	int ragdollB = -1, partB = -1;
-	// The PLAYER's pusher body as a side: what a thrown can, a rocket-flung
+	// The player's pusher body as a side: what a thrown can, a rocket-flung
 	// barrel or a landing corpse struck. The original's player is a real
 	// body (group 23) and its contacts name the player entity.
 	bool pawnA = false, pawnB = false;
 	Vec3 point;
 	Vec3 normal; // pointing from A toward B
-	// The two velocities AS THE CONTACT WAS RECORDED, mid-step and before the
+	// The two velocities as the contact was recorded, mid-step and before the
 	// solver has spent the impact. By the time the scripts run, the bodies have
 	// already stopped - and the impact speed is the whole question they ask.
 	Vec3 velA;
@@ -128,7 +128,7 @@ public:
 			float sphereRadius = 0.f, bool centred = false);
 	bool ScriptBodyExists(int slot) const;
 	// The contacts recorded during the last step, then cleared. Only pairs where
-	// BOTH sides are script bodies: a prop hitting the static world is not a
+	// both sides are script bodies: a prop hitting the static world is not a
 	// COLLISION_WITH_OTHER_ENTITY, which is an entity-to-entity message.
 	void CollectScriptContacts(std::vector<ScriptContact>& out);
 	void SetScriptBodyMass(int slot, float mass);
@@ -136,9 +136,9 @@ public:
 	// PhysicsObject::Activate: wake the body, or put it to sleep.
 	float ScriptBodyMass(int slot) const;
 	void ActivateScriptBody(int slot, bool on);
-	// The ENTITY.PO_Maintain* family. Each is a Havok ACTION in the original,
+	// The ENTITY.PO_Maintain* family. Each is a Havok action in the original,
 	// replaced here by a servo run once per step (StepMovers). The position
-	// target is an ENTITY position and is pivot-corrected, as
+	// target is an entity position and is pivot-corrected, as
 	// PhysicsObject::MaintainPosition does with GetPivotOffset.
 	// Docs/Reference/Physics.md, "The scripted movers".
 	void MaintainBodyPosition(int slot, bool on, const Vec3& target, float gain);
@@ -157,7 +157,7 @@ public:
 	void SetScriptBodyLinearDamping(int slot, float damping);
 	void SetScriptBodyAngularDamping(int slot, float damping);
 	// ENTITY.PO_EnableGravity. PhysicsObject::EnableGravity (0x1018c4e0) sets
-	// the body's OWN gravity - the world vector when on, zero when off - which
+	// the body's own gravity - the world vector when on, zero when off - which
 	// is Jolt's gravity factor. A projectile flies straight by turning it off.
 	void SetScriptBodyGravityFactor(int slot, float factor);
 	// Takes a body out of the solver: kinematic, and in the layer that pairs
@@ -188,7 +188,7 @@ public:
 	// level factor was 1 (AddMesh reads it from the world at creation; ours
 	// arrive in that order too, but Init lands after LoadMap).
 	void ScaleUnscaledActiveMeshes(float massScale);
-	// A destructible's intact "statdest" twin: a STATIC mesh body (exact
+	// A destructible's intact "statdest" twin: a static mesh body (exact
 	// triangles, not a hull) in the group, released like a pinned member but
 	// owned by the game host, which swaps it for its "physdest" pieces.
 	// Docs/Reference/Physics.md, "Destructibles".
@@ -209,7 +209,7 @@ public:
 	// released. Called by Update after each step.
 	bool IsActiveMesh(int slot) const;
 
-	// ENTITY.PO_SetPinned. STATIC while pinned: the level places a blockade or
+	// ENTITY.PO_SetPinned. static while pinned: the level places a blockade or
 	// a lift where it belongs and expects it to stay there until an action
 	// releases it, and CObject:PO_Create marks the call "bug havoka" - the
 	// original is working around Havok drifting a heavy resting body. Dynamic
@@ -223,7 +223,7 @@ public:
 
 	// --- characters: the monster body ---
 	//
-	// A monster is a DYNAMIC body that the physics step re-commands every
+	// A monster is a dynamic body that the physics step re-commands every
 	// tick. PhysicsObject::Tick (0x10190570) reads the velocity the solver
 	// left, keeps `influence` (0.5) of whatever exceeds the last commanded
 	// vector, adds the new PO_Move vector and sets that as the velocity. So a
@@ -296,8 +296,8 @@ public:
 
 	// --- ragdolls (the .hke) ---
 	//
-	// Settings are built once per MODEL and shared; each call instances one.
-	// scale converts the file's units to the world's - the .hke is authored in
+	// Settings are built once per model and shared; each call instances one.
+	// Scale converts the file's units to the world's - the .hke is authored in
 	// the model's own space, ten times the world's, which is the same *0.1 the
 	// renderer applies.
 	//
@@ -306,7 +306,7 @@ public:
 	void RemoveRagdoll(int slot);
 	bool RagdollExists(int slot) const;
 
-	// The BONES the parts correspond to, in part order. The caller fills one
+	// The bones the parts correspond to, in part order. The caller fills one
 	// world matrix per entry for SetRagdollPose, which is the only way it can
 	// know the order: the parts are the .hke's bodies, topologically sorted,
 	// not the model's bones.
@@ -315,7 +315,7 @@ public:
 	// Poses every part from world-space bone matrices - row-major, row-vector,
 	// 16 floats each, the form ScriptEngine already builds for the draw.
 	//
-	// kinematic is the LIVE monster: Ragdoll::Animate in the original, bodies
+	// kinematic is the live monster: Ragdoll::Animate in the original, bodies
 	// driven along the animation so a shot has something to hit. Dropping it
 	// is death - Ragdoll::Activate - after which the solver owns the pose and
 	// GetRagdollPose is what the renderer should draw.
@@ -340,7 +340,7 @@ public:
 	void SetRagdollFriction(int slot, float friction);
 	void SetRagdollMass(int slot, float mass);
 	// A rigid spin of the whole corpse about Y through its centre of mass:
-	// each limb gets the angular velocity AND the linear velocity that
+	// each limb gets the angular velocity and the linear velocity that
 	// rotating about the centre implies, or the limbs just spin in place.
 	void SetRagdollSpin(int slot, float yawRate);
 	// ENTITY.PO_ScaleInertiaTensor - s_Physics.InertiaTensorMultiplier, 0.1 on
@@ -349,7 +349,7 @@ public:
 	// ENTITY.PO_Hit on a corpse, and RagdollSelfExplosion: an impulse at a
 	// world point, applied to whichever limb is nearest it.
 	void AddRagdollImpulse(int slot, const Vec3& at, const Vec3& impulse);
-	// WORLD.HitPhysicObject on a LIMB handle: the impulse lands on the part the
+	// WORLD.HitPhysicObject on a limb handle: the impulse lands on the part the
 	// trace reported, not the nearest one - a stake in the head flips the corpse.
 	void AddRagdollPartImpulse(int slot, int part, const Vec3& at, const Vec3& impulse);
 	// Ragdoll::SetVelocities (0x1019C8E0): the same linear and angular
@@ -364,7 +364,7 @@ public:
 	// (kinematic, at rest) when the corpse is nailed to a wall.
 	bool GetRagdollPartPosition(int slot, int part, Vec3& out) const;
 	void SetRagdollPartPosition(int slot, int part, const Vec3& pos);
-	// Ragdoll::Joint_SetRotation and Ragdoll::Move: a carried body is HELD by
+	// Ragdoll::Joint_SetRotation and Ragdoll::Move: a carried body is held by
 	// posing one limb every tick (Leper_monk's hostage, Preacher, Skull).
 	// Docs/Reference/Physics.md, "Holding a body by one joint".
 	void SetRagdollPartRotation(int slot, int part, const Quat& rot);
@@ -403,15 +403,14 @@ public:
 	// PhysicsObject::SetFlying, where the player keeps its shape but not its
 	// gravity.
 	//
-	// solidProps=true makes every body block, which is what the PLAYER
+	// solidProps=true makes every body block, which is what the player
 	// needs - props are things you stand on. Left false, bodies lighter than
-	// Tweak.PlayerMove.MaximalItemPushMass are passed straight through; that
-	// is a free-camera affordance so it can press into a barrel and have the
-	// probe body shove it, and it is why the player used to walk through
-	// barrels while still standing on the heavier, pinned coffins.
+	// Tweak.PlayerMove.MaximalItemPushMass pass straight through: a
+	// free-camera affordance, so it can press into a barrel and have the
+	// probe body shove it.
 	// ignoreSlot passes one script body straight through, for a body that is
-	// sweeping ITSELF through the world (see CameraBlockerFilter).
-	// The PLAYER's own slide: SlideSphere with BodyTypes.Player's four-sphere
+	// sweeping itself through the world (see CameraBlockerFilter).
+	// The player's own slide: SlideSphere with BodyTypes.Player's four-sphere
 	// stack about `centre` (the body centre, eye - 0.9), so the head meets
 	// ceilings and the shins meet ledges as the original's body did.
 	// PlayerMovement.md, "What the player collides with".
@@ -488,13 +487,13 @@ public:
 	// wakes them, and being kinematic it is not itself pushed back, so the
 	// camera keeps flying exactly as it did.
 	void SetProbeRadius(float radius);
-	// The camera's pusher exists for the FREE camera. In scripted play the
+	// The camera's pusher exists for the free camera. In scripted play the
 	// camera is the player's eye, and a 1.2 sphere there blocked every thrown
 	// thing a foot short of the player and reported it as the world.
 	void SetProbeEnabled(bool on);
 	float probeRadius() const { return probeRadius_; }
 	// Aims the body at a position; Update drives it there. It is deliberately
-	// NOT moved here: a kinematic body moves by having a velocity during a
+	// not moved here: a kinematic body moves by having a velocity during a
 	// simulation step, and the steps are a fixed 1/60 that has nothing to do
 	// with how often this is called.
 	//
@@ -503,7 +502,7 @@ public:
 	// between.
 	void MoveProbe(const Vec3& pos, bool push);
 
-	// The PLAYER's own pusher body, distinct from the camera's.
+	// The player's own pusher body, distinct from the camera's.
 	//
 	// SlideSphere is a query and a query touches nothing, so the pawn walks
 	// through corpses and loose props without either noticing. The camera has
@@ -515,7 +514,7 @@ public:
 	// Radius comes from the recovered player shape: EngineGame::CreatePlayer
 	// asks for BodyTypes.Player at bodyScale 1.0 and the sizer builds four
 	// spheres of which the widest is 0.4.
-	// A SENSOR wearing BodyTypes.Player's four-sphere stack at the pawn's
+	// A sensor wearing BodyTypes.Player's four-sphere stack at the pawn's
 	// centre: it reports what strikes the player (throwables, debris, a
 	// landing corpse) and pushes nothing - the pawn's own slide and PushProps
 	// are the body's motion. radius <= 0 removes it.

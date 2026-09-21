@@ -46,7 +46,7 @@ public:
 	// to match the rendered space). An empty start set marks everything
 	// visible - never guess and over-cull the playable area.
 	//
-	// cameraPos is in RENDERED space. A portal quad is flat, so while walking
+	// cameraPos is in rendered space. A portal quad is flat, so while walking
 	// through a doorway it can fall entirely behind the near plane and fail
 	// the frustum test, closing the far room for a frame. Portals within
 	// nearRadius of the camera are therefore always open.
@@ -66,9 +66,8 @@ private:
 	struct Portal {
 		Box box;
 		// Every zone the portal touches. World::BuildZones links portals to
-		// ALL touching zones (an adjacency list, not a pair) - Cemetery's
-		// ceiling portals touch a ground zone, the air-layer zone above it
-		// and more, and pair-linking breaks exactly there.
+		// all touching zones, an adjacency list rather than a pair: a ceiling
+		// portal touches the ground zone and the air layer above it at once.
 		std::vector<int> zones;
 	};
 

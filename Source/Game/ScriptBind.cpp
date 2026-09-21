@@ -1,10 +1,8 @@
 // ScriptEngine: binding, one call per native family.
 //
-// Every native used to be declared in ScriptEngine.h and listed in one table
-// here, so adding one recompiled all twenty Script*.cpp and everything above
-// them. Each family now declares its own struct and keeps its own table in its
-// own translation unit; this file only calls them, and only ADDING A FAMILY
-// touches the header.
+// Each family declares its own struct and keeps its own table in its own
+// translation unit; this file only calls them, so adding a native touches one
+// file and only adding a family touches the header.
 
 #include "ScriptEngineInternal.h"
 

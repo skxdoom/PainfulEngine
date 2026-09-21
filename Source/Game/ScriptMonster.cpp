@@ -14,7 +14,7 @@
 
 namespace painful {
 
-// The monster's BODY: three stacked spheres. k is the sizer's working unit
+// The monster's body: three stacked spheres. k is the sizer's working unit
 // (0.2 * bodyScale) and rootOffset where the stack's centre sits relative to
 // the entity position.
 bool ScriptEngine::MonsterBodyScale(Entity& e, float& k, Vec3& rootOffset) {
@@ -38,7 +38,7 @@ bool ScriptEngine::MonsterBodyScale(Entity& e, float& k, Vec3& rootOffset) {
 	const SkeletonCache::Entry* skel = skeletons_.Get(e.source);
 	if (!skel || skel->bones.empty()) return false;
 
-	// The box is the POSED model's: the idle pose's first frame here
+	// The box is the posed model's: the idle pose's first frame here
 	// (SkeletonCache::Entry::poseLo/poseHi), the bind pose when there is none.
 	const float height = (skel->poseHi - skel->poseLo) * e.scale;
 	if (height <= 0.f) return false;
@@ -106,11 +106,11 @@ void ScriptEngine::TickMonsters(float dt) {
 
 	// Rebuilt every frame: which movement bodies the limb boxes have taken
 	// over from, for TraceRay. Rebuilt rather than tracked at creation because
-	// it depends on the entity's MODEL - a script can give an actor a
+	// it depends on the entity's model - a script can give an actor a
 	// different one, and a body slot outlives that change.
 	limbShadowed_.clear();
 
-	// PAINFUL_PLAYER_AT lands HERE rather than at spawn: the scripts place the
+	// PAINFUL_PLAYER_AT lands here rather than at spawn: the scripts place the
 	// player themselves during level load, so an override applied any earlier
 	// is simply overwritten before the first frame.
 	if (!playerSpotDone_ && pawn_ && playerHandle_) {

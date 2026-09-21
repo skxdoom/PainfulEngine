@@ -106,7 +106,7 @@ static AudioEngine::Voice VoiceArg(lua_State* L, int index, bool positional) {
 
 static float SoundVolume(lua_State* L, int index, double fallback = 100.0) {
 	// 0..100 from the scripts, and no further: CObject:Snd2D(id, v) passes the
-	// player ENTITY as v, so flame_stop arrives as volume 1278. The original
+	// player entity as v, so flame_stop arrives as volume 1278. The original
 	// scales by 0.01 (0x10124510) and Miles holds the sample at 1.0.
 	const double v = luaL_optnumber(L, index, fallback);
 	return std::min(float(v) * 0.01f, 1.f);
@@ -199,7 +199,7 @@ int SoundNatives::L_SND_SetVolume(lua_State* L) {
 	return 0;
 }
 
-// SOUND2D/SOUND3D.SetLoopCount(voice, count) - count is MILES' count, not ours.
+// SOUND2D/SOUND3D.SetLoopCount(voice, count) - count is Miles' count, not ours.
 //
 // The native passes the script's value straight to Miles with a default of 0
 // (Engine.dll 0x10125ce0 -> MilesEngine::Sound3D_SetLoopCount), and Miles reads
@@ -319,7 +319,7 @@ void ScriptEngine::PushListener() {
 
 // WPT.Load(dir, mergeFlag) - the navigation graph.
 //
-// The scripts pass only a DIRECTORY ("../Data/Maps/"); the engine appends the
+// The scripts pass only a directory ("../Data/Maps/"); the engine appends the
 // map's own name, which is why WORLD.LoadMap has to have run first. Engine.dll
 // (0x10128A90) clears both pathfinders, then LoadContents the .wps and
 // LoadFloors a companion file that does not ship - so the floors section
@@ -342,7 +342,7 @@ int SoundNatives::L_WPT_Load(lua_State* L) {
 		// Only 29 of the 85 shipped maps carry a .wps at all, so a missing one
 		// is an ordinary answer rather than a fault - those levels' actors
 		// walk straight at their target, which is what they did before any of
-		// this existed. A malformed one IS worth shouting about.
+		// this existed. A malformed one is worth shouting about.
 		if (FileSystem::Get().Exists(resolved))
 			LogWarn("waypoints: %s", self->waypoints_.error.c_str());
 		else
@@ -416,7 +416,7 @@ int SoundNatives::L_PATH_Release(lua_State* L) {
 //
 // minDist/maxDist come from the actor's template as WPminDist / WPmaxDist and
 // bound how far it is willing to reach for a waypoint. An actor standing
-// somewhere the level designer never marked gets NO path, which is not a
+// somewhere the level designer never marked gets no path, which is not a
 // failure: CActor reads an empty path as "finished" and walks straight at the
 // destination instead.
 //
@@ -448,14 +448,13 @@ void ScriptEngine::RoutePath(Route& route, const Vec3& from, const Vec3& to, flo
 	const int b = waypoints_.Closest(to, maxDist);
 	if (a < 0 || b < 0 || !waypoints_.FindPath(a, b, routeScratch_)) return;
 
-	// THE START NODE IS NOT A POINT. Pathfinder2::GetShortestPath (0x1016C070)
+	// The start node is not a point. Pathfinder2::GetShortestPath (0x1016C070)
 	// pops the route's first node straight into the path's "last point"
-	// slot (+0x28), so the first GetNextPoint is the SECOND node - the first
+	// slot (+0x28), so the first GetNextPoint is the second node - the first
 	// step away from where the walker already is - and a one-node route is
 	// an empty path, which IsFinished reports and CActor reads as "walk
-	// straight". Handing the nearest node over made every walk begin with a
-	// turn toward a waypoint half a unit away, often behind: Cemetery's
-	// zombies took 71 walking stops in 15 s and could not keep up.
+	// straight". The first node is where the walker already stands, often
+	// behind it, so handing it over turns the actor round on every step.
 	for (size_t i = 1; i < routeScratch_.size(); ++i) {
 		const WaypointSet::Node& n = waypoints_.nodes[size_t(routeScratch_[i])];
 		for (int c = 0; c < 3; ++c) route.points.push_back(n.pos[c]);
@@ -480,7 +479,7 @@ int SoundNatives::L_PATH_IsFinished(lua_State* L) {
 	return 1;
 }
 
-// PATH.GetNextPoint(path) -> x,y,z, and CONSUMES it: CActor calls this and
+// PATH.GetNextPoint(path) -> x,y,z, and consumes it: CActor calls this and
 // then asks IsFinished again to learn whether that was the last one.
 int SoundNatives::L_PATH_GetNextPoint(lua_State* L) {
 	ScriptEngine* self = From(L);
@@ -502,12 +501,12 @@ int SoundNatives::L_PATH_GetNextPoint(lua_State* L) {
 // +0x24..+0x30. The defaults are the engine's own: 20, 2, 180, 180.
 //
 // The names come from the templates, and they say what the model is:
-// `viewDistance360` is how far the actor sees in EVERY direction, and
+// `viewDistance360` is how far the actor sees in every direction, and
 // `viewDistance` how far it sees inside its cone. Shipped monsters carry
 // things like `viewAngle = 170, viewDistance360 = 6`: aware of anything within
 // six units, and beyond that only what is in front.
 //
-// The angles arrive in DEGREES as a full spread (360 means all round) and are
+// The angles arrive in degrees as a full spread (360 means all round) and are
 // stored as a half-angle in radians, which is what makes the engine's own
 // default of 180 come out as pi/2 - the value PO_Create seeds.
 int SoundNatives::L_PO_SetSightParams(lua_State* L) {
@@ -525,7 +524,7 @@ int SoundNatives::L_PO_SetSightParams(lua_State* L) {
 //
 // Engine.dll 0x101335E0 hands this to PhysicsWorld::CalculatePawnToEntityVisibility
 // when the looker has a physics object, and otherwise falls back to a plain
-// line trace between the two entity POSITIONS (+0x620) - which is the shape
+// line trace between the two entity positions (+0x620) - which is the shape
 // reproduced here: the range and cone from PO_SetSightParams, then an
 // unobstructed line.
 //
@@ -541,7 +540,7 @@ int SoundNatives::L_SeesEntity(lua_State* L) {
 	return 1;
 }
 
-// Where an entity LOOKS FROM and is LOOKED AT: CalculatePawnToEntityVisibility
+// Where an entity looks from and is looked at: CalculatePawnToEntityVisibility
 // (0x10198D30) takes both pawns' GetPawnHeadPos. A body's head is 4.5k above
 // the stack origin, the player's is the pawn's eye; anything else is its
 // position. Traced from the position, a monster whose origin sits at its hip
@@ -588,7 +587,7 @@ bool ScriptEngine::Sees(int ha, Entity& a, int hb, Entity& b) const {
 
 	// Line of sight. Both bodies are excluded: the looker's own body is on the
 	// line by construction, and the target's would stop the trace one step
-	// Against the WORLD only, not against other bodies.
+	// Against the world only, not against other bodies.
 	//
 	// Engine.dll's CalculatePawnToEntityVisibility (0x10198D30) takes both
 	// pawns' head positions, checks the range at PhysicsObject+0x24 and the
@@ -678,7 +677,7 @@ int SoundNatives::L_PO_GetMaxSphereRay(lua_State* L) {
 	return 1;
 }
 
-// ENTITY.PO_SetMass. On an actor with a ragdoll this is the RAGDOLL's mass -
+// ENTITY.PO_SetMass. On an actor with a ragdoll this is the ragdoll's mass -
 // CActor:EnableRagdoll sets it immediately after activating one, with the
 // comment "dopiero po aktywacji moge pobrac i zmienic mase ragdolla" (only
 // after activation can I get and change the ragdoll's mass). The values are
@@ -754,7 +753,7 @@ int SoundNatives::L_PO_SetAngularDamping(lua_State* L) {
 
 // ---------------------------------------------------------- bound 3D sounds
 //
-// A sound that belongs to a THING rather than to a point: the loop a flying
+// A sound that belongs to a thing rather than to a point: the loop a flying
 // PainHead carries, a monster's move loop, a turret spinning. The scripts make
 // a Sound entity, hang it off its owner with ENTITY.RegisterChild, describe it
 // with SND.Setup3D and start it with SND.Play - BindSoundToEntity (Utils.lua)
@@ -784,9 +783,9 @@ int SoundNatives::L_SND_Setup3D(lua_State* L) {
 	e->soundDist1 = float(luaL_optnumber(L, 3, 10.0));
 	e->soundDist2 = float(luaL_optnumber(L, 4, 20.0));
 	e->soundInterval = float(luaL_optnumber(L, 5, -1.0));
-	// The sound's own position is its offset ON its parent - BindSoundToEntity
+	// The sound's own position is its offset on its parent - BindSoundToEntity
 	// calls ENTITY.SetPosition before RegisterChild - and binding it here is
-	// what makes it FOLLOW. RegisterChild alone only records who owns it.
+	// what makes it follow. RegisterChild alone only records who owns it.
 	if (e->parent != 0 && !e->parentBound) {
 		for (int c = 0; c < 3; ++c) e->parentOffset[c] = e->pos[c];
 		e->parentBound = true;

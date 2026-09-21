@@ -80,7 +80,7 @@ bool WaypointSet::Load(const std::string& path, WaypointSet& out) {
 		return false;
 	}
 
-	// The links repeat their own count, then come as TWO PARALLEL ARRAYS -
+	// The links repeat their own count, then come as two parallel arrays -
 	// every cost, then every neighbour index - rather than interleaved. That
 	// is what makes the section look like floats when read as records: the
 	// whole first half is distances.
@@ -109,7 +109,7 @@ bool WaypointSet::Load(const std::string& path, WaypointSet& out) {
 		}
 	}
 	out.consumed = r.pos();
-	// Whatever is left is the FLOORS section - Pathfinder2::LoadFloors and the
+	// Whatever is left is the floors section - Pathfinder2::LoadFloors and the
 	// Select_OnSelectedFloors family - which groups waypoints into regions.
 	// Routing does not need it, so it is measured and left alone.
 	out.floorBytes = bytes.size() - out.consumed;

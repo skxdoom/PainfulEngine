@@ -19,7 +19,7 @@ struct AnimTrack {
 //   char[4] "skel"
 //   f32     length   (the authored total, one frame step longer than the keys span)
 //   u32     boneCount
-//   per bone: u32 nameLen (NOT including a NUL, unlike .pkmdl), name,
+//   per bone: u32 nameLen (not including a NUL, unlike .pkmdl), name,
 //             u32 keyCount, then keyCount * 68-byte keys of [f32 time][f32 m[16]]
 //
 // Every bone carries its own key count, so tracks are variable length and file

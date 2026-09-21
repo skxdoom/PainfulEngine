@@ -134,7 +134,7 @@ bool WorldRenderer::Init(const std::string& shaderDir) {
 	return true;
 }
 
-// Drops the LEVEL and keeps the programs: what a level switch wants. Upload
+// Drops the level and keeps the programs: what a level switch wants. Upload
 // sets every other per-level member itself.
 void WorldRenderer::SetObjectVisible(size_t object, bool visible) {
 	for (Chunk& c : chunks_)
@@ -292,7 +292,7 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
 			}
 		}
 		// Material selection works the way the engine's own scripts are named.
-		// A script can define a material for a SPECIFIC object - lm.shader has
+		// A script can define a material for a specific object - lm.shader has
 		// "shader tasmashape copy defaultTU2 { pan[0] = -2.22 0 }" for the
 		// Factory conveyor belts - so the object's own name is tried first.
 		// Otherwise lightmapped objects use the defaultTU2 family (the x2 set
@@ -316,7 +316,7 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
 		// the same picture drawn better - they are different constructions:
 		//
 		//   nv30  one pass, fx = FXWater_20, compiled bytecode in Water.fxo
-		//   nv20  TWO passes - the lightmap alone, then "blend modulate" with
+		//   nv20  two passes - the lightmap alone, then "blend modulate" with
 		//         an EMBM pass sampling $cubemap through a scrolling $normalmap
 		//   tnl   one pass, $colormap * $lightmap with modulate2x, no cubemap,
 		//         no normal map, xform[0] = $identity so no tiling or scroll
@@ -382,7 +382,7 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
 			chunk.batches.push_back(b);
 		} else {
 			// A slot's UV transform is the $blendxform/$alphaxform context, read only
-			// by terraintu2 (a 2-UV mesh whose LAST material names slot 3); defaultTU2
+			// by terraintu2 (a 2-UV mesh whose last material names slot 3); defaultTU2
 			// and NTU draw the diffuse at $identity. TextureTransforms.md, "Slot transforms".
 			const bool terrain = o.uvChannels == 2 && !o.materials.back().slots[3].empty();
 			for (const Material& m : o.materials) {
@@ -398,7 +398,7 @@ void WorldRenderer::Upload(const MapMesh& map, TextureCache& textures,
 				};
 				if (terrain) slotUv(m.slots[0], b.uvDiffuse);
 
-				// All four slots filled = a terrain blend: two TILED textures
+				// All four slots filled = a terrain blend: two tiled textures
 				// mixed by a mask. The tiled pair (large scale) are the
 				// terrains; the 1x1 pair are the lightmap and the mask.
 				if (o.uvChannels == 2 && !m.slots[0].empty() && !m.slots[1].empty() &&
@@ -667,11 +667,9 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 		// stays permissive and the frustum alone culls.
 		zoneGraph_.ZonesAt(raw, cameraZones_);
 		// Portals within arm's reach stay open, so walking through a doorway
-		// never blinks the far room out for a frame. This is a distance about
-		// the body, not a property of the projection: it used to be derived
-		// from the near plane, which silently tied it to a value chosen for
-		// an entirely different reason - pulling the near plane in to stop
-		// walls clipping would have started the doorways popping.
+		// never blinks the far room out for a frame. A distance about the
+		// body, held apart from the near plane: the two are chosen for
+		// different reasons and must not move together.
 		constexpr float kPortalNearRadius = 2.f;
 		zoneGraph_.VisibleZones(frustum, cameraZones_, worldScale_, camera.pos,
 				kPortalNearRadius, zoneVisible_);
@@ -847,7 +845,7 @@ void WorldRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int
 		}
 		// The placed lights with a shadow map this frame. One already in the
 		// chunk's slots (a carried torch) just gets its map; one the lightmap
-		// holds is added as BAKED - u_dynCone.z - so the shader adds nothing
+		// holds is added as baked - u_dynCone.z - so the shader adds nothing
 		// for it and only takes away what a model occludes, by cone.w.
 		if (shadowedLights_ && lightAtlas_ && lightAtlas_->ready() && lightShadowStrength_ > 0.f) {
 			for (const ShadowedLight& s : *shadowedLights_) {

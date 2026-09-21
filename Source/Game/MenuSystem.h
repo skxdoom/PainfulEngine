@@ -10,7 +10,7 @@ namespace painful {
 class HudRenderer;
 class TextureCache;
 
-// The menu: a retained widget tree the scripts DECLARE and the engine draws.
+// The menu: a retained widget tree the scripts declare and the engine draws.
 //
 // This is the opposite of the HUD, and the difference is the whole design. The
 // HUD is immediate - the scripts call HUD.DrawQuad every frame and we only
@@ -18,7 +18,7 @@ class TextureCache;
 // once, calling PMENU.AddTextButton and PMENU.SetItem*, and then never draws
 // anything. Layout, hit-testing, keyboard navigation and drawing are ours.
 //
-// Items are keyed by NAME, not by handle. AddTextButton at Engine.dll
+// Items are keyed by name, not by handle. AddTextButton at Engine.dll
 // 0x10075a40 opens with MenuScreen::FindItem and only creates the item when
 // the name is absent, which is why all ~40 SetItem* natives take a name string
 // first. See Docs/Reference/Menu.md.
@@ -73,7 +73,7 @@ public:
 		// authored at, and are scaled to the window at draw time.
 		float x = -1.f, y = 0.f;
 		float width = 0.f;
-		// Definitions.lua MenuAlign, which is ONE-based: None 1, Left 2,
+		// Definitions.lua MenuAlign, which is one-based: None 1, Left 2,
 		// Right 3, Center 4. Zero means the script never set one.
 		int align = 0;
 		// Packed ARGB, as R3D.RGB/RGBA build them.
@@ -83,7 +83,7 @@ public:
 		uint32_t descColor = 0xFFFFFFFFu;
 		std::string fontBig = "timesbd", fontSmall = "timesbd";
 		int fontBigSize = 26, fontSmallSize = 22;
-		// PMENU.SetItemFontsTex: the texture the glyphs are filled WITH, bound
+		// PMENU.SetItemFontsTex: the texture the glyphs are filled with, bound
 		// as a second stage the way HUD::Print does it. 46 shipped screens ask
 		// for "HUD/font_texturka_alpha", and without it their authored
 		// RGBA(100,100,100) draws as literal grey.
@@ -106,7 +106,7 @@ public:
 		// --- the value a widget carries ------------------------------------
 		// One number covers checkbox (0/1), slider and num-range, because the
 		// scripts read them all back as numbers. `valueText` is what a
-		// TextButtonEx shows, which the SCRIPT owns - it holds the list and
+		// TextButtonEx shows, which the script owns - it holds the list and
 		// pushes the new label through ChangeTextButtonExValue - and is also
 		// the buffer a TextEdit accumulates.
 		double value = 0.0;
@@ -115,7 +115,7 @@ public:
 		std::string valueText;
 		size_t maxLength = 0; // TextEdit / NumEdit character cap
 		float sliderWidth = 340.f; // in 1024-wide authoring units
-		// AddSlider's ninth argument: where the value column ENDS, measured
+		// AddSlider's ninth argument: where the value column ends, measured
 		// from the menu box's left edge (PainMenu defaults 700). The bar sits
 		// to its left, the value right-aligned against it.
 		float sliderCtrlWidth = 700.f;
@@ -185,7 +185,7 @@ public:
 	void SetSoundPlayer(std::function<void(const std::string&)> play) {
 		playSound_ = std::move(play);
 	}
-	// Freezing the world is part of the TRANSITION, not of the key that
+	// Freezing the world is part of the transition, not of the key that
 	// triggered it: a script forcing the menu up on a dropped connection has
 	// to pause too, and hanging this off the Escape handler misses that.
 	void SetPauseHandler(std::function<void(bool)> pause) {
@@ -204,7 +204,7 @@ public:
 
 	// --- screen lifecycle -------------------------------------------------
 	// What the Escape key does. The engine drives this, not the scripts:
-	// PainMenu:OpenMenu and CloseMenu are HOOKS with no ActivateScreen in
+	// PainMenu:OpenMenu and CloseMenu are hooks with no ActivateScreen in
 	// them - they only save the camera FOV, read the server list and run the
 	// CD check - and nothing in the shipped Lua ever calls either. So the
 	// engine owns the transition and the scripts observe it.
@@ -251,7 +251,7 @@ public:
 	size_t itemCount() const { return items_.size(); }
 
 	// --- per frame --------------------------------------------------------
-	// Mouse position in real pixels, and which buttons went down THIS frame.
+	// Mouse position in real pixels, and which buttons went down this frame.
 	// Keyboard navigation arrives through the Nav* calls.
 	void Update(float mouseX, float mouseY, bool clicked, bool rightClicked = false,
 			bool released = false, bool rightReleased = false);
@@ -317,7 +317,7 @@ public:
 	void BoardSetSlotX(int type, int slot, float x);
 	void BoardAddCard(const BoardCard& card);
 	// MBOARD.IsCardInSlot(type, i): for an All row, whether card i of that
-	// row's kind still sits there (i.e. is NOT selected); for a Sel row,
+	// row's kind still sits there (i.e. is not selected); for a Sel row,
 	// whether slot i holds a card.
 	bool BoardCardInSlot(int type, int index) const;
 
@@ -455,7 +455,7 @@ private:
 
 	// What the engine's MenuItem*::SendEvent runs once a widget's value
 	// moved: Step for a slider or num-range arrow, Toggle for a checkbox,
-	// Swap for a list row (the SCRIPT holds the list and answers through
+	// Swap for a list row (the script holds the list and answers through
 	// ChangeTextButtonExValue). Menu.md, "Changing a value".
 	void Step(Item& item, int direction);
 	void Toggle(Item& item);
@@ -486,7 +486,7 @@ private:
 	// "KeyScroller", or empty.
 	std::string scrollDrag_;
 	// The row each button went down on: a row acts when the same button
-	// comes UP over it (MenuItem's pressed byte), so a press that opened a
+	// comes up over it (MenuItem's pressed byte), so a press that opened a
 	// screen never fires the row the new screen puts under the pointer.
 	std::string pressed_, pressedRight_;
 	// One scroller's mouse handling: an arrow click steps a row, a press on

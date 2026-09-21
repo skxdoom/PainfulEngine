@@ -43,7 +43,7 @@ bool DemonFx::Init(const std::string& shaderDir, TextureCache& textures) {
 
 	// The three textures of the effect, from skin.shader's palskinned_fresnel
 	// and the pass itself. The cache owns the first two; the dudv map is
-	// built here as a SIGNED texture, the way the original's bump-format
+	// built here as a signed texture, the way the original's bump-format
 	// load reads its bytes, so the sampler filters it in signed space.
 	detail_ = textures.Get("special/fresnel_detail", "");
 	ramp_ = textures.Get("special/fresnel_func", "");
@@ -55,7 +55,7 @@ bool DemonFx::Init(const std::string& shaderDir, TextureCache& textures) {
 
 // warp_dudv.tga: 24- or 32-bit uncompressed. Its bytes are two's complement
 // (0 is no offset, 255 is -1), which a linear sampler on an unsigned texture
-// would blend THROUGH 128 = -128 at every zero crossing. Docs/Reference/DemonFx.md.
+// would blend through 128 = -128 at every zero crossing. Docs/Reference/DemonFx.md.
 bgfx::TextureHandle DemonFx::LoadDudv(const std::string& path) {
 	std::vector<uint8_t> tga;
 	if (path.empty() || !ReadFile(path, tga) || tga.size() < 18 || tga[2] != 2) return BGFX_INVALID_HANDLE;
@@ -172,7 +172,7 @@ void DemonFx::BeginFrame(const SceneTargets& scene, bool enabled, bgfx::ViewId e
 	bgfx::setViewClear(entityView, BGFX_CLEAR_NONE);
 }
 
-// The trail weight is the level's MBlur PER FRAME in the original, which is a
+// The trail weight is the level's MBlur per frame in the original, which is a
 // frame-rate: here it is raised to dt * 60 so the trail lasts the same time
 // at any rate, and this frame's weight keeps the level's ratio to it.
 void DemonFx::Draw(const SceneTargets& scene, bgfx::ViewId grayView, bgfx::ViewId warpView,

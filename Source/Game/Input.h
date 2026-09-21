@@ -49,7 +49,7 @@ enum : uint32_t {
 
 // Keyboard, mouse and the bindings that turn them into actions.
 //
-// Keys are Windows VIRTUAL-KEY codes throughout, because that is what the
+// Keys are Windows virtual-key codes throughout, because that is what the
 // scripts use: Definitions.lua's `Keys` table is the standard VK list
 // (Space 32, A 65, LeftShift 160) plus three codes the engine synthesises -
 // NumlockEnter 252, MouseWheelForward 253, MouseWheelBack 254. Nothing here
@@ -61,7 +61,7 @@ public:
 	static constexpr int kMouseWheelBack = 254;
 
 	// Rolls this frame's key state into last frame's, so KeyState can tell a
-	// press from a hold. Call once per frame BEFORE feeding new state.
+	// press from a hold. Call once per frame before feeding new state.
 	void BeginFrame();
 
 	void SetKeyDown(int vk, bool down);
@@ -79,7 +79,7 @@ public:
 	// The absolute cursor, in window pixels. Separate from the deltas above
 	// because they answer different questions: during play the mouse is
 	// captured and only its motion means anything, while the menu needs to
-	// know where the pointer IS in order to hit-test a row. MOUSE.GetPos
+	// know where the pointer is in order to hit-test a row. MOUSE.GetPos
 	// reports this.
 	void SetMousePos(float x, float y) { mouseX_ = x; mouseY_ = y; }
 	float mouseX() const { return mouseX_; }
@@ -94,18 +94,18 @@ public:
 	void SetSensitivity(float s) { sensitivity_ = s; }
 	float sensitivity() const { return sensitivity_; }
 
-	// MOUSE.GetDelta() -> look movement in DEGREES, which is the unit the
+	// MOUSE.GetDelta() -> look movement in degrees, which is the unit the
 	// scripts want: Game:UpdateViewFromPlayer adds the result straight onto
 	// CAM.GetRawRotation's degrees.
 	//
-	// BOTH axes pass through with their sign. X because the engine's turn
+	// Both axes pass through with their sign. X because the engine's turn
 	// runs the same way as our yaw (turn = yaw + pi/2); Y because the
-	// engine's elevation is positive-DOWN, so screen-down and elevation
+	// engine's elevation is positive-down, so screen-down and elevation
 	// already agree. Cfg.InvertMouse is applied script-side, not here.
 	//
 	// The original is counts * DI scale (+0x431c) * sensitivity * 0.0025
 	// (DIInputSystem::MouseTick 0x10034B70), in DirectInput counts. SDL gives
-	// pixels, so kDegreesPerPixel is CALIBRATED to the same feel at the
+	// pixels, so kDegreesPerPixel is calibrated to the same feel at the
 	// shipped sensitivity of 40. Docs/Reference/LuaHost.md.
 	static constexpr float kDegreesPerPixel = 0.0043f;
 	void TakeLookDegrees(float& dx, float& dy) {
@@ -117,7 +117,7 @@ public:
 
 	// INP.LoadBindings(): the bindings live in the scripts' own Cfg table as
 	// Cfg.KeyPrimary<Action> / Cfg.KeyAlternative<Action>, holding engine key
-	// NAMES ("Left Mouse Button", "Right Ctrl", "Space", "None"). Cfg.lua
+	// names ("Left Mouse Button", "Right Ctrl", "Space", "None"). Cfg.lua
 	// carries the defaults and loads config.ini over them, and the options
 	// menu calls this again after a rebind. `lookup` reads one Cfg field.
 	using CfgReader = std::string (*)(void* ctx, const char* field);
@@ -130,7 +130,7 @@ public:
 	uint32_t UIActionMask() const;
 	bool Action(uint32_t mask) const { return (ActionMask() & mask) != 0; }
 	bool UIAction(uint32_t mask) const { return (UIActionMask() & mask) != 0; }
-	// INP.RemoveUIAction: clear a bit early, so a HELD action does not fire a
+	// INP.RemoveUIAction: clear a bit early, so a held action does not fire a
 	// toggle again next frame. It comes back when the key is released.
 	void RemoveUIAction(uint32_t mask) { uiConsumed_ |= mask; }
 

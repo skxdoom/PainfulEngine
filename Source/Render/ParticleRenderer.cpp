@@ -209,7 +209,7 @@ void ParticleRenderer::Build(const Level& level, TemplateCache& templates,
 			e.evolve = true;
 
 			// EmitterDef::SetupTransform (0x101e4a60): the entry's offset is
-			// scaled by the parent entity but NOT rotated by it, the
+			// scaled by the parent entity but not rotated by it, the
 			// orientations compose, and the emitter's own scale is the product
 			// of both. scaleMultiplier_ is this port's level-scale factor, the
 			// same one EntityRenderer applies to placed models.
@@ -267,7 +267,7 @@ void ParticleRenderer::InitParticle(const Emitter& e, Particle& p) const {
 	const EmitterParams& src = *e.params;
 
 	// The velocity pair is drawn first and both ends are rotated into world
-	// space by the emitter's orientation; acceleration is NOT rotated.
+	// space by the emitter's orientation; acceleration is not rotated.
 	Vec3 v;
 	self->RandVec(e.velEndMin, e.velEndMax, v);
 	p.velEnd = Rotate(e.rot9, v);
@@ -347,7 +347,7 @@ void ParticleRenderer::TickEmitter(Emitter& e, float dt) {
 		p.pos = Lerp(e.prevPos, e.pos, f) + rotated;
 		InitParticle(e, p);
 		// Sub-frame timestep for the frame it was born in. The original
-		// indexes this off the PREVIOUS loop counter, so the particle placed
+		// indexes this off the previous loop counter, so the particle placed
 		// furthest back along the path gets a zero step and the newest gets
 		// very nearly a whole frame. Reproduced as-is.
 		p.spawnDelta = static_cast<float>(i - 1) * (dt / static_cast<float>(count));
@@ -547,7 +547,7 @@ void ParticleRenderer::RemoveScriptEmitter(int slot) {
 
 void ParticleRenderer::RecomposeScript(Emitter& e) {
 	// The same EmitterDef::SetupTransform rule Build applies: the entry's
-	// offset is scaled by the parent entity but NOT rotated by it, the
+	// offset is scaled by the parent entity but not rotated by it, the
 	// orientations compose, and the emitter's scale is the product of the
 	// entity's, the entry's and the level multiplier.
 	float defRot[9];

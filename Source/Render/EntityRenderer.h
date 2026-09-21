@@ -77,7 +77,7 @@ public:
 			const LevelInfo& info, float timeSeconds);
 
 	// The flashlight's shadow map, read by Draw and written by DrawShadow.
-	// Set BEFORE Draw: an instance inside the beam is posed even when the
+	// Set before Draw: an instance inside the beam is posed even when the
 	// camera cannot see it, so its shadow is not in last frame's pose.
 	void SetShadowMap(const ShadowMap* shadow) { shadow_ = shadow; }
 	// A depth pass into `map`: every opaque part of every caster inside its
@@ -91,7 +91,7 @@ public:
 			float strength, CharacterShadows& shadows);
 	// Their depth, each into its slot. After Draw.
 	void DrawCharacterShadows(const CharacterShadows& shadows, float timeSeconds);
-	// The environment directional at the camera - the direction TO the light
+	// The environment directional at the camera - the direction to the light
 	// and its colour - faded over the boxes' FadeTime as an entity's is. What
 	// aims the view model's shadow maps.
 	void CameraDirectional(const Vec3& pos, float timeSeconds, Vec3& toLight, Vec3& color);
@@ -217,7 +217,7 @@ public:
 	// returns the instance to its bind pose.
 	void SetScriptSkinning(int slot, const Mat4* skin, size_t count);
 	void SetScriptVisible(int slot, bool visible);
-	// MDL.SetMeshVisibility(entity, meshName, on) - hides ONE named mesh of an
+	// MDL.SetMeshVisibility(entity, meshName, on) - hides one named mesh of an
 	// instance. The Painkiller hides nine of them so the gun reads as empty
 	// while its head is away; monsters hide gib parts the same way.
 	void SetScriptMeshVisibility(int slot, const std::string& meshName, bool visible);
@@ -241,7 +241,7 @@ public:
 	// weapon in the player's hands.
 	const std::set<std::string>& posedModels() const { return posedModels_; }
 
-	// Diagnostic override: 0 = CCW, 1 = CW, 2 = none.
+	// Diagnostic override: 0 = CCW, 1 = cw, 2 = none.
 	void SetCullMode(int mode) { cullMode_ = mode; }
 	// The material scripts. Build() sets these for the viewer; the script-driven
 	// game never calls Build, so without this every model fell back to plain
@@ -255,7 +255,7 @@ public:
 
 private:
 	struct Part { // one mesh (or material run) of a model
-		// The CPU-side mesh, retained ONLY for a skinned model: posing it each
+		// The CPU-side mesh, retained only for a skinned model: posing it each
 		// frame needs the bind-pose vertices and the bone weights back.
 		// Everything else drops its copy once the data is on the GPU.
 		ModelMesh cpu;
@@ -266,11 +266,10 @@ private:
 		// checked and reported once at draw time instead.
 		uint16_t maxBone = 0;
 		bgfx::VertexBufferHandle vbo = BGFX_INVALID_HANDLE;
-		// ONE index buffer per mesh or object; each part draws its own range
-		// of it. A buffer per material run spent bgfx's 4096 index-buffer
-		// handles on the Enclave's 1585 active meshes, and every buffer made
-		// after that - the weapons included - came back invalid and drew with
-		// someone else's indices. Docs/Reference/Physics.md, "Active meshes".
+		// One index buffer per mesh or object; each part draws its own range
+		// of it. A buffer per material run exhausts bgfx's 4096 index-buffer
+		// handles on a level of active meshes.
+		// Docs/Reference/Physics.md, "Active meshes".
 		bgfx::IndexBufferHandle ibo = BGFX_INVALID_HANDLE;
 		bgfx::TextureHandle diffuse = BGFX_INVALID_HANDLE;
 		bool water = false; // palskin_water: the model water look (Water.md, "Swamp")
@@ -289,7 +288,7 @@ private:
 		// split across material slots shares one set of vertices and one posed
 		// buffer; each slot brings only its own index run.
 		uint32_t vboOwner = 0;
-		// Per part, because a .shader override keys off the MESH name, not the
+		// Per part, because a .shader override keys off the mesh name, not the
 		// file name: Swamp_dirtywater.pkmdl holds a mesh called "dirtywater",
 		// which is the entry that makes the swamp water scroll. One material
 		// for a whole model could never see that.
@@ -346,7 +345,7 @@ private:
 		// and two copies of that arithmetic could drift apart - a muzzle flash
 		// drawn at one pose and spawned at another.
 		std::vector<Mat4> skin;
-		// One posed buffer per part. A pose is per INSTANCE, so these cannot
+		// One posed buffer per part. A pose is per instance, so these cannot
 		// be shared with the model the way the bind-pose buffers are.
 		std::vector<bgfx::DynamicVertexBufferHandle> posed;
 		// The normal-mapped parts' second stream when posed: each vertex's first
@@ -492,7 +491,7 @@ private:
 	bgfx::TextureHandle white_ = BGFX_INVALID_HANDLE;
 	size_t unresolved_ = 0, packed_ = 0, hidden_ = 0, drawCalls_ = 0, posedInstances_ = 0;
 	std::set<std::string> posedModels_;
-	// Models wind the OPPOSITE way to world meshes: .pkmdl comes from the Maya
+	// Models wind the opposite way to world meshes: .pkmdl comes from the Maya
 	// exporter, .mpk from ase2mpk. Verified visually - CCW turns models inside out.
 	int cullMode_ = 1;
 	float scaleMultiplier_ = 1.f;

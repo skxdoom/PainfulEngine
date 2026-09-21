@@ -207,11 +207,10 @@ bool Model::Load(const std::string& path, Model& out) {
 		//   u32 materialCount
 		//   material: u32/char textureName, u32 firstIndex, u32 triangleCount
 		//
-		// Those last two used to be treated as an unknown separator and
-		// skipped, which is why every mesh drew with materials[0]. They are the
-		// triangle RUN each slot covers - see ModelMaterial - and they let the
-		// header be checked rather than guessed: the runs must tile the index
-		// array exactly, in order, and end on the geometry header.
+		// The last two are the triangle run each slot covers - see
+		// ModelMaterial - and they let the header be checked rather than
+		// guessed: the runs must tile the index array exactly, in order, and
+		// end on the geometry header.
 		{
 			static const int kLeads[] = {12, 8, 16, 4, 0};
 			// The header ends four bytes before the index data, on a u32
@@ -286,7 +285,7 @@ bool Model::Load(const std::string& path, Model& out) {
 			}
 		}
 		// Fall back to the last non-path string when the material header did
-		// not yield a mesh name - or yielded a PATH instead of one.
+		// not yield a mesh name - or yielded a path instead of one.
 		//
 		// A mesh name is never a path: the format's convention is the Maya shape
 		// name, which carries the material variant ("polySurfa_2sided") and is
@@ -336,8 +335,8 @@ bool Model::Load(const std::string& path, Model& out) {
 		// It only looks like a fixed 10-byte record on rigidly bound models
 		// where influenceCount == 1.
 		//
-		// THE COUNT GOES ABOVE 8. zombie_soldier's right arm has five
-		// vertices with 9 influences, and a cap of 8 rejected the WHOLE
+		// The count goes above 8. zombie_soldier's right arm has five
+		// vertices with 9 influences, and a cap of 8 rejected the whole
 		// mesh - it then drew unskinned, in the bind pose, as an arm
 		// floating out sideways from an animated body. 26 rigged models had
 		// a mesh like that (every zombie soldier, apoc_zombie, deto, templar,

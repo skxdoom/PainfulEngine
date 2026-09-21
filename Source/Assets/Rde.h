@@ -22,9 +22,9 @@ struct RagdollLimb {
 
 // PainEngine .rde - the ragdoll definition shipped beside a model.
 //
-// Plain INI: one section per limb, keyed by BONE NAME, and every one of the 220
+// Plain INI: one section per limb, keyed by bone name, and every one of the 220
 // shipped files uses exactly five float keys and no others. A ragdoll is a
-// COARSE skeleton - evilmonkv2 names 17 of its 63 bones, and the average across
+// coarse skeleton - evilmonkv2 names 17 of its 63 bones, and the average across
 // all 220 is 9.4 - so this is spine, head and limbs, not fingers.
 //
 // No shape data here, only mass and material overrides: the shapes are the
@@ -37,7 +37,7 @@ struct Ragdoll {
 	static bool Load(const std::string& path, Ragdoll& out);
 };
 
-// One limb's shape, held relative to ITS OWN BONE so the posed bone matrices
+// One limb's shape, held relative to its own bone so the posed bone matrices
 // place it for nothing. min/max bound it in the shape's frame; `frame` takes
 // that frame to bone space (identity for a skin-derived box).
 struct LimbBounds {
@@ -57,7 +57,7 @@ struct LimbBounds {
 
 // One box per limb the ragdoll names, from the vertices weighted to that bone.
 //
-// A vertex counts towards the bone that influences it MOST. Splitting it across
+// A vertex counts towards the bone that influences it most. Splitting it across
 // every influence would smear each box over its neighbours - the whole point of
 // per-limb shapes is that an arm is not the chest.
 // The fallback, for a model with no usable .hke.

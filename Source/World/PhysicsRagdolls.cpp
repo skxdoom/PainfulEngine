@@ -16,10 +16,10 @@ namespace painful {
 // between them. Havok's two constraint types are Jolt's SwingTwist and Hinge
 // almost one for one.
 //
-// EVERY CONSTRAINT IS BUILT IN WORLD SPACE, from the rest pose the file was
+// Every constraint is built in world space, from the rest pose the file was
 // authored in. The file states its frames either way - body-local matrices for
 // most models, a world pivot and axes for others like raven - and Jolt's
-// LocalToBodyCOM is relative to the CENTRE OF MASS rather than the body origin
+// LocalToBodyCOM is relative to the centre of mass rather than the body origin
 // the file measures from, so converting local frames to Jolt's local space
 // would need the COM the shape has not been built with yet. Placing the bodies
 // at their authored transforms first and stating everything in world space
@@ -27,7 +27,7 @@ namespace painful {
 
 namespace {
 
-// Angle-axis to a quaternion. The file's ROTATION is `angle x y z`, and a
+// Angle-axis to a quaternion. The file's rotation is `angle x y z`, and a
 // primitive's identity is `0 0 0 0` - no rotation about no axis - which is why
 // a zero axis has to come back as identity rather than as a NaN.
 JPH::Quat AngleAxis(float angle, const Vec3& axis) {
@@ -37,7 +37,7 @@ JPH::Quat AngleAxis(float angle, const Vec3& axis) {
 	return JPH::Quat::sRotation(v / len, angle);
 }
 
-// The authored world transform of one .hke body, in WORLD units.
+// The authored world transform of one .hke body, in world units.
 JPH::Mat44 BodyRest(const HkeBody& b, float scale) {
 	return JPH::Mat44::sRotationTranslation(
 			AngleAxis(b.rotAngle, b.rotAxis),
@@ -65,12 +65,12 @@ JPH::ShapeSettings::ShapeResult BuildLimbHull(const Hke& def, const HkeBody& b, 
 	return hull.Create();
 }
 
-// Limits are HARD. A 1 Hz spring limit (Havok's tau read as softness) let a
+// Limits are hard. A 1 Hz spring limit (Havok's tau read as softness) let a
 // corpse's weight fold both knees 120 degrees the wrong way; tau is the
 // solver's correction fraction, not a limit stiffness. Physics.md, "The joint limits".
 
 // The .hke's limits onto Jolt's: Hinge onto HingeConstraint (a range of body B
-// relative to A about the hinge axis), StiffSpring onto DistanceConstraint,
+// relative to a about the hinge axis), StiffSpring onto DistanceConstraint,
 // and the cone-twist joint onto a six-DOF constraint, which is the one that
 // takes the file's signed cone and plane ranges. Physics.md, "The joint limits".
 JPH::Ref<JPH::TwoBodyConstraintSettings> BuildConstraint(const HkeConstraint& c,
@@ -102,7 +102,7 @@ JPH::Ref<JPH::TwoBodyConstraintSettings> BuildConstraint(const HkeConstraint& c,
 			// Jolt wants min in [-pi,0] and max in [0,pi]; every shipped value
 			// is already inside that, but a clamp costs nothing and an
 			// out-of-range limit is an assert in a debug build.
-			// The file's range runs the OTHER way from Jolt's body-2-relative-
+			// The file's range runs the other way from Jolt's body-2-relative-
 			// to-1 angle: read verbatim, every knee and elbow folded forward.
 			// Settled from the +Z-forward rigs. Physics.md, "The joint limits".
 			h->mLimitsMin = std::max(-JPH::JPH_PI, std::min(0.f, -c.limitMaxAngle));
@@ -125,11 +125,11 @@ JPH::Ref<JPH::TwoBodyConstraintSettings> BuildConstraint(const HkeConstraint& c,
 	}
 
 	// hkRagdollConstraint onto a six-DOF constraint with a pyramid swing, which
-	// carries the file's ASYMMETRIC ranges (a hip flexes 94 forward and 16
+	// carries the file's asymmetric ranges (a hip flexes 94 forward and 16
 	// back). X is the twist axis, Y the plane axis, Z their cross: the twist
 	// pair limits X, the plane pair Y and the cone pair Z. The ranges describe
-	// the ATTACHED body relative to the REFERENCE - Jolt's body 2 relative to
-	// body 1 while A is body 1. SwapConstraintFrames puts the parent first,
+	// the attached body relative to the reference - Jolt's body 2 relative to
+	// body 1 while a is body 1. SwapConstraintFrames puts the parent first,
 	// so a child-first pair takes them negated. Physics.md, "The joint limits".
 	JPH::SixDOFConstraintSettings* s = new JPH::SixDOFConstraintSettings();
 	s->mSpace = JPH::EConstraintSpace::WorldSpace;
@@ -170,12 +170,12 @@ JPH::Ref<JPH::TwoBodyConstraintSettings> BuildConstraint(const HkeConstraint& c,
 	return s;
 }
 
-// Jolt's mToParent is always body1 = PARENT, body2 = child. The .hke names its
+// Jolt's mToParent is always body1 = parent, body2 = child. The .hke names its
 // pair in whatever order the exporter happened to write, and it is not always
 // parent-first: evilmonkv2 has `Hinge r_l_bark -> r_l_lokiec` (parent first)
 // next to `Hinge n_l_kolano -> n_l_biodro` (child first).
 //
-// Feeding frame 1 from RIGID_BODY_A regardless hands the PARENT the CHILD's
+// Feeding frame 1 from RIGID_BODY_A regardless hands the parent the child's
 // anchor whenever the file is child-first, and the joint then has nothing
 // holding it in the right place. Measured on the two knees, which are mirror
 // images of each other and differ only in naming order: 1.9% bone-length drift
@@ -210,7 +210,7 @@ int PhysicsWorld::CreateRagdoll(const std::string& model, const Hke& def, float 
 	JPH::Ref<JPH::RagdollSettings>& cached = impl_->ragdollSettings[model];
 	std::vector<std::string>& order = impl_->ragdollBones[model];
 	if (cached == nullptr) {
-		// The parts have to be a TREE in parent-before-child order, and the
+		// The parts have to be a tree in parent-before-child order, and the
 		// .hke is a graph: mostly a tree, but with the weapons hanging off
 		// nothing at all. Walk it from the root, keep the constraints used as
 		// tree edges, and hand Jolt the rest as additional constraints.
@@ -275,11 +275,10 @@ int PhysicsWorld::CreateRagdoll(const std::string& model, const Hke& def, float 
 			part.mPosition = rest.GetTranslation();
 			part.mRotation = rest.GetQuaternion().Normalized();
 			part.mMotionType = JPH::EMotionType::Dynamic;
-			// SWEPT, NOT STEPPED. Limb hulls are small - a raven's whole
+			// Swept, not stepped. Limb hulls are small - a raven's whole
 			// ragdoll spans about a unit - and a corpse dropped from any
 			// height reaches a speed where a stepped body jumps clean through
-			// the floor between two steps. Measured: the raven fell 209 units
-			// out of Cathedral before this, 4.4 after.
+			// the floor between two steps.
 			part.mMotionQuality = JPH::EMotionQuality::LinearCast;
 			// A chain of a dozen bodies needs more solver work than a crate: at
 			// the defaults a hard hit opens a joint by half a body for a frame.
@@ -292,8 +291,8 @@ int PhysicsWorld::CreateRagdoll(const std::string& model, const Hke& def, float 
 			part.mLinearDamping = def.linearDrag;
 			part.mAngularDamping = def.angularDrag;
 			// Mass is hull volume x 600, never under 10 - the original's builder
-			// (FUN_101bc620) ignores the primitive MASS except as 0 = Havok's
-			// FIXED body, kinematic here. Physics.md, "Fixed bodies", "Mass".
+			// (FUN_101bc620) ignores the primitive mass except as 0 = Havok's
+			// fixed body, kinematic here. Physics.md, "Fixed bodies", "Mass".
 			if (b.mass > 0.f) {
 				part.mOverrideMassProperties =
 					JPH::EOverrideMassProperties::CalculateInertia;
@@ -304,7 +303,7 @@ int PhysicsWorld::CreateRagdoll(const std::string& model, const Hke& def, float 
 			}
 			if (par >= 0 && edge[size_t(visitOrder[p])] >= 0) {
 				const HkeConstraint& c = def.constraints[size_t(edge[size_t(visitOrder[p])])];
-				// Jolt's mToParent is body1 = PARENT. The file names its pair
+				// Jolt's mToParent is body1 = parent. The file names its pair
 				// in either order, so build it in the file's terms and then
 				// swap the frames when the file put the child first.
 				const bool aIsParent = (c.bodyA == def.bodies[size_t(par)].bone);
@@ -340,7 +339,7 @@ int PhysicsWorld::CreateRagdoll(const std::string& model, const Hke& def, float 
 		}
 
 		settings->Stabilize();
-		// Parent-child pairs AND any two hulls that overlap in the rest
+		// Parent-child pairs and any two hulls that overlap in the rest
 		// pose. Without the second rule bones.hke (nine bodies, no
 		// constraints) kicks itself apart. Physics.md, "Self-collision".
 		std::vector<JPH::Mat44> restPose;
@@ -434,7 +433,7 @@ void PhysicsWorld::SetRagdollFriction(int slot, float friction) {
 		bodies.SetFriction(id, friction);
 }
 
-// The mass the scripts set is the WHOLE ragdoll's, and the .hke distributes it
+// The mass the scripts set is the whole ragdoll's, and the .hke distributes it
 // across the limbs - a torso is ten times a forearm. Scaling every limb by the
 // same factor keeps that distribution while hitting the total.
 void PhysicsWorld::SetRagdollMass(int slot, float mass) {
@@ -465,7 +464,7 @@ void PhysicsWorld::SetRagdollMass(int slot, float mass) {
 // body is (0, spin, 0), an angular velocity.
 //
 // Setting the same angular velocity on every limb would make each one spin
-// about its OWN centre, which is a bag of pinwheels rather than a body. A
+// about its own centre, which is a bag of pinwheels rather than a body. A
 // rigid rotation about a shared centre also needs the linear velocity that
 // rotation implies at each limb's offset - v = w x r.
 void PhysicsWorld::SetRagdollSpin(int slot, float yawRate) {
@@ -656,9 +655,8 @@ bool PhysicsWorld::RagdollPinned(int slot) const {
 
 // Which layer an ECollisionGroups value puts a dead ragdoll in. Only
 // Noncolliding (7) is certain; everything else, RagdollNonColliding included,
-// collides as it always has. Reading the [10,19] band as "the static world
-// only" was TRIED and measured worse - see Docs/Reference/Physics.md,
-// "A corpse's collision group".
+// collides normally. What the [10,19] band means is unrecovered -
+// Docs/Reference/Physics.md, "A corpse's collision group".
 static JPH::ObjectLayer RagdollLayer(int group) {
 	return group == 7 ? Layers::kNoCollide : Layers::kMoving;
 }
@@ -721,7 +719,7 @@ void PhysicsWorld::SetRagdollPartVelocity(int slot, int part, const Vec3& linear
 			JPH::Vec3(angular[0], angular[1], angular[2]));
 }
 
-// Joint_SetVelocitiesForLinked (FUN_101AEAC0) floods the CONSTRAINT graph from
+// Joint_SetVelocitiesForLinked (FUN_101AEAC0) floods the constraint graph from
 // the named limb and sets the velocity on everything it reaches - so a chunk
 // torn off a corpse is thrown alone, not with the body it left behind.
 void PhysicsWorld::SetRagdollLinkedVelocity(int slot, int part, const Vec3& linear,
@@ -774,8 +772,8 @@ void PhysicsWorld::SetRagdollPose(int slot, const float* boneMatrices, bool kine
 	// handover) starts the step history afresh.
 	inst.hist.clear();
 
-	// Our Mat4 is row-major with the basis in its ROWS (row-vector, v*M);
-	// Jolt's Mat44 is column-major with the basis in its COLUMNS. Row i of one
+	// Our Mat4 is row-major with the basis in its rows (row-vector, v*M);
+	// Jolt's Mat44 is column-major with the basis in its columns. Row i of one
 	// is column i of the other, so this is a copy rather than a transpose.
 	std::vector<JPH::Mat44> mats(n);
 	for (size_t i = 0; i < n; ++i) {
@@ -895,7 +893,7 @@ void PhysicsWorld::CollectDebugLines(const Vec3& around, float radius,
 		JPH::BodyLockRead lock(locks, id);
 		if (!lock.Succeeded()) return;
 
-		// GetTriangles only works on LEAF shapes, and a prop is not one - it is
+		// GetTriangles only works on leaf shapes, and a prop is not one - it is
 		// a ScaledShape around a hull, whose GetTrianglesNext returns zero and
 		// (with asserts compiled out) says nothing about it. So collect the
 		// leaves first, which is what Jolt's own assert message asks for.
@@ -962,11 +960,11 @@ void PhysicsWorld::CollectDebugLines(const Vec3& around, float radius,
 // nothing traces against them. Jolt's default object-layer filter accepts every
 // layer, so ours were hittable - and a stake's own forward trace hit the stake.
 // Stake:Tick reads the collision group of whatever it hit, sees 7 and returns
-// early; with the self-hit always nearest it did that on EVERY frame, so every
+// early; with the self-hit always nearest it did that on every frame, so every
 // real hit behind it was never reached and shots went through walls.
 // What a trace can land on: everything that is solid to the world. The pusher
 // bodies are not - a trace that stopped on the pawn's own sphere reported a
-// WORLD hit standing exactly where the player is.
+// world hit standing exactly where the player is.
 class SolidLayerFilter final : public JPH::ObjectLayerFilter {
 public:
 	bool ShouldCollide(JPH::ObjectLayer layer) const override {
@@ -975,7 +973,7 @@ public:
 };
 
 // Shared by every query. Jolt's default filter is `{}`, which accepts every
-// layer - and the pawn finds its ground, its steps and its walls with SHAPE
+// layer - and the pawn finds its ground, its steps and its walls with shape
 // queries, not rays. Fixing only the ray left a stake that had nailed itself
 // to a wall still solid enough to stand on, because nothing the player walks
 // with was ever asking about layers.
@@ -1025,7 +1023,7 @@ bool PhysicsWorld::RayCast(const Vec3& from, const Vec3& to, RayHit& out,
 	// happens to meet from behind - exactly the case a projectile spawned
 	// inside geometry hits.
 	settings.mBackFaceModeTriangles = JPH::EBackFaceMode::CollideWithBackFaces;
-	// A ray that STARTS inside a convex shape must pass through it rather
+	// A ray that starts inside a convex shape must pass through it rather
 	// than report a hit at zero distance. A projectile is spawned inside the
 	// muzzle, overlapping whatever it was fired from; treating that as an
 	// immediate hit detonates it on frame one, and the contact it reports is
@@ -1113,7 +1111,7 @@ bool PhysicsWorld::RayCast(const Vec3& from, const Vec3& to, RayHit& out,
 		}
 	}
 
-	// A RAGDOLL LIMB IS NOT THE WORLD: a corpse is made of these and none is a
+	// A ragdoll limb is not the world: a corpse is made of these and none is a
 	// script body, so the loop above falls through. The caller turns the pair
 	// into the owning entity and a limb handle.
 	for (size_t r = 0; r < impl_->ragdolls.size(); ++r) {
@@ -1151,14 +1149,13 @@ bool PhysicsWorld::SphereOverlaps(const Vec3& pos, float radius) const {
 
 // How far one character may be separated from another in a single call.
 //
-// A character overlap is resolved as a PUSH, not an ejection. Two upright
-// characters standing on the ground separate SIDEWAYS, and the vertical
+// A character overlap is resolved as a push, not an ejection. Two upright
+// characters standing on the ground separate sideways, and the vertical
 // component is the one that cannot be undone: a sphere driven below the floor
-// mesh overlaps nothing, so no later pass can recover it. Measured before this
-// existed - a monk spawning onto another sent it 0.704 straight down in one
-// frame and it fell out of the level for good.
+// mesh overlaps nothing, so no later pass can recover it and the character
+// falls out of the level.
 //
-// GUESS: the rate is not recovered. It is set so a coincident pair of monks
+// Guess: the rate is not recovered. It is set so a coincident pair of monks
 // (radius 0.35) separates over about a quarter of a second, which is the
 // "shoulder them aside gently" the original shows rather than a shove. What
 // would settle it is the character separation term in the monster update
@@ -1181,7 +1178,7 @@ int PhysicsWorld::Depenetrate(Vec3& pos, float radius, int iterations,
 	const JPH::Shape* shape = radius > 0.f ? static_cast<const JPH::Shape*>(&sphere)
 			: impl_->playerShape.GetPtr();
 	if (shape == nullptr) return 0;
-	// The player's pusher is excluded from its OWN queries only. Leaving it out
+	// The player's pusher is excluded from its own queries only. Leaving it out
 	// of everyone's is why a monster could not feel the player at all - it
 	// walked through them, and the player could not shoulder one aside.
 	const CameraBlockerFilter blockers(impl_->probe, solidProps ? kSolidProps : maxPushMass_,
@@ -1209,7 +1206,7 @@ int PhysicsWorld::Depenetrate(Vec3& pos, float radius, int iterations,
 				settings, JPH::RVec3::sZero(), collector, {}, kSweepLayer, blockers);
 		if (collector.mHits.empty()) break;
 
-		// ONE overlap per pass - the deepest - and then look again.
+		// One overlap per pass - the deepest - and then look again.
 		//
 		// Applying every hit in a pass is the obvious thing to write and it is
 		// badly wrong: a floor is hundreds of triangles, so a sphere resting an
@@ -1238,7 +1235,7 @@ int PhysicsWorld::Depenetrate(Vec3& pos, float radius, int iterations,
 				// a monk spawning onto another arrives. The axis says nothing
 				// about which way to part, so take the horizontal offset
 				// between the centres, and failing that a fixed axis signed by
-				// body order so the two pick OPPOSITE directions rather than
+				// body order so the two pick opposite directions rather than
 				// travelling together forever.
 				const JPH::RVec3 otherCom =
 					impl_->system.GetBodyInterface().GetCenterOfMassPosition(deepest->mBodyID2);
@@ -1313,7 +1310,7 @@ void PhysicsWorld::SlideSphere(Vec3& pos, const Vec3& delta, float radius,
 	for (int iteration = 0; iteration < iterations; ++iteration) {
 		if (remaining.IsNearZero()) break;
 
-		// `at` is the shape's ORIGIN. A ShapeCast wants the centre of mass,
+		// `at` is the shape's origin. A ShapeCast wants the centre of mass,
 		// and the four-sphere stack's sits 0.059 above its origin - passing
 		// the origin as the COM sank the stack by that much and left the
 		// player resting 0.06 high on every floor.

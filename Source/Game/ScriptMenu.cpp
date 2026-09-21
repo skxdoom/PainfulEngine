@@ -141,7 +141,7 @@ struct MenuNatives : ScriptNativesBase {
 //
 // The scripts declare a screen and the engine owns it from there: layout,
 // hit-testing, keyboard navigation and drawing are all on this side. Items are
-// addressed by NAME, which is what Engine.dll's MenuScreen::FindItem does and
+// addressed by name, which is what Engine.dll's MenuScreen::FindItem does and
 // why every setter below takes a name string first. See Docs/Reference/Menu.md.
 //
 // Stage 1: static text, text buttons, and the screen lifecycle. Everything
@@ -159,8 +159,8 @@ MenuSystem::Item* MenuItemArg(ScriptEngine* self, lua_State* L, MenuSystem** out
 
 int MenuNatives::L_PMENU_Activate(lua_State* L) {
 	ScriptEngine* self = From(L);
-	// The argument is "activate", and PainMenu passes false to LEAVE the menu.
-	// lua_isnoneornil, not lua_isnil: an ABSENT argument is LUA_TNONE, and
+	// The argument is "activate", and PainMenu passes false to leave the menu.
+	// lua_isnoneornil, not lua_isnil: an absent argument is LUA_TNONE, and
 	// lua_isnil only catches an explicit nil. PMENU.ShowMouse() is called with
 	// no argument at all, and reading that as "false" is what left the menu
 	// with no cursor and the mouse still steering the player.
@@ -203,7 +203,7 @@ int MenuNatives::L_PMENU_SetTopPosition(lua_State* L) {
 }
 
 int MenuNatives::L_PMENU_ShowMouse(lua_State* L) {
-	// ShowMouse() with no argument means SHOW - see L_PMENU_Activate.
+	// ShowMouse() with no argument means show - see L_PMENU_Activate.
 	From(L)->menu_.ShowMouse(lua_isnoneornil(L, 1) ? true : (lua_toboolean(L, 1) != 0));
 	return 0;
 }
@@ -233,7 +233,7 @@ int MenuNatives::L_PMENU_SwitchToMap(lua_State* L) {
 	return 0;
 }
 
-// PMENU.SwitchToLevelSel - THE WAY OUT OF THE END-OF-LEVEL SCREEN, and the one
+// PMENU.SwitchToLevelSel - the way out of the end-of-level screen, and the one
 // EndLevel:LastClick takes on every ordinary finish. Its two siblings there,
 // ActivateMap (Trauma) and SwitchToMap (a 1-in-100 flourish), already landed on
 // the map, and all three are followed by PMENU.MapNextLevel - so the level that
@@ -605,7 +605,7 @@ int MenuNatives::L_PMENU_SetListMaxHeight(lua_State* L) {
 	return 0;
 }
 
-// The two ways to tie a border to a scroller return DIFFERENT names, and
+// The two ways to tie a border to a scroller return different names, and
 // PainMenu:AddControlConfig checks them:
 //
 //     if PMENU.SetBorderScroller("KeyBorder","KeyScroller") ~= "KeyBorder"
@@ -657,7 +657,7 @@ int MenuNatives::L_PMENU_LaunchURL(lua_State* L) {
 }
 
 // WORLD.SetGamePaused(bool) / IsGamePaused(). Engine.dll keeps this as a byte
-// on the World object; no shipped script ever SETS it, which is what says the
+// on the World object; no shipped script ever sets it, which is what says the
 // engine owns the pause - the scripts only ask (PainKiller.lua guards its
 // tick on it). The menu sets it on the way in and clears it on the way out.
 int MenuNatives::L_WORLD_SetGamePaused(lua_State* L) {
@@ -672,7 +672,7 @@ int MenuNatives::L_WORLD_IsGamePaused(lua_State* L) {
 
 // PMENU.AddStaticText(name, text) and AddTextButton(name, text, desc).
 //
-// The third argument of AddTextButton is the DESCRIPTION, not the action -
+// The third argument of AddTextButton is the description, not the action -
 // PainMenu:SetupScreen passes o.desc there and sets the action separately with
 // SetItemAction. (Engine.dll's own AddTextButton takes three strings; which of
 // them is which is settled by the call site, not by the decompile.)
@@ -709,8 +709,8 @@ int MenuNatives::L_PMENU_SetItemDesc(lua_State* L) {
 	return 0;
 }
 
-// The action is a string of LUA SOURCE, run when the item is chosen:
-//   action = "PainMenu:ActivateScreen(GameMenu)"
+// The action is a string of Lua source, run when the item is chosen:
+//   Action = "PainMenu:ActivateScreen(GameMenu)"
 int MenuNatives::L_PMENU_SetItemAction(lua_State* L) {
 	MenuSystem* menu = nullptr;
 	if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu)) {
@@ -823,10 +823,10 @@ int MenuNatives::L_PMENU_SetItemWidth(lua_State* L) {
 }
 
 // PMENU.SetItemSounds(name, accept, lightOn). The call site settles the order:
-// PainMenu passes o.sndAccept then o.sndLightOn, so the FOCUS sound is the
+// PainMenu passes o.sndAccept then o.sndLightOn, so the focus sound is the
 // third argument, not the second. Only that one is used yet.
 // PMENU.EnableItemBG(name, "blaszka") - turn on the plate behind a row. The
-// second argument is the BASE name of a three-slice under HUD/blachy_menu.
+// second argument is the base name of a three-slice under HUD/blachy_menu.
 int MenuNatives::L_PMENU_EnableItemBG(lua_State* L) {
 	MenuSystem* menu = nullptr;
 	if (MenuSystem::Item* item = MenuItemArg(From(L), L, &menu)) {
@@ -893,7 +893,7 @@ int MenuNatives::L_MOUSE_GetPos(lua_State* L) {
 // has MasterVolume at 10, so "ignored" is a factor of ten too loud.
 //
 // The originals are percentages. Engine.dll multiplies argument 1 by 0.01 into
-// MilesEngine::SetMasterVolumeLevel and argument THREE by 0.01 into
+// MilesEngine::SetMasterVolumeLevel and argument three by 0.01 into
 // Set3DDigitalEffectsVolume; argument 2 (music) is not used here, because the
 // streams carry their own volume through SOUND.StreamSetVolume.
 //
@@ -925,7 +925,7 @@ int MenuNatives::L_SOUND_Set3DSoundProvider(lua_State* L) {
 	return 1;
 }
 
-// The master reaches every sample TWICE in the original: once folded into the
+// The master reaches every sample twice in the original: once folded into the
 // per-sample level (Set3DDigitalEffectsVolume keeps master * sfx and every
 // 2D/3D SetVolume multiplies by it) and once more as Miles' digital master.
 // Samples therefore play at master^2 * sfx; streams at master. Sound.md.
@@ -974,7 +974,7 @@ int MenuNatives::L_PMENU_AddCheckbox(lua_State* L) {
 
 // PMENU.AddSlider(name, text, desc, min, max, isFloat, value, width, ctrlWidth)
 //
-// PainMenu multiplies a float slider's bounds AND value by 100 before calling
+// PainMenu multiplies a float slider's bounds and value by 100 before calling
 // this, then divides on the way back out, so what arrives here is always in
 // the same units whichever kind it is.
 int MenuNatives::L_PMENU_AddSlider(lua_State* L) {
@@ -1012,7 +1012,7 @@ int MenuNatives::L_PMENU_AddNumRange(lua_State* L) {
 // PMENU.AddTextButtonEx(name, text, desc, valueLabel)
 //
 // The row whose value is one of a list - resolution, texture quality, speaker
-// setup. The ENGINE does not hold the list: the script keeps it, and every
+// setup. The engine does not hold the list: the script keeps it, and every
 // change runs the item's action, which calls ChangeTextButtonExValue with the
 // next label. So this stores a caption and nothing more.
 int MenuNatives::L_PMENU_AddTextButtonEx(lua_State* L) {
@@ -1070,7 +1070,7 @@ int MenuNatives::L_PMENU_GetNumRangeValue(lua_State* L) {
 	return 1;
 }
 
-// Returns a BOOLEAN: PainMenu:ApplyCheckbox assigns it straight into Cfg,
+// Returns a boolean: PainMenu:ApplyCheckbox assigns it straight into Cfg,
 // where the shipped config.ini writes true/false rather than 1/0.
 int MenuNatives::L_PMENU_IsItemChecked(lua_State* L) {
 	MenuSystem* menu = nullptr;
@@ -1115,7 +1115,7 @@ int MenuNatives::L_PMENU_AddBorder(lua_State* L) {
 // PMENU.AddTabGroup(name, dark). A framed container whose children the script
 // shows and hides wholesale - PainMenu:ShowTabGroup just calls
 // SetItemVisibility down the group's item list. It takes SetBorderSize like a
-// border does, so it IS one as far as drawing goes; what makes it a group is
+// border does, so it is one as far as drawing goes; what makes it a group is
 // entirely on the script side.
 int MenuNatives::L_PMENU_AddTabGroup(lua_State* L) {
 	ScriptEngine* self = From(L);
@@ -1154,7 +1154,7 @@ int MenuNatives::L_PMENU_SetBorderColCount(lua_State* L) {
 	return 0;
 }
 
-// SetBorderColumn(name, index, width) - and the index is ZERO-based, which
+// SetBorderColumn(name, index, width) - and the index is zero-based, which
 // PainMenu:SetupScreen shows plainly where it configures FireBorder with
 // columns 0 through 3.
 int MenuNatives::L_PMENU_SetBorderColumn(lua_State* L) {
@@ -1170,7 +1170,7 @@ int MenuNatives::L_PMENU_SetBorderColumn(lua_State* L) {
 
 // R3D.SetCameraFOV(degrees) / GetCameraFOV(). Cfg.FOV, applied by Game:Init;
 // PainMenu:OpenMenu sets 90 for the menu and puts the old value back. Held
-// here as the HORIZONTAL angle - the shipped config's 115 on a 3440x1440
+// here as the horizontal angle - the shipped config's 115 on a 3440x1440
 // display is a horizontal figure - and turned into the vertical one for the
 // window's aspect by the app.
 int MenuNatives::L_R3D_SetCameraFOV(lua_State* L) {

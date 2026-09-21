@@ -12,7 +12,7 @@ namespace painful {
 //
 // PainEngine's interface is drawn entirely from Lua - health, ammo, the tarot
 // board, the menus, the console - through `HUD.DrawQuad` and `HUD.PrintXY`,
-// with images coming from `MATERIAL.Create`. Coordinates are in PIXELS: the
+// with images coming from `MATERIAL.Create`. Coordinates are in pixels: the
 // scripts do their own layout against `R3D.ScreenSize()`, scaling from the
 // 1024x768 the interface was authored at.
 //
@@ -51,7 +51,7 @@ public:
 	// Four corners already placed on screen: top-left, top-right,
 	// bottom-right, bottom-left, as x,y pairs.
 	void QuadCorners(Material m, const float xy[8], uint32_t abgr);
-	// Repeats a texture at its NATIVE size across a rectangle rather than
+	// Repeats a texture at its native size across a rectangle rather than
 	// stretching it - HUD::DrawTiles in the original, and how every piece of
 	// the menu frame is drawn. A width or height of 0 means "one texture
 	// wide/tall", which is what lets an edge tile along a single axis.
@@ -60,7 +60,7 @@ public:
 	// Returns the width drawn, so the caller can advance a cursor. An x of -1
 	// centres the string on the screen, which is what the scripts pass when
 	// they want a banner.
-	// patternMaterial is the font TEXTURE the menu rows carry
+	// patternMaterial is the font texture the menu rows carry
 	// (PMENU.SetItemFontsTex); 0 leaves the glyphs their plain colour.
 	float Text(const std::string& fontName, int size, float x, float y,
 			const std::string& text, uint32_t abgr, Material patternMaterial = 0);
@@ -73,7 +73,7 @@ public:
 
 	// Widescreen. The interface is authored for 4:3 and the scripts lay it
 	// out against R3D.ScreenSize, so on a wider window they are handed a 4:3
-	// CANVAS - the window's height, and 4/3 of it wide - and every draw is
+	// canvas - the window's height, and 4/3 of it wide - and every draw is
 	// mapped from canvas to screen here. Docs/Reference/Hud.md, "Widescreen".
 	enum class Aspect {
 		kStretch, // the original: canvas = window, stretched
@@ -120,7 +120,7 @@ private:
 	struct Batch {
 		bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
 		// The second stage, for textured text. White for everything else, so a
-		// run only splits when the PAIR changes.
+		// run only splits when the pair changes.
 		bgfx::TextureHandle pattern = BGFX_INVALID_HANDLE;
 		float patternW = 1.f, patternH = 1.f;
 		uint32_t first = 0, count = 0;

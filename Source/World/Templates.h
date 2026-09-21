@@ -9,7 +9,7 @@ namespace painful {
 // LScripts/Templates. Templates themselves chain through BaseObj, so resolving
 // a property means walking that chain until someone declares it.
 //
-// Note templates do NOT use the "o." prefix that instances use - each file
+// Note templates do not use the "o." prefix that instances use - each file
 // prefixes its own name - which is why Properties accepts any identifier.
 class TemplateCache {
 public:
@@ -17,7 +17,7 @@ public:
 	bool Init(const std::string& templatesRoot);
 
 	// 43 levels ship their own Levels/<name>/Templates directory, whose files
-	// SHADOW the global ones for that level only - two levels can each define
+	// shadow the global ones for that level only - two levels can each define
 	// a "swieczka.CParticleFX" with different contents. Call this on every
 	// level load; it replaces whatever the previous level installed. Passing an
 	// empty path just clears the overlay.
@@ -61,9 +61,8 @@ public:
 
 	// The BodyTypes value in a "PO_Create(BodyTypes.X)" call anywhere in a
 	// piece of script text, or -1. Placed instances can carry the call
-	// directly - a Cathedral barrel has
-	// o.StartCommand = "o:PO_Create(BodyTypes.FromMesh)" - so the same scan
-	// serves both the templates and the level's own entities.
+	// directly in o.StartCommand, so the same scan serves both the templates
+	// and the level's own entities.
 	static int BodyTypeInScript(const std::string& text);
 
 	size_t indexed() const { return index_.size(); }

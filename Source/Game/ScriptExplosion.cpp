@@ -5,8 +5,8 @@
 // MultiplayerExplosion otherwise, so grenades, rockets, barrels, exploding cars
 // and the bosses' shockwaves all land on one native.
 //
-// The engine does NOT deal the damage. It collects what the blast reached and
-// posts one EXPLOSION message per entity; Game_GetMsg (Game.lua:1249) looks the
+// The engine does not deal the damage. It collects what the blast reached and
+// posts one explosion message per entity; Game_GetMsg (Game.lua:1249) looks the
 // entity up in EntityToObject and calls obj:OnDamage. Same division as the
 // weapon traces - see the Stage 8 note in Docs/Plan.md.
 //
@@ -38,7 +38,7 @@ namespace {
 // its strength further out than a linear ramp would. The multiplier is the
 // float at 0x102C86E4, which reads 1.5707964.
 //
-// NOT the same curve as PhysicsWorld::SelfExplosion (0x10197D10), which is
+// Not the same curve as PhysicsWorld::SelfExplosion (0x10197D10), which is
 // plain (1 - d/range). Two functions, two laws; this is the one the scripts
 // reach through WORLD.Explosion2.
 float ExplosionFalloff(float distance, float range) {
@@ -48,8 +48,8 @@ float ExplosionFalloff(float distance, float range) {
 	return std::sin(t * float(kPi) * 0.5f);
 }
 
-// ECollisionGroups.Noncolliding (7) and 12 measure from the entity's BBOX
-// CENTRE rather than the body position - 0x102AE5B0 is the 0.5 that halves
+// ECollisionGroups.Noncolliding (7) and 12 measure from the entity's bbox
+// centre rather than the body position - 0x102AE5B0 is the 0.5 that halves
 // (lo + hi). Everything else measures from the body.
 bool MeasuredFromBounds(int collisionGroup) {
 	return collisionGroup == 7 || collisionGroup == 12;
@@ -62,7 +62,7 @@ bool MeasuredFromBounds(int collisionGroup) {
 // Argument order is read straight off 0x1011ECF0: three floats for the centre,
 // strength, range, an int clientID (default -1), an int attackType, and the
 // damage. The mangled export agrees:
-// ?Explosion@PhysicsWorld@@QAEXVVector@@MMHHM@Z = (Vector, float, float, int,
+// ?Explosion@PhysicsWorld@@QAEXVVector@@mmhhm@Z = (Vector, float, float, int,
 // int, float).
 int ExplosionNatives::L_WORLD_Explosion2(lua_State* L) {
 	ScriptEngine* self = From(L);
@@ -82,7 +82,7 @@ void ScriptEngine::Explosion(const Vec3& centre, float strength, float range,
 	if (range <= 0.f) return;
 
 	// One id per blast. Game_GetMsg stores it on the object as `_Exploded` and
-	// skips an entity it has already seen, so two entities hit by the SAME
+	// skips an entity it has already seen, so two entities hit by the same
 	// explosion must share it and two explosions must not.
 	const double explosionId = double(++explosionCounter_);
 
@@ -132,10 +132,10 @@ void ScriptEngine::Explosion(const Vec3& centre, float strength, float range,
 	for (auto& kv : entities_) {
 		Entity& e = kv.second;
 
-		// A CORPSE, OR A GIB. In Havok every limb is its own body in the same
+		// A corpse, or a gib. In Havok every limb is its own body in the same
 		// world, and FUN_101B79F0 hands a ragdoll to Ragdoll::SelfExplosion's
 		// law - the strength shared across the limbs with a linear falloff -
-		// and posts ONE message with the nearest limb's sine falloff. The
+		// and posts one message with the nearest limb's sine falloff. The
 		// ragdoll's own flag gates both (FUN_101B0DC0 returns before touching
 		// a ragdoll not moved by explosions), which is what lets a fresh gib
 		// sit out the blast that made it. Docs/Reference/Physics.md.
@@ -186,7 +186,7 @@ void ScriptEngine::Explosion(const Vec3& centre, float strength, float range,
 		// Dead centre has no direction to push along. 0.001 is the engine's own
 		// floor for this, the double at 0x102AE578.
 		if (distance < 0.001f) continue;
-		// A FORCE, spent over one step - not an impulse.
+		// A force, spent over one step - not an impulse.
 		//
 		// The engine accumulates into PhysicsObject::EffectForce and spends the
 		// total once per step in EffectForces(), which is Havok's applyForce:
@@ -194,7 +194,7 @@ void ScriptEngine::Explosion(const Vec3& centre, float strength, float range,
 		// shipped 3200-strength blast is 60x too strong and throws a 200 kg
 		// barrel the length of the level (measured: 39 units).
 		//
-		// ASSUMED, and this is the number to retune if blasts feel wrong. The
+		// Assumed, and this is the number to retune if blasts feel wrong. The
 		// evidence is the name and the accumulate-then-spend pattern, not a
 		// decompiled multiply. Docs/Reference/Physics.md.
 		const float scale = falloff * strength / distance;
@@ -203,7 +203,7 @@ void ScriptEngine::Explosion(const Vec3& centre, float strength, float range,
 	}
 
 	for (const Reached& r : reached) {
-		// The point is the blast CENTRE, not the contact: OnDamage takes it as
+		// The point is the blast centre, not the contact: OnDamage takes it as
 		// (x, y, z) at parameters 4..6 and the actors use it for the direction
 		// to fall in.
 		const double args[8] = {double(r.handle), centre[0], centre[1], centre[2],
@@ -258,7 +258,7 @@ float Signed1() { return float(std::rand()) * (2.f / 32768.f) - 1.f; }
 
 // WORLD.ExplosionUp(x, y, z, strength, range, maxImpulse, random) ->
 // PhysicsWorld::ExplosionUp (0x10197E70). Thor's hammer: everything in range
-// goes UP, with a 0.05 tilt in X and Z, a +/-`random` scale on the magnitude
+// goes up, with a 0.05 tilt in X and Z, a +/-`random` scale on the magnitude
 // and a random spin. Docs/Reference/Physics.md, "The boss explosions".
 int ExplosionNatives::L_WORLD_ExplosionUp(lua_State* L) {
 	ScriptEngine* self = From(L);
@@ -284,7 +284,7 @@ int ExplosionNatives::L_WORLD_ExplosionUp(lua_State* L) {
 		if (maxImpulse > 0.f && m > maxImpulse) m = maxImpulse;
 		m *= 1.f + Signed1() * random;
 		const Vec3 up{Signed1() * 0.05f * m, m, Signed1() * 0.05f * m};
-		// A VELOCITY, not an impulse - see the note in Physics.md. Thor caps
+		// A velocity, not an impulse - see the note in Physics.md. Thor caps
 		// this at stren = 80, which is a launch speed and not a 60 kg nudge.
 		self->physics_->SetScriptBodyVelocity(e.physicsBody, up);
 		self->physics_->SetScriptBodyAngularVelocity(e.physicsBody,
@@ -323,7 +323,7 @@ int ExplosionNatives::L_WORLD_ExplosionParabolic(lua_State* L) {
 				(target[2] - e.pos[2]) * k * 1.25f};
 		// rand() * 4.5777765e-6 is [0, 0.15): the vertical gets up to 15% more.
 		v[1] *= 1.f + float(std::rand()) * 4.5777765e-6f;
-		// The ballistic identity only holds if this is a VELOCITY: with Thor's
+		// The ballistic identity only holds if this is a velocity: with Thor's
 		// flightTime of 8 the vertical term is gravity * 0.5 * 8 = 78 u/s.
 		self->physics_->SetScriptBodyVelocity(e.physicsBody, v);
 		self->physics_->SetScriptBodyAngularVelocity(e.physicsBody,

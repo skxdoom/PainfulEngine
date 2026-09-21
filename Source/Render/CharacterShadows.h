@@ -7,10 +7,10 @@
 
 namespace painful {
 
-// The characters' shadows (MDL.CreateShadowMap), each down its OWN environment
+// The characters' shadows (MDL.CreateShadowMap), each down its own environment
 // directional. The original gives every character a 128-texel silhouette,
 // projects it onto the world meshes under it and fades it along the light over
-// four times the character's height. Here each gets a DEPTH slot in one atlas,
+// four times the character's height. Here each gets a depth slot in one atlas,
 // so nothing between the light and the character darkens; the slots share one
 // view, each draw scissored to its own. Docs/Reference/Lighting.md, "Character shadows"
 class CharacterShadows {

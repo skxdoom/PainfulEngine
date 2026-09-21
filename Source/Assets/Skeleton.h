@@ -44,15 +44,15 @@ void ResolveAnimTracks(const std::vector<Bone>& bones, const Animation& anim,
 
 // An extra rotation laid on one bone on top of whatever the animation says -
 // MDL.ApplyJointRotation, which is how a monster's head follows the player and
-// how a gun's barrel pitches. Euler angles in RADIANS (the shipped scripts
-// clamp a barrel to math.pi/3), engine order, applied in the bone's OWN space
+// how a gun's barrel pitches. Euler angles in radians (the shipped scripts
+// clamp a barrel to math.pi/3), engine order, applied in the bone's own space
 // so the bone turns where it is instead of swinging about its parent.
 struct JointOverride {
 	int bone = -1;
 	Vec3 euler;
 };
 
-// Where every bone IS at a playback time: bone-local to MODEL space, before
+// Where every bone is at a playback time: bone-local to model space, before
 // the bind pose is divided out. This is what a joint query wants - "where is
 // the hand" is this matrix, not a skinning matrix, which only makes sense
 // applied to a vertex that started in the bind pose.
@@ -76,7 +76,7 @@ void ComputeBoneWorldAtTime(const std::vector<Bone>& bones,
 // animation and CActor falls back to 0.201 s - and without it an actor snaps
 // from walking to attacking in a single frame.
 //
-// The blend happens on each bone's LOCAL transform, before the hierarchy is
+// The blend happens on each bone's local transform, before the hierarchy is
 // composed. Blending the world matrices instead lets a child drift off its
 // parent: two independently blended world transforms need not agree about
 // where the joint between them is, so the model comes apart at the seams
@@ -89,7 +89,7 @@ void ComputeBoneWorldBlended(const std::vector<Bone>& bones,
 		const JointOverride* overrides = nullptr,
 		size_t overrideCount = 0);
 
-// The cross-fade's LOCAL poses, one per bone, without script rotations: a
+// The cross-fade's local poses, one per bone, without script rotations: a
 // snapshot of the blend in flight, for a fade that is interrupted by another
 // SetAnim and has to continue from the pose on screen rather than from either
 // animation alone.
@@ -107,7 +107,7 @@ void ComputeBoneLocalFromLocals(const std::vector<Bone>& bones,
 		float u,
 		std::vector<Mat4>& outLocal);
 
-// A cross-fade whose A side is such a snapshot: u = 0 is the snapshot, u = 1
+// A cross-fade whose a side is such a snapshot: u = 0 is the snapshot, u = 1
 // entirely animation B.
 void ComputeBoneWorldFromLocals(const std::vector<Bone>& bones,
 		const std::vector<Mat4>& localsA,
@@ -120,15 +120,15 @@ void ComputeBoneWorldFromLocals(const std::vector<Bone>& bones,
 // One bone's model-space position at a playback time, walking only its own
 // ancestors. Root motion asks this twice per actor per tick and reads a single
 // bone, so posing the whole skeleton for it would cost more than the animation
-// itself. Script joint rotations are deliberately NOT applied: root motion is
-// what the ANIMATION moves the actor by, not what a head-look does to it.
+// itself. Script joint rotations are deliberately not applied: root motion is
+// what the animation moves the actor by, not what a head-look does to it.
 bool ComputeBonePositionAtTime(const std::vector<Bone>& bones,
 		const std::vector<const AnimTrack*>& tracks,
 		int bone, float time, Vec3& outPos);
 
 // skin[b] = inverseBind[b] * boneWorld[b]. Split from the above because the
 // renderer wants this and the joint natives want the bone world matrices, and
-// both must come from ONE pose or a muzzle flash drifts off the barrel it is
+// both must come from one pose or a muzzle flash drifts off the barrel it is
 // drawn on.
 void BoneWorldToSkinning(const std::vector<Mat4>& inverseBind,
 		const std::vector<Mat4>& boneWorld,

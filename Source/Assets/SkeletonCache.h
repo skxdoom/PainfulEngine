@@ -12,7 +12,7 @@ namespace painful {
 // Loads and keeps the skeletons of the .pkmdl models a level asks for.
 //
 // The renderer already loads whole models for drawing, but the joint natives
-// have to answer where a bone IS, and they answer headlessly - the scripts ask
+// have to answer where a bone is, and they answer headlessly - the scripts ask
 // for a weapon's bind position long before anything is on screen, and a run
 // with no window is how everything else in this engine gets verified. So the
 // skeleton is cached on its own: bones, their bind-pose world matrices and the
@@ -29,11 +29,11 @@ public:
 		std::vector<Mat4> inverseBind;
 		// Model-space bounds of the meshes, for callers that need the shape
 		// rather than the skeleton - a character radius is the horizontal
-		// half-extent, and a T-posed humanoid's widest axis is its ARMS.
+		// half-extent, and a T-posed humanoid's widest axis is its arms.
 		Vec3 lo, hi;
 		// The lowest vertex in the idle pose (first frame of idle / idle1),
 		// or lo[1] when there is none. The body sizer measures from the
-		// entity's local box, which is the POSED model's: the Giant's bind
+		// entity's local box, which is the posed model's: the Giant's bind
 		// pose floats 0.48 above its origin while every animation plants its
 		// feet below it. Docs/Reference/MonsterMovement.md, "The body".
 		float poseLo = 0.f, poseHi = 0.f;

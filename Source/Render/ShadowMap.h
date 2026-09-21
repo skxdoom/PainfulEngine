@@ -40,7 +40,7 @@ public:
 	bgfx::ProgramHandle program() const { return program_; }
 	int size() const { return size_; }
 
-	// The caster state: depth only, BOTH faces. The level meshes are one-sided,
+	// The caster state: depth only, both faces. The level meshes are one-sided,
 	// so casting back faces alone would leak light through every wall.
 	static constexpr uint64_t kState = BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LESS;
 	// How far a receiver is lifted off its surface before the lookup, in shadow

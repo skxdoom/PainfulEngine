@@ -150,13 +150,14 @@ void Input::BeginFrame() {
 
 void Input::SetKeyDown(int vk, bool down) {
 	if (vk <= 0 || vk >= kKeyCount) return;
-	// A key Reset() forgot stays forgotten until it is physically RELEASED.
+	// A key Reset() forgot stays forgotten until it is physically released.
 	// The original never polls: InputSystem keeps a state per key (0 up, 1
-	// pressed, 2 held, 3 released) and only a DOWN EVENT moves 0 -> 1
+	// pressed, 2 held, 3 released) and only a down event moves 0 -> 1
 	// (ProcessEvents, 0x1003e670), while Reset (0x1003a6c0) zeroes every key
 	// in its pressed list. So a key held across a Reset cannot count again.
-	// We poll the window instead, and without this the very next frame put it
-	// straight back down. Docs/Reference/PlayerMovement.md, "INP.Reset"
+	// Polling the window has no such list, so a suppressed key needs an
+	// explicit release to re-arm, or the next frame puts it straight back
+	// down. Docs/Reference/PlayerMovement.md, "INP.Reset"
 	if (!down) suppressed_[vk] = false;
 	down_[vk] = down && !suppressed_[vk];
 }
@@ -235,7 +236,7 @@ uint32_t Input::ActionMask() const {
 }
 
 // Held while the key is down; everything else is one press at a time. Which is
-// which is a STAND-IN read off the shipped scripts and play, not the engine's
+// which is a stand-in read off the shipped scripts and play, not the engine's
 // own table - see Docs/Reference/PlayerMovement.md, "UI actions".
 constexpr uint32_t kUIHeld = UIAct::Scoreboard | UIAct::Zoom;
 

@@ -29,7 +29,7 @@ struct MaterialState {
 	// scripts - conveyor belts, waterfalls). Zero when static.
 	float pan0[2] = {0, 0};
 	float pan1[2] = {0, 0};
-	// Stage tiling (tile[N]). The engine applies it AFTER the pan, so it
+	// Stage tiling (tile[N]). The engine applies it after the pan, so it
 	// multiplies the scroll speed as well as the coordinate.
 	float tile0[2] = {1, 1};
 	float tile1[2] = {1, 1};
@@ -55,8 +55,8 @@ struct MaterialState {
 // straight into the same D3Dev state field, so they share one translation.
 uint64_t BlendModeState(int mode);
 // The D3D fog colour the device applies for a blend mode (D3Dev state apply,
-// FUN_10002050): the level's colour for none/translucent/desttranslucent, BLACK
-// for the additive family, WHITE for the modulate family. Particles.md, "Fog".
+// FUN_10002050): the level's colour for none/translucent/desttranslucent, black
+// for the additive family, white for the modulate family. Particles.md, "Fog".
 void FogColorForBlend(int mode, const float levelFog[4], float out[4]);
 
 } // namespace painful

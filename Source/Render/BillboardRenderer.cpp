@@ -30,7 +30,7 @@ constexpr float kTraceStartOffset = 0.3f;
 constexpr float kTraceInterval = 0.1f;
 
 // CBillboard.BlendMode is an editor index, not the material system's enum;
-// SetupCorona maps it before storing. Note 3 and 4 are NOT 3 and 4.
+// SetupCorona maps it before storing. Note 3 and 4 are not 3 and 4.
 int RemapBlendMode(int editorIndex) {
 	switch (editorIndex) {
 		case 1: return kBlendAlpha;
@@ -507,9 +507,9 @@ void BillboardRenderer::Draw(bgfx::ViewId view, bgfx::ViewId coronaView, const C
 		idx[3] = 0; idx[4] = 2; idx[5] = 3;
 
 		// kBlendAlpha - SRC_ALPHA, ONE - which is the mode the particles use and
-		// the one the sprite art is authored for: additive, but WEIGHTED BY
-		// ALPHA, so the transparent part of a flash contributes nothing. Plain
-		// additive (ONE, ONE) ignores the alpha channel outright and the
+		// the one the sprite art is authored for: additive, but weighted by
+		// alpha, so the transparent part of a flash contributes nothing. Plain
+		// additive (one, one) ignores the alpha channel outright and the
 		// texture's whole square shows.
 		//
 		// Depth-tested: a flash is still hidden by a wall in front of it.
@@ -530,7 +530,7 @@ void BillboardRenderer::Draw(bgfx::ViewId view, bgfx::ViewId coronaView, const C
 	immediate_.clear();
 
 	// The strips: DrawSprite1DOF's beam and the Spr_* lines. Each point is
-	// pushed HALF the width to either side, U runs along the strip (0,1
+	// pushed half the width to either side, U runs along the strip (0,1
 	// alternating for modes >= 10) and V across it, and the side vector is
 	// the mode's: the segment crossed with the line of sight, so a beam aimed
 	// at the eye never flips inside out, or a camera axis. RenderSprites,

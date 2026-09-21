@@ -14,7 +14,7 @@
 
 namespace painful {
 
-// ROTATION is ANGLE-AXIS - `angle x y z` - and a zero axis means no rotation
+// Rotation is angle-axis - `angle x y z` - and a zero axis means no rotation
 // rather than an invalid one. Rodrigues, written into the row-vector form:
 // row i is the image of basis vector i, so out[i*4+j] = R(j,i).
 void HkeBody::RestMatrix(float out[16]) const {
@@ -77,7 +77,7 @@ bool Hke::Linked(const std::string& a, const std::string& b) const {
 
 namespace {
 
-// The file is whitespace-separated tokens and nothing else, and it HAS to be
+// The file is whitespace-separated tokens and nothing else, and it has to be
 // read that way rather than line by line: a constraint packs three keys onto
 // one line ("STRENGTH 1.0 TAU 0.1 TWIST_MIN -0.087266"), so a line-oriented
 // parser sees the first key and throws the rest away.
@@ -95,7 +95,7 @@ struct Tokens {
 	int d() { return std::atoi(next().c_str()); }
 	bool b() { return next() == "TRUE"; }
 	void vec3(Vec3& out) { out.x = f(); out.y = f(); out.z = f(); }
-	// ANGLE first, then the axis - see HkeBody::rotAngle.
+	// Angle first, then the axis - see HkeBody::rotAngle.
 	void angleAxis(float& angle, Vec3& axis) { angle = f(); vec3(axis); }
 };
 

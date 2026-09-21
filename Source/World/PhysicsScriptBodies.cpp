@@ -11,8 +11,8 @@ namespace painful {
 
 // ------------------------------------------------------------ script bodies
 
-// The engine applies its textbook quaternion matrix to ROW vectors, which in
-// standard column convention is the rotation by the CONJUGATE - the same
+// The engine applies its textbook quaternion matrix to row vectors, which in
+// standard column convention is the rotation by the conjugate - the same
 // transpose CollectPoses and LoadProps handle for matrices, expressed on the
 // quaternion itself. EngineQuatToJolt / JoltQuatToEngine live in
 // PhysicsWorldInternal.h so the ragdoll file uses the same pair.
@@ -105,7 +105,7 @@ int PhysicsWorld::CreateScriptBody(int bodyType, const std::string& modelName,
 	// The same body configuration LoadProps uses; mass, friction and the
 	// rest arrive through the PO_Set* calls CObject:PO_Create makes next.
 	// ECollisionGroups.Noncolliding (7) is the projectile case, and it is not a
-	// simulated body at all - it is KINEMATIC, moved by the engine along a
+	// simulated body at all - it is kinematic, moved by the engine along a
 	// straight line, exactly as a monster is moved rather than simulated.
 	//
 	// That is what makes every shot identical. Left dynamic, the solver owns it
@@ -114,7 +114,7 @@ int PhysicsWorld::CreateScriptBody(int bodyType, const std::string& modelName,
 	// against. A projectile has no business being integrated.
 	const bool projectile = collisionGroup == 7;
 
-	// ECollisionGroups.Fixed (1) is RIGID, NOT SIMULATED.
+	// ECollisionGroups.Fixed (1) is rigid, not simulated.
 	//
 	// It is what the ambush barriers and the lifts are made with -
 	// Slab.CItem's OnCreateEntity is
@@ -215,8 +215,8 @@ void PhysicsWorld::CollectScriptContacts(std::vector<ScriptContact>& out) {
 		const auto b = slotOf.find(p.b.GetIndexAndSequenceNumber());
 		const auto la = limbOf.find(p.a.GetIndexAndSequenceNumber());
 		const auto lb = limbOf.find(p.b.GetIndexAndSequenceNumber());
-		// ONE side is enough. Requiring both was wrong and it hid the common
-		// case: almost everything a prop hits is the STATIC WORLD - a vase
+		// One side is enough. Requiring both was wrong and it hid the common
+		// case: almost everything a prop hits is the static world - a vase
 		// pushed off a balcony lands on the floor, not on another prop - and
 		// that collision is exactly the one a destructible breaks on. The world
 		// side reports slot -1, which becomes entity 0 in the message, the same
@@ -243,7 +243,7 @@ void PhysicsWorld::CollectScriptContacts(std::vector<ScriptContact>& out) {
 // PhysicsObject::SetMass (0x10189510) branches on the freedom-of-rotation
 // mode: AllAxes and FullFree rescale the inertia with the mass, every other
 // mode sets the mass alone and leaves the inertia the mode chose.
-// The Maintain* servos, run once per step. The original hangs a Havok ACTION
+// The Maintain* servos, run once per step. The original hangs a Havok action
 // on the body for each (types 3 position, 4 velocity); the laws below are a
 // reconstruction from the argument lists, since the action bodies are inside
 // statically linked Havok. Docs/Reference/Physics.md, "The scripted movers".
@@ -495,9 +495,8 @@ int PhysicsWorld::CreateActiveMeshBody(const MapObject& object, float worldScale
 	(void)concave;
 	// No hull inflation. These objects are authored touching - coffins
 	// stacked, column drums on each other - and Jolt's default 0.05 convex
-	// radius made every pair overlap by 0.1, which the solver resolved by
-	// popping the stack apart at load: 475 of the Cemetery's 548 had moved
-	// by frame 60, a column drum by 7 units.
+	// radius overlaps every pair by 0.1, which the solver resolves by popping
+	// the stack apart at load.
 	JPH::ConvexHullShapeSettings hull(mesh.points, 0.005f);
 	hull.SetEmbedded();
 	JPH::ShapeSettings::ShapeResult shape = hull.Create();
@@ -524,7 +523,7 @@ int PhysicsWorld::CreateActiveMeshBody(const MapObject& object, float worldScale
 	// Static bodies get no mass properties; a pinned one is given them on
 	// release (SetScriptBodyPinned goes Dynamic and Jolt derives them then).
 	JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
-	// ASLEEP. AddMesh hands every one to the engine's hard deactivator (a
+	// Asleep. AddMesh hands every one to the engine's hard deactivator (a
 	// body that moves under 0.3 in 5 s is frozen where it is), and in play
 	// they do not stir until something touches them. A sleeping Jolt body is
 	// the same thing: it stays put, supported or not, until an awake body,
@@ -730,8 +729,8 @@ void PhysicsWorld::SetScriptBodyCollisionGroup(int slot, int collisionGroup) {
 
 void PhysicsWorld::SetScriptBodyVelocity(int slot, const Vec3& v) {
 	if (!ScriptBodyExists(slot)) return;
-	// A disabled body is out of the world, and ACTIVATING ONE CORRUPTS THE
-	// SOLVER: Jolt puts it in the active list without a broadphase entry, and
+	// A disabled body is out of the world, and activating one corrupts the
+	// solver: Jolt puts it in the active list without a broadphase entry, and
 	// the next DestroyBody frees it there, so the following step reads a dead
 	// body in JobApplyGravity. Same guard as SetScriptBodyPose.
 	// Docs/Reference/Physics.md, "Activation and a body out of the world"
@@ -769,7 +768,7 @@ void PhysicsWorld::AddScriptBodyImpulse(int slot, const Vec3& at,
 	// Only a dynamic body can be shoved; the world and anything pinned in
 	// place take the hit without moving, which is what they are for.
 	if (bodies.GetMotionType(id) != JPH::EMotionType::Dynamic) return;
-	// Wake it FIRST. An impulse applied to a sleeping body is dropped, and
+	// Wake it first. An impulse applied to a sleeping body is dropped, and
 	// props settle to sleep the moment a level finishes loading - so every
 	// shot at a barrel that had been standing still would do nothing.
 	if (!bodies.IsActive(id)) bodies.ActivateBody(id);
@@ -795,16 +794,16 @@ bool PhysicsWorld::GetScriptBodyVelocity(int slot, Vec3& out) const {
 	return true;
 }
 
-// ENTITY.PO_Enable(e, on) - IN or OUT OF THE WORLD, not awake or asleep.
+// ENTITY.PO_Enable(e, on) - in or out of the world, not awake or asleep.
 //
 // PhysicsObject::Enable (Engine.dll 0x1907d0) does not deactivate anything: on
-// false it disables the Havok body and then SWAP-REMOVES the object from the
+// false it disables the Havok body and then swap-removes the object from the
 // engine's active registry - last element into this slot, count down, index
 // set to -1 - and on true it re-adds and registers it again. IsEnabled reads a
 // flag on the body meaning "in the world" (0x196770).
 //
 // Sleeping it instead leaves it fully solid, which is what CActor:EnableRagdoll
-// disables it FOR. A dead monster's movement capsule stayed standing where it
+// disables it for. A dead monster's movement capsule stayed standing where it
 // died: it blocked the player, it swallowed the pusher, and worst of all the
 // corpse collided with its own capsule - the ragdoll spent its whole fall
 // being shoved around by the shape it used to walk in.
@@ -828,7 +827,7 @@ void PhysicsWorld::MakeScriptBodyCharacter(int slot, float k, const Vec3& rootOf
 	impl_->characterBodies.insert(id.GetIndexAndSequenceNumber());
 
 	if (k > 0.f && k != sb.radius) {
-		// THREE STACKED SPHERES - which is what BodyTypes.Fatter is.
+		// Three stacked spheres - which is what BodyTypes.Fatter is.
 		//
 		// The sizer's Fatter branch (0x101B3E20 case 2) builds twelve floats
 		// that group as three (0, y, 0, r) records and hands them to a
@@ -848,11 +847,11 @@ void PhysicsWorld::MakeScriptBodyCharacter(int slot, float k, const Vec3& rootOf
 
 		JPH::StaticCompoundShapeSettings compound;
 		compound.SetEmbedded();
-		// Shifted DOWN 0.7k, so the lowest sphere's bottom (-4.8k) lands on the
+		// Shifted down 0.7k, so the lowest sphere's bottom (-4.8k) lands on the
 		// floor point (-5.5k) - the model's soles - and the top sits under the
 		// head (4.8k) instead of 0.7k above it. That is where the original's
 		// body evidently is: actors stand on their soles and monks fit the
-		// arches their models fit. ASSUMED - the sizer centres the records on
+		// arches their models fit. assumed - the sizer centres the records on
 		// the entity, and what moves them in Havok is not recovered.
 		// Docs/Reference/MonsterMovement.md, "The body".
 		constexpr float kStackShift = -0.7f;
@@ -884,7 +883,7 @@ void PhysicsWorld::MakeScriptBodyCharacter(int slot, float k, const Vec3& rootOf
 	ch.k = sb.radius;
 	ch.rootOffsetY = rootOffset[1];
 
-	// DYNAMIC, translation only. CreatePhysicsObject (0x101999F0) ends with
+	// Dynamic, translation only. CreatePhysicsObject (0x101999F0) ends with
 	// SetFreedomOfRotation(1, 1.0): pitch and roll inertia FLT_MAX, yaw 10 -
 	// and the scripts set the yaw themselves through SetOrientation, so no
 	// rotation is left to the solver here.
@@ -896,7 +895,7 @@ void PhysicsWorld::MakeScriptBodyCharacter(int slot, float k, const Vec3& rootOf
 			JPH::Body& body = lock.GetBody();
 			JPH::MassProperties props = body.GetShape()->GetMassProperties();
 			// The sizer's mass rule for a sphere stack is (0.2 * scale)^3 *
-			// 10000 - recovered for the player's four spheres, ASSUMED to hold
+			// 10000 - recovered for the player's four spheres, assumed to hold
 			// for the Fatter stack. PO_SetMass overrides it where a template
 			// declares s_Physics.Mass.
 			const float mass = sb.mass > 0.f ? sb.mass : ch.k * ch.k * ch.k * 10000.f;
@@ -905,7 +904,7 @@ void PhysicsWorld::MakeScriptBodyCharacter(int slot, float k, const Vec3& rootOf
 					JPH::EAllowedDOFs::TranslationX | JPH::EAllowedDOFs::TranslationY |
 					JPH::EAllowedDOFs::TranslationZ,
 					props);
-			// GUESS: Havok's default material. CActor:PO_Create says friction
+			// Guess: Havok's default material. CActor:PO_Create says friction
 			// is deliberately left alone because a higher one stops them
 			// climbing stairs, and PO_SetFriction never reaches Havok.
 			// 0.1: CreatePhysicsObject writes 0.1 friction and 0.001
@@ -923,14 +922,14 @@ void PhysicsWorld::MakeScriptBodyCharacter(int slot, float k, const Vec3& rootOf
 			body.SetAllowSleeping(false);
 			// A sphere stack sliding across a triangle mesh catches the seams
 			// between triangles without this: ghost contacts with normals
-			// tilted against the motion, which took 40% of a zombie's
-			// commanded speed on a flat Cemetery path whatever the friction.
+			// tilted against the motion, which cost a walking monster a large
+			// share of its commanded speed whatever the friction.
 			body.SetEnhancedInternalEdgeRemoval(true);
 		}
 	}
 	bodies.SetLinearAndAngularVelocity(id, JPH::Vec3::sZero(), JPH::Vec3::sZero());
 	for (int c = 0; c < 3; ++c) ch.wish[c] = ch.lastWish[c] = 0.f;
-	// An actor is authored and spawned at its model ORIGIN, mid-body on most
+	// An actor is authored and spawned at its model origin, mid-body on most
 	// rigs, so the stack starts a sole's height inside the floor.
 	StandCharacterOnFloor(slot, 100.f);
 }
@@ -960,16 +959,15 @@ void PhysicsWorld::StandCharacterOnFloor(int slot, float maxLift, float minLift,
 	JPH::RayCastSettings settings;
 	settings.mBackFaceModeTriangles = JPH::EBackFaceMode::CollideWithBackFaces;
 	settings.mTreatConvexAsSolid = false;
-	// The LOWEST upward-facing hit in the span is the floor the body belongs
+	// The lowest upward-facing hit in the span is the floor the body belongs
 	// on; the first hit from above may be a ceiling's underside or the top of
 	// a prop the head pokes through.
 	JPH::AllHitCollisionCollector<JPH::CastRayCollector> collector;
 	impl_->system.GetNarrowPhaseQuery().CastRay(ray, settings, collector, {}, kSweepLayer,
 			ignore);
-	// Only below the middle sphere's centre: a surface higher than that inside
-	// the stack cannot be entered by walking - the body would have been
-	// stopped by it - so a hit there is a ledge beside the body, not a floor
-	// it is inside.
+	// Only below the middle sphere's centre: walking cannot enter a surface
+	// higher than that, since the body stops against it, so a hit there is a
+	// ledge beside the body rather than a floor it is inside.
 	const float middle = float(p.GetY()) + ch->rootOffsetY + 1.0f * ch->k;
 	float floorY = -1e30f;
 	bool found = false;
@@ -978,7 +976,7 @@ void PhysicsWorld::StandCharacterOnFloor(int slot, float maxLift, float minLift,
 		if (float(at.GetY()) > middle) continue;
 		JPH::BodyLockRead lock(impl_->system.GetBodyLockInterface(), hit.mBodyID);
 		if (!lock.Succeeded()) continue;
-		// Per step this is the one-sided MESH's stand-in only: a prop is a closed
+		// Per step this is the one-sided mesh's stand-in only: a prop is a closed
 		// shape the solver separates itself, and lifting off one shook both. A
 		// placement keeps props - monsters are authored on barrels - but never
 		// another monster, which is how two from one spawn point stacked.
@@ -1162,7 +1160,7 @@ void PhysicsWorld::StepCharacters() {
 				const float into = next.Dot(n);
 				if (into > 0.f) next -= n * into;
 			}
-		// STAND-IN: a sphere balanced dead centre on another's top sphere stays
+		// Stand-in: a sphere balanced dead centre on another's top sphere stays
 		// there for good in Jolt, where Havok's solver let it slip off. Two
 		// monsters from one spawn point stacked. MonsterMovement.md, "Stacking".
 		if (!under.IsInvalid()) {
@@ -1211,7 +1209,7 @@ void PhysicsWorld::ShoveCharacters(const Vec3& pos, float radius, const Vec3& di
 					lock.GetBody().GetMotionProperties()->GetInverseMass() > 0.f)
 				mass = 1.f / lock.GetBody().GetMotionProperties()->GetInverseMass();
 		}
-		// GUESS: half the inelastic-collision share. The full share read as
+		// Guess: half the inelastic-collision share. The full share read as
 		// too strong against the original in play - a monster is a thing you
 		// can push, but slowly, and it slows you. What would settle it is the
 		// player body's material and friction in the shape sizer.
@@ -1291,7 +1289,7 @@ void PhysicsWorld::PressGround(const Vec3& feet, float radius, float force) {
 		const JPH::BodyID id = hit.mBodyID2;
 		if (impl_->characterBodies.count(id.GetIndexAndSequenceNumber()) != 0) continue;
 		if (bodies.GetMotionType(id) != JPH::EMotionType::Dynamic) continue;
-		// Only what is UNDER the feet, not a wall the sphere brushes.
+		// Only what is under the feet, not a wall the sphere brushes.
 		if (float(hit.mContactPointOn2.GetY()) > feet[1] - 0.5f * radius) continue;
 		// Through the centre of mass on a free prop: at the contact point the
 		// weight torqued it into the kinematic pawn every frame and it never

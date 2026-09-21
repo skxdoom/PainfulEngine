@@ -12,7 +12,7 @@ namespace painful {
 // the game's Bin folder, like the original Painkiller.exe, so the data root is
 // a sibling of the exe's directory.
 //
-// Data, and ONLY Data. A loose tree of unpacked assets is reference material
+// Data, and only Data. A loose tree of unpacked assets is reference material
 // for reading formats by hand, not something the engine may run against: the
 // moment it is a fallback, a missing or misnamed .pak stops being an error and
 // silently becomes a different code path, and a diagnostic can pass against

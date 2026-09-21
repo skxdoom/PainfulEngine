@@ -14,7 +14,7 @@ float ShadowViewMode();
 
 // The dynamic lights as both shaders read them.
 //
-// The world mesh and the models run the SAME per-pixel evaluation
+// The world mesh and the models run the same per-pixel evaluation
 // (Shaders/shared_lights.sh), so they share one packing and one set of uniforms:
 // a monster and the wall behind it are lit by identical arithmetic, which is
 // the whole point - the original lit models from four per-entity constants and

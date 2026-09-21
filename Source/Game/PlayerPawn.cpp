@@ -112,10 +112,10 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
 	}
 	const bool jump = (action & Act::Jump) != 0;
 
-	// THE LATCH, not an input edge. PlayerAction tests the jump bit at its
-	// LEVEL and gates it on a one-byte latch: released clears it, rising
+	// The latch, not an input edge. PlayerAction tests the jump bit at its
+	// level and gates it on a one-byte latch: released clears it, rising
 	// sets it. So holding jump does not bounce, but a press made in the air
-	// and still held fires on landing. PlayerMovement.md, "Jump is a LATCH"
+	// and still held fires on landing. PlayerMovement.md, "Jump is a latch"
 	if (!jump) jumpLatched_ = false;
 
 	// The body centre: eye - 0.9 (GetPawnHeadPos). The four-sphere stack is
@@ -126,7 +126,7 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
 	const float startX = centre[0], startY = centre[1], startZ = centre[2];
 
 	// The step response, PlayerAction's switch on StepCheck, and it runs
-	// in EVERY branch - cases 1..3 never test the grounded flag, so shins
+	// in every branch - cases 1..3 never test the grounded flag, so shins
 	// meeting a ledge in flight get the same kick. Half the gap to 0.3 of
 	// the wish and to a vertical target of 0.4/0.5/0.8 of the speed
 	// (0x102c862c, 0x102ae5b0, 0x102b24ac); a wall halves the velocity,
@@ -158,13 +158,13 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
 	const bool sliding = slopeCount_ > 5;
 	// Thrown: neither branch commands anything, so the velocity the caller set
 	// is the velocity that is spent. Stripping the input alone was not enough -
-	// the grounded walk closes the gap to a wish of ZERO, which stopped the
+	// the grounded walk closes the gap to a wish of zero, which stopped the
 	// throw dead before it left the floor.
 	if (shocked_ > 0.f) {
 		stepping_ = false;
 	} else if (onGround_ && !sliding) {
 		groundedTime_ += dt;
-		// While grounded, PlayerAction stores BOTH the travel direction and
+		// While grounded, PlayerAction stores both the travel direction and
 		// the movement bits on the physics object, every frame - including
 		// when nothing is held. Whatever is current when the ground is left
 		// is what the airborne branch works from.
@@ -180,12 +180,12 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
 		// A 0.42 rung takes the step response even with jump held:
 		// PlayerAction's case 3 never tests the jump flag.
 		const bool wantsJump = jump && !jumpLatched_ && rung != 3;
-		// The hop window still decides the SPEED bonus, as it does in the engine.
+		// The hop window still decides the speed bonus, as it does in the engine.
 		const bool wantsHop = wantsJump && groundedTime_ <= hopAfter;
 
 		if (wantsJump) {
 			// JumpStrength * PlayerSpeed * 0.7 (the 0.7 at 0x102c8648). The
-			// standing scale is a play-test STAND-IN, not a recovered rule; a
+			// standing scale is a play-test stand-in, not a recovered rule; a
 			// hop from the floor ray's window above the ground drops it.
 			// Docs/Reference/PlayerMovement.md, "The jump height that does not add up"
 			static const float kStandScale = DebugFloat("PAINFUL_JUMPSCALE", 1.16f);
@@ -225,7 +225,7 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
 			} else {
 				// The walk closes a fifth of the gap to the wish per frame
 				// (0x102b3b80); the vertical is left alone. The binary's 0.2
-				// is DOUBLED here by play-test choice - the original's Havok
+				// is doubled here by play-test choice - the original's Havok
 				// friction on the body made stops read as instant, which the
 				// impulse alone does not give, and 0.4 is what felt right
 				// without it - except on a slope steep enough to slide, where
@@ -243,7 +243,7 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
 		}
 	} else {
 		stepping_ = false;
-		// Airborne. What freezes at takeoff is the INPUT MASK, not the
+		// Airborne. What freezes at takeoff is the input mask, not the
 		// direction: PlayerAction rebuilds a direction from the stored bits
 		// on the right vector it is handed this call, so the mouse steers a
 		// jump. PlayerMovement.md, "Movement rules", Air.
@@ -262,7 +262,7 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
 			air[1] = airDir_[1];
 		}
 
-		// Cancelling is a KEY against the takeoff KEY: both vectors come from
+		// Cancelling is a key against the takeoff key: both vectors come from
 		// the same camera basis, so the dot product depends only on the two
 		// masks, and only an opposite key drains the speed.
 		const float opposition = -(wish[0] * air[0] + wish[1] * air[1]);
@@ -270,7 +270,7 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
 		if (hasInput && opposition > 0.f) {
 			cut = true;
 			if (mp_) {
-				// No speed factor, and the cut is NOT halved to fit: a cut it
+				// No speed factor, and the cut is not halved to fit: a cut it
 				// cannot afford drops the player to 1.0 outright.
 				const float c = slowdown * opposition * dt;
 				speed_ = c < speed_ ? speed_ - c : 1.f;
@@ -302,7 +302,7 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
 	else velY_ -= gravity * dt;
 	velY_ = std::max(velY_, -60.f);
 
-	// Position CORRECTIONS are not motion: the depenetration push (along a
+	// Position corrections are not motion: the depenetration push (along a
 	// slope's or a corner's tilted normal, every frame the body sits within
 	// its gap) and the unstick are kept out of the velocity read back below.
 	// Counting them turned a 10-degree slope into a steady slide and pushed
@@ -314,7 +314,7 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
 		for (int c = 0; c < 3; ++c) corr[c] = centre[c] - pre[c];
 	}
 	const Vec3 delta{velX_ * dt, velY_ * dt, velZ_ * dt};
-	// What the scripts read back is the COMMANDED velocity, before the
+	// What the scripts read back is the commanded velocity, before the
 	// sweep's contacts take their share: a kerb's kick still commands 0.3 of
 	// the walk, so CPlayer's "moving faster than 2" holds through the climb
 	// and the weapon's walk animation is not restarted at every kerb; a wall
@@ -411,7 +411,7 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
 	velZ_ = (centre[2] - startZ - corr[2]) / dt;
 
 	// On a slope the original's body is held by Havok's contact friction
-	// and slides once gravity along the slope beats it. A STAND-IN for that
+	// and slides once gravity along the slope beats it. A stand-in for that
 	// contact: Coulomb friction at the level's DefaultMeshFriction (the
 	// body's own coefficient is not recovered), the excess spent as
 	// horizontal acceleration downhill. PlayerMovement.md, "Slopes".
@@ -493,7 +493,7 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
 	}
 
 	// What the scripts read back through ENTITY.GetVelocity. CPlayer decides
-	// it is WALKING from this - "moving faster than 2" - and gates the head
+	// it is walking from this - "moving faster than 2" - and gates the head
 	// bob and the footstep sounds on it.
 	velocity_[0] = commandedX;
 	velocity_[1] = velY_;

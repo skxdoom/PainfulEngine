@@ -61,7 +61,7 @@ public:
 
 	// R3D.DrawSprite: one billboard, this frame only. The muzzle flash is a
 	// CProcess that calls it from Render every frame it lives, so there is no
-	// slot to keep - and unlike a corona it carries a ROTATION, which is what
+	// slot to keep - and unlike a corona it carries a rotation, which is what
 	// stops four shots in a row looking like the same picture.
 	// R3D.DrawSprite1DOF: the two-point case of a strip, mode 0.
 	void DrawBeamImmediate(const Vec3& a, const Vec3& b, float width,
@@ -134,7 +134,7 @@ private:
 		bool wasVisible = false; // +0x6c0
 		bool blocked = true; // +0x6c4, last trace result
 		// ENTITY.EnableDraw, which never reached a sprite at all. Hiding a
-		// billboard has to go through the FADE like every other visibility
+		// billboard has to go through the fade like every other visibility
 		// change, or a VFX that should dim out pops instead.
 		bool scriptVisible = true;
 

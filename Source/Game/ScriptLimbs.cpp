@@ -34,24 +34,24 @@ struct LimbsNatives : ScriptNativesBase {
 //
 // A monster has two shapes and they answer two different questions.
 //
-// The MOVEMENT shape - three stacked spheres sized off the rig's ROOOT joint -
-// is what you walk into, shove and cannot stand inside. The SHOOTING shape is
+// The movement shape - three stacked spheres sized off the rig's ROOOT joint -
+// is what you walk into, shove and cannot stand inside. The shooting shape is
 // the set of limb boxes the .rde names, one per bone, derived from the
 // vertices that bone drives. Testing a shot against the movement shape makes a
 // headshot and a shot at the ankle the same event, which is what this replaces.
 //
-// The test runs in BONE SPACE. The boxes are already held there - that is the
+// The test runs in bone space. The boxes are already held there - that is the
 // whole point of BuildLimbBounds - so transforming the ray into a box's own
 // frame turns an oriented-box intersection into a plain slab test, and no box
 // ever has to be rebuilt or re-cornered for a pose.
 
 namespace {
 
-// Ray vs axis-aligned box, both in the same space. `dir` spans the WHOLE
+// Ray vs axis-aligned box, both in the same space. `dir` spans the whole
 // segment, so t comes back in 0..1 and needs no length anywhere.
 //
 // `axis` names the face the segment entered through, or stays -1 when the
-// segment STARTS INSIDE the box - a point-blank shot, which has no entry face
+// segment starts inside the box - a point-blank shot, which has no entry face
 // to take a normal from and which the caller has to answer for separately.
 bool SlabTest(const Vec3& o, const Vec3& dir, const Vec3& lo, const Vec3& hi,
 		float& tHit, int& axis, float& sign) {
@@ -151,7 +151,7 @@ bool ScriptEngine::TraceLimbs(const Vec3& from, const Vec3& to, float maxDistanc
 		std::sqrt(span[0] * span[0] + span[1] * span[1] + span[2] * span[2]);
 	if (length < 1e-6f) return false;
 
-	// NOTHING BEYOND WHAT THE WORLD TRACE ALREADY FOUND. A shot that stops at
+	// Nothing beyond what the world trace already found. A shot that stops at
 	// a wall must not reach through it to the monster standing behind, so the
 	// search is clamped to the distance already established rather than run
 	// over the whole segment and reconciled afterwards.
@@ -162,25 +162,24 @@ bool ScriptEngine::TraceLimbs(const Vec3& from, const Vec3& to, float maxDistanc
 		Entity& e = kv.second;
 		if (kv.first == ignoreEntity) continue;
 		if (e.type != kModel || !e.visible) continue;
-		// WHAT IS SHOOTABLE BY LIMB IS NOT THE SAME SET AS WHAT HAS A BODY.
+		// What is shootable by limb is not the same set as what has a body.
 		//
 		// The original keeps them at different offsets on the entity - the
 		// PhysicsObject at +0xac, the Ragdoll at +0x7b8 - each with its own
 		// EnableLineTraceCollision, and AddRagdollToIntersectionSolver
 		// switches only the second. So a thing can be shootable through its
-		// ragdoll while having no physics object at all, and Cathedral's 32
-		// bats are exactly that: bat.rde exists, PO_Exist is false, and
-		// gating on the monster flag would leave a swarm of enemies that
+		// ragdoll while having no physics object at all - a bat has bat.rde
+		// and no PO - and gating on the monster flag would leave enemies that
 		// shots pass straight through.
 		//
 		// A monster, then, or anything with no body of its own - where limbs
-		// can only ADD, because there is nothing for them to shadow. A PROP
+		// can only add, because there is nothing for them to shadow. A prop
 		// with a working script body is deliberately left on it: that path
 		// answers today, and routing it through limbs would change what `he`
 		// means for something whose PO_Hit and IsFixedMesh handling reads it
 		// as a body slot. Breakable props are their own question.
 		if (!e.isMonster && e.physicsBody >= 0) continue;
-		// The RAGDOLL's trace switch, not the body's. The scripts bracket a
+		// The ragdoll's trace switch, not the body's. The scripts bracket a
 		// shot with AddRagdollToIntersectionSolver / Remove... precisely to
 		// say which limbs are shootable this instant, and that is a different
 		// question from whether the walking shape is in the traces.
@@ -205,7 +204,7 @@ bool ScriptEngine::TraceLimbs(const Vec3& from, const Vec3& to, float maxDistanc
 		const std::vector<Mat4>* bones = PosedBones(e);
 		if (!bones) continue;
 
-		// The entity's own model -> world, built EXACTLY as JointToWorld
+		// The entity's own model -> world, built exactly as JointToWorld
 		// builds it. If these two ever disagree, the box a shot tests is not
 		// the box F2 draws, and no amount of looking at the picture would
 		// show it.
@@ -229,7 +228,7 @@ bool ScriptEngine::TraceLimbs(const Vec3& from, const Vec3& to, float maxDistanc
 					e.disabledJoints.end())
 				continue;
 			// ...and one PHYSICS.RemoveHavokBodyFromIS has taken out, which is
-			// how the stake looks BEHIND the weapon it just hit. Only consulted
+			// how the stake looks behind the weapon it just hit. Only consulted
 			// when something is actually suppressed, which is almost never.
 			if (!suppressedLimbs_.empty()) {
 				const auto key = limbHandleIndex_.find((long long(kv.first) << 32) |
@@ -348,7 +347,7 @@ void ScriptEngine::CollectHitboxLines(const Vec3& around, float radius,
 				}
 				continue;
 			}
-			// Each corner goes bone-local -> world through the POSED bone, so
+			// Each corner goes bone-local -> world through the posed bone, so
 			// the box follows the animation without being rebuilt.
 			Vec3 corner[8];
 			bool posed = true;
@@ -399,7 +398,7 @@ int LimbsNatives::L_ENTITY_KillAllChildrenByName(lua_State* L) {
 	const char* name = luaL_optstring(L, 2, "");
 	if (!parent || !name || !*name) return 0;
 	// Collected first, then released. ReleaseEntity unlinks the child from
-	// THIS list itself - that is what its back-link cleanup does - so erasing
+	// this list itself - that is what its back-link cleanup does - so erasing
 	// here as well walked off the end of a vector that had already shrunk.
 	std::vector<int> doomed;
 	for (int handle : parent->children) {
@@ -436,8 +435,8 @@ int LimbsNatives::L_ENTITY_KillAllChildren(lua_State* L) {
 // Forgets the children without destroying them, which is what the scripts want
 // when an owner dies but its effects should finish on their own.
 //
-// The second argument is an ETypes FILTER, and dropping it took every child
-// rather than the named kind. Stake:Tick unregisters its TRAIL on impact and
+// The second argument is an ETypes filter, and dropping it took every child
+// rather than the named kind. Stake:Tick unregisters its trail on impact and
 // then, on the very next line, kills its flight loop by name:
 //
 //     ENTITY.UnregisterAllChildren(se, ETypes.Trail)
@@ -464,7 +463,7 @@ int LimbsNatives::L_ENTITY_UnregisterAllChildren(lua_State* L) {
 
 // ENTITY.PO_EnableGravity(entity, on)
 //
-// The original does not make a projectile a different KIND of object - it
+// The original does not make a projectile a different kind of object - it
 // turns that body's gravity off. PhysicsObject::EnableGravity (0x1018c4e0)
 // sets the body's own gravity to the world vector when on and to zero when
 // off, which is Jolt's gravity factor.
@@ -479,7 +478,7 @@ int LimbsNatives::L_PO_EnableGravity(lua_State* L) {
 	if (!e) return 0;
 	const bool on = lua_isnoneornil(L, 2) ? true : (lua_toboolean(L, 2) != 0);
 	// A projectile never reaches the solver, so setting only the body's
-	// gravity factor was a value nothing read. Stake:Tick turns gravity ON
+	// gravity factor was a value nothing read. Stake:Tick turns gravity on
 	// 0.2s after the shot and that has to reach TickProjectiles, or the stake
 	// flies dead flat until it times out.
 	e->gravityOn = on;
@@ -490,7 +489,7 @@ int LimbsNatives::L_PO_EnableGravity(lua_State* L) {
 }
 
 
-// Projectiles are MOVED, not simulated - the same division the engine already
+// Projectiles are moved, not simulated - the same division the engine already
 // makes for monsters. Stake:OnCreateEntity asks PO_Create for
 // ECollisionGroups.Noncolliding, sets a velocity, turns gravity off and then
 // looks for its own hits with Stake:Trace. Nothing about that wants a solver,
@@ -498,7 +497,7 @@ int LimbsNatives::L_PO_EnableGravity(lua_State* L) {
 //
 // Constant speed along a straight line is exactly why the original's shots are
 // identical every time.
-// Straight is the DEFAULT, not the whole story. A stake leaves the barrel at
+// Straight is the default, not the whole story. A stake leaves the barrel at
 // 70 m/s with gravity off and flies flat; 0.2s later Stake:Tick turns gravity
 // back on and gives it a spin, and it noses over into the floor. Driven still
 // means driven - the arc is one accumulator here, not a solver - but "moved
@@ -527,10 +526,10 @@ void ScriptEngine::TickProjectiles(float dt) {
 
 		for (int c = 0; c < 3; ++c) e.pos[c] += e.velocity[c] * dt;
 
-		// The tumble. The axis is in WORLD space, composed on the right under
+		// The tumble. The axis is in world space, composed on the right under
 		// the engine's q^-1*v*q convention - in which a rotation by +angle
-		// about n is (cos, -n sin), so the vector part is NEGATED. Measured:
-		// the stake's nose rose 0.35 rad/s while it fell with the other sign.
+		// about n is (cos, -n sin), so the vector part is negated. Measured:
+		// The stake's nose rose 0.35 rad/s while it fell with the other sign.
 		// Physics.md, "Projectiles". Renormalised: this integrates every frame.
 		if (spinSq > 1e-12f) {
 			const float w = std::sqrt(spinSq);
@@ -579,7 +578,7 @@ int LimbsNatives::L_R3D_DrawSprite(lua_State* L) {
 
 // R3D.DrawSprite1DOF(x1,y1,z1, x2,y2,z2, width, argb, texture, [flags])
 //
-// A sprite with ONE degree of freedom: the quad's long edge is the segment
+// A sprite with one degree of freedom: the quad's long edge is the segment
 // between the two points, and it turns about that edge to face the eye.
 // 0x1013f170 reads the two points, a width, an int colour and a texture name,
 // builds a Sprite1DOF and hands it to ParticleSystem::RenderSprites with the
@@ -616,7 +615,7 @@ int LimbsNatives::L_R3D_DrawSprite1DOF(lua_State* L) {
 // R3D.RGB(r,g,b) and R3D.RGBA(r,g,b,a) - the scripts' colour packers.
 //
 // 0x10122b70 computes ((r | 0xffffff00) << 8 | g) << 8 | b, which is 0xFFRRGGBB
-// - RGB is OPAQUE, not alpha-zero. 0x10122c10 takes alpha as the FOURTH
+// - RGB is opaque, not alpha-zero. 0x10122c10 takes alpha as the fourth
 // argument and packs ((a << 8 | r) << 8 | g) << 8 | b = 0xAARRGGBB.
 //
 // Both push a signed int, so 0xFF...  arrives at the caller as a negative
@@ -690,7 +689,7 @@ int LimbsNatives::L_R3D_Spr_Render(lua_State* L) {
 
 // VARRAY.Create() -> handle, AddPoint(h, x, y, z), GetBezierPoint(h, t) ->
 // x, y, z, Delete(h). The curve (FUN_1012ade0) is the Bernstein polynomial
-// over ALL the points as control points, and t >= 1 answers the last point.
+// over all the points as control points, and t >= 1 answers the last point.
 int LimbsNatives::L_VARRAY_Create(lua_State* L) {
 	ScriptEngine* self = From(L);
 	const int h = self->nextScratch_++;

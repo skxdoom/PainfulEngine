@@ -2,7 +2,7 @@
 //
 // This is how a destructible breaks. Nothing damages a crate to destroy it -
 // CItem:Apply installs StdOnCollision on anything carrying
-// Destroy.MinSpeedOnCollision, and that handler compares the IMPACT SPEED
+// Destroy.MinSpeedOnCollision, and that handler compares the impact speed
 // against it:
 //
 //     vl = vl * INP.GetTimeMultiplier()
@@ -18,7 +18,7 @@
 //     Game_GetMsg('COLLISION_WITH_OTHER_ENTITY',
 //                 e_me, x,y,z, nx,ny,nz, e_other, h_me, h_other)
 //
-// and the SCRIPT fills in the rest itself - Game_GetMsg reads the two body
+// and the script fills in the rest itself - Game_GetMsg reads the two body
 // velocities back through PHYSICS.GetHavokBodyVelocity and computes the
 // relative speed as arg[14]. That is why this posts body handles as well as
 // entities: without them the handler has nothing to measure.
@@ -60,7 +60,7 @@ int CollisionNatives::L_ENTITY_EnableCollisions(lua_State* L) {
 
 // PHYSICS.GetHavokBodyVelocity(body) -> vx, vy, vz, speed
 //
-// Game_GetMsg calls this on BOTH handles of a collision to work out how hard it
+// Game_GetMsg calls this on both handles of a collision to work out how hard it
 // was. Four returns: the vector and its magnitude, because every caller wants
 // the magnitude and none of them should have to compute it.
 int CollisionNatives::L_PHYSICS_GetHavokBodyVelocity(lua_State* L) {
@@ -68,7 +68,7 @@ int CollisionNatives::L_PHYSICS_GetHavokBodyVelocity(lua_State* L) {
 	Vec3 v;
 	const int slot = lua_isnumber(L, 1) ? int(lua_tonumber(L, 1)) : -1;
 	// A body involved in this frame's collisions answers with the velocity it
-	// had AT THE CONTACT. The scripts ask this while handling the message, by
+	// had at the contact. The scripts ask this while handling the message, by
 	// which point the solver has already spent the impact and the live value is
 	// near zero - so the live value would report every crash as a nudge.
 	const auto remembered = self->contactVelocity_.find(slot);
@@ -111,7 +111,7 @@ int CollisionNatives::L_INP_SetTimeMultiplier(lua_State* L) {
 
 // One frame's contacts, turned into messages.
 //
-// Reported per SIDE, not per contact: a crate hit by a bolt and a bolt hitting
+// Reported per side, not per contact: a crate hit by a bolt and a bolt hitting
 // a crate are two different scripts asking two different questions, and each
 // only hears about it if it asked (EnableCollisions) and its own cooldown has
 // run out. That mirrors the original, where the callback lives on the
@@ -257,8 +257,8 @@ int CollisionNatives::L_PO_SetGrenade(lua_State* L) {
 
 // PhysicsObject::FixGrenadeFlight (0x1018d990), for every flagged body.
 //
-// After the step, the path from where the ENTITY was (last frame's synced
-// position) to where the BODY is now is traced, up to ten times. Each hit
+// After the step, the path from where the entity was (last frame's synced
+// position) to where the body is now is traced, up to ten times. Each hit
 // posts COLLISION_WITH_OTHER_ENTITY when callbacks are on, mirrors the
 // velocity and the rest of the path across the surface, and carries on from
 // 2 mm past the hit. Once anything was hit the velocity is scaled by

@@ -70,7 +70,7 @@ void ZoneGraph::Build(const MapMesh& map, float worldScale) {
 		if (!IsPortal(o) || o.vertexCount() == 0) continue;
 		Portal p;
 		BoundsOf(o, p.box.lo, p.box.hi);
-		// Like the engine: link the portal to EVERY zone it touches, and
+		// Like the engine: link the portal to every zone it touches, and
 		// drop portals touching fewer than two (World::BuildZones deletes
 		// those outright).
 		int touched = 0;

@@ -46,9 +46,9 @@ int ScriptEngine::TraceCommon(lua_State* L, bool staticOnly) {
 	PhysicsWorld::RayHit hit;
 	const bool gotWorld = self->TraceRay(from, to, hit, staticOnly);
 
-	// THE LIMB BOXES ARE THE SHOOTING SHAPE; the world trace is everything
+	// The limb boxes are the shooting shape; the world trace is everything
 	// else. Whichever is nearer is what the shot hit, and TraceLimbs is handed
-	// the world hit's distance so it can only report something in FRONT of it -
+	// the world hit's distance so it can only report something in front of it -
 	// a shot that stops at a wall must not reach the monster behind.
 	//
 	// LineTraceFixedGeom never consults them. It asks about the world mesh
@@ -58,9 +58,9 @@ int ScriptEngine::TraceCommon(lua_State* L, bool staticOnly) {
 	const bool gotLimb =
 		!staticOnly && self->TraceLimbs(from, to, gotWorld ? hit.distance : -1.f, limb);
 
-	// WATER IS NOT IN THE COLLIDABLE WORLD and cannot be: every shipped water
+	// Water is not in the collidable world and cannot be: every shipped water
 	// object is named `noclip`, which is what lets you swim through it. It is
-	// still something a shot HITS, though - a rocket splashes rather than
+	// still something a shot hits, though - a rocket splashes rather than
 	// exploding - so the surface is tested here, and wins when it is nearer
 	// than the solid hit. Without this every `if ENTITY.IsWater(e)` in the
 	// weapon scripts is unreachable, whatever that native answers.
@@ -93,19 +93,17 @@ int ScriptEngine::TraceCommon(lua_State* L, bool staticOnly) {
 
 	const bool got = gotWorld || gotLimb;
 
-	// A MISS RETURNS ONE VALUE. The engine pushes the boolean and stops
+	// A miss returns one value. The engine pushes the boolean and stops
 	// (0x1012cea0: PushBool(0) then return 1), so a script reading
 	//     local b,d,tx,ty,tz,nx,ny,nz,he,e = WORLD.LineTrace(...)
-	// gets false and nine nils. We used to return all ten every time, with 0
-	// for the entity and -1 for the body - and 0 IS TRUE IN LUA. Stake:Tick
-	// asks `if e then` right after its trace, so every clear shot read as an
-	// impact: the stake killed itself on its first tick and left the entity
-	// flying on as a ghost that passed through walls. The same `if e then`
-	// appears in every projectile script, so this was all of them.
+	// gets false and nine nils. Returning ten values on a miss would push 0
+	// for the entity, and 0 is true in Lua: every projectile script asks
+	// `if e then` right after its trace, so a clear shot would read as an
+	// impact.
 	lua_pushboolean(L, got);
 	if (!got) return 1;
 
-	// A LIMB HIT REPORTS THE LIMB'S HANDLE, NOT A BODY SLOT. That ninth value
+	// A limb hit reports the limb's handle, not a body slot. That ninth value
 	// is what the scripts carry into OnDamage as `he` and hand straight back
 	// to PHYSICS.GetHavokBodyInfo, which is where the bone comes from: the
 	// Tank doubles damage on `b1` / `b2`, the Gladiator refuses it on
@@ -124,9 +122,9 @@ int ScriptEngine::TraceCommon(lua_State* L, bool staticOnly) {
 	for (int c = 0; c < 3; ++c) lua_pushnumber(L, hit.point[c]);
 	for (int c = 0; c < 3; ++c) lua_pushnumber(L, hit.normal[c]);
 
-	// A CORPSE IS NOT A WALL. A ragdoll limb is no script body, so it arrived
+	// A corpse is not a wall. A ragdoll limb is no script body, so it arrived
 	// as bodySlot -1 and reported entity 0, which the scripts read as geometry.
-	// Report the pair a hit on the LIVE monster reports - owning entity plus a
+	// Report the pair a hit on the live monster reports - owning entity plus a
 	// limb handle naming the bone. Docs/Reference/Physics.md
 	if (hit.ragdollSlot >= 0) {
 		int owner = 0, joint = -1;
@@ -146,7 +144,7 @@ int ScriptEngine::TraceCommon(lua_State* L, bool staticOnly) {
 	}
 
 	lua_pushnumber(L, hit.bodySlot);
-	// A WORLD HIT REPORTS ENTITY 0, NOT NIL - see IsFixedMesh, which answers
+	// A world hit reports entity 0, not nil - see IsFixedMesh, which answers
 	// true for exactly that handle.
 	//
 	// The engine does have a push-nil branch here, for a body whose owner is
@@ -239,7 +237,7 @@ int TraceNatives::L_WORLD_LineTraceHitPlayerBalls(lua_State* L) {
 }
 
 // ENTITY.PO_LineTrace(e, x1,y1,z1, x2,y2,z2) - the same ten values, against
-// ONE entity: a world mesh through PhysicsWorld::LineTraceStaticMesh, anything
+// one entity: a world mesh through PhysicsWorld::LineTraceStaticMesh, anything
 // with a body through PhysicsObject::LineTrace (0x101318B0). The stake and the
 // bolt re-trace the wall they stuck in for the decal and the sparks.
 int TraceNatives::L_ENTITY_PO_LineTrace(lua_State* L) {
@@ -298,7 +296,7 @@ bool ScriptEngine::TraceRay(const Vec3& from, const Vec3& to,
 		exclude = traceExclude_.data();
 		count = traceExclude_.size();
 	}
-	// A corpse taken out of the solver is a RAGDOLL, not a script body, so
+	// A corpse taken out of the solver is a ragdoll, not a script body, so
 	// its limbs are passed through here: Stake:Tick removes the actor it just
 	// killed and traces behind it for the wall to nail it to.
 	std::vector<int> ignoreRagdolls;
@@ -321,17 +319,17 @@ int ScriptEngine::EntityForBody(int bodySlot) const {
 // an entity out of the traces and put it back. Always bracketed, so this has
 // to be exact: leaking a Remove would leave something permanently unhittable.
 //
-// THE ENTITY HAS TWO TRACE SWITCHES, NOT ONE. The engine keeps a PhysicsObject
+// The entity has two trace switches, not one. The engine keeps a PhysicsObject
 // at +0xac and a Ragdoll at +0x7b8, each with its own
 // EnableLineTraceCollision, and the two script pairs are not the same call:
 //
-//   AddToIntersectionSolver       (0x101349a0)  body AND ragdoll
-//   AddRagdollToIntersectionSolver(0x10134830)  ragdoll ONLY
+//   AddToIntersectionSolver       (0x101349a0)  body and ragdoll
+//   AddRagdollToIntersectionSolver(0x10134830)  ragdoll only
 //
 // (and the Remove pair, symmetrically, at 0x101348e0 and 0x10134630). Aliasing
 // them was harmless while a monster was a single sphere and there was only one
 // shape to hide. It is not any more: the scripts bracket a shot with the
-// RAGDOLL pair, and putting that through the body flag would hide the walking
+// ragdoll pair, and putting that through the body flag would hide the walking
 // shape while leaving the limbs shootable - exactly backwards.
 void ScriptEngine::SetSolverBody(Entity& e, bool on) {
 	if (e.inSolver == on) return; // idempotent: no doubled entries
@@ -351,7 +349,7 @@ int TraceNatives::L_RemoveFromIntersectionSolver(lua_State* L) {
 	if (!e) return 0;
 	// The engine's own meaning (0x101348e0), and nothing more: line-trace
 	// collision off, on the body and the ragdoll both. This native used to
-	// ALSO mark the entity a driven projectile and take its body out of the
+	// also mark the entity a driven projectile and take its body out of the
 	// solver, which is what left the grenade flying a dead straight line
 	// through the level - Grenade:OnCreateEntity calls it too. A rocket is a
 	// dynamic body with gravity off in the original as well; it flies
@@ -371,7 +369,7 @@ int TraceNatives::L_AddToIntersectionSolver(lua_State* L) {
 }
 
 // The ragdoll half alone. In the engine both of these are also gated on the
-// entity being a MODEL (ETypes.Model = 4 - the gate is on the render type, not
+// entity being a model (ETypes.Model = 4 - the gate is on the render type, not
 // on being a CActor) and having a ragdoll; here an entity with no limb boxes
 // simply has nothing for the flag to govern, which comes to the same thing.
 int TraceNatives::L_RemoveRagdollFromIntersectionSolver(lua_State* L) {
@@ -388,18 +386,18 @@ int TraceNatives::L_AddRagdollToIntersectionSolver(lua_State* L) {
 
 // PHYSICS.GetHavokBodyInfo(he) -> type [, entity [, joint ]]
 //
-// THE NUMBER OF RETURN VALUES IS PART OF THE CONTRACT. The engine
+// The number of return values is part of the contract. The engine
 // (0x101291a0) branches on what PhysicsEngine::RigidBodyInfo made of the body
 // and pushes a different count for each: one value for a body it does not
 // recognise, two for a plain physics object, three for a ragdoll limb.
 //
 // That is why every weak-point script reads `local t,e,j` and then asks
 // `if j then` - a hit on something that is not a limb has to leave the joint
-// NIL, not -1. Returning three values with j = -1 would make Apoc_zombie's
+// nil, not -1. Returning three values with j = -1 would make Apoc_zombie's
 // `if j then` true for a shot at a barrel and send it looking up bone -1.
 int TraceNatives::L_PHYSICS_GetHavokBodyInfo(lua_State* L) {
 	ScriptEngine* self = From(L);
-	// A missing or non-numeric handle is NOT body slot 0. lua_tonumber would
+	// A missing or non-numeric handle is not body slot 0. lua_tonumber would
 	// quietly make it one, and slot 0 is a real body someone owns.
 	if (!lua_isnumber(L, 1)) {
 		lua_pushnumber(L, 0);
@@ -428,9 +426,9 @@ int TraceNatives::L_PHYSICS_GetHavokBodyInfo(lua_State* L) {
 
 // MDL.GetJointFromHavokBody(e, he) -> joint index, or -1.
 //
-// The engine (0x1012d320) resolves the entity, checks it is a MODEL (type 4 is
-// ETypes.Model, which is our kModel - the gate is the RENDER type, not the
-// script class) and that it HAS a ragdoll, and then asks that ragdoll which of
+// The engine (0x1012d320) resolves the entity, checks it is a model (type 4 is
+// ETypes.Model, which is our kModel - the gate is the render type, not the
+// script class) and that it has a ragdoll, and then asks that ragdoll which of
 // its own bodies this is. A handle belonging to a different monster answers -1
 // rather than leaking a joint index across actors, which matters because the
 // projectile scripts call this with `e_other` and a handle from the same
@@ -450,9 +448,9 @@ int TraceNatives::L_MDL_GetJointFromHavokBody(lua_State* L) {
 
 // ENTITY.IsFixedMesh(e) - is this the immovable world rather than something
 // that can be moved or hurt. A trace into the world reports entity 0, and a
-// MESH with no simulated body is fixed in the same sense.
+// mesh with no simulated body is fixed in the same sense.
 //
-// A MODEL IS NEVER ONE, body or no body. CActor only calls PO_Create when
+// A model is never one, body or no body. CActor only calls PO_Create when
 // `CreatePO` is set - false for 147 of the 231 monster templates - so keying
 // on the body alone made those actors walls to PainHead:Tick, which tests this
 // before the damage and before the spinning branch. Docs/Reference/Physics.md
@@ -464,7 +462,7 @@ int TraceNatives::L_IsFixedMesh(lua_State* L) {
 		return 1;
 	}
 	// 0x10136110: a Mesh-type entity whose map-object index (Mesh+0x7e0, set
-	// by LoadMeshPak, -1 otherwise) is valid - a WORLD MESH from the .mpk,
+	// by LoadMeshPak, -1 otherwise) is valid - a world mesh from the .mpk,
 	// body or no body. A .dat item mesh is not one. Physics.md, "The stake".
 	const Entity* e = self->Find(handle);
 	lua_pushboolean(L, e != nullptr && e->type != kModel && e->worldObject);
@@ -473,7 +471,7 @@ int TraceNatives::L_IsFixedMesh(lua_State* L) {
 
 // ENTITY.SetPosAndRotRelativeToCamera(e, x,y,z, ax,ay,az) - the view model.
 // CWeapon:ClientTick2 parks the held weapon this way every frame, at a fixed
-// offset in CAMERA space (the shipped one is 0.39 right, 0.49 down, 1.2
+// offset in camera space (the shipped one is 0.39 right, 0.49 down, 1.2
 // forward) with Euler angles on top.
 //
 // Camera space is the scripts' own: -Z is forward, which is what their
@@ -520,7 +518,7 @@ void ScriptEngine::PlaceViewAttached(Entity& entity) {
 	// the camera's own basis keeps this independent of how a rotation is
 	// spelled as a quaternion, and that basis is the one already driving both
 	// the view matrix and the player's movement.
-	// The DISPLACED angles, for the reason the displaced eye is used below: a
+	// The displaced angles, for the reason the displaced eye is used below: a
 	// hit kicks the view through CAM.SetRotationDisplacement, and a weapon
 	// built from the undisplaced ones would swing against it.
 	const float vPitch = camPitch_ - camRotDisplacement_[0];
@@ -544,7 +542,7 @@ void ScriptEngine::PlaceViewAttached(Entity& entity) {
 			up[i] = u0[i] * c + r0[i] * s;
 		}
 	}
-	// Anchored to the DISPLACED eye, which is the one actually rendered:
+	// Anchored to the displaced eye, which is the one actually rendered:
 	// TakeCameraPose hands the renderer camPos_ + camDisplacement_, and
 	// CPlayer drives the head bob through CAM.SetPositionDisplacement. Hung off
 	// camPos_ alone the weapon sits still while the view bobs around it, and
@@ -553,14 +551,14 @@ void ScriptEngine::PlaceViewAttached(Entity& entity) {
 		e->pos[c] = camPos_[c] + camDisplacement_[c] + right[c] * lx + up[c] * ly -
 					fwd[c] * lz;
 
-	// The orientation, built the same way. EngineQuatToRot9 is applied to ROW
+	// The orientation, built the same way. EngineQuatToRot9 is applied to row
 	// vectors, so its rows are where the local axes land - which means the
 	// camera's rotation is just its basis written out as rows, and there is
 	// no quaternion convention left to get wrong.
 	const float camRot[9] = {right[0], right[1], right[2],
 			up[0], up[1], up[2],
 			-fwd[0], -fwd[1], -fwd[2]};
-	// The TURN is negated, the same way ENTITY.SetOrientation negates it when
+	// The turn is negated, the same way ENTITY.SetOrientation negates it when
 	// it builds its yaw quaternion. Passing it raw here left every viewmodel
 	// rotated to show its far side: the stakegun's own template asks for a
 	// yaw of -1.57, and with the wrong sign the gun sits in exactly the right
@@ -626,7 +624,7 @@ void BindTrace(ScriptEngine& engine, LuaHost& host) {
 		{"WORLD", "LineTraceHitPlayerBalls", TraceNatives::L_WORLD_LineTraceHitPlayerBalls},
 		{"ENTITY", "AddToIntersectionSolver", TraceNatives::L_AddToIntersectionSolver},
 		{"ENTITY", "RemoveFromIntersectionSolver", TraceNatives::L_RemoveFromIntersectionSolver},
-		// The ragdoll variants are NOT the same call: they switch only the
+		// The ragdoll variants are not the same call: they switch only the
 		// ragdoll's line-trace collision, leaving the movement body alone.
 		{"ENTITY", "AddRagdollToIntersectionSolver", TraceNatives::L_AddRagdollToIntersectionSolver},
 		{"ENTITY", "RemoveRagdollFromIntersectionSolver", TraceNatives::L_RemoveRagdollFromIntersectionSolver},

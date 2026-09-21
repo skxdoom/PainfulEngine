@@ -74,7 +74,7 @@ namespace physics_detail {
 
 // Object layers. Static geometry, the things that move, and three special
 // cases the pair filter below tells apart.
-// Engine quaternions are the CONJUGATE of Jolt's - the same transpose the pose
+// Engine quaternions are the conjugate of Jolt's - the same transpose the pose
 // collectors undo for matrices, expressed on the quaternion. Shared so the
 // ragdoll and script-body files cannot drift apart on it.
 inline JPH::Quat EngineQuatToJolt(const Quat& q) {
@@ -89,7 +89,7 @@ inline Quat JoltQuatToEngine(const JPH::Quat& j) {
 namespace Layers {
 constexpr JPH::ObjectLayer kNonMoving = 0;
 constexpr JPH::ObjectLayer kMoving = 1;
-// ECollisionGroups.Noncolliding (7). A projectile is NOT a rigid body in this
+// ECollisionGroups.Noncolliding (7). A projectile is not a rigid body in this
 // engine: Stake:OnCreateEntity asks for PO_Create(..., Noncolliding), gives it
 // a constant velocity with gravity off, and finds its own hits with
 // Stake:Trace. The body exists only to carry a position and a model, so it has
@@ -104,7 +104,7 @@ constexpr JPH::ObjectLayer kProbe = 3;
 // ECollisionGroups.Missile (5): grenades, rockets. Simulated against the
 // world, props and monsters, never against each other or the probes.
 constexpr JPH::ObjectLayer kMissile = 4;
-// A LIVE monster's ragdoll limbs, posed along its animation (Ragdoll::Animate).
+// A live monster's ragdoll limbs, posed along its animation (Ragdoll::Animate).
 // Traces land on them; nothing simulates against them. A monster's own body
 // is dynamic and sits inside them, and a limb that could push it would eject
 // its owner every step.
@@ -177,7 +177,7 @@ public:
 
 // What stops the camera, as opposed to what it shoves aside.
 //
-// The engine draws this line by MASS: Tweak.PlayerMove.MaximalItemPushMass is
+// The engine draws this line by mass: Tweak.PlayerMove.MaximalItemPushMass is
 // 2500, and the player walks through anything lighter rather than being stopped
 // by it. Without that the camera's own query treats a barrel as a wall - it
 // halts an inch short of one and never presses into it, so the body that does
@@ -186,9 +186,9 @@ public:
 // It also drops the camera's own body, which sits exactly where the camera is.
 //
 // A maxPushMass of kSolidProps disables the mass rule entirely, so every body
-// blocks. That is what the PLAYER wants: you stand on a barrel, you do not
+// blocks. That is what the player wants: you stand on a barrel, you do not
 // walk through it. The pass-through is a free-camera affordance, not a
-// gameplay rule - the mass line governs what can be SHOVED, and the shoving
+// gameplay rule - the mass line governs what can be shoved, and the shoving
 // is done by the kinematic probe body, not by the query.
 constexpr float kSolidProps = -1.f;
 
@@ -257,7 +257,7 @@ inline void TraceToLog(const char* format, ...) {
 }
 
 #ifdef JPH_ENABLE_ASSERTS
-// Jolt's own answer to misusing its API, which lands at the CALL rather than
+// Jolt's own answer to misusing its API, which lands at the call rather than
 // where the corrupted state finally faults. Returning false skips the
 // breakpoint, so a run reports every assert instead of stopping at the first.
 inline bool AssertToLog(const char* expr, const char* message, const char* file, JPH::uint line) {
@@ -357,7 +357,7 @@ inline bool PackPoints(const std::string& itemsRoot, const std::string& packName
 		// o.Mesh selects one object; when it matches nothing, the whole pack
 		// is the mesh - the same rule the renderer follows.
 		if (!meshName.empty() && o.name != meshName && pack.objects.size() > 1) continue;
-		// Raw vertices, WITHOUT the object transform. The renderer uploads pack
+		// Raw vertices, without the object transform. The renderer uploads pack
 		// meshes exactly this way, and a collision shape that does not match
 		// what is drawn is worse than none - it was placing barrel hulls
 		// several units from their barrels, which is what the hull view showed.
@@ -411,20 +411,20 @@ inline JPH::ShapeSettings::ShapeResult BuildScaledPropShape(MeshPoints& mesh,
 		// into the sphere branch gave two thirds of the bestiary the wrong
 		// shape, and all of them the same one.
 		//
-		// In the original this is the MULTI-PART case. The sizer (0x101B3E20)
+		// In the original this is the multi-part case. The sizer (0x101B3E20)
 		// builds a compound - FUN_10211640 is a refcounted container of child
-		// shapes - and then, for every body type EXCEPT 2, collapses it into a
+		// shapes - and then, for every body type except 2, collapses it into a
 		// single derived convex shape via FUN_10211040. Fatter is the one that
 		// keeps its parts, which is what the name is saying.
 		//
 		// A capsule is the approximation, not a recovered shape: the child
 		// records are 32-byte pairs of vectors, which is the layout of a
 		// segment with a radius, but no shape-type constant has been read to
-		// confirm it. It is the right SHAPE for a walking character either way
+		// confirm it. It is the right shape for a walking character either way
 		// - shoulders and legs you can slide along rather than a ball that
 		// either blocks or does not.
 		//
-		// Radius is the SMALLER horizontal half-extent. The larger one is arms:
+		// Radius is the smaller horizontal half-extent. The larger one is arms:
 		// evilmonkv2's widest axis is its outstretched arms, 14.4 model units
 		// against a body 2.9 deep, and sizing by that makes a monster wider
 		// than it is tall that can never reach a wall.
@@ -478,7 +478,7 @@ using namespace physics_detail;
 
 // Records contacts between script bodies for the frame.
 //
-// Jolt calls this from the physics JOBS, so several threads at once: the list
+// Jolt calls this from the physics jobs, so several threads at once: the list
 // is guarded, and nothing is looked up or dispatched here. Turning a BodyID
 // back into a script slot and deciding who wants to hear about it happens on
 // the game thread, once the step is over.
@@ -512,7 +512,7 @@ public:
 		p.normal[0] = manifold.mWorldSpaceNormal.GetX();
 		p.normal[1] = manifold.mWorldSpaceNormal.GetY();
 		p.normal[2] = manifold.mWorldSpaceNormal.GetZ();
-		// Sampled HERE, mid-step: this callback runs before the contact is
+		// Sampled here, mid-step: this callback runs before the contact is
 		// solved, so these are the closing velocities. Read after the step they
 		// are both near zero, and every impact would measure as a nudge.
 		const JPH::Vec3 va = a.GetLinearVelocity();
@@ -522,7 +522,7 @@ public:
 			p.velB[k] = vb[k];
 		}
 		// How hard, along the contact normal. Kept so that a full buffer can
-		// drop the GENTLEST contact rather than the newest: the scripts only
+		// drop the gentlest contact rather than the newest: the scripts only
 		// care about hard ones, and dropping by arrival silently threw away a
 		// vase's landing while two dozen other props were settling.
 		const JPH::Vec3 rel = va - vb;
@@ -565,7 +565,7 @@ public:
 		charContacts_.clear();
 	}
 
-	// What each CHARACTER body was touching during the step, as the
+	// What each character body was touching during the step, as the
 	// direction it cannot move in. New and persisting contacts both count -
 	// a body pressed against a wall reports the wall every step.
 	struct CharContact {
@@ -580,7 +580,7 @@ public:
 		BalanceStack(a, b, manifold, settings);
 		NoteCharacter(a, b, manifold);
 	}
-	// STAND-IN: a heavy body resting ON a much lighter one - a 150 kg monster on
+	// Stand-in: a heavy body resting on a much lighter one - a 150 kg monster on
 	// the sizer's 2 kg barrels - is a stack Jolt's solver cannot hold: the
 	// barrel is driven into the floor and squirts out. In that one contact the
 	// upper body counts as at most kStackRatio times the lower one's mass.
@@ -679,7 +679,7 @@ struct PhysicsWorld::Impl {
 	struct ScriptBody {
 		JPH::BodyID body;
 		float radius = 0.f; // world-space mesh radius, for PO_GetMaxSphereRay
-		// PO_Enable(false) takes the body OUT OF THE WORLD, not just to sleep -
+		// PO_Enable(false) takes the body out of the world, not just to sleep -
 		// see SetScriptBodyEnabled. Jolt asserts on a double add or remove, so
 		// the state has to be tracked rather than inferred.
 		bool inWorld = true;
@@ -687,7 +687,7 @@ struct PhysicsWorld::Impl {
 		// SetMass does to the inertia: see SetScriptBodyMass.
 		int freedomMode = 1;
 		// PO_SetMass's value, 0 until the script sets one. CActor:PO_Create
-		// sets the mass BEFORE PO_SetMonsterType, and rebuilding the body as
+		// sets the mass before PO_SetMonsterType, and rebuilding the body as
 		// a character must not lose it.
 		float mass = 0.f;
 		int character = -1; // index into characters, -1 for a prop
@@ -754,7 +754,7 @@ struct PhysicsWorld::Impl {
 		if (c < 0 || size_t(c) >= characters.size()) return nullptr;
 		return &characters[size_t(c)];
 	}
-	// Which script bodies are CHARACTERS (PO_SetMonsterType, so kinematic and
+	// Which script bodies are characters (PO_SetMonsterType, so kinematic and
 	// carried by their own mover). Depenetrate separates two characters
 	// horizontally: see the comment there. Keyed on the raw id, since
 	// JPH::BodyID has no std::hash.
@@ -765,14 +765,14 @@ struct PhysicsWorld::Impl {
 	std::vector<ScriptContactListener::CharContact> lastTouching;
 
 	// Parsed collision points per model or pack mesh. PO_Create ran the
-	// whole file read, inflate and heuristic .pkmdl scan for EVERY casing,
+	// whole file read, inflate and heuristic .pkmdl scan for every casing,
 	// gib, grenade and destructible piece - an N-piece barrel parsed the
 	// same .dat N times in one frame. The hull is still built per body,
 	// because it scales; only the points are shared. An empty entry is a
 	// remembered miss.  Key: kind|path|mesh|centred.
 	std::unordered_map<std::string, MeshPoints> pointsCache;
 
-	// Ragdoll settings are per MODEL and shared between every instance of it;
+	// Ragdoll settings are per model and shared between every instance of it;
 	// the bone order is the part order, which only the builder knows.
 	std::unordered_map<std::string, JPH::Ref<JPH::RagdollSettings>> ragdollSettings;
 	std::unordered_map<std::string, std::vector<std::string>> ragdollBones;
@@ -786,7 +786,7 @@ struct PhysicsWorld::Impl {
 		// behaviour for anything that never asks.
 		int collisionGroup = -1;
 		// Ragdoll::Joint_SetPinned's flag per limb. Held rather than read back
-		// off the motion type, because a LIVE ragdoll is kinematic too.
+		// off the motion type, because a live ragdoll is kinematic too.
 		std::vector<uint8_t> pinned;
 		// Per part, the pose at the last two steps (RecordStep).
 		struct PartHist {
@@ -828,7 +828,7 @@ struct PhysicsWorld::Impl {
 		system.Init(kMaxBodies, 0, kMaxBodyPairs, kMaxContactConstraints, broadPhaseLayers,
 				objectVsBroadPhase, objectPairs);
 		// Havok's material combine is the geometric mean for both friction and
-		// restitution; Jolt's default takes the MAX restitution, which makes a
+		// restitution; Jolt's default takes the max restitution, which makes a
 		// dead prop bounce off a lively floor. Havok is statically linked with
 		// no symbols, so this is hkpMaterial's documented default rather than
 		// a decompiled fact - see Docs/Reference/Physics.md.

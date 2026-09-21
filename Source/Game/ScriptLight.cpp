@@ -31,7 +31,7 @@ struct LightNatives : ScriptNativesBase {
 	static int L_MDL_SetMeshLighting(lua_State* L);
 	static int L_MESH_SetLighting(lua_State* L);
 	static int L_WORLD_SetDynamicSpecular(lua_State* L);
-	// The light an entity IS. Every LIGHT.* native but Setup acts on one that
+	// The light an entity is. Every LIGHT.* native but Setup acts on one that
 	// already exists, and Setup is what makes it: CLight:Apply calls Setup
 	// first and the rest in a row after it, and CreateLight does the same.
 	static Entity* LightArg(lua_State* L, bool create = false) {
@@ -47,8 +47,8 @@ struct LightNatives : ScriptNativesBase {
 namespace {
 
 // LIGHT.SetDynamicFlag(e), SetFakeSpecularFlag(e), SetLitParentFlag(e),
-// SetImportant(e) all read their second argument with Script::GetBool(2, TRUE),
-// so a bare call turns the flag ON - which is how CreateLight's
+// SetImportant(e) all read their second argument with Script::GetBool(2, true),
+// so a bare call turns the flag on - which is how CreateLight's
 // LIGHT.SetDynamicFlag(e) with one argument works.
 bool FlagArg(lua_State* L) { return lua_isnone(L, 2) || lua_toboolean(L, 2) != 0; }
 
@@ -79,7 +79,7 @@ int LightNatives::L_LIGHT_Setup(lua_State* L) {
 }
 
 // LIGHT.SetFalloff(e, startFalloff, range, coneAngle) - 0x10137720. Note the
-// argument order against the storage order: SetFalloff takes the START, then
+// argument order against the storage order: SetFalloff takes the start, then
 // SetRadius the range. The cone angle gives both cone cosines; see SetCone.
 int LightNatives::L_LIGHT_SetFalloff(lua_State* L) {
 	Entity* e = LightArg(L);
@@ -103,7 +103,7 @@ int LightNatives::L_LIGHT_SetIntensity(lua_State* L) {
 // Light::EnableDynamic (0x101d5f00) - flag 0x400000, and a place in the
 // world's dynamic-light list. That list is what WorldMesh::Draw walks for its
 // additive light passes, so this flag is what decides whether a light reaches
-// the WALLS as well as the models standing against them.
+// the walls as well as the models standing against them.
 int LightNatives::L_LIGHT_SetDynamicFlag(lua_State* L) {
 	Entity* e = LightArg(L);
 	if (!e) return 0;
@@ -128,7 +128,7 @@ int LightNatives::L_LIGHT_SetImportant(lua_State* L) {
 }
 
 // R3D.EnableShadows(on) - the menu's Shadows option. PainMenu:SetShadowsQuality
-// passes Cfg.Shadows, a 0/1 NUMBER, so a number is read as one. Render flag 2
+// passes Cfg.Shadows, a 0/1 number, so a number is read as one. Render flag 2
 // (0x10123730), the actors' shadows: here the directional model shadows.
 // Docs/Reference/Menu.md, "Video options"
 int LightNatives::L_R3D_EnableShadows(lua_State* L) {
@@ -265,7 +265,7 @@ int LightNatives::L_ENVIRONMENT_RemoveLights(lua_State*) { return 0; }
 
 // Every light, where its entity is now.
 //
-// Type 0 is OFF, not a fourth kind of light: CLight's class default is 0 and
+// Type 0 is off, not a fourth kind of light: CLight's class default is 0 and
 // PlayerLight toggles between 0 and 3 to switch the flashlight, so a type the
 // engine does not recognise must light nothing. Intensity or range at zero is
 // the same answer by another route - a flash spends most of its fade there.

@@ -10,7 +10,7 @@ namespace painful {
 namespace {
 
 // The six faces of a point light: forward and up. The receiver in
-// shared_lights.sh carries the SAME table, and right = cross(forward, up)
+// shared_lights.sh carries the same table, and right = cross(forward, up)
 // on both sides - change one and the other.
 const Vec3 kFaceForward[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
 const Vec3 kFaceUp[6] = {{0, 1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {0, 1, 0}, {0, 1, 0}};

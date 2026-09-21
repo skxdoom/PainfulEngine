@@ -165,7 +165,7 @@ private:
 		// handles remain stable.
 		bool alive = true;
 		bool visible = true;
-		// General.Evolve. False makes the emitter a ONE-SHOT BURST: it spawns
+		// General.Evolve. False makes the emitter a one-shot burst: it spawns
 		// up to MaxParticles and then stops for good, which is what an impact
 		// effect is. Held per-emitter rather than read from the params
 		// because level-placed effects override it through

@@ -106,7 +106,7 @@ public:
 
 	// Debug overlay text, one line per call, starting at the given row.
 	void DebugText(uint16_t row, const char* fmt, ...);
-	// Wireframes the GEOMETRY - every triangle the renderer submits, world and
+	// Wireframes the geometry - every triangle the renderer submits, world and
 	// entities alike. This is a different question from the collision overlay:
 	// that one shows what physics thinks is there, this one shows what is
 	// actually being drawn, and the interesting cases are where they disagree.
@@ -117,7 +117,7 @@ public:
 
 	// Human-readable name of the backend bgfx actually selected.
 	std::string BackendName() const;
-	// First GPU command to last, from bgfx's timer queries: a SPAN, idle gaps
+	// First GPU command to last, from bgfx's timer queries: a span, idle gaps
 	// included, not work. Diagnostics.md, "The GPU span". 0 when there is none.
 	double GpuMs() const;
 	// PAINFUL_GPUVIEWS: bgfx's per-view GPU times, logged. Needs the profiler

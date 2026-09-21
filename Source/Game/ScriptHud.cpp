@@ -45,7 +45,7 @@ namespace {
 // same layout with a real alpha. R3D.RGB / R3D.RGBA agree, so one unpack
 // serves the lot.
 //
-// The alpha passed here is final. HUD.SetTransparency is NOT folded in: the
+// The alpha passed here is final. HUD.SetTransparency is not folded in: the
 // original stores that byte and nothing in the draw path reads it. The
 // scripts apply it themselves - Hud:QuadTrans reads it back with
 // HUD.GetTransparency and passes it as the RGBA alpha - so multiplying it in
@@ -203,7 +203,7 @@ int HudNatives::L_HUD_PrintXY(lua_State* L) {
 	int pixels = 0;
 	self->HudResolveFont(font, size, fontName, pixels);
 
-	// -1 centres on the CANVAS the scripts laid out against, not the window:
+	// -1 centres on the canvas the scripts laid out against, not the window:
 	// centring on the window and then anchoring pushed every centred title a
 	// half-margin to the right.
 	float x = float(rawX), y = float(rawY);
@@ -288,8 +288,8 @@ int HudNatives::L_HUD_DrawQuadRGBA(lua_State* L) {
 
 // HUD.DrawQuadRotated(mat, x, y, w, h, angle, pivotX, pivotY, r, g, b, a)
 //
-// The compass needle. The quad is CENTRED on the pivot, an absolute canvas
-// point the original rounds to whole pixels; x,y are read and do NOT place
+// The compass needle. The quad is centred on the pivot, an absolute canvas
+// point the original rounds to whole pixels; x,y are read and do not place
 // it. Docs/Reference/Hud.md, "The rotated quad".
 int HudNatives::L_HUD_DrawQuadRotated(lua_State* L) {
 	ScriptEngine* self = From(L);
@@ -406,7 +406,7 @@ int HudNatives::L_HUD_PrepareString(lua_State* L) {
 
 // HUD.SetTransparency(percent) / GetTransparency() -> 0-255.
 //
-// The argument is a PERCENTAGE - it comes from the HUD Transparency slider in
+// The argument is a percentage - it comes from the HUD Transparency slider in
 // the options menu - and the original stores round(percent * 2.55) in a byte,
 // defaulting to 100. Nothing in the draw path reads that byte; the scripts
 // read it back themselves and pass it as an RGBA alpha, so the conversion is
@@ -429,7 +429,7 @@ int HudNatives::L_HUD_StripColorInfo(lua_State* L) {
 	return 1;
 }
 
-// HUD.ColorSubstr(text, n) -> the first n VISIBLE characters, carrying the
+// HUD.ColorSubstr(text, n) -> the first n visible characters, carrying the
 // colour markers along so the trimmed string still draws in its own colours.
 // The typing effect on the loading screens is this called with a rising n.
 int HudNatives::L_HUD_ColorSubstr(lua_State* L) {

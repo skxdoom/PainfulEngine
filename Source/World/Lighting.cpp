@@ -58,7 +58,7 @@ bool ReadVector(TemplateCache& templates, const Properties& props, const std::st
 
 // LIGHT.SetFalloff's third argument, and the ConeAngle property behind it.
 // 0x10137720 stores cos(a * pi/180) as the cone cosine and cos(a * pi/180 *
-// 0.8) beside it, so ONE angle gives both edges: full brightness inside 0.8a,
+// 0.8) beside it, so one angle gives both edges: full brightness inside 0.8a,
 // ramping to nothing at a. Degrees go through unhalved.
 void SetCone(LightSource& l, float degrees) {
 	if (degrees <= 0.f) {
@@ -82,7 +82,7 @@ float LightAttenuation(const LightSource& l, const Vec3& at, float radius) {
 
 	const Vec3 toPoint = AsVec3(at) - l.pos;
 	const float dist = toPoint.Length();
-	// A spot's falloff runs ALONG ITS AXIS - tu2_proj_1 reads the ramp from
+	// A spot's falloff runs along its axis - tu2_proj_1 reads the ramp from
 	// one plane row, not from a radius - so its score is measured there too.
 	// Measured radially it drops to zero on a sphere the beam is wider than,
 	// and a model in the far half of the beam loses the light entirely.
@@ -94,7 +94,7 @@ float LightAttenuation(const LightSource& l, const Vec3& at, float radius) {
 		d = Dot(toPoint, l.dir);
 		if (d < -radius) return 0.f;
 		// Sphere against cone: the perpendicular offset against the cone's
-		// radius at that depth, both grown by `radius`. Tested at the CENTRE
+		// radius at that depth, both grown by `radius`. Tested at the centre
 		// alone this is a knife edge, and because a zero score means "no slot"
 		// rather than "no light", a model whose origin leaves the beam goes
 		// dark whole while half of it is still inside - a pop as the beam
@@ -111,7 +111,7 @@ float LightAttenuation(const LightSource& l, const Vec3& at, float radius) {
 	if (d > l.startFalloff && l.range > l.startFalloff)
 		att = (d - l.range) / (l.startFalloff - l.range);
 
-	// The cone's soft edge, for the POINT form only. With a radius the sphere
+	// The cone's soft edge, for the point form only. With a radius the sphere
 	// test above has already answered, and grading by the centre's angle would
 	// score a model whose near side is fully lit as though it were unlit.
 	if (spot && radius <= 0.f) {
@@ -169,9 +169,9 @@ void EntityLighting::Build(const Level& level, TemplateCache& templates,
 			// has WorldMesh::AddSpecularLight beside Entity::AddLight, the
 			// scripts call MESH.ResetSpecularLights, and Entity::AddLight
 			// (0x1d1b70) rejects a light carrying the fake-specular flag
-			// (0x01000000) unless the entity names it explicitly. It shows:
-			// Cathedral's aa_fake1 has Range 5000 and would otherwise occupy a
-			// slot everywhere in the level, crowding out a real light.
+			// (0x01000000) unless the entity names it explicitly. A fake light
+			// carries a huge range and would otherwise occupy a slot
+			// level-wide, crowding out a real one.
 			if (l.fakeSpecular) continue;
 			if (l.intensity > 0.f && l.range > 0.f) lights_.push_back(l);
 			continue;
@@ -294,7 +294,7 @@ void EntityLighting::Evaluate(const Vec3& pos, float radius, float timeSeconds,
 	// The list is the placed lights followed by the ones the scripts made this
 	// frame, so a torch a monk is carrying is ranked against the level's own on
 	// the same terms - which is what Entity::AddLight does, it has one list and
-	// does not care where a light came from. Only the SCORE is evaluated at the
+	// does not care where a light came from. Only the score is evaluated at the
 	// entity origin now; the light itself is handed over whole and shaded per
 	// pixel.
 	const LightSource* best[kMaxDynamicLights] = {};
@@ -302,8 +302,8 @@ void EntityLighting::Evaluate(const Vec3& pos, float radius, float timeSeconds,
 	int count = 0;
 	auto consider = [&](const LightSource& l, float s) {
 		// Entity::AddLight (0x1d1b70) rejects a light carrying the
-		// fake-specular flag: those belong to the world mesh, and Cathedral's
-		// aa_fake1 has Range 5000, so one would occupy a slot level-wide.
+		// fake-specular flag: those belong to the world mesh, and their range
+		// is wide enough to occupy a slot level-wide.
 		if (s <= 0.f || l.fakeSpecular) return;
 		int at = 0;
 		while (at < count && score[at] >= s) ++at;

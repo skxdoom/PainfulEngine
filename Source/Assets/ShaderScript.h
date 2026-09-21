@@ -21,7 +21,7 @@ namespace painful {
 //     }
 //
 // The <tag> selects a hardware tier (nv20, nv30, nv40, r200, tnl); untagged
-// definitions apply to any. "copy BASE" inherits BASE's passes and overrides
+// definitions apply to any. "copy base" inherits base's passes and overrides
 // individual keys. This parser keeps every statement as raw text - key on the
 // left, the rest of the line on the right - so nothing is interpreted or lost;
 // mapping onto bgfx state happens in the renderer.

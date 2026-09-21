@@ -116,7 +116,7 @@ void ScriptEngine::ReleaseEntity(int handle) {
 	auto it = entities_.find(handle);
 	if (it == entities_.end()) return; // nil and doubles are routine
 
-	// CHILDREN GO WITH THE PARENT, which is what RegisterChild's fifth
+	// Children go with the parent, which is what RegisterChild's fifth
 	// argument says and what nothing here was doing. A pickup's corona is its
 	// own Billboard entity registered as a child; releasing only the pickup
 	// left the corona drawn, in mid-air, for the rest of the level.
@@ -221,7 +221,7 @@ constexpr float kSpinPerImpulse = 0.03f;
 
 // ENTITY.PO_Hit(e, x,y,z, ix,iy,iz) - an impulse at a world point.
 //
-// A CORPSE IS HIT ON ITS RAGDOLL, NOT ON ITS PHYSICS OBJECT. CActor disables
+// A corpse is hit on its ragdoll, not on its PHYSICS object. CActor disables
 // the physics object the moment it dies (EnableRagdoll(true, DISABLE_PO)), so
 // routing every PO_Hit at the movement body means a shot into a body does
 // nothing at all - which is what "the corpses feel too heavy" actually is.
@@ -245,7 +245,7 @@ int EntityNatives::L_PO_Hit(lua_State* L) {
 		self->physics_->AddRagdollImpulse(e->ragdollSlot, at, imp);
 		return 0;
 	}
-	// NOT YET DEAD, BUT ABOUT TO BE. The lethal pellet's PO_Hit arrives before
+	// Not yet dead, but about to be. The lethal pellet's PO_Hit arrives before
 	// OnDamage has run, so there is no ragdoll to give it to yet - bank it and
 	// spend it in EnableRagdoll. A monster that survives never activates one,
 	// and the banked impulse is simply overwritten by the next hit.
@@ -255,7 +255,7 @@ int EntityNatives::L_PO_Hit(lua_State* L) {
 			e->deathImpulseAt[c] = at[c];
 		}
 		e->hasDeathImpulse = true;
-		// And the LIVE body takes it too: PhysicsObject::Hit is EffectForce
+		// And the live body takes it too: PhysicsObject::Hit is EffectForce
 		// on the walking body, capped at 30, and the character tick then
 		// decays the knock by half a step. That is the shove a monster shows
 		// when a shot lands and does not kill.
@@ -267,7 +267,7 @@ int EntityNatives::L_PO_Hit(lua_State* L) {
 // ENTITY.PO_AccumulateRotation(e, x,y,z, ix,iy,iz) - the spin a shot puts on a
 // body it has not killed yet.
 //
-// THIS IS WHERE A DEATH GETS ITS IMPACT. The shotgun calls it for EVERY pellet
+// This is where a death gets its impact. The shotgun calls it for every pellet
 // before any of them has killed anything: OnDamage runs afterwards, on the
 // accumulated damage, and only then is the ragdoll created. So the momentum
 // cannot be applied when it arrives - it has to be held and spent the moment
@@ -311,7 +311,7 @@ int EntityNatives::L_MDL_ApplyPointImpulseToRagdoll(lua_State* L) {
 }
 
 // ENTITY.PO_ScaleInertiaTensor - s_Physics.InertiaTensorMultiplier, which is
-// 0.1 on every monster that declares one. CActor applies it 15 ticks AFTER
+// 0.1 on every monster that declares one. CActor applies it 15 ticks after
 // death (_inertiaTensorDelayedEnable), once the ragdoll has settled into the
 // solver. A tenth of the inertia is a body that tumbles instead of toppling.
 int EntityNatives::L_PO_ScaleInertiaTensor(lua_State* L) {
@@ -327,7 +327,7 @@ int EntityNatives::L_WORLD_HitPhysicObject(lua_State* L) {
 	ScriptEngine* self = From(L);
 	// -1 is what a trace reports for the world itself, which cannot be moved.
 	const int handle = int(luaL_optnumber(L, 1, -1));
-	// A LIMB handle lands on that ragdoll part: Stake:Tick ends every hit with
+	// A limb handle lands on that ragdoll part: Stake:Tick ends every hit with
 	// HitPhysicObject(he, ..., dx*800, rand(1,700), dz*800), and a stake in
 	// the head is what flips a corpse. Physics.md, "The stake".
 	int entity = 0, joint = -1;
@@ -351,11 +351,11 @@ int EntityNatives::L_WORLD_HitPhysicObject(lua_State* L) {
 
 // WORLD.GetLastExplodedEntities(item) -> the debris ExplodeItem just made.
 //
-// IT MUST RETURN A TABLE, EVEN AN EMPTY ONE. CItem:DestroyItemFX walks the
+// It must return a table, even an empty one. CItem:DestroyItemFX walks the
 // answer on the very next line - `for i,o in parts do` - and iterating nil is
 // an error in Lua 5.0. Returning nothing did not merely lose the parts: the
 // error unwound out of CObject:TickTimers through table.foreachi, which
-// abandons the REST OF THE OBJECT LIST for that frame. Every item after the
+// abandons the rest of the object list for that frame. Every item after the
 // one that exploded stopped ticking, so ammo could no longer be picked up and
 // the level came apart around one missing return value.
 //
@@ -416,11 +416,11 @@ int EntityNatives::L_ENTITY_ExplodeItem(lua_State* L) {
 	// Taken before the registry grows: the parts inherit the item's pose.
 	const std::string source = packArg;
 	const float scale = src->scale;
-	// THE PARTS INHERIT THE ITEM'S VELOCITY - this is what makes wreckage carry
+	// The parts inherit the item's velocity - this is what makes wreckage carry
 	// the blast that broke it, or the momentum of the fall. CItem:DestroyItemFX
 	// reads it, scales it by Destroy.VelocityFactor and writes it back just
 	// before calling this, and the only two templates that set that factor use
-	// (0,0,0) - so the factor is an opt-OUT and inheriting is the default.
+	// (0,0,0) - so the factor is an opt-out and inheriting is the default.
 	// The body is read first: it carries the impulse WORLD.Explosion2 just
 	// applied, which the entity store has not seen.
 	Vec3 inherited{src->velocity[0], src->velocity[1], src->velocity[2]};
@@ -469,7 +469,7 @@ int EntityNatives::L_ENTITY_ExplodeItem(lua_State* L) {
 		else { dir[0] = 0.f; dir[1] = 1.f; dir[2] = 0.f; }
 
 		// Destroy.Strength runs from 1 to 50 across the shipped items. How the
-		// engine turns that into a speed has NOT been recovered from the binary
+		// engine turns that into a speed has not been recovered from the binary
 		// yet, so this is an approximation with a lift on it - enough that the
 		// pieces leave the ground rather than sliding apart along the floor.
 		const float speed = 0.5f + strength * 0.05f;
@@ -484,11 +484,11 @@ int EntityNatives::L_ENTITY_ExplodeItem(lua_State* L) {
 		// A real body, so the wreckage falls, bounces and settles instead of
 		// hanging where the item was.
 		//
-		// BodyTypes.FromMesh (4), NOT Default (0).
+		// BodyTypes.FromMesh (4), not Default (0).
 		//
 		// Nothing in a .dat carries collision - an object is geometry, a
 		// material and a bbox - so the shape is derived, and Default derives a
-		// SPHERE sized by the largest half-extent. For a barrel stave measuring
+		// sphere sized by the largest half-extent. For a barrel stave measuring
 		// 0.50 x 3.84 x 1.12 that is a ball of radius 1.9 wrapped around a
 		// plank: the wreckage rolls like barrels because every piece of it
 		// literally is one. FromMesh takes the convex hull instead, which for
@@ -508,7 +508,7 @@ int EntityNatives::L_ENTITY_ExplodeItem(lua_State* L) {
 	}
 
 	// What is left standing is the debris, not the item - and the item has to
-	// stop being SOLID as well as stop being drawn. DestroyItemFX turns its
+	// stop being solid as well as stop being drawn. DestroyItemFX turns its
 	// physics off just before calling this, but PO_Enable(false) only sleeps a
 	// body, and a sleeping body still collides. Hiding it alone left an
 	// invisible barrel standing exactly where the barrel had been, which reads
@@ -526,7 +526,7 @@ int EntityNatives::L_ENTITY_ExplodeItem(lua_State* L) {
 // ENTITY.SetTimeToDie(e, seconds) - the engine reaps the entity itself once
 // the time is up. Everything transient uses it: shell casings, the stone
 // chips a shotgun knocks off a wall, a spent projectile. Left unimplemented
-// those never go away, and since they are ITEMS with real bodies they pile
+// those never go away, and since they are items with real bodies they pile
 // up as collision the player walks into - which reads as the impact effect
 // itself being solid.
 int EntityNatives::L_SetTimeToDie(lua_State* L) {
@@ -540,7 +540,7 @@ void ScriptEngine::TickLifetimes(float dt) {
 	if (dt <= 0.f) return;
 	// Decal::Tick, then World::DeleteEntityDelayed on the ones that ran out.
 	decals_.Tick(dt);
-	// The countdown stops AT zero rather than going negative: negative is how
+	// The countdown stops at zero rather than going negative: negative is how
 	// "no timer" is spelt, so a timer that overshot would read as one that was
 	// never set and the entity would never be reaped.
 	for (auto& kv : entities_)
@@ -621,7 +621,7 @@ int EntityNatives::L_SetPosition(lua_State* L) {
 		if (self->physics_ && e->physicsBody >= 0)
 			self->physics_->SetScriptBodyPose(e->physicsBody, e->pos, e->rot);
 		if (self->pawn_ && handle == self->playerHandle_)
-			// SetPosition gives the FEET (see SyncPlayerFromPawn); the pawn is
+			// SetPosition gives the feet (see SyncPlayerFromPawn); the pawn is
 			// driven from the eye.
 			self->pawn_->SetFloorPos(e->pos); // teleports (spawn, checkpoints)
 	}
@@ -661,7 +661,7 @@ int EntityNatives::L_GetRotationQ(lua_State* L) {
 
 // SetOrientation/GetOrientation: yaw about Y, radians.
 //
-// The sign is NEGATED, and the shipped scripts say so twice. `BindPoint`
+// The sign is negated, and the shipped scripts say so twice. `BindPoint`
 // (Utils.lua) rotates an offset by `-GetOrientation(e)`, and
 // `CActor:MoveWithAnimation` rotates the animation's own motion by
 // `cos(-angle)/sin(-angle)`. Both come out as the same transform:
@@ -691,7 +691,7 @@ int EntityNatives::L_SetOrientation(lua_State* L) {
 // 0x10132420: with an enabled physics object the answer is
 // PhysicsObject::GetOrientation off the body's rotation; otherwise it rotates
 // (0,0,1) by the entity's rotation and returns atan2(x, z) of the result. Both
-// are the heading of the entity's local +Z. The PLAYER has no entity rotation
+// are the heading of the entity's local +Z. The player has no entity rotation
 // here - the pawn carries its facing - so it answers from the pawn's forward,
 // which is what MiniGunRL:Fire and RifleFlameThrower:ComboCheck turn into the
 // projectile's yaw (`-orientation + 1.57`). Answering 0 for the player put
@@ -823,7 +823,7 @@ int EntityNatives::L_BILLBOARD_SetupCorona(lua_State* L) {
 // ENTITY.EnableDraw(self._Entity, not self.Frozen, true) and every level
 // instance ships o.Frozen = true, so a checkpoint is meant to be invisible
 // until its script launches it. Its glow is not part of its model: OnCreateEntity
-// BindFX()es four particle effects, and BindFX makes each one a SEPARATE entity
+// BindFX()es four particle effects, and BindFX makes each one a separate entity
 // registered as a child. Hiding only the parent left all four burning at spawn.
 void ScriptEngine::SetDrawEnabled(Entity& e, bool on, bool alsoChildren, int depth) {
 	e.visible = on;
@@ -934,7 +934,7 @@ constexpr int kCollisionFixed = 1;
 
 // ENTITY.PO_Remove(e) - drop the physics object and stop moving.
 //
-// This is how the Painkiller's head STICKS. PainHead:Tick, on a hit it does not
+// This is how the Painkiller's head sticks. PainHead:Tick, on a hit it does not
 // bounce off, does exactly two things: SetPosition to the impact point, then
 // PO_Remove. Without it the head kept its velocity and sailed on through the
 // wall, so the alt fire never planted itself and the beam it anchors never
@@ -1004,7 +1004,7 @@ int EntityNatives::L_PO_SetCollisionGroup(lua_State* L) {
 	return 0;
 }
 
-// PainHead sticks into a fixed mesh and bounces off one that only LOOKS fixed:
+// PainHead sticks into a fixed mesh and bounces off one that only looks fixed:
 //     if ENTITY.IsFixedMesh(e) and not ENTITY.PO_IsFixed(e) then back end
 // Unimplemented, `not nil` was true, so every wall sent the head home.
 int EntityNatives::L_PO_IsFixed(lua_State* L) {
@@ -1089,7 +1089,7 @@ int EntityNatives::L_PO_Create(lua_State* L) {
 		e->bodyArgScale = argScale;
 		// Noncolliding (7) only. That group means "touches nothing", which is
 		// what the stake, the bolt and the electro disk are made with, and it
-		// is the one unambiguous signal. Particles (8) is NOT included: shell
+		// is the one unambiguous signal. Particles (8) is not included: shell
 		// casings live there too, and they are meant to tumble. Anything else
 		// that is driven says so through RemoveFromIntersectionSolver.
 		e->isProjectile = collisionGroup == 7;
@@ -1099,7 +1099,7 @@ int EntityNatives::L_PO_Create(lua_State* L) {
 	return 0;
 }
 
-// ENTITY.PO_Move(e, x, y, z) - where this actor WANTS to go, as a velocity.
+// ENTITY.PO_Move(e, x, y, z) - where this actor wants to go, as a velocity.
 //
 // A pure setter, exactly as in the original: 0x10130D50 writes the three
 // floats to PhysicsObject+0x34 and returns. Nothing moves here; the physics
@@ -1118,7 +1118,7 @@ int EntityNatives::L_PO_Move(lua_State* L) {
 // ENTITY.PO_SetMonsterType(e) - this body is walked, not simulated.
 //
 // The engine sets one flag bit and changes nothing else (0x101313C0). The flag
-// arrives AFTER PO_Create, so the body is born an ordinary dynamic prop and is
+// arrives after PO_Create, so the body is born an ordinary dynamic prop and is
 // converted here - which is also the only moment we know it is a monster.
 int EntityNatives::L_PO_SetMonsterType(lua_State* L) {
 	ScriptEngine* self = From(L);
@@ -1126,14 +1126,14 @@ int EntityNatives::L_PO_SetMonsterType(lua_State* L) {
 	if (!e) return 0;
 	e->isMonster = true;
 	if (self->physics_ && e->physicsBody >= 0) {
-		// UNCONDITIONAL. Being a monster is not contingent on the shape: the
+		// Unconditional. Being a monster is not contingent on the shape: the
 		// engine sets the flag at PhysicsObject+0x74 whatever the rig looks
 		// like, and in CreatePhysicsObject the ROOOT test guards only the
 		// reading of that joint's position, not the object.
 		//
 		// Four of ten shipped rigs have no ROOOT at all - zombie, zombie_v2,
 		// vamp_small, raven - so gating the call on finding one left those
-		// bodies DYNAMIC. They fell out from under their monsters with their
+		// bodies dynamic. They fell out from under their monsters with their
 		// own gravity and mass, which is not a placement bug at all.
 		//
 		// A k of 0 keeps whatever shape the body already has; only the sizing
@@ -1159,12 +1159,10 @@ int EntityNatives::L_PO_SetMonsterType(lua_State* L) {
 // pickups use that to give the player a looping sound while the powerup runs,
 // and remove it by name when it expires.
 //
-// GetChildByName returning NOTHING was a real bug rather than a missing
-// feature. QuadSound runs on every shot and tests `if quad ~= 0`, and in Lua
-// `nil ~= 0` is TRUE - so a stub that returned nothing announced that the
-// player was holding every powerup, and the damage loop played on every shot.
-// A native whose absence inverts a script's test is worse than one that does
-// nothing, because the script takes the wrong branch confidently.
+// GetChildByName has to answer. QuadSound runs on every shot and tests
+// `if quad ~= 0`, and in Lua `nil ~= 0` is true, so a native that returns
+// nothing announces that the player holds every powerup. A native whose
+// absence inverts a script's test is worse than one that does nothing.
 int EntityNatives::L_ENTITY_RegisterChild(lua_State* L) {
 	ScriptEngine* self = From(L);
 	Entity* parent = self->Find(HandleArg(L, 1));
@@ -1174,12 +1172,12 @@ int EntityNatives::L_ENTITY_RegisterChild(lua_State* L) {
 	if (std::find(parent->children.begin(), parent->children.end(), child) ==
 			parent->children.end())
 		parent->children.push_back(child);
-	// The back-link, which is what lets the child be PLACED. The parent's list
+	// The back-link, which is what lets the child be placed. The parent's list
 	// alone says who owns the child, not where it goes.
 	childEntity->parent = HandleArg(L, 1);
 	// Fifth argument, default true - see Entity::dieWithParent.
 	childEntity->dieWithParent = lua_isnone(L, 5) || lua_toboolean(L, 5) != 0;
-	// Third argument, default true: the child FOLLOWS the parent. PainKiller
+	// Third argument, default true: the child follows the parent. PainKiller
 	// releases its head with RegisterChild(player, head, false, -1, false) -
 	// owned, so the beam has an anchor, but flying free; bound to the player
 	// it sat at the feet. Fourth: the joint it hangs on - an index when a
@@ -1200,7 +1198,7 @@ int EntityNatives::L_ENTITY_RegisterChild(lua_State* L) {
 	}
 	// Entity::UpdateTransform (0x101D2CB0): a following child's matrix is its
 	// own (scale, rotation, position) times the parent's, so what the script
-	// set before this call is the LOCAL transform - Stake:Combo makes its
+	// set before this call is the local transform - Stake:Combo makes its
 	// grenade at scale 6 and (0, 0, 9) on a stake of scale 0.07. An effect
 	// keeps its own offset (PARTICLE.SetParentOffset), and a child already
 	// placed by ComputeChildMatrix keeps that.
@@ -1229,7 +1227,7 @@ int EntityNatives::L_ENTITY_ComputeChildMatrix(lua_State* L) {
 	int joint = int(luaL_optnumber(L, 3, -1));
 	// In the units PlaceAttached consumes: a joint offset is bone-local, in
 	// model space before the entity's scale (JointToWorld); an entity offset
-	// is in world units. The rotation is what, applied FIRST and then the
+	// is in world units. The rotation is what, applied first and then the
 	// joint's or the parent's, gives the child's current one: a * b applies
 	// a first, so child * conj(base).
 	Quat baseRot;
@@ -1257,7 +1255,7 @@ int EntityNatives::L_ENTITY_ComputeChildMatrix(lua_State* L) {
 	return 0;
 }
 
-// ENTITY.GetPtrByIndex(entity) -> the entity's pointer, or NIL when it is gone.
+// ENTITY.GetPtrByIndex(entity) -> the entity's pointer, or nil when it is gone.
 //
 // 0x1012f690 bounds-checks the index against the entity table, reads the slot,
 // and pushes nil when the index is out of range or the slot is empty; otherwise
@@ -1270,7 +1268,7 @@ int EntityNatives::L_ENTITY_ComputeChildMatrix(lua_State* L) {
 //     if not ENTITY.GetPtrByIndex(self._Entity) or self._ExplodeTimer <= 0 then
 //         ... Explosion(...) ... GObjects:ToKill(self)
 //
-// so the electro shuriken detonated on its FIRST tick, every time, with the
+// so the electro shuriken detonated on its first tick, every time, with the
 // timer never reaching zero because nothing waited for it. BoltStick and Stake
 // ask the same question.
 // ENTITY.GetIndex(e) -> the entity's table index (0x1012F5F0), which the
@@ -1290,7 +1288,7 @@ int EntityNatives::L_ENTITY_GetPtrByIndex(lua_State* L) {
 		lua_pushnil(L);
 		return 1;
 	}
-	// The handle IS our pointer: stable for the entity's life and never zero,
+	// The handle is our pointer: stable for the entity's life and never zero,
 	// which is all the scripts ask of it.
 	lua_pushnumber(L, handle);
 	return 1;
@@ -1333,7 +1331,7 @@ int EntityNatives::L_ENTITY_TransformLocalPointToWorld(lua_State* L) {
 }
 
 // ENTITY.ComputeLocalPoint(e, x, y, z) -> the same point in the entity's local
-// space (0x1012FE40: the entity matrix INVERTED, then the same transform).
+// space (0x1012FE40: the entity matrix inverted, then the same transform).
 // butla stores its contents' offsets this way and hands them back to
 // TransformLocalPointToWorld once the bottle has moved.
 int EntityNatives::L_ENTITY_ComputeLocalPoint(lua_State* L) {
@@ -1398,7 +1396,7 @@ int EntityNatives::L_ENTITY_Exist(lua_State* L) {
 // PARTICLE.SetParentOffset(pfx, x, y, z, joint, ...)
 //
 // Where a bound effect sits on the thing it is bound to. Arguments 2..4 are the
-// offset and argument 5 is the JOINT - an index when it is a number, a name
+// offset and argument 5 is the joint - an index when it is a number, a name
 // when it is a string, which is the branch the engine takes on the Lua type
 // (0x10139e30 tests for LUA_TNUMBER before choosing GetInt or GetString).
 //
@@ -1511,7 +1509,7 @@ void ScriptEngine::PlaceAttached(Entity& e) {
 	// ParticleEffect::Tick (0x101e59a0): with a joint, the position is the
 	// offset through the joint's transform and the rotation is the joint's
 	// composed with the bound Euler (a * b applies a first, and the Euler is in
-	// the joint's own frame, so it goes first) - or the PARENT's rotation when no Euler
+	// the joint's own frame, so it goes first) - or the parent's rotation when no Euler
 	// was given. Without a joint, the offset is rotated by the parent and the
 	// rotation is the parent's composed with the Euler, if any.
 	Vec3 world;
@@ -1567,7 +1565,7 @@ void ScriptEngine::UpdateAttached() {
 
 // The Maintain* family. Every one takes (e, on = true, x, y, z, k) and hangs a
 // Havok action on the body; the defaults below are the thunks'. The lift is the
-// shape to keep in mind: PO_Create(FromMeshNonConvex, Fixed) - so KINEMATIC
+// shape to keep in mind: PO_Create(FromMeshNonConvex, Fixed) - so kinematic
 // here - then MaintainPosition(target, 2.0), EnableSpeedDamping(3, 0, 0.5) and
 // MaintainLinearMovement(0,1,0). Docs/Reference/Physics.md, "The scripted movers".
 int EntityNatives::L_PO_MaintainPosition(lua_State* L) {
@@ -1636,7 +1634,7 @@ int EntityNatives::L_PO_SetAsTransporter(lua_State* L) {
 // (0x10133CD0 -> 0x101967D0), which writes the timer at player+0x3c. Every
 // caller follows it with ENTITY.SetVelocity, so this is "a monster throws the
 // player": the Giant's strike 0.5, Deto and the Executioner 0.33, ordinary
-// melee 0.3. Only the PLAYER has the timer.
+// melee 0.3. Only the player has the timer.
 int EntityNatives::L_PO_SetPlayerFlying(lua_State* L) {
 	ScriptEngine* self = From(L);
 	if (self->pawn_ && HandleArg(L, 1) == self->playerHandle_ && self->playerHandle_)
@@ -1644,8 +1642,8 @@ int EntityNatives::L_PO_SetPlayerFlying(lua_State* L) {
 	return 0;
 }
 
-// ENTITY.PO_Activate(e, on = FALSE) - PhysicsObject::Activate (0x10130E40).
-// Note the default: a bare call puts the body to SLEEP. CObject:PO_Create
+// ENTITY.PO_Activate(e, on = false) - PhysicsObject::Activate (0x10130E40).
+// Note the default: a bare call puts the body to sleep. CObject:PO_Create
 // wakes a pinned body right after pinning it, working around a Havok bug.
 int EntityNatives::L_PO_Activate(lua_State* L) {
 	ScriptEngine* self = From(L);
@@ -1665,8 +1663,8 @@ int EntityNatives::L_PO_GetMass(lua_State* L) {
 }
 
 // ENTITY.PO_Impulse(e, px,py,pz, ix,iy,iz) - PhysicsObject::Impulse at a point.
-// The engine drops the call unless the impulse LENGTH is in (0.01, 10000):
-// the two doubles at 0x102C02D0 and 0x102C5688.
+// The engine drops the call unless the impulse length is in (0.01, 10000):
+// The two doubles at 0x102C02D0 and 0x102C5688.
 int EntityNatives::L_PO_Impulse(lua_State* L) {
 	ScriptEngine* self = From(L);
 	Entity* e = self->Find(HandleArg(L, 1));

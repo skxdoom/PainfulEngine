@@ -5,8 +5,8 @@
 
 namespace painful {
 
-// Bones are serialised in PREORDER (depth-first) order and each record's trailing
-// byte is that bone's CHILD COUNT. Walking that with a stack recovers parent links
+// Bones are serialised in preorder (depth-first) order and each record's trailing
+// byte is that bone's child count. Walking that with a stack recovers parent links
 // exactly - see BuildHierarchy in Skeleton.h.
 struct Bone {
 	std::string name;
@@ -20,7 +20,7 @@ struct SkinInfluence {
 	float weight = 0;
 };
 
-// One MATERIAL SLOT: a texture and the run of triangles it covers.
+// One material slot: a texture and the run of triangles it covers.
 //
 // A mesh is not one material. The nun's polySurfaceShape41 is three - a face,
 // a habit and a trim - and 17 of the 113 meshes across the monsters we have
@@ -33,7 +33,7 @@ struct SkinInfluence {
 //
 //     [u32 len][name\0][u32 firstIndex][u32 triangleCount]
 //
-// firstIndex indexes the INDEX array, so it advances by 3 per triangle.
+// firstIndex indexes the index array, so it advances by 3 per triangle.
 // Verified on nun.pkmdl: polySurfaceShape41 (1000 tris) reads
 // [0,148] [444,240] [1164,612] - 444 = 148*3, 1164 = 444 + 240*3, and
 // 148+240+612 = 1000; polySurfaceShape1044 (186 tris) reads [0,98] [294,88].
@@ -52,7 +52,7 @@ struct ModelMesh {
 	size_t offset = 0;
 	size_t indexOffset = 0;
 
-	// Same convention the world meshes use: the NAME carries the material
+	// Same convention the world meshes use: the name carries the material
 	// variant. evilmonkv2's robe is "polySurfa_2sided", and skin.shader ships
 	// palskinned2sided for it.
 	bool nameHas(const char* token) const;
@@ -63,7 +63,7 @@ struct ModelMesh {
 	// The mesh's object-space normal map ("Models/ASG_PB.tga"), empty when none:
 	// the length-prefixed string after the name. MDL.EnableNormalMaps draws with it.
 	std::string normalMap;
-	// True when the material header parsed and landed EXACTLY on the geometry
+	// True when the material header parsed and landed exactly on the geometry
 	// header, i.e. the layout is fully accounted for.
 	bool materialsExact = false;
 
@@ -76,7 +76,7 @@ struct ModelMesh {
 //
 // Geometry is located by anchoring on the vertex block, because the fields that
 // precede the index array are not laid out identically in every model. Three
-// traps, each of which silently DROPS meshes rather than erroring:
+// traps, each of which silently drops meshes rather than erroring:
 //   * never advance the scan past the variable-length skin block;
 //   * never jump the scan forward on string matches (a spurious length-prefixed
 //     string can leap over an entire vertex block);
