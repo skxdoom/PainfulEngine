@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <string>
 #include "../Core/Vectors.h"
 #include "../Core/Matrix.h"

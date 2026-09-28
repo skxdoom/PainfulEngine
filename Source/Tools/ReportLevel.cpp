@@ -4,6 +4,7 @@
 #include "../Core/Vectors.h"
 #include "LevelStats.h"
 #include "Commands.h"
+#include <cctype>
 #include <string>
 #include <vector>
 #include <map>

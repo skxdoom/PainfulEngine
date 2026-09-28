@@ -12,6 +12,7 @@ extern "C" {
 #include <lualib.h>
 }
 
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdint>

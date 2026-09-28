@@ -7,7 +7,9 @@
 
 #include <bx/math.h>
 
+#include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <filesystem>
 #include <string>
 

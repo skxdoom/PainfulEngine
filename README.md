@@ -20,6 +20,7 @@ Tested only for the Steam version of **Painkiller: Black Edition** 1.64.
 - Shadows casted from flashlight and dynamic lights
 - Basic Screen Space Ambient Occlusion
 - Higher-resolution post-process effects and water reflections
+- Loads original save files
 - Minor bug fixes where the original had them
 
 ## Building

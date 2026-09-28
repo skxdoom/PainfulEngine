@@ -26,6 +26,13 @@ endif()
 # is not shipped, but with it painful_crash.log names its frames; without it a
 # crash is module + offset against a binary nobody kept. /OPT:REF,ICF are the
 # non-/DEBUG defaults, restated because /DEBUG would otherwise turn them off.
+# /MP: Visual Studio compiles the files of one project in sequence without it;
+# --parallel only runs projects side by side. Set before External/ is added so
+# SDL, bgfx and Jolt get it too. C and C++ only - rc.exe rejects the switch.
+if(MSVC)
+	add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:/MP>)
+endif()
+
 if(MSVC)
 	string(APPEND CMAKE_C_FLAGS_RELEASE " /Zi")
 	string(APPEND CMAKE_CXX_FLAGS_RELEASE " /Zi")

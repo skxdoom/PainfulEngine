@@ -8,6 +8,11 @@ set(SDL_STATIC ON CACHE BOOL "" FORCE)
 set(SDL_TESTS OFF CACHE BOOL "" FORCE)
 set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
+# Only the audio and video subsystems are used: window, keyboard, mouse,
+# clipboard, audio streams. Drawing is bgfx's, and there is no gamepad input.
+foreach(unused GPU RENDER CAMERA JOYSTICK HAPTIC HIDAPI POWER SENSOR DIALOG TRAY)
+	set(SDL_${unused} OFF CACHE BOOL "" FORCE)
+endforeach()
 add_subdirectory(${PAINFUL_ROOT}/External/SDL ${CMAKE_BINARY_DIR}/External/SDL EXCLUDE_FROM_ALL)
 
 # ------------------------------------------------------------------------ bgfx

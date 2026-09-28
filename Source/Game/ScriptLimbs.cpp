@@ -231,7 +231,7 @@ bool ScriptEngine::TraceLimbs(const Vec3& from, const Vec3& to, float maxDistanc
 			// how the stake looks behind the weapon it just hit. Only consulted
 			// when something is actually suppressed, which is almost never.
 			if (!suppressedLimbs_.empty()) {
-				const auto key = limbHandleIndex_.find((long long(kv.first) << 32) |
+				const auto key = limbHandleIndex_.find((static_cast<long long>(kv.first) << 32) |
 						(unsigned int)(limb.bone));
 				if (key != limbHandleIndex_.end() &&
 						std::find(suppressedLimbs_.begin(), suppressedLimbs_.end(),
@@ -293,7 +293,7 @@ bool ScriptEngine::TraceLimbs(const Vec3& from, const Vec3& to, float maxDistanc
 // expires - CActor stores it, passes it into OnDamage, and a monster like the
 // Tank keeps what it learned from it (_hitGasTank) until it dies.
 int ScriptEngine::LimbHandle(int entity, int joint) {
-	const long long key = (long long(entity) << 32) | (unsigned int)(joint);
+	const long long key = (static_cast<long long>(entity) << 32) | (unsigned int)(joint);
 	const auto it = limbHandleIndex_.find(key);
 	if (it != limbHandleIndex_.end()) return kLimbHandleBase + it->second;
 	const int index = int(limbHandles_.size());

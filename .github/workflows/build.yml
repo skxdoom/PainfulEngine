@@ -98,22 +98,27 @@ jobs:
           fi
           cmake "${args[@]}" 2>&1 | tee configure.log
 
+      # Ninja keeps going past a failed file (-k 0), so one run shows them all.
       - name: Build
         shell: bash
-        run: cmake --build Build --config Release --parallel 2>&1 | tee build.log
+        run: |
+          keep=(); [ "${{ matrix.generator }}" = Ninja ] && keep=(-- -k 0)
+          cmake --build Build --config Release --parallel "${keep[@]}" 2>&1 | tee build.log
 
-      # Logs need a sign-in; annotations do not. The first error and what
-      # follows it, as one annotation on the run summary.
-      - name: Report the first error
+      # Logs need a sign-in; annotations do not. The first error of each failed
+      # file, then the first error in full, as one annotation on the summary.
+      - name: Report the errors
         if: failure()
         shell: bash
         run: |
           log=build.log; [ -f "$log" ] || log=configure.log
           [ -f "$log" ] || exit 0
           pat='^FAILED: |CMake Error|: (fatal )?error|error (C|LNK)[0-9]+|Undefined symbols|undefined reference'
+          each=$(awk '/^FAILED: /{want=1; next} want && /(: (fatal )?error|error at )/{print; want=0}' "$log" | head -25)
           n=$(grep -n -m1 -E "$pat" "$log" | cut -d: -f1)
           msg=$(tail -n +"${n:-1}" "$log" | head -30)
           [ -n "$n" ] || msg=$(tail -n 30 "$log")
+          [ -n "$each" ] && msg="$(grep -c '^FAILED: ' "$log") failed:"$'\n'"$each"$'\n\n'"$msg"
           msg=${msg//'%'/'%25'}; msg=${msg//$'\r'/}; msg=${msg//$'\n'/'%0A'}
           echo "::error title=${log%.log}::$msg"
 

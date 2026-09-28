@@ -2,6 +2,7 @@
 #include "ShaderLoad.h"
 #include "../Core/Log.h"
 
+#include <algorithm>
 #include <bx/math.h>
 #include <cmath>
 

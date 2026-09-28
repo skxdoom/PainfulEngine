@@ -1,6 +1,7 @@
 // Texture references, and where each one actually resolves to.
 #include "Commands.h"
 #include "../Core/FileSystem.h"
+#include <cctype>
 #include <string>
 #include <vector>
 #include <map>

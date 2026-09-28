@@ -1,6 +1,7 @@
 #include "Lighting.h"
 #include "../Core/Vectors.h"
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <string>
 

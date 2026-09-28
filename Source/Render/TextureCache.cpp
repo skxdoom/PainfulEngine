@@ -6,6 +6,7 @@
 #include <bx/allocator.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <filesystem>
 #include <string>

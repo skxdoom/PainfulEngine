@@ -2,6 +2,7 @@
 
 #include <miniz.h>
 
+#include <algorithm>
 #include <climits>
 #include <cstring>
 #include <utility>

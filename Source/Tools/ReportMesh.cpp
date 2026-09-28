@@ -3,6 +3,7 @@
 #include "../Core/Vectors.h"
 #include "../Core/Matrix.h"
 #include "Commands.h"
+#include <cctype>
 #include <string>
 #include <vector>
 #include <map>

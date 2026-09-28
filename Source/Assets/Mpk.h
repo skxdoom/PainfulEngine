@@ -1,7 +1,9 @@
 #pragma once
 #include "../Core/Matrix.h"
 #include "../Core/Vectors.h"
+#include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace painful {
