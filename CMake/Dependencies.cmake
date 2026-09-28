@@ -77,6 +77,11 @@ set(USE_F16C OFF CACHE BOOL "" FORCE)
 set(USE_FMADD OFF CACHE BOOL "" FORCE)
 set(USE_LZCNT OFF CACHE BOOL "" FORCE)
 set(USE_TZCNT OFF CACHE BOOL "" FORCE)
+# Jolt builds itself with -g by default. GCC links that into the executable;
+# MSVC keeps it in the .pdb, which the crash log reads, so it stays on there.
+if(NOT MSVC)
+	set(GENERATE_DEBUG_SYMBOLS OFF CACHE BOOL "" FORCE)
+endif()
 add_subdirectory(${PAINFUL_ROOT}/External/JoltPhysics/Build ${CMAKE_BINARY_DIR}/External/Jolt EXCLUDE_FROM_ALL)
 
 # Jolt's asserts, everywhere but Release. They catch API misuse AT THE CALL -

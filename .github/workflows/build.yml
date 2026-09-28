@@ -134,6 +134,10 @@ jobs:
               echo "dir=$d" >> "$GITHUB_OUTPUT"
               echo "tools=$t" >> "$GITHUB_OUTPUT"
               ls -l "$d"
+              # The game's size on the run summary, per platform.
+              for g in "$d/PainfulEngine" "$d/PainfulEngine.exe"; do
+                [ -f "$g" ] && echo "::notice title=${{ runner.os }} size::$(( $(wc -c < "$g") / 1024 )) KB"
+              done
               exit 0
             done
           done

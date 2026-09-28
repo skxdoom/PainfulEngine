@@ -15,8 +15,8 @@ Tested only for the Steam version of **Painkiller: Black Edition** 1.64.
 
 - Runs the **Painkiller** and **Battle Out Of Hell** single-player campaigns
 - Matches the original's physics and gameplay feel as closely as possible
-- Support for windowed and borderless modes
-- Support for wide and ultrawide screen resolutions
+- Added windowed and borderless modes
+- Added support for wide and ultrawide screen resolutions (no more stretched HUD)
 - Added shadow casting from flashlight and dynamic lights
 - Added Screen Space Ambient Occlusion
 - Higher-resolution post-process effects and water reflections
