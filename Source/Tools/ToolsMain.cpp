@@ -72,7 +72,7 @@ const Command kCommands[] = {
 		hasAngles = true;
 		}
 		}
-		return RunCmd(argv[2], argv[3], shot, argv[0], hasPos ? pos : nullptr,
+		return RunCmd(argv[2], argv[3], shot, argv[0], hasPos ? static_cast<const float*>(pos) : nullptr,
 		hasAngles ? angles : nullptr, cullMode, entityCull, entityScale,
 		skyOnly, novis, noclip, physicsDebug);
 		}},
@@ -123,7 +123,7 @@ const Command kCommands[] = {
 		Vec3 zp;
 		const bool hasP = argc >= 7;
 		if (hasP) for (int k = 0; k < 3; ++k) zp[k] = float(std::atof(argv[4 + k]));
-		return ZonesCmd(argv[2], argv[3], hasP ? zp : nullptr);
+		return ZonesCmd(argv[2], argv[3], hasP ? static_cast<const float*>(zp) : nullptr);
 		}},
 
 {"ground", 8, Root::kArgv3, "level", "<levelDir> <DataRoot> <x y z> <radius>",

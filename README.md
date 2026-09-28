@@ -17,8 +17,8 @@ Tested only for the Steam version of **Painkiller: Black Edition** 1.64.
 - Matches the original's physics and gameplay feel as closely as possible
 - Support for windowed and borderless modes
 - Support for wide and ultrawide screen resolutions
-- Shadows casted from flashlight and dynamic lights
-- Basic Screen Space Ambient Occlusion
+- Added shadow casting from flashlight and dynamic lights
+- Added Screen Space Ambient Occlusion
 - Higher-resolution post-process effects and water reflections
 - Loads original save files
 - Minor bug fixes where the original had them
@@ -113,6 +113,4 @@ renderer, physics engine and audio stack. Ultimately it's just a passion project
 ## Third-party
 
 SDL, bgfx, Jolt Physics, Lua 5.0.2, minimp3, miniz and stb. All permissive,
-and GPL-compatible.
-
-[`THIRD-PARTY.md`](THIRD-PARTY.md) has the licence and the path for each.
+and GPL-compatible. More in [`THIRD-PARTY.md`](THIRD-PARTY.md).
