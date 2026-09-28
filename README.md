@@ -3,6 +3,8 @@
 A 64-bit, cross-platform and faithful recreation of **PainEngine**, the engine behind
 *Painkiller* (2004).
 
+![](/pk.jpg)
+
 **The project is at an early stage.** It launches the game
 at playable state, with some bugs and occasional crashes. See
 [`Docs/Status.md`](Docs/Status.md).

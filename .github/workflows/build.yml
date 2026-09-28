@@ -41,9 +41,8 @@ jobs:
             generator: Ninja
             experimental: true
           - name: Windows (MSVC)
-            os: windows-latest
-            # The generator the project is developed against, so a failure
-            # here reproduces locally without changing anything.
+            # windows-latest carries VS 2026 only; 2022 is the local toolchain.
+            os: windows-2022
             generator: Visual Studio 17 2022
             experimental: false
           - name: macOS (Clang)
@@ -52,7 +51,7 @@ jobs:
             experimental: true
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
           fetch-depth: 1
@@ -82,7 +81,7 @@ jobs:
       # Studio generator is more setup than it saves here.
       - name: ccache
         if: runner.os != 'Windows'
-        uses: hendrikmuhs/ccache-action@v1.2
+        uses: hendrikmuhs/ccache-action@v1.2.24
         with:
           key: ${{ matrix.os }}
           max-size: 900M
@@ -96,10 +95,26 @@ jobs:
           else
             args+=(-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
           fi
-          cmake "${args[@]}"
+          cmake "${args[@]}" 2>&1 | tee configure.log
 
       - name: Build
-        run: cmake --build Build --config Release --parallel
+        shell: bash
+        run: cmake --build Build --config Release --parallel 2>&1 | tee build.log
+
+      # Logs need a sign-in; annotations do not. The first error and what
+      # follows it, as one annotation on the run summary.
+      - name: Report the first error
+        if: failure()
+        shell: bash
+        run: |
+          log=build.log; [ -f "$log" ] || log=configure.log
+          [ -f "$log" ] || exit 0
+          pat='CMake Error|: (fatal )?error|error (C|LNK)[0-9]+|Undefined symbols|undefined reference'
+          n=$(grep -n -m1 -E "$pat" "$log" | cut -d: -f1)
+          msg=$(tail -n +"${n:-1}" "$log" | head -30)
+          [ -n "$n" ] || msg=$(tail -n 30 "$log")
+          msg=${msg//'%'/'%25'}; msg=${msg//$'\r'/}; msg=${msg//$'\n'/'%0A'}
+          echo "::error title=${log%.log}::$msg"
 
       # A multi-config generator puts the binaries under Bin/Release, a
       # single-config one straight in Bin.
@@ -128,7 +143,7 @@ jobs:
       # self-test lives in it, but it is a development report tool - nobody
       # playing needs it, so it is not published.
       - name: Upload the game
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: PainfulEngine-${{ runner.os }}
           path: |
@@ -152,7 +167,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           pattern: PainfulEngine-*
@@ -175,7 +190,7 @@ jobs:
           fi
           ls -l *.zip
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           draft: true
           files: artifacts/*.zip
