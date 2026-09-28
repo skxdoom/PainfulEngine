@@ -28,24 +28,24 @@ std::string Lower(std::string s) {
 const char* kPrefix = "Pf.";
 
 // The keys the engine knows, in the order the file is written. Booleans are
-// written true/false. The help is one line, for the console's `pf help`.
+// written true/false. The help is one line, the console usage line for its command.
 const EngineConfig::Known kKnown[] = {
 	{"HudAspect", "2", false, "aspect ratio of the interface: 0 stretched, 1 centred, 2 anchored by fifths"},
 	{"WindowMode", "0", false, "0 default (set from config.ini), 1 windowed, 2 borderless"},
 	{"FlashlightShadows", "true", true, "whether the flashlight casts shadows"},
-	{"FlashlightShadowMapSize", "512", false, "sets flashlight shadow map size in texels"},
+	{"FlashlightShadowMapSize", "512", false, "flashlight shadow map size in texels"},
 	{"CharacterShadowSize", "256", false, "character shadow size in texels (32 to 1024)"},
-	{"CharacterShadowStrength", "60", false, "characters shadow strength"},
+	{"CharacterShadowStrength", "60", false, "character shadow strength"},
 	{"CharacterShadowCasters", "24", false, "characters with a shadow per frame, nearest first (the original's cap is 24; up to 64)"},
-	{"ShadowMapPlacedLights", "true", true, "whether the placed lights in the level places cast shadow maps"},
+	{"ShadowMapPlacedLights", "true", true, "whether the level's placed lights cast shadow maps"},
 	{"ShadowMapDynLights", "true", true, "whether the dynamically created lights cast shadow maps"},
 	{"ShadowMapMaxLights", "8", false, "lights with a shadow map per frame, up to 8"},
 	{"ShadowMapLightsRadius", "40", false, "the radius in which a light gets a shadow map"},
 	{"ShadowMapSize", "256", false, "light shadow map size in texels"},
 	{"ShadowMapStrength", "80", false, "light shadow map strength"},
-	{"ViewModelShadows", "true", true, "whether the weapon view model cast self shadows"},
+	{"ViewModelShadows", "true", true, "whether the weapon view model casts self shadows"},
 	{"ViewModelShadowMapSize", "1024", false, "view model shadow map size in texels, for each of its four maps"},
-	{"SSAO", "false", true, "enables SSAO"},
+	{"SSAO", "true", true, "enables SSAO"},
 	{"SSAOScreenRadius", "40", false, "SSAO radius, thousandths of the screen's height at any distance"},
 	{"SSAOIntensity", "500", false, "SSAO intensity"},
 	{"BloomScale", "2", false, "bloom is blurred at 1/N of the screen; the original is 2"},

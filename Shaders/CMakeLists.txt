@@ -28,11 +28,13 @@ set(PAINFUL_SHADER_GEN_DIR ${SHADER_GEN} PARENT_SCOPE)
 #   macOS    Metal direct. Vulkan there means MoltenVK, which bgfx scores below
 #            Metal, and GLSL 430 is above the 4.1 macOS caps at.
 #   Linux    Vulkan first, GL behind it - bgfx's own order.
+# SPIR-V under --platform osx fails to parse bgfx_shader.sh; bgfx.cmake itself
+# forces linux for spirv (bgfxToolUtils.cmake).
 if(WIN32)
 	set(SHADER_BACKENDS "dxbc:s_5_0:windows" "dxil:s_6_0:windows"
 			"spv:spirv:windows" "glsl:430:linux")
 elseif(APPLE)
-	set(SHADER_BACKENDS "mtl:metal:osx" "spv:spirv:osx")
+	set(SHADER_BACKENDS "mtl:metal:osx" "spv:spirv:linux")
 else()
 	set(SHADER_BACKENDS "spv:spirv:linux" "glsl:430:linux")
 endif()

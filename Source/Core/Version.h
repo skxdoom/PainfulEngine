@@ -1,7 +1,8 @@
 #pragma once
 
 // The port's version, and the name it puts on the window and at the head of
-// painful.log. Bump the two numbers; everything else composes from them.
+// painful.log. Bump the two numbers; everything else composes from them,
+// the CI package names included (.github/workflows/build.yml reads them).
 //
 // This is not the version the scripts ask about. Game:Init refuses to run
 // unless GetEngineVersionString answers exactly "1.4" (Script/Natives.cpp) -

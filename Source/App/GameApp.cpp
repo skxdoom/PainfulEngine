@@ -546,7 +546,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		world.SetLightShadowStrength(float(cfg.GetInt("ShadowMapStrength", 80)) / 100.f);
 
 		bloom.SetQuality(cfg.GetInt("BloomScale", 2), cfg.GetInt("BloomKernel", 0));
-		ssaoOn = !mode96 && ssaoInit && cfg.GetBool("SSAO", false);
+		ssaoOn = !mode96 && ssaoInit && cfg.GetBool("SSAO", true);
 		ssao.SetRadius(float(std::max(cfg.GetInt("SSAOScreenRadius", 40), 1)) / 1000.f);
 		ssao.SetIntensity(float(std::max(cfg.GetInt("SSAOIntensity", 500), 0)) / 100.f);
 	};

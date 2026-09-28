@@ -78,7 +78,7 @@ public:
 	enum class Aspect {
 		kStretch, // the original: canvas = window, stretched
 		kCentered, // the canvas centred, empty sides
-		kAnchored, // left third to the left edge, right third to the right,
+		kAnchored, // left fifth to the left edge, right fifth to the right,
 				// the middle centred - decided per draw by its centre
 	};
 	void SetAspect(Aspect a) { aspect_ = a; }

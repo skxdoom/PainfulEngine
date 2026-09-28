@@ -806,7 +806,7 @@ diffuse keeps the port's curve. `PAINFUL_GLOSSVIEW=1` draws the gloss alone.
 
 ## Screen-space ambient occlusion
 
-`Pf.SSAO` (console `pfssao 1`) darkens the scene where its surfaces crowd each
+`Pf.SSAO` (console `pfssao`, on by default) darkens the scene where its surfaces crowd each
 other - corners, the floor under a monster, a barrel against a wall - from the
 depth the frame already drew, so it takes the models as they stand. A deviation with nothing to recover behind it: the lightmaps hold
 the world's own corners, and nothing held what the models add to them
