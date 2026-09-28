@@ -1,0 +1,182 @@
+# Builds the engine on each platform and runs the self-test.
+#
+# No game data is needed: nothing under Data/ is read at build time, and the
+# self-test is pure maths with no window and no device. So this compiles and
+# checks the engine without any Painkiller asset going near the runner, and the
+# artifacts are the GPL-3.0 engine alone.
+
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# A new push to the same branch cancels the run it superseded.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Nothing here writes to the repository.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    # One platform failing must not hide the others: Windows is the platform
+    # the engine is developed on, and the other two have never been compiled,
+    # so they report without failing the run until they are green.
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux (GCC)
+            os: ubuntu-latest
+            generator: Ninja
+            experimental: true
+          - name: Windows (MSVC)
+            os: windows-latest
+            # The generator the project is developed against, so a failure
+            # here reproduces locally without changing anything.
+            generator: Visual Studio 17 2022
+            experimental: false
+          - name: macOS (Clang)
+            os: macos-latest
+            generator: Ninja
+            experimental: true
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      # SDL3 and bgfx compile their X11, Wayland, GL and audio backends only
+      # against the headers they find. Without these the build still succeeds
+      # and produces a binary with no video driver, which is not worth testing.
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build \
+            libx11-dev libxext-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev libxfixes-dev libxkbcommon-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev \
+            libgl1-mesa-dev libegl1-mesa-dev \
+            libasound2-dev libpulse-dev
+
+      - name: macOS dependencies
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      # Most of the build is the shader toolchain - glslang, SPIRV-Tools,
+      # SPIRV-Cross and tint, all built from source for shaderc. ccache makes
+      # the reruns cheap. MSBuild is left uncached: sccache with the Visual
+      # Studio generator is more setup than it saves here.
+      - name: ccache
+        if: runner.os != 'Windows'
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ matrix.os }}
+          max-size: 900M
+
+      - name: Configure
+        shell: bash
+        run: |
+          args=(-S . -B Build -G "${{ matrix.generator }}" -DCMAKE_BUILD_TYPE=Release)
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            args+=(-A x64)
+          else
+            args+=(-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
+          fi
+          cmake "${args[@]}"
+
+      - name: Build
+        run: cmake --build Build --config Release --parallel
+
+      # A multi-config generator puts the binaries under Bin/Release, a
+      # single-config one straight in Bin.
+      - name: Locate the binaries
+        id: bin
+        shell: bash
+        run: |
+          for d in Build/Bin/Release Build/Bin; do
+            for t in "$d/PainfulTools" "$d/PainfulTools.exe"; do
+              [ -f "$t" ] || continue
+              echo "dir=$d" >> "$GITHUB_OUTPUT"
+              echo "tools=$t" >> "$GITHUB_OUTPUT"
+              ls -l "$d"
+              exit 0
+            done
+          done
+          echo "no binaries under Build/Bin"; ls -R Build/Bin || true; exit 1
+
+      # Vec3/Quat/Mat4 and the rotation conventions - no window, no device, no
+      # data. If those ever differ by compiler, this is what says so.
+      - name: Self-test
+        shell: bash
+        run: '${{ steps.bin.outputs.tools }} selftest'
+
+      # The game alone. PainfulTools is built and run above because the
+      # self-test lives in it, but it is a development report tool - nobody
+      # playing needs it, so it is not published.
+      - name: Upload the game
+        uses: actions/upload-artifact@v4
+        with:
+          name: PainfulEngine-${{ runner.os }}
+          path: |
+            ${{ steps.bin.outputs.dir }}/PainfulEngine
+            ${{ steps.bin.outputs.dir }}/PainfulEngine.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  # Only on a v* tag. Takes what the build jobs already produced, so nothing is
+  # compiled twice, and leaves the release as a DRAFT - it is not public until
+  # the Releases page's Publish button is pressed.
+  release:
+    name: Draft the release
+    needs: build
+    # Not plain `needs` success: Linux and macOS are allowed to fail, and a
+    # failed leg would otherwise skip this job and take the Windows build with
+    # it. Whatever platforms produced a binary get released; none at all is an
+    # error, below.
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: PainfulEngine-*
+
+      # One zip per platform, named for the tag. A bare binary attached to a
+      # release loses its executable bit on the way through a browser; an
+      # archive keeps it.
+      - name: Package
+        run: |
+          cd artifacts
+          shopt -s nullglob
+          for d in */; do
+            name="${d%/}-${GITHUB_REF_NAME}"
+            (cd "$d" && zip -r "../${name}.zip" .)
+          done
+          zips=(*.zip)
+          if [ ${#zips[@]} -eq 0 ]; then
+            echo "no platform produced a binary - nothing to release"
+            exit 1
+          fi
+          ls -l *.zip
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: artifacts/*.zip
+          generate_release_notes: true

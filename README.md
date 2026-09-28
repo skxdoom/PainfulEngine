@@ -3,47 +3,55 @@
 A 64-bit, cross-platform and faithful recreation of **PainEngine**, the engine behind
 *Painkiller* (2004).
 
-You need your own copy of the game. This project ships no game assets or
-binaries.
-
 **The project is at an early stage.** It launches the game
-and it's playable, with some bugs and occasional crashes. See
+at playable state, with some bugs and occasional crashes. See
 [`Docs/Status.md`](Docs/Status.md).
 
-## Goals (all on-going)
+Tested only for the Steam version of **Painkiller: Black Edition** 1.64.
 
-- Run the **Painkiller** and **Battle Out Of Hell** single-player campaigns
-- Match the original's physics and gameplay feel as closely as possible
-- Windowed and borderless modes
-- Widescreen resolutions
+## Features
+
+- Runs the **Painkiller** and **Battle Out Of Hell** single-player campaigns
+- Matches the original's physics and gameplay feel as closely as possible
+- Support for windowed and borderless modes
+- Support for wide and ultrawide screen resolutions
+- Shadows casted from flashlight and dynamic lights
 - Higher-resolution post-process effects and water reflections
-- Bug fixes where the original had them
-- Further graphics improvements
+- Minor bug fixes where the original had them
 
 ## Building
 
-Needs CMake 3.20 or newer and a C++20 compiler. Windows with Visual Studio 2022
-is the only platform built and tested so far. Dependencies are git submodules
+Needs CMake 3.20 or newer and a C++20 compiler. Dependencies are git submodules
 or vendored in `External/` and build from source. Nothing is installed
-system-wide.
+system-wide, and no game data is needed to build.
 
 ```
-git clone --recursive <this repo>
+git clone --recursive https://github.com/skxdoom/PainfulEngine.git
+```
+
+**Windows**, Visual Studio 2022 - the platform the engine is developed and
+played on:
+
+```
 cmake -S . -B Build -G "Visual Studio 17 2022" -A x64
 cmake --build Build --config Release
 ```
 
-That produces `Build/Bin/Release/PainfulEngine.exe`, the game, and
-`PainfulTools.exe`, the headless reports and the free-camera viewer.
-
-Shaders are compiled by bgfx's `shaderc` once per graphics backend and embedded
-in the executable, so there is one file to ship. To copy it into a game folder
-after every build, set the deploy path once (a local cache variable, not
-committed):
+**Linux and macOS** build from the same tree with any single-config generator:
 
 ```
-cmake -S . -B Build -DPAINFUL_DEPLOY_DIR="X:/Painkiller/Bin"
+cmake -S . -B Build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build Build
 ```
+
+Treat those two as untested. The platform code is there and guarded, and CI
+compiles all three on every push, but nothing has been *played* on either yet.
+On Linux the build needs the X11, Wayland, GL and audio development headers;
+`.github/workflows/build.yml` lists the packages.
+
+The build produces `PainfulEngine` under `Build/Bin/Release` with Visual
+Studio, or `Build/Bin` with Ninja. Everything it needs is inside it - there is
+one file to ship.
 
 ## Playing
 
@@ -65,7 +73,6 @@ renderer, physics engine and audio stack. Ultimately it's just a passion project
 ## Third-party
 
 SDL, bgfx, Jolt Physics, Lua 5.0.2, minimp3, miniz and stb. All permissive,
-all GPL-compatible, each keeping its own terms; nothing here is relicensed and
-every licence text ships with its code.
+and GPL-compatible.
 
 [`THIRD-PARTY.md`](THIRD-PARTY.md) has the licence and the path for each.

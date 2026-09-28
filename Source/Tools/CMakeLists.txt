@@ -19,13 +19,16 @@ add_executable(PainfulTools
 		ReportPhysics.cpp
 		ReportSelfTest.cpp
 		ReportScript.cpp
-		PainfulTools.rc
 		)
+# The icon, and only where there is a resource compiler to build it: the RC
+# language is enabled under if(WIN32) in the top-level CMakeLists.
+if(WIN32)
+	target_sources(PainfulTools PRIVATE PainfulTools.rc)
+	# See App/CMakeLists.txt for why the .ico dependency is spelled out.
+	set_source_files_properties(PainfulTools.rc PROPERTIES
+			OBJECT_DEPENDS "${PAINFUL_SOURCE}/PainfulEngine.ico;${PAINFUL_SOURCE}/Core/Version.h")
+endif()
 target_link_libraries(PainfulTools PRIVATE Game)
 target_include_directories(PainfulTools PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} PREFIX "" FILES
 		$<TARGET_PROPERTY:PainfulTools,SOURCES>)
-
-# See App/CMakeLists.txt for why the .ico dependency is spelled out.
-set_source_files_properties(PainfulTools.rc PROPERTIES
-		OBJECT_DEPENDS "${PAINFUL_SOURCE}/PainfulEngine.ico;${PAINFUL_SOURCE}/Core/Version.h")
