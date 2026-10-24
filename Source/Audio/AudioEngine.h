@@ -56,6 +56,9 @@ public:
 	// soundsDef files carry both per sound.
 	Voice Play3D(const std::string& name, const Vec3& pos, float dist1, float dist2,
 			bool noPitch);
+	// SOUND.PreloadFile (MilesEngine::PreloadFile 0x101F5DE0): decoded now, at
+	// level load, rather than on its first play; nothing holds it.
+	void Preload(const std::string& name) { Load(name); }
 	// Created but not started, for the scripts that keep a handle around and
 	// start/stop it themselves (a looping flamethrower, an elevator). Held:
 	// the slot is the caller's until it Deletes or Forgets it.

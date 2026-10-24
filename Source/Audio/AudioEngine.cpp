@@ -877,8 +877,9 @@ void AudioEngine::LogRealVoices() const {
 		++obstructed;
 		if (p.obstruction > 0.f) ++blocked;
 	}
-	LogInfo("audio: %zu real voices of %zu slots, %zu obstructed, %zu of them blocked", RealCount(),
-			voices_.size(), obstructed, blocked);
+	LogInfo("audio: %zu real voices of %zu slots, %zu obstructed, %zu of them blocked; "
+			"%zu samples, %zu missing", RealCount(), voices_.size(), obstructed, blocked,
+			cache_.size() - missing_, missing_);
 	for (size_t i = 0; i < streams_.size(); ++i) {
 		const MusicStream* ms = streams_[i].get();
 		if (!ms) continue;

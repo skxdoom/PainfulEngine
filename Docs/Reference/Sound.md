@@ -309,6 +309,15 @@ assumption here: Miles' own documentation says the software providers stop
 mixing beyond the maximum distance, and `MilesEngine::Tick` drops those
 voices too, which is where the port's demotion came from.
 
+## Preloading
+
+`SOUND.PreloadFile(path)` (`0x10125430` → `MilesEngine::PreloadFile`
+`0x101F5DE0`) prepares the sample and drops the reference it took, so the
+file stays loaded with nobody holding it. `Cache:PrecacheSounds` calls it for
+every sound a level's objects name, as `"../data/sounds/<name>.wav"` in lower
+case. The port decodes it into the sample cache under `<name>`, so the first
+play does not pay for the decode.
+
 ## Obstruction
 
 `SOUND3D.SetObstructed(voice, on)` (`0x101262E0` →

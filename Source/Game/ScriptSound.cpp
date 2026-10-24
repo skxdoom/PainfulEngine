@@ -3,6 +3,7 @@
 #include "ScriptEngineInternal.h"
 #include "../Core/Vectors.h"
 #include <algorithm>
+#include <cctype>
 #include <string>
 
 namespace painful {
@@ -28,6 +29,7 @@ struct SoundNatives : ScriptNativesBase {
 	template <bool Positional> static int L_SND_Delete(lua_State* L);
 	template <bool Positional> static int L_SND_Forget(lua_State* L);
 	static int L_SND_PlayAndForget(lua_State* L);
+	static int L_SOUND_PreloadFile(lua_State* L);
 	static int L_SND_SetObstructed(lua_State* L);
 	static int L_SOUND_SetObstructionProperties(lua_State* L);
 	static int L_SOUND_SaveGame_ResumeSounds(lua_State* L);
@@ -273,6 +275,22 @@ template <bool Positional>
 int SoundNatives::L_SND_Forget(lua_State* L) {
 	ScriptEngine* self = From(L);
 	if (self->audio_) self->audio_->Release(VoiceArg(L, 1, Positional), true);
+	return 0;
+}
+
+// SOUND.PreloadFile(path) - 0x10125430. Cache:PrecacheSounds passes the
+// file as "../data/sounds/<name>.wav"; the cache keys on <name>.
+int SoundNatives::L_SOUND_PreloadFile(lua_State* L) {
+	ScriptEngine* self = From(L);
+	if (!self->audio_ || !lua_isstring(L, 1)) return 0;
+	std::string name = lua_tostring(L, 1);
+	std::string lower = name;
+	for (char& c : lower) c = char(std::tolower(static_cast<unsigned char>(c)));
+	const size_t at = lower.find("sounds/");
+	if (at != std::string::npos) name.erase(0, at + 7);
+	if (name.size() > 4 && lower.compare(lower.size() - 4, 4, ".wav") == 0)
+		name.erase(name.size() - 4);
+	self->audio_->Preload(name);
 	return 0;
 }
 
@@ -1004,6 +1022,7 @@ void BindSound(ScriptEngine& engine, LuaHost& host) {
 		{"SOUND", "Play2D", SoundNatives::L_SOUND_Play2D},
 		{"SOUND", "Play3D", SoundNatives::L_SOUND_Play3D},
 		{"SOUND", "SetSoundProperties", SoundNatives::L_SOUND_SetSoundProperties},
+		{"SOUND", "PreloadFile", SoundNatives::L_SOUND_PreloadFile},
 		{"SOUND", "SetObstructionProperties", SoundNatives::L_SOUND_SetObstructionProperties},
 		{"SOUND", "SetPlayerPos", SoundNatives::L_SOUND_SetPlayerPos},
 		{"SOUND", "SetPlayerOrientation", SoundNatives::L_SOUND_SetPlayerOrientation},
