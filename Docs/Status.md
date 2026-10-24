@@ -86,6 +86,7 @@ Source/
             MenuSystem      the retained widget model behind PMENU
             PlayerPawn      the engine-side mover
             Input           bindings, actions, mouse
+            BossDial        the boss health dial's wipe
   App/      Main            the entry point
             GameApp         the script-driven run - PainfulEngine.exe
   Tools/    ToolsMain       the command table - PainfulTools.exe
@@ -357,7 +358,8 @@ What the implemented natives buy:
   touch. The triggers are the scripts' own thresholds
   ([`Physics.md`](Reference/Physics.md), "Gibs").
 - **HUD and sound.** The `HUD.DrawQuad` family with a real `MATERIAL.Create` /
-  `Size`, and the `SOUND` / `SOUND2D` / `SOUND3D` families over one mixed
+  `Size`, the boss health dial ([`Hud.md`](Reference/Hud.md), "The boss
+  dial"), and the `SOUND` / `SOUND2D` / `SOUND3D` families over one mixed
   device stream, with the original's virtual-voice policy deciding what is
   audible: `SOUND.SetSoundProperties` caps instances per file and spaces
   their starts. Levels are the original's (master twice, Miles' rolloff),

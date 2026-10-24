@@ -38,6 +38,10 @@ public:
 			const std::string& texturesRoot);
 	void ReleaseMaterial(Material m);
 	bool MaterialSize(Material m, int& w, int& h) const;
+	// A texture the CPU rewrites, owned here: the boss dial. rgba is w*h
+	// texels, top row first.
+	Material CreateDynamicMaterial(int w, int h, const uint8_t* rgba);
+	void UpdateDynamicMaterial(Material m, const uint8_t* rgba);
 
 	// abgr is the packed colour the scripts build with R3D.RGB / R3D.RGBA -
 	// our own native, so the byte order is ours on both ends.
@@ -152,7 +156,9 @@ private:
 		bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
 		int w = 0, h = 0;
 		bool used = false;
+		bool owned = false; // created here, not borrowed from the cache
 	};
+	Material AddMaterial(const Mat& m);
 	std::vector<Mat> materials_;
 
 	FontCache fonts_;

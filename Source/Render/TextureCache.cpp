@@ -132,6 +132,26 @@ bool TextureCache::Measure(const std::string& reference, const std::string& leve
 	return true;
 }
 
+bool TextureCache::DecodeRgba(const std::string& reference, std::vector<uint8_t>& rgba,
+		int& w, int& h) const {
+	const std::string path = Resolve(reference, "");
+	std::vector<uint8_t> data;
+	if (path.empty() || !ReadFile(path, data) || data.empty()) return false;
+	bimg::ImageContainer* image =
+		bimg::imageParse(&g_allocator, data.data(), static_cast<uint32_t>(data.size()));
+	if (!image) return false;
+	bimg::ImageContainer* converted =
+		bimg::imageConvert(&g_allocator, bimg::TextureFormat::RGBA8, *image, false);
+	bimg::imageFree(image);
+	if (!converted) return false;
+	w = int(converted->m_width);
+	h = int(converted->m_height);
+	const uint8_t* bytes = static_cast<const uint8_t*>(converted->m_data);
+	rgba.assign(bytes, bytes + size_t(w) * size_t(h) * 4);
+	bimg::imageFree(converted);
+	return true;
+}
+
 // The base-name fallback is the port's own: MaterialSystem::TextureOnDisk (0x10098ef0)
 // tries the name, then items/ and models/ and the current level's folder by base
 // name, never another level's. anyLevel false keeps to that. Formats.md, "Where the engine looks"

@@ -16,6 +16,7 @@ add_library(Game STATIC
 		PlayerPawn.cpp PlayerPawn.h
 		EngineBoot.cpp EngineBoot.h
 		Input.cpp Input.h
+		BossDial.cpp BossDial.h
 
 		ScriptEngine.cpp ScriptEngine.h
 		ScriptEngineInternal.h

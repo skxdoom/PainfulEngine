@@ -1192,6 +1192,15 @@ private:
 	// not applied to anything the engine draws - see L_HUD_SetTransparency.
 	int hudAlpha_ = 255;
 
+	// HUD.DrawBossHealth's dial: the art as loaded, the wiped copy on screen,
+	// and the percentage last wiped to (the original's static starts at 100).
+	struct BossDialState {
+		int material = 0;
+		int w = 0, h = 0;
+		std::vector<uint8_t> fresh, pixels;
+		int last = 100;
+	} bossDial_;
+
 	// A script's font size in pixels. The original computes
 	// round(size * (H/768 + W/1024) * 0.5) - the mean of the vertical and
 	// horizontal scale against the reference resolution - so the interface

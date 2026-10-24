@@ -10,9 +10,11 @@
 
 #include "../Core/Matrix.h"
 #include "../Core/Vectors.h"
+#include "../Game/BossDial.h"
 #include "../Game/Input.h"
 
 #include <cmath>
+#include <vector>
 
 namespace {
 using namespace painful;
@@ -260,6 +262,42 @@ void TestInputReset() {
 	in.SetKeyDown(2, true);
 	Ok(in.IsDown(2), "a key that was up during Reset is not suppressed");
 }
+
+// The boss dial's wipe (HUD::DrawBossHealth). Each quarter of health lost
+// clears exactly one quarter of the dial, clockwise from twelve o'clock.
+// Docs/Reference/Hud.md, "The boss dial"
+void TestBossDial() {
+	const int w = 16, h = 16;
+	auto wiped = [&](int percent) {
+		std::vector<uint8_t> px(size_t(w) * h * 4, 255);
+		BossDialWipe(px.data(), w, h, percent);
+		return px;
+	};
+	auto alpha = [&](const std::vector<uint8_t>& px, int x, int y) { return px[(size_t(y) * w + x) * 4 + 3]; };
+	auto count = [&](const std::vector<uint8_t>& px) {
+		int n = 0;
+		for (size_t i = 3; i < px.size(); i += 4) n += px[i] == 1;
+		return n;
+	};
+
+	Ok(count(wiped(100)) == 0, "dial: full health wipes nothing");
+	const auto q1 = wiped(75), q2 = wiped(50), q3 = wiped(25);
+	Ok(count(q1) == 64 && alpha(q1, 8, 7) == 1 && alpha(q1, 8, 8) == 255 && alpha(q1, 7, 0) == 255,
+			"dial: 75% wipes the top-right quarter, nothing else");
+	Ok(count(q2) == 128 && alpha(q2, 8, 15) == 1 && alpha(q2, 7, 15) == 255, "dial: 50% wipes the right half");
+	Ok(count(q3) == 192 && alpha(q3, 0, 8) == 1 && alpha(q3, 7, 7) == 255, "dial: 25% leaves the top-left quarter");
+
+	// Half a quarter: the fan has reached the top-right corner and no further.
+	const auto e1 = wiped(87);
+	Ok(alpha(e1, 15, 0) == 1 && alpha(e1, 7, 0) == 255 && alpha(e1, 15, 15) == 255,
+			"dial: 87% fans to the top-right corner");
+
+	// The shipped art: 114 wide, so 1% lost reaches 0.04f * 114 = 4.56 -> 4
+	// texels along the top edge from the middle.
+	std::vector<uint8_t> art(size_t(114) * 113 * 4, 255);
+	BossDialWipe(art.data(), 114, 113, 99);
+	Ok(art[(60) * 4 + 3] == 1 && art[(61) * 4 + 3] == 255, "dial: 99% on the shipped art reaches x 60 on the top row");
+}
 } // namespace
 
 int SelfTestCmd() {
@@ -272,6 +310,7 @@ int SelfTestCmd() {
 	TestAgainstMat4();
 	TestQuat();
 	TestInputReset();
+	TestBossDial();
 	if (g_failed == 0) {
 		LogInfo("selftest: %zu checks passed", g_ran);
 		return 0;

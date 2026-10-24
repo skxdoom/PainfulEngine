@@ -99,6 +99,60 @@ screen whose y points down. Reasoning "a target on the right is +pi/2" gives
 the wrong sign — the chain is `ENTITY.GetOrientation` -> `AngDist` ->
 `_arrowRot`, and it is easier to plant a known target and read the number.
 
+## The boss dial — `HUD.DrawBossHealth`
+
+`Hud:Render` draws the boss's portrait itself (`Hud:Quad`, at
+`(512 - HUDSize*48, HUDSize*10)` in 1024x768 units) whenever
+`Game.MegaBossHealth` is set, then calls `HUD.DrawBossHealth(size * 100)` with
+`size = MegaBossHealth / MegaBossHealthMax`, floored at 0.01 while the boss is
+alive. The native (`0x10127480`) passes the integer to `HUD::DrawBossHealth`
+(`0x1008E450`), which draws the red ring around the portrait.
+
+**One texture, wiped in place.** `HUD::Init` (`0x10090F40`) loads
+`HUD/boss_health` (114x113, flags 10) into `HUD+0x1A8`. Each call compares the
+percentage with a static that starts at 100 (`0x103E647C`):
+
+- higher than last time: the texture is released and loaded again, fresh;
+- different: the texture is locked and the lost share, `100 - percent`, is
+  wiped, then the static takes the new value;
+- `0`: nothing at all is drawn.
+
+So as health falls the same texels are wiped again and further, and only a
+rise starts over. A fresh wipe and a cumulative one differ by a few texels
+along the centre row, which is why the port keeps the wiped copy too.
+
+**The wipe** runs clockwise from twelve o'clock in eight segments of 12.5%,
+two to a quarter. A finished quarter is cleared as a rectangle
+(`HUD::ClearAlphaQuad`, `0x1008B490`: alpha lowered to 1 where it is higher);
+the current segment is a fan of Bresenham lines from the centre `(w/2, h/2)` to
+the border (`HUD::ClearAlphaLine`, `0x1008B3B0`: alpha SET to 1, both ends
+included). How far a segment's fan reaches along its edge is
+`trunc(edge * 0.04f * k)` with `k` the percent into the segment, truncated
+under an x87 control word with rounding set to chop. `0.04f` is slightly under
+0.04, so a whole segment reaches one texel short. The thresholds are 13, 25,
+38, 50, 63, 75 and 88 percent lost: the top edge rightwards from the middle,
+the right edge down, the bottom edge leftwards, the left edge up, and the top
+edge again to the middle.
+
+Alpha 1, not 0, is what the original writes; under the HUD's blend it is
+invisible either way.
+
+**Placement.** `HUD::DrawQuad(tex, x, -2, w, h, white, 0, 0, 1, 1)` with
+`x = (512 - HUDSize*57) * W/1024`, `w = 114 * HUDSize * W/1024`,
+`h = 113 * HUDSize * H/768`, where `HUDSize` is read from `Cfg.HUDSize` on each
+call (constants at `0x102B3AE8`, `0x102B3AEC`, `0x102AF160`, `0x102AF108`). The
+dial is centred on the screen and sits two pixels above the top edge.
+
+The width and height come from the texture's image size (`+0xA4`/`+0xA8`); the
+wipe runs over its surface size (`+0xAC`/`+0xB0`), which D3D may round up to a
+power of two with the image scaled into it. The port has no padded surface and
+wipes the image itself: the same fractions of each edge. The longest fan, at
+13% lost, runs past the right edge; those texels are skipped.
+
+`Game/BossDial.cpp` is the wipe and `PainfulTools selftest` checks its
+quarters. Rendered with `--shot`, the Giant at 60% shows the ring gone from
+twelve o'clock clockwise to just past the bottom-right corner of the texture.
+
 ## Colours
 
 Packed ARGB throughout, in a 32-bit number passed through Lua.
@@ -214,7 +268,7 @@ Metrics:
 
 ## What is still missing
 
-- `HUD.DrawBossHealth`, `MATERIAL.Replace` and `MATERIAL.SetPriority` are stubs
+- `MATERIAL.Replace` and `MATERIAL.SetPriority` are stubs
   ([`Stubs.md`](../Stubs.md)). `HUD.PrepareString` returns its argument
   unchanged; the original re-encodes for its font.
 - `HUD.DrawBorder` draws the `MenuItemBorder` stone frame through

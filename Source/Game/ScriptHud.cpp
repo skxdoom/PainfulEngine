@@ -1,6 +1,7 @@
 // ScriptEngine: the 2D layer - MATERIAL, HUD.PrintXY, fonts and colour codes.
 
 #include "ScriptEngineInternal.h"
+#include "BossDial.h"
 #include "../Script/ScriptHandle.h"
 #include <string>
 
@@ -18,6 +19,7 @@ struct HudNatives : ScriptNativesBase {
 	static int L_HUD_DrawQuadRotated(lua_State* L);
 	static int L_HUD_DrawRect(lua_State* L);
 	static int L_HUD_DrawBorder(lua_State* L);
+	static int L_HUD_DrawBossHealth(lua_State* L);
 	static int L_HUD_SetFont(lua_State* L);
 	static int L_HUD_GetTextWidth(lua_State* L);
 	static int L_HUD_GetTextHeight(lua_State* L);
@@ -344,6 +346,44 @@ int HudNatives::L_HUD_DrawBorder(lua_State* L) {
 	return 0;
 }
 
+// HUD.DrawBossHealth(percent): the dial around the boss's portrait.
+// HUD::DrawBossHealth (0x1008e450) keeps one texture and wipes it further as
+// health falls, reloading it only when health rises, then draws it centred at
+// the top at Cfg.HUDSize. 0 draws nothing. Docs/Reference/Hud.md, "The boss dial".
+int HudNatives::L_HUD_DrawBossHealth(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const int percent = int(luaL_optnumber(L, 1, 0));
+	if (!self->hud_ || !self->hudTextures_ || percent == 0) return 0;
+	ScriptEngine::BossDialState& dial = self->bossDial_;
+	if (!dial.material) {
+		if (!self->hudTextures_->DecodeRgba("HUD/boss_health", dial.fresh, dial.w, dial.h)) return 0;
+		dial.pixels = dial.fresh;
+		dial.material = self->hud_->CreateDynamicMaterial(dial.w, dial.h, dial.pixels.data());
+		if (!dial.material) return 0;
+	}
+	if (percent > dial.last) dial.pixels = dial.fresh;
+	if (percent != dial.last) {
+		BossDialWipe(dial.pixels.data(), dial.w, dial.h, percent);
+		self->hud_->UpdateDynamicMaterial(dial.material, dial.pixels.data());
+		dial.last = percent;
+	}
+
+	float size = 0.f;
+	lua_pushstring(L, "Cfg");
+	lua_gettable(L, LUA_GLOBALSINDEX);
+	if (lua_istable(L, -1)) {
+		lua_pushstring(L, "HUDSize");
+		lua_gettable(L, -2);
+		size = float(lua_tonumber(L, -1));
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	const float sx = float(self->hudCanvasW_) / 1024.f, sy = float(self->hudCanvasH_) / 768.f;
+	self->hud_->Quad(dial.material, (512.f - size * 57.f) * sx, -2.f,
+			float(dial.w) * size * sx, float(dial.h) * size * sy, 0xffffffffu);
+	return 0;
+}
+
 int HudNatives::L_HUD_SetFont(lua_State* L) {
 	ScriptEngine* self = From(L);
 	const char* name = luaL_optstring(L, 1, "");
@@ -483,6 +523,7 @@ void BindHud(ScriptEngine& engine, LuaHost& host) {
 		{"HUD", "DrawQuadRotated", HudNatives::L_HUD_DrawQuadRotated},
 		{"HUD", "DrawRect", HudNatives::L_HUD_DrawRect},
 		{"HUD", "DrawBorder", HudNatives::L_HUD_DrawBorder},
+		{"HUD", "DrawBossHealth", HudNatives::L_HUD_DrawBossHealth},
 		{"HUD", "SetFont", HudNatives::L_HUD_SetFont},
 		{"HUD", "GetTextWidth", HudNatives::L_HUD_GetTextWidth},
 		{"HUD", "GetTextHeight", HudNatives::L_HUD_GetTextHeight},

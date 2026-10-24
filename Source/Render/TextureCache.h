@@ -1,7 +1,9 @@
 #pragma once
 #include <bgfx/bgfx.h>
+#include <cstdint>
 #include <map>
 #include <string>
+#include <vector>
 
 namespace painful {
 
@@ -63,6 +65,11 @@ public:
 	// Pairs with Init(root, createWhite=false).
 	bool Measure(const std::string& reference, const std::string& levelHint,
 			int& w, int& h);
+
+	// The image decoded to RGBA8 on the CPU, top row first, mip 0 only: for
+	// art the engine rewrites texel by texel, the boss dial. No device needed.
+	bool DecodeRgba(const std::string& reference, std::vector<uint8_t>& rgba,
+			int& w, int& h) const;
 
 private:
 

@@ -92,7 +92,6 @@ trace.
 
 | | What is wrong |
 |---|---|
-| `HUD.DrawBossHealth` | stub, called every frame of every fight: no boss health bar |
 | Giant (`C1L5_Enclave`) | walks in place. Its AI enters `WALKING` with the walk animation and the body does not move, before and after the chain breaks. Cause unknown |
 | Swamp (`C2L6_Swamp`) | `MDL.UpdateWaterImpact` every frame and `ENTITY.PO_GetType` (Tier 1 tail) |
 | Lucifer (`C5L4_Hell`) | not exercised: the level starts the player outside the arena, so the harness needs a start position for this fight |

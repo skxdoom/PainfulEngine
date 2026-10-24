@@ -59,6 +59,8 @@ bool HudRenderer::Init(const std::string& shaderDir, const std::string& fontsRoo
 
 void HudRenderer::Shutdown() {
 	fonts_.Shutdown();
+	for (Mat& m : materials_)
+		if (m.owned && bgfx::isValid(m.texture)) bgfx::destroy(m.texture);
 	materials_.clear();
 	if (bgfx::isValid(program_)) { bgfx::destroy(program_); program_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(sDiffuse_)) { bgfx::destroy(sDiffuse_); sDiffuse_ = BGFX_INVALID_HANDLE; }
@@ -84,7 +86,10 @@ HudRenderer::Material HudRenderer::CreateMaterial(const std::string& name,
 	// big it is and scales from there, so this has to be the real size.
 	if (!textures.Size(name, m.w, m.h)) { m.w = 0; m.h = 0; }
 	m.used = true;
+	return AddMaterial(m);
+}
 
+HudRenderer::Material HudRenderer::AddMaterial(const Mat& m) {
 	for (size_t i = 0; i < materials_.size(); ++i) {
 		if (materials_[i].used) continue;
 		materials_[i] = m;
@@ -94,11 +99,38 @@ HudRenderer::Material HudRenderer::CreateMaterial(const std::string& name,
 	return Material(materials_.size());
 }
 
+HudRenderer::Material HudRenderer::CreateDynamicMaterial(int w, int h, const uint8_t* rgba) {
+	if (w <= 0 || h <= 0) return 0;
+	Mat m;
+	// No initial data, so bgfx keeps the texture updatable.
+	m.texture = bgfx::createTexture2D(uint16_t(w), uint16_t(h), false, 1,
+			bgfx::TextureFormat::RGBA8, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+	if (!bgfx::isValid(m.texture)) return 0;
+	m.w = w;
+	m.h = h;
+	m.used = true;
+	m.owned = true;
+	const Material handle = AddMaterial(m);
+	UpdateDynamicMaterial(handle, rgba);
+	return handle;
+}
+
+void HudRenderer::UpdateDynamicMaterial(Material handle, const uint8_t* rgba) {
+	if (handle <= 0 || size_t(handle) > materials_.size() || !rgba) return;
+	const Mat& m = materials_[size_t(handle) - 1];
+	if (!m.owned) return;
+	const uint32_t bytes = uint32_t(m.w) * uint32_t(m.h) * 4;
+	bgfx::updateTexture2D(m.texture, 0, 0, 0, 0, uint16_t(m.w), uint16_t(m.h),
+			bgfx::copy(rgba, bytes));
+}
+
 void HudRenderer::ReleaseMaterial(Material handle) {
 	if (handle <= 0 || size_t(handle) > materials_.size()) return;
-	// The texture belongs to the cache, which other things may still be
-	// drawing with; only the slot is given back.
-	materials_[size_t(handle) - 1] = Mat{};
+	// A cache texture may still be drawn by others; only the slot is given
+	// back. An owned one is ours alone.
+	Mat& m = materials_[size_t(handle) - 1];
+	if (m.owned && bgfx::isValid(m.texture)) bgfx::destroy(m.texture);
+	m = Mat{};
 }
 
 bool HudRenderer::MaterialSize(Material handle, int& w, int& h) const {
