@@ -420,9 +420,10 @@ inventory.
   actions ([`Physics.md`](Reference/Physics.md), "The scripted movers").
   `PLAYER.AttachToUnderBody`, the handcar's explicit attach, is still a stub.
 - **Collision groups.** `PO_SetCollisionGroup` applies the layer/motion rule
-  to a live body; the finer group pairs of the original's filter are still
-  not modelled ([`Physics.md`](Reference/Physics.md), "The player takes
-  hits").
+  to a live body, and FixedSpecial / OnlyWithFixedSpecial are modelled, which
+  is what lets the Giant walk its arena ([`Physics.md`](Reference/Physics.md),
+  "FixedSpecial (24) and OnlyWithFixedSpecial (25)"); the other group pairs of
+  the original's filter are still not ("The player takes hits").
 - **Ragdoll leftovers.** The `Spring` and `Dashpot` actions in the `.hke` are
   parsed but not simulated ([`Physics.md`](Reference/Physics.md), "The binary
   .hke"); `SetRagdollHardDeactivator` / `SetRagdollBreakablesThreshold` are

@@ -1697,6 +1697,46 @@ ray lands on; on a pebble, that threw the player.
 Missiles (5) are left as they were: the list disables 5 against the actors too,
 but the port detonates a grenade on a monster through that contact.
 
+### FixedSpecial (24) and OnlyWithFixedSpecial (25): the Giant's floor
+
+The list disables 25 against every group but 24. `PhysicsWorld::AddMesh`
+(`0x1019AA00`) picks a static map object's group from its name:
+
+| name contains | group |
+|---|---|
+| `barrier` | 22 (Barrier), or 27 (MonsterBarrier) when it also contains `monster` |
+| `water` | 7 (Noncolliding) |
+| `groundmesh` | 24 (FixedSpecial) |
+| anything else | 1 (Fixed) |
+
+Only one map ships a `groundmesh`: `1x05_Enclave`, the Giant's arena
+(`groundmesh_asashape`). `Giant:OnCreateEntity` puts its own body in 25, so the
+Giant stands on that floor and walks through everything else - the walls, the
+gravestones, the player (23 vs 25 is disabled too). The Swamp's `BubbleV2`
+items are created in 25 as well; their map has no 24, so they meet nothing.
+
+Before this the Giant walked in place. It sat in the ordinary moving layer,
+snagged on the arena's scenery, made under 30% of the distance its walk asked
+for, and `CActor:UpdateWalking` read that as an obstacle and stopped it - twice
+in a row and it goes idle. It never left its spawn point, chain or no chain.
+
+The port keeps the `groundmesh` triangles in the static world, where everything
+else meets them, and adds a static twin of them on `Layers::kFixedSpecial`. A
+body in 25 is moved to `Layers::kOnlyFixedSpecial`, and the two layers pair
+with each other and nothing else. `PO_SetCollisionGroup(25)` is honoured on a
+character body, though characters ignore every other group: it changes what
+the body meets and nothing about how it moves. Sweeps leave both layers out, so
+the player neither stands on the Giant nor shoves it; traces still land on it.
+`StandCharacterOnFloor` lifts a 25 body onto 24 only.
+
+Not modelled: in the original a `groundmesh` is 24 and not 1, so the groups 24
+is disabled against - 2, 6 (Ragdoll), 7, 22, 24, 27, 28 - pass through it. Here
+they meet it as world.
+
+`MonsterFloorCheck` (`0x1018FAA0`) still rays against the whole static world
+for the Giant: its ray carries no group of its own, so on a Havok group filter
+it would hit every group, and a ray only decides "on floor", it lifts nothing.
+
 ## Active meshes: world geometry that is a rigid body
 
 Implemented 2026-09-02. Sources: `WorldMesh::SetupFlags` 0x101D7050,

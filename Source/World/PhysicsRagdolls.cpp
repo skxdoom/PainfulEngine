@@ -965,10 +965,12 @@ void PhysicsWorld::CollectDebugLines(const Vec3& around, float radius,
 // What a trace can land on: everything that is solid to the world. The pusher
 // bodies are not - a trace that stopped on the pawn's own sphere reported a
 // world hit standing exactly where the player is.
+// Nor the group-24 twin: the static world answers for those triangles.
 class SolidLayerFilter final : public JPH::ObjectLayerFilter {
 public:
 	bool ShouldCollide(JPH::ObjectLayer layer) const override {
-		return layer != Layers::kNoCollide && layer != Layers::kProbe;
+		return layer != Layers::kNoCollide && layer != Layers::kProbe &&
+				layer != Layers::kFixedSpecial;
 	}
 };
 
@@ -1047,7 +1049,7 @@ bool PhysicsWorld::RayCast(const Vec3& from, const Vec3& to, RayHit& out,
 	// solid filter leaves out; the AI's trace wants it in.
 	struct WithPlayerLayerFilter final : JPH::ObjectLayerFilter {
 		bool ShouldCollide(JPH::ObjectLayer layer) const override {
-			return layer != Layers::kNoCollide;
+			return layer != Layers::kNoCollide && layer != Layers::kFixedSpecial;
 		}
 	};
 	const WithPlayerLayerFilter withPlayerLayer;

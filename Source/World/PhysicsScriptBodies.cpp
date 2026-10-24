@@ -142,7 +142,9 @@ int PhysicsWorld::CreateScriptBody(int bodyType, const std::string& modelName,
 			(projectile || fixedRigid) ? JPH::EMotionType::Kinematic
 			: JPH::EMotionType::Dynamic,
 			projectile ? Layers::kNoCollide
-			: (particle ? Layers::kParticle : (missile ? Layers::kMissile : Layers::kMoving)));
+			: (particle ? Layers::kParticle : (missile ? Layers::kMissile
+			: (collisionGroup == kOnlyWithFixedSpecialGroup ? Layers::kOnlyFixedSpecial
+			: Layers::kMoving))));
 	body.mMotionQuality = JPH::EMotionQuality::LinearCast;
 	// The contact material every script body is born with, and keeps: the
 	// sizer fills its hkpRigidBodyCinfo with restitution 0.9, both dampings 0,
@@ -708,7 +710,16 @@ void PhysicsWorld::SetScriptBodyPose(int slot, const Vec3& pos,
 void PhysicsWorld::SetScriptBodyCollisionGroup(int slot, int collisionGroup) {
 	if (!ScriptBodyExists(slot)) return;
 	Impl::ScriptBody& sb = impl_->scriptBodies[size_t(slot)];
-	if (!sb.inWorld || sb.character >= 0) return;
+	if (!sb.inWorld) return;
+	// OnlyWithFixedSpecial changes what the body meets and nothing about how it
+	// moves, so a character takes it too: the Giant.
+	if (collisionGroup == kOnlyWithFixedSpecialGroup) {
+		JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
+		bodies.SetObjectLayer(sb.body, Layers::kOnlyFixedSpecial);
+		bodies.ActivateBody(sb.body);
+		return;
+	}
+	if (sb.character >= 0) return;
 	// CreateScriptBody's rule: 7 driven and touching nothing, 1 kinematic,
 	// 5 a missile, 8 debris, anything else an ordinary dynamic body.
 	const bool projectile = collisionGroup == 7;
@@ -961,9 +972,12 @@ void PhysicsWorld::StandCharacterOnFloor(int slot, float maxLift, float minLift,
 	settings.mTreatConvexAsSolid = false;
 	// The lowest upward-facing hit in the span is the floor the body belongs
 	// on; the first hit from above may be a ceiling's underside or the top of
-	// a prop the head pokes through.
+	// a prop the head pokes through. Only a floor the body can meet: a
+	// group-25 body passes through the rest and must not be lifted onto it.
 	JPH::AllHitCollisionCollector<JPH::CastRayCollector> collector;
-	impl_->system.GetNarrowPhaseQuery().CastRay(ray, settings, collector, {}, kSweepLayer,
+	const bool special = bodies.GetObjectLayer(id) == Layers::kOnlyFixedSpecial;
+	impl_->system.GetNarrowPhaseQuery().CastRay(ray, settings, collector, {},
+			special ? static_cast<const JPH::ObjectLayerFilter&>(kFixedSpecialLayer) : kSweepLayer,
 			ignore);
 	// Only below the middle sphere's centre: walking cannot enter a surface
 	// higher than that, since the body stops against it, so a hit there is a

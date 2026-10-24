@@ -115,8 +115,18 @@ constexpr JPH::ObjectLayer kHitbox = 5;
 // simulated - ScriptContactListener::OnContactValidate draws that line.
 // Physics.md, "Collision groups".
 constexpr JPH::ObjectLayer kParticle = 6;
-constexpr JPH::ObjectLayer kCount = 7;
+// ECollisionGroups.FixedSpecial (24) and OnlyWithFixedSpecial (25): the
+// filter disables 25 against every group but 24. A map object named
+// "groundmesh" is 24 (PhysicsWorld::AddMesh, 0x1019AA00), and the Giant puts
+// itself in 25, so it walks its arena floor and through everything else.
+// kFixedSpecial is a static twin of those triangles, which the static world
+// keeps as well for everyone else. Physics.md, "Collision groups".
+constexpr JPH::ObjectLayer kFixedSpecial = 7;
+constexpr JPH::ObjectLayer kOnlyFixedSpecial = 8;
+constexpr JPH::ObjectLayer kCount = 9;
 } // namespace Layers
+
+constexpr int kOnlyWithFixedSpecialGroup = 25; // ECollisionGroups.OnlyWithFixedSpecial
 
 namespace BroadPhase {
 constexpr JPH::BroadPhaseLayer kNonMoving(0);
@@ -131,6 +141,10 @@ public:
 		// limb - it is there to be traced, not simulated.
 		if (a == Layers::kNoCollide || b == Layers::kNoCollide) return false;
 		if (a == Layers::kHitbox || b == Layers::kHitbox) return false;
+		// 25 meets 24 and nothing else; the 24 twin meets nothing else either.
+		const bool sa = a == Layers::kFixedSpecial || a == Layers::kOnlyFixedSpecial;
+		const bool sb = b == Layers::kFixedSpecial || b == Layers::kOnlyFixedSpecial;
+		if (sa || sb) return sa && sb && a != b;
 		// A probe only ever shoves the ordinary moving bodies.
 		if (a == Layers::kProbe || b == Layers::kProbe)
 			return (a == Layers::kMoving) != (b == Layers::kMoving) &&
@@ -154,7 +168,8 @@ public:
 	JPH::uint GetNumBroadPhaseLayers() const override { return BroadPhase::kCount; }
 
 	JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer layer) const override {
-		return layer == Layers::kNonMoving ? BroadPhase::kNonMoving : BroadPhase::kMoving;
+		return layer == Layers::kNonMoving || layer == Layers::kFixedSpecial ? BroadPhase::kNonMoving
+				: BroadPhase::kMoving;
 	}
 
 #if defined(JPH_EXTERNAL_PROFILE) || defined(JPH_PROFILE_ENABLED)
@@ -171,6 +186,7 @@ public:
 		// nothing in the broadphase either.
 		if (layer == Layers::kNoCollide || layer == Layers::kHitbox) return false;
 		if (layer == Layers::kProbe) return broad == BroadPhase::kMoving;
+		if (layer == Layers::kFixedSpecial) return broad == BroadPhase::kMoving;
 		return layer != Layers::kNonMoving || broad == BroadPhase::kMoving;
 	}
 };
@@ -240,12 +256,22 @@ public:
 		// Missiles too: group 5 is disabled against the player body (23) and
 		// the actors (4) in the Havok filter (colgroup3.log), so nothing that
 		// walks stands on a grenade. Physics.md, "Collision groups".
+		// Nor group 25, which nothing but 24 meets, nor 24's twin of world
+		// triangles the static body already answers for.
 		return layer != Layers::kNoCollide && layer != Layers::kProbe &&
 				layer != Layers::kHitbox && layer != Layers::kMissile &&
-				layer != Layers::kParticle;
+				layer != Layers::kParticle && layer != Layers::kFixedSpecial &&
+				layer != Layers::kOnlyFixedSpecial;
 	}
 };
 const SweepLayerFilter kSweepLayer;
+
+// What a group-25 body stands on: group 24 alone.
+class FixedSpecialLayerFilter final : public JPH::ObjectLayerFilter {
+public:
+	bool ShouldCollide(JPH::ObjectLayer layer) const override { return layer == Layers::kFixedSpecial; }
+};
+const FixedSpecialLayerFilter kFixedSpecialLayer;
 
 inline void TraceToLog(const char* format, ...) {
 	char buffer[1024];
@@ -681,6 +707,7 @@ struct PhysicsWorld::Impl {
 	ScriptContactListener contacts;
 
 	JPH::BodyID worldBody;
+	JPH::BodyID fixedSpecialBody; // the "groundmesh" twin, Layers::kFixedSpecial
 	size_t worldTriangles = 0;
 	float accumulator = 0.f;
 

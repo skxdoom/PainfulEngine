@@ -103,6 +103,7 @@ std::string PhysicsWorld::NameOfBody(uint32_t index) const {
 	for (const Impl::Prop& prop : impl_->props)
 		if (prop.body.GetIndex() == index) return "prop, map object " + std::to_string(prop.entity);
 	if (impl_->worldBody.GetIndex() == index) return "the world";
+	if (impl_->fixedSpecialBody.GetIndex() == index) return "the groundmesh twin";
 	if (impl_->probe.GetIndex() == index) return "the camera probe";
 	if (impl_->pawnProbe.GetIndex() == index) return "the pawn probe";
 	return "body " + std::to_string(index);
@@ -136,6 +137,7 @@ void PhysicsWorld::Clear() {
 		bodies.DestroyBody(id);
 	}
 	impl_->worldBody = JPH::BodyID();
+	impl_->fixedSpecialBody = JPH::BodyID();
 	impl_->probe = JPH::BodyID();
 	impl_->pawnProbe = JPH::BodyID();
 	impl_->worldTriangles = 0;
@@ -320,24 +322,17 @@ bool PhysicsWorld::BuildStaticWorld(const MapMesh& map, float worldScale,
 	// Triangles are built in rendered space - raw mesh coordinates times the
 	// level o.Scale - which is the space entity positions and the camera live
 	// in.
-	JPH::VertexList vertices;
-	JPH::IndexedTriangleList triangles;
-
-	for (size_t objectIndex = 0; objectIndex < map.objects.size(); ++objectIndex) {
-		const MapObject& o = map.objects[objectIndex];
-		if (!o.isCollidable()) continue;
-		// CreateActiveMeshBody's, and CreateStaticTwinBody's: a destructible's
-		// intact twin is its own static body, so its release can remove it.
-		// A glass pane goes the same way, so breaking one can take it out.
-		if (promoteActiveMeshes && (o.isActiveMesh() || o.isStaticTwin() || o.isGlass()))
-			continue;
-		const JPH::uint32 base = static_cast<JPH::uint32>(vertices.size());
+	JPH::VertexList vertices, specialVertices;
+	JPH::IndexedTriangleList triangles, specialTriangles;
+	auto append = [&](const MapObject& o, size_t objectIndex, JPH::VertexList& verts,
+			JPH::IndexedTriangleList& tris) {
+		const JPH::uint32 base = static_cast<JPH::uint32>(verts.size());
 		for (size_t v = 0; v < o.vertexCount(); ++v) {
 			Vec3 p, w;
 			o.position(v, p);
 			// Identity for a .mpk, as the original leaves it (Mpk.h); a pack object has one.
 			w = o.transform.TransformPoint(p);
-			vertices.push_back(JPH::Float3(w[0] * worldScale, w[1] * worldScale,
+			verts.push_back(JPH::Float3(w[0] * worldScale, w[1] * worldScale,
 					w[2] * worldScale));
 		}
 		for (size_t t = 0; t + 2 < o.indices.size(); t += 3) {
@@ -351,9 +346,21 @@ bool PhysicsWorld::BuildStaticWorld(const MapMesh& map, float worldScale,
 			// to collide with back faces - still hit it.
 			// The object index rides along as the triangle's user data, so a
 			// trace can say which .mpk object it hit (RayHit::worldObject).
-			triangles.push_back(JPH::IndexedTriangle(base + a, base + c, base + b, 0,
+			tris.push_back(JPH::IndexedTriangle(base + a, base + c, base + b, 0,
 					JPH::uint32(objectIndex)));
 		}
+	};
+
+	for (size_t objectIndex = 0; objectIndex < map.objects.size(); ++objectIndex) {
+		const MapObject& o = map.objects[objectIndex];
+		if (!o.isCollidable()) continue;
+		// CreateActiveMeshBody's, and CreateStaticTwinBody's: a destructible's
+		// intact twin is its own static body, so its release can remove it.
+		// A glass pane goes the same way, so breaking one can take it out.
+		if (promoteActiveMeshes && (o.isActiveMesh() || o.isStaticTwin() || o.isGlass()))
+			continue;
+		append(o, objectIndex, vertices, triangles);
+		if (o.nameHas("groundmesh")) append(o, objectIndex, specialVertices, specialTriangles);
 	}
 
 	if (triangles.empty()) {
@@ -382,6 +389,22 @@ bool PhysicsWorld::BuildStaticWorld(const MapMesh& map, float worldScale,
 	JPH::BodyInterface& bodies = impl_->system.GetBodyInterface();
 	impl_->worldBody = bodies.CreateAndAddBody(body, JPH::EActivation::DontActivate);
 	impl_->worldTriangles = meshSettings.mIndexedTriangles.size();
+
+	if (!specialTriangles.empty()) {
+		JPH::MeshShapeSettings special(std::move(specialVertices), std::move(specialTriangles));
+		special.mPerTriangleUserData = true;
+		special.Sanitize();
+		special.SetEmbedded();
+		JPH::ShapeSettings::ShapeResult specialShape = special.Create();
+		if (!PAINFUL_CHECK(!specialShape.HasError(), "physics: groundmesh shape failed: %s",
+				specialShape.HasError() ? specialShape.GetError().c_str() : ""))
+			return true;
+		JPH::BodyCreationSettings twin(specialShape.Get(), JPH::RVec3::sZero(),
+				JPH::Quat::sIdentity(), JPH::EMotionType::Static, Layers::kFixedSpecial);
+		twin.mFriction = settings_.meshFriction;
+		twin.mRestitution = settings_.meshRestitution;
+		impl_->fixedSpecialBody = bodies.CreateAndAddBody(twin, JPH::EActivation::DontActivate);
+	}
 	return true;
 }
 
