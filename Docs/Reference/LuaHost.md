@@ -231,6 +231,7 @@ rather than as placeholders, so the report loses the noise and not the signal:
 | `PLAYER.GetMPByte(e)` | `0x10139120` pushes the byte, and **0** when there is no body | the stored byte, 0 by default |
 | `ENTITY.EnableNetworkSynchronization(e, on = true, b = false, a4 = 0, a5 = 255, a6 = 0)` | `0x1012f880` → `Entity::SetSynchroState(flags, a4, a5, a6)` with `flags = on ? (b ? 8 : 0) + 1 : 0`, and `(0, 0, 255, 0)` when off | validates the handle and returns |
 | `ENTITY.SetSynchroString(e, s)` / `GetSynchroString(e)` | `0x1012f980` / `0x1012fa20`, `Entity+0x630`, `""` when unset | stored, and answered |
+| `ENTITY.PO_SetMissile(e, ...)` | `0x10136a60` acts only when `GEngine+0xdc`, the network device, exists ([Physics.md](Physics.md), "Projectiles") | nothing, the single game's answer |
 
 Two of them are not free no-ops:
 

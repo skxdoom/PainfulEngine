@@ -946,6 +946,9 @@ const ModuleImpl kModuleImpls[] = {
 	// NET.IsPlayingRecording pushes a constant false in the shipped binary too
 	// (0x10121db0), so this matches rather than approximates it.
 	{"NET", "IsPlayingRecording", L_False},
+	// ENTITY.PO_SetMissile (0x10136a60) acts only with a network device, which
+	// a single game never has: here it does what the original does there.
+	{"ENTITY", "PO_SetMissile", L_NoOp},
 	// Same "missing" convention as SetAnim: joints resolve once skeletal
 	// animation lands, and the scripts handle -1 as "no such joint".
 	// 0 = "not animating", which skips the animation-event loop cleanly.
