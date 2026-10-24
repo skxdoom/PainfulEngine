@@ -116,7 +116,7 @@ including how to test a reading properly).
 | Native(s) | Live sites | What is missing |
 |---|---|---|
 | `CAM.LookAt` (6), `SetAdditionalRotation` (2), `EnableInterpolation` (2), `UpdateViewport` (2), `SetTransform`, `SetAngRad` | 14 | scripted camera moves |
-| `WORLD.EnableGhostsFX` (5), `MDL.SetBlendAlpha` (5) | 10 | level set pieces: C5L4's ghosts, the Stone Golem and Thor's hammer fading in |
+| `WORLD.EnableGhostsFX` (5), `MDL.SetBlendAlpha` (5) | 10 | level set pieces: C5L4's ghosts, the Stone Golem and Thor's hammer fading in. The ghosts are `World+0x6bb`, which sends `View::Render` to `RenderGhostFXWorld` (`0x100B5960`): one class of render objects into `World+0x18b4`, `ComposeTextures` with last frame's, the world, then `hud_add` over it. Its 150 KB stack frame defeats the decompiler, so which objects and which weights need the disassembly |
 | `INP.RemoveAction` | 5 | consuming a game action so it does not repeat while the key is held — the UI twin is in |
 | `MDL.SetHeadTrackRot`, `GetAnim` | 2 | small model queries |
 
@@ -138,8 +138,6 @@ Ranked by calls per 900 combat frames:
   The boxes themselves already light and fog
   ([`Lighting.md`](Reference/Lighting.md), "Environment boxes"); these are the
   script-side writes to them.
-- **`WORLD.SetRenderTarget`** (176 in this run) — the full-screen frame blend
-  `TPlayerHit` runs on every hit, which is why the count follows the fight.
 - **Visibility switching** — `WORLD.UseSwitchZones`, `EnablePortal`, the
   antiportal family, `EnableOcclude`. Correctness of what is drawn, and the
   frame cost of drawing it.

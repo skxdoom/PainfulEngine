@@ -495,7 +495,8 @@ inventory.
 - Post-processing: bloom is in ([`Bloom.md`](Reference/Bloom.md) - the
   original's threshold, kernel and gains, at the screen's own resolution
   instead of a 512x512 point-sampled copy), and an optional SSAO the original
-  never had ([`Lighting.md`](Reference/Lighting.md)). No motion blur.
+  never had ([`Lighting.md`](Reference/Lighting.md)). A close-combat hit
+  echoes the last three frames ([`FrameCompose.md`](Reference/FrameCompose.md)).
 - Mode 96 (`Pf.Mode96`, console `pfmode96`): a 1996 look - point-filtered
   textures, one mip level, quantised albedo, no post, no shadows, no specular
   ([`Mode96.md`](Reference/Mode96.md)). Off by default and renderer-only.

@@ -29,6 +29,7 @@
 #include "Render/VolumeRenderer.h"
 #include "Render/DebugLines.h"
 #include "Render/DemonFx.h"
+#include "Render/FrameCompose.h"
 #include "Render/SceneTargets.h"
 #include "Render/WaterReflection.h"
 #include "Render/EnvCubeMap.h"
@@ -469,6 +470,11 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	// while it is on, as View::Render's branches do. PAINFUL_DEMONFX=0 off.
 	DemonFx demonFx;
 	const bool demonInit = sceneInit && demonFx.Init(shaderDir, textures);
+	// WORLD.SetRenderTarget's frame, TPlayerHit's blur: also in place of the
+	// bloom, and under Demon Morph. PAINFUL_COMPOSE=0 off.
+	FrameCompose compose;
+	const bool composeInit = sceneInit && compose.Init(shaderDir);
+	bool composeThisFrame = false;
 
 	// painful_config.ini, applied: at boot, and again on the frame after the
 	// console's `pf` changed a value. Maps are rebuilt only when their size
@@ -1375,8 +1381,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			// bloom one. Docs/Reference/DemonFx.md.
 			const bool demonOn = demonInit && worldReady && ws.demonFx &&
 					DebugInt("PAINFUL_DEMONFX", 1) > 0;
-			const bool bloomOn = !mode96 && !demonOn && bloomInit && worldReady && ws.bloom &&
-					ws.bloomMultiplier > 0.f && (ws.bloomOverlay & 0xffffff) != 0 &&
+			composeThisFrame = composeInit && worldReady && !demonOn && ws.renderTarget > 0 &&
+					DebugInt("PAINFUL_COMPOSE", 1) > 0;
+			const bool bloomOn = !mode96 && !demonOn && !composeThisFrame && bloomInit &&
+					worldReady && ws.bloom && ws.bloomMultiplier > 0.f && (ws.bloomOverlay & 0xffffff) != 0 &&
 					DebugInt("PAINFUL_BLOOM", 1) > 0;
 			// The scene goes to its target whenever either pass wants it.
 			sceneTargets.SetMsaa(renderer.msaaSamples());
@@ -1388,7 +1396,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			// Not under wireframe: bgfx's flag reaches the fullscreen present too, which
 			// then draws only its edges and leaves the backbuffer uncleared (a frozen frame).
 			sceneTargets.BeginFrame(window.width(), window.height(),
-					(bloomOn || demonOn || warpOn || ssaoOn || volumesThisFrame) && !wireframe,
+					(bloomOn || demonOn || composeThisFrame || warpOn || ssaoOn || volumesThisFrame) &&
+							!wireframe,
 					Renderer::kSkyView, Renderer::kWorldView);
 			bloom.SetParams(ws.bloomThreshold, ws.bloomMultiplier, ws.bloomOverlay);
 			bloomThisFrame = bloomOn;
@@ -1612,8 +1621,13 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 					Renderer::kBloomBlurVView, Renderer::kCompositeView);
 		else
 			bloom.Skip();
+		// Or WORLD.SetRenderTarget's weighted frames.
+		const ScriptEngine::WorldState& cws = engine.world();
+		const bool composed = composeThisFrame && compose.Draw(sceneTargets, cws.renderTarget,
+				cws.composeTex, cws.composeWeight, cws.composeCount, Renderer::kComposeCopyView,
+				Renderer::kComposeView);
 		// Targets on for the warp alone: the scene still has to reach the backbuffer.
-		if (sceneTargets.active() && !bloomThisFrame && !demonFx.active())
+		if (sceneTargets.active() && !bloomThisFrame && !demonFx.active() && !composed)
 			sceneTargets.Present(Renderer::kCompositeView);
 		// Or, in Demon Morph: black and white, the glow, the warp, the trail.
 		demonFx.Draw(sceneTargets, Renderer::kDemonGrayView, Renderer::kDemonWarpView,

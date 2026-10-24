@@ -512,6 +512,13 @@ public:
 		bool demonFx = false, superDemonFx = false;
 		float demonScale = 1.f, demonBias = 0.f, demonKeep = 0.3f, demonMBlur = 0.7f;
 		float demonWarp = 0.f;
+		// WORLD.SetRenderTarget: the texture this frame goes into (1..3, 0 for
+		// none) and the weighted list the screen shows (View+0xa864..).
+		// Docs/Reference/FrameCompose.md.
+		int renderTarget = 0;
+		int composeCount = 0;
+		int composeTex[3] = {0, 0, 0};
+		float composeWeight[3] = {0.f, 0.f, 0.f};
 		std::string detailTex;
 		float detailTileU = 8.2f, detailTileV = 7.1f;
 

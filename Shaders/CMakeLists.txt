@@ -49,6 +49,7 @@ set(SHADER_NAMES
 		vs_hud fs_hud
 		vs_post fs_bloom_bright fs_bloom_blur fs_bloom_composite
 		fs_demon_gray fs_demon_warp fs_demon_entity fs_post_copy
+		fs_compose
 		vs_water fs_water fs_entity_water
 		fs_ssao fs_ssao_ms fs_ssao_blur fs_ssao_apply
 		fs_decal_fog

@@ -21,6 +21,7 @@ add_library(Render STATIC
 		HudRenderer.cpp HudRenderer.h
 		Bloom.cpp Bloom.h
 		DemonFx.cpp DemonFx.h
+		FrameCompose.cpp FrameCompose.h
 		FullScreenPass.h
 		SceneTargets.cpp SceneTargets.h
 		WaterReflection.cpp WaterReflection.h

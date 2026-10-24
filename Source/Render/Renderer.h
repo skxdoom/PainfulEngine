@@ -72,8 +72,12 @@ public:
 	static constexpr bgfx::ViewId kDemonEntityView = 114;
 	static constexpr bgfx::ViewId kDemonWarpView = 115;
 	static constexpr bgfx::ViewId kDemonCopyView = 116;
+	// WORLD.SetRenderTarget (Render/FrameCompose.h): this frame into its
+	// texture, then the weighted sum onto the backbuffer.
+	static constexpr bgfx::ViewId kComposeCopyView = 117;
+	static constexpr bgfx::ViewId kComposeView = 118;
 	// The 2D layer, drawn over everything: no depth, in submission order.
-	static constexpr bgfx::ViewId kHudView = 117;
+	static constexpr bgfx::ViewId kHudView = 119;
 
 	// A view's transform and rect from the camera, the way WorldRenderer::Draw
 	// sets the world view's - for a view that draws with the same eye later.

@@ -32,6 +32,7 @@ struct WorldNatives : ScriptNativesBase {
 	static int L_WORLD_SetupFog(lua_State* L);
 	static int L_WORLD_BloomFXParams(lua_State* L);
 	static int L_WORLD_EnableDemonFX(lua_State* L);
+	static int L_WORLD_SetRenderTarget(lua_State* L);
 	static int L_WORLD_EnableSuperDemonFX(lua_State* L);
 	static int L_WORLD_DemonFXParams(lua_State* L);
 	static int L_WORLD_DemonFXWarp(lua_State* L);
@@ -753,6 +754,23 @@ int WorldNatives::L_WORLD_BloomFXParams(lua_State* L) {
 	return 0;
 }
 
+// WORLD.SetRenderTarget(target, n, tex1, w1, ...) - 0x10120580. A target
+// outside 1..3 turns it off; the view holds three (texture, weight) pairs.
+int WorldNatives::L_WORLD_SetRenderTarget(lua_State* L) {
+	ScriptEngine::WorldState& ws = From(L)->world_;
+	const int target = int(luaL_optnumber(L, 1, 0));
+	ws.renderTarget = target >= 1 && target <= 3 ? target : 0;
+	ws.composeCount = 0;
+	if (!ws.renderTarget) return 0;
+	const int count = std::min(int(luaL_optnumber(L, 2, 0)), 3);
+	for (int i = 0; i < count; ++i) {
+		ws.composeTex[i] = int(luaL_optnumber(L, 3 + i * 2, 0));
+		ws.composeWeight[i] = float(luaL_optnumber(L, 4 + i * 2, 0));
+	}
+	ws.composeCount = std::max(count, 0);
+	return 0;
+}
+
 // Demon Morph. WORLD.EnableDemonFX(on) is World+0x6dc (0x10120720), the
 // gate of View::RenderDemonFXWorld; EnableSuperDemonFX(on) is +0x6dd
 // (0x101207A0), which no shipped script sets. DemonFx.md.
@@ -1144,6 +1162,7 @@ void BindWorld(ScriptEngine& engine, LuaHost& host) {
 		{"WORLD", "SetupFog", WorldNatives::L_WORLD_SetupFog},
 		{"WORLD", "BloomFXParams", WorldNatives::L_WORLD_BloomFXParams},
 		{"WORLD", "EnableDemonFX", WorldNatives::L_WORLD_EnableDemonFX},
+		{"WORLD", "SetRenderTarget", WorldNatives::L_WORLD_SetRenderTarget},
 		{"WORLD", "EnableSuperDemonFX", WorldNatives::L_WORLD_EnableSuperDemonFX},
 		{"WORLD", "DemonFXParams", WorldNatives::L_WORLD_DemonFXParams},
 		{"WORLD", "DemonFXWarp", WorldNatives::L_WORLD_DemonFXWarp},
