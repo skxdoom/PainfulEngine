@@ -21,7 +21,8 @@ Tested only for the Steam version of **Painkiller: Black Edition** 1.64.
 - Added Screen Space Ambient Occlusion
 - Higher-resolution post-process effects and water reflections
 - Loads original save files
-- Minor bug fixes where the original had them
+- Fixes where the original was broken, such as the hit blur that dropped the
+  picture to 20-30 fps
 
 ## Building
 

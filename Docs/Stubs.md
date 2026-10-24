@@ -7,23 +7,23 @@ from here — its rules live in [`Reference/`](Reference).
 
 ## The headline
 
-Census of 2026-09-21. Module natives only; the 50 globals in the surface are
-not counted.
+Census of 2026-10-24 (0.7). Module natives only; the 50 globals in the
+surface are not counted.
 
 | | |
 |---|---|
 | Module natives in the generated surface (`NativeList.inc`) | 791 |
-| Implemented | 498 |
-| Stubs | 293 |
+| Implemented | 519 |
+| Stubs | 272 |
 | Natives the shipped scripts reference from live code | 674 |
-| ...implemented | 479 |
-| ...still stubs | 195 |
-| ...stubs after removing `NET` / `MPSTATS` / `GAMESPY` / `PMENU` | **119** |
+| ...implemented | 499 |
+| ...still stubs | 175 |
+| ...stubs after removing `NET` / `MPSTATS` / `GAMESPY` / `PMENU` | **99** |
 
-A combat run now hits **29 distinct / 670 calls** in 900 frames (the first
+A combat run now hits **25 distinct / 501 calls** in 900 frames (the first
 census read 72 / 9,977), and almost all of what is left is presentation.
 
-**Of those 119, a third are not game code at all.** Sorting the remainder by
+**Of those 99, a good share are not game code at all.** Sorting the remainder by
 where it is *called from* rather than by how many call sites it has moved a
 lot of weight out of the queue:
 
