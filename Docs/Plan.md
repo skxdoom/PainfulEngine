@@ -89,8 +89,14 @@ feel is off.
     root motion out, crossing the arena. The distance is the animation's.
   - The Swamp's water ripples (`MDL.SetWaterImpact`) have not been seen on
     screen ([`Water.md`](Reference/Water.md), "Impact ripples").
-  - The Swamp and Lucifer ignore plain damage in the harness, which reads as
-    their own mechanics (stones, the Demon Morph) but has not been played.
+  - The Swamp ignores plain damage in the harness, which reads as its own
+    mechanic (the stones) but has not been played. Lucifer's sword loop is
+    checked headlessly: a stone's hit (101, given directly) takes him to 99
+    and puts him in `_ABdo`, he throws his sword, the sword struck with a
+    Demon attack flies back, kills him and stays in the limb it hit.
+    Untouched, he heals to full when the throw ends (`attackLucifer`), the
+    script's rule. Not exercised: a stone's own flight back, which the
+    camera aims.
 
 - **The coaster kills its rider.** `PLoonyPark` explodes
   `WORLD.Explosion2(.., 2000, 2.2, nil, Rocket, 2000)` 1.05 ahead of the

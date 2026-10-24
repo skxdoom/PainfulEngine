@@ -1168,12 +1168,18 @@ Apoc_zombie_V2 and `PBindJointToJoint.CProcess`.
 | `MDL.CopyMatrixFromJointToJoint(src, j, dst, k)` | `0x1012C930` → `Ragdoll::Joint_SetMatrix` | `dst`'s limb `k` to `src`'s joint `j`, position and rotation |
 
 `Joint_SetMatrix` (`FUN_101ABFF0`) and `Joint_SetPosition` (`FUN_101AE590`)
-share one body: the limb's own offset times the given matrix (a translation
-alone for the position) handed to the Havok body as its transform. The port
-places a limb by position and rotation, as `ApplyPositionToJoint` and
-`ApplyRotationToJoint` do. `PBindJointToJoint` with `CopyWholeMatrix` copies
-every tick: it is how Lucifer's sword, thrown back into him, stays in the limb
-it struck (`LuciferSword.CItem`).
+share one body: the part's matrix at `+0x44` times the given matrix (a
+translation alone for the position) handed to the Havok body as its
+transform. That matrix is the body relative to its bone, so the BONE lands on
+the given transform, not the body's centre. `CopyMatrixFromJointToJoint` does
+the same through the port's `RagdollOffsets` (body = Off * bone). For
+Lucifer's sword the difference is the length of the blade: its one body sits
+mid-blade, its bone (`joint85`) at the hilt. `PBindJointToJoint` with
+`CopyWholeMatrix` copies every tick: it is how the sword, thrown back into
+Lucifer, stays in the limb it struck (`LuciferSword.CItem`).
+`ApplyPositionToJoint` and `ApplyRotationToJoint` still place the body itself;
+on the short limbs they hold the offset is small, and they are left until a
+case shows it.
 
 **`ApplyRotationToJoint` takes either form, and decides on the argument count.**
 The thunk asks `FUN_10147B00(script, 6)` whether a sixth argument exists: with

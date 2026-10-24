@@ -1222,10 +1222,10 @@ int DeathNatives::L_MDL_ApplyRotationToJoint(lua_State* L) {
 }
 
 // MDL.CopyMatrixFromJointToJoint(src, srcJoint, dst, dstJoint) - 0x1012C930:
-// the source joint's world transform onto the destination's limb
-// (Ragdoll::Joint_SetMatrix), placed as the two natives above place one.
-// PBindJointToJoint's CopyWholeMatrix: Lucifer's sword stays in the limb it
-// struck. Physics.md, "Holding a body by one joint"
+// Ragdoll::Joint_SetMatrix gives the limb's body its offset times the source
+// joint's world transform (FUN_101ABFF0, the part's matrix at +0x44), so the
+// limb's BONE lands on the joint. PBindJointToJoint's CopyWholeMatrix: Lucifer's
+// sword stays in the limb it struck. Physics.md, "Holding a body by one joint"
 int DeathNatives::L_MDL_CopyMatrixFromJointToJoint(lua_State* L) {
 	ScriptEngine* self = From(L);
 	Entity* src = self->Find(HandleArg(L, 1));
@@ -1238,8 +1238,27 @@ int DeathNatives::L_MDL_CopyMatrixFromJointToJoint(lua_State* L) {
 	Quat rot;
 	if (!self->JointToWorld(*src, joint, Vec3(), pos) || !self->JointWorldRotation(*src, joint, rot))
 		return 0;
-	self->physics_->SetRagdollPartPosition(dst->ragdollSlot, part, pos);
-	self->physics_->SetRagdollPartRotation(dst->ragdollSlot, part, rot);
+	// Body = Off * bone (RagdollOffsets): Off's translation is in the bone's
+	// frame in the destination's model units, and its turn applies first.
+	Vec3 bodyPos = pos;
+	Quat bodyRot = rot;
+	const SkeletonCache::Entry* skel = self->skeletons_.Get(dst->source);
+	const Hke* def = self->RagdollDef(dst->source);
+	if (skel && def) {
+		const std::vector<Mat4>& offsets = self->RagdollOffsets(dst->source,
+				self->physics_->RagdollBones(dst->ragdollSlot), *def, *skel);
+		if (size_t(part) < offsets.size()) {
+			Mat4 off = offsets[size_t(part)];
+			MakeRigid(off);
+			float rot9[9];
+			for (int r = 0; r < 3; ++r)
+				for (int c = 0; c < 3; ++c) rot9[r * 3 + c] = off.m[r * 4 + c];
+			bodyPos = pos + rot.Rotate(Vec3(off.m[12], off.m[13], off.m[14]) * dst->scale);
+			bodyRot = EngineRot9ToQuat(rot9) * rot;
+		}
+	}
+	self->physics_->SetRagdollPartPosition(dst->ragdollSlot, part, bodyPos);
+	self->physics_->SetRagdollPartRotation(dst->ragdollSlot, part, bodyRot);
 	return 0;
 }
 
