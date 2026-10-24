@@ -40,6 +40,7 @@ struct DeathNatives : ScriptNativesBase {
 	static int L_MDL_GetRagdollCollisionGroup(lua_State* L);
 	static int L_MDL_ApplyPositionToJoint(lua_State* L);
 	static int L_MDL_ApplyRotationToJoint(lua_State* L);
+	static int L_MDL_CopyMatrixFromJointToJoint(lua_State* L);
 	static int L_MDL_MoveAllJoints(lua_State* L);
 	static int L_MDL_SetPinned(lua_State* L);
 	static int L_MDL_IsPinned(lua_State* L);
@@ -1220,6 +1221,28 @@ int DeathNatives::L_MDL_ApplyRotationToJoint(lua_State* L) {
 	return 0;
 }
 
+// MDL.CopyMatrixFromJointToJoint(src, srcJoint, dst, dstJoint) - 0x1012C930:
+// the source joint's world transform onto the destination's limb
+// (Ragdoll::Joint_SetMatrix), placed as the two natives above place one.
+// PBindJointToJoint's CopyWholeMatrix: Lucifer's sword stays in the limb it
+// struck. Physics.md, "Holding a body by one joint"
+int DeathNatives::L_MDL_CopyMatrixFromJointToJoint(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* src = self->Find(HandleArg(L, 1));
+	Entity* dst = self->Find(HandleArg(L, 3));
+	if (!src || !dst || !self->physics_) return 0;
+	const int part = self->RagdollPartOfJoint(*dst, int(luaL_optnumber(L, 4, 0)));
+	if (part < 0) return 0;
+	const int joint = int(luaL_optnumber(L, 2, 0));
+	Vec3 pos;
+	Quat rot;
+	if (!self->JointToWorld(*src, joint, Vec3(), pos) || !self->JointWorldRotation(*src, joint, rot))
+		return 0;
+	self->physics_->SetRagdollPartPosition(dst->ragdollSlot, part, pos);
+	self->physics_->SetRagdollPartRotation(dst->ragdollSlot, part, rot);
+	return 0;
+}
+
 // MDL.MoveAllJoints(e, x, y, z) -> Ragdoll::Move: the whole corpse by an offset.
 int DeathNatives::L_MDL_MoveAllJoints(lua_State* L) {
 	ScriptEngine* self = From(L);
@@ -1383,6 +1406,7 @@ void BindDeath(ScriptEngine& engine, LuaHost& host) {
 		{"MDL", "ApplyPositionToJoint", DeathNatives::L_MDL_ApplyPositionToJoint},
 		{"MDL", "SetJointPositionLowLevel", DeathNatives::L_MDL_ApplyPositionToJoint},
 		{"MDL", "ApplyRotationToJoint", DeathNatives::L_MDL_ApplyRotationToJoint},
+		{"MDL", "CopyMatrixFromJointToJoint", DeathNatives::L_MDL_CopyMatrixFromJointToJoint},
 		{"MDL", "MoveAllJoints", DeathNatives::L_MDL_MoveAllJoints},
 		{"MDL", "SetPinned", DeathNatives::L_MDL_SetPinned},
 		{"MDL", "IsPinned", DeathNatives::L_MDL_IsPinned},
