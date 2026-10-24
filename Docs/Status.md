@@ -5,9 +5,10 @@ the detail, with the authority for each rule named where one exists.
 
 ## Version
 
-`Source/Core/Version.h` is the one place it is set — two numbers and a stage.
-Bumping it is editing that header and the README line; nothing else carries a
-copy, and the `.rc` files include the same header behind `RC_INVOKED`.
+`Source/Core/Version.h` is the one place it is set — two numbers and a stage,
+0.7 alpha today. Bumping it is editing that header; nothing else carries a
+copy, the `.rc` files include the same header behind `RC_INVOKED`, and the CI
+reads it for the package names and checks a `v*` tag against it.
 
 Not to be confused with the version the **scripts** ask about:
 `GetEngineVersionString` must keep answering exactly `"1.4"` or `Game:Init`

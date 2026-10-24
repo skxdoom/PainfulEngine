@@ -13,7 +13,7 @@
 // include this too - rc.exe runs the same preprocessor but cannot read C++,
 // which is what RC_INVOKED guards below.
 #define PAINFUL_VERSION_MAJOR 0
-#define PAINFUL_VERSION_MINOR 6
+#define PAINFUL_VERSION_MINOR 7
 #define PAINFUL_VERSION_STAGE "alpha"
 
 #define PAINFUL_STRINGIFY2(x) #x
@@ -25,7 +25,7 @@
 // version in it.
 #define PAINFUL_APP_NAME "Painful Engine"
 
-// The log header and anywhere else diagnosing a build: "Painful Engine 0.5
+// The log header and anywhere else diagnosing a build: "Painful Engine 0.7
 // alpha". A log is read after the fact and has to say which build wrote it,
 // which is exactly what the window leaves off.
 #define PAINFUL_BUILD_ID PAINFUL_APP_NAME " " PAINFUL_VERSION " " PAINFUL_VERSION_STAGE
