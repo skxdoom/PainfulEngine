@@ -98,16 +98,15 @@ feel is off.
     script's rule. Not exercised: a stone's own flight back, which the
     camera aims.
 
-- **The coaster kills its rider.** `PLoonyPark` explodes
-  `WORLD.Explosion2(.., 2000, 2.2, nil, Rocket, 2000)` 1.05 ahead of the
-  cart's joint every tick, and the port's rider, 1.05 from it, dies on the
-  first. Ruled out: a ride guard in `CPlayer:OnDamage`, a group filter in the
-  collector, the player's body being off the explosion list (`PO_Enable`
-  puts it on), and the offset being world units (the shotgun and the Giant
-  say model units). Next: whether `PhysicsObject::SetPosition` leaves the
-  player's Havok body behind its controller, so the blast measures a body
-  that is not in the cart. [`PlayerMovement.md`](Reference/PlayerMovement.md),
-  "The coaster".
+- **Joint-bound effects take world units in the original.**
+  `ParticleEffect::Tick` (`0x101E59A0`) places an effect bound to a joint
+  through `Model::GetJointTransform`, which is rigid, so a
+  `PARTICLE.SetParentOffset` offset is in world units
+  ([`Animation.md`](Reference/Animation.md), "Joint offsets are world
+  units"). The port still scales it by the model. Switching it moved the
+  shotgun's smoke out in front of the barrel and showed a long dark streak in
+  a shot taken just after firing that was not explained, so it waits on a
+  look in play.
 
 - The ~11 small unidentified `luaL_reg` tables (1–8 functions each) in
   `PainfulEngineHelpers/Engine_LuaAPI.md` — worth naming to complete the module map.

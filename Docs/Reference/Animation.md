@@ -159,27 +159,43 @@ joint rotation moves:
   apply it in the parent's frame and move bone 5 too, swinging the head off
   the neck.
 
-### Joint offsets are model units
+### Joint offsets are world units
+
+A model's scale never reaches its world matrix. `ENTITY.Create(Model, name,
+tag, scale)` (`0x1011DC00`) hands the scale to `World::CreateEntity`, which
+passes it to `Model::Load` (`0x101E1BA0`) and on to the mesh cache, keyed by
+name and scale (`FUN_1001B450`); `Model::SetScale` is empty, so the matrix
+`Entity::UpdateTransform` builds from `+0x60c` stays unscaled.
+`AnimatedMesh::LoadPreprocess` (`0x10008A50`) multiplies every vertex by the
+scale and hands it to `BindSkeleton::NormalizeJoints` (`0x10006E20`), which
+multiplies each joint's bind matrix by `S(scale)` and then orthonormalises it
+(`FUN_10002530`: two rows normalised, the third their cross product). The
+posed joints are built from each key's quaternion (`FUN_1000BB90`) and
+translation, composed down from the model's matrix (`FUN_10047FF0`). So a
+joint's transform is rigid: a rotation, and a position already at the model's
+size.
 
 `MDL.TransformPointByJoint(e, j, x, y, z)` (`0x1012CA40`:
-`Model::GetJointTransform`, then the point through it) takes the point in the
-joint's frame in **model units**: it scales with the entity, as `JointToWorld`
-does. The shipped data settles it where the binary reading did not:
+`Model::GetJointTransform`, then the point through it) therefore takes the
+point in the joint's frame in **world units**, whatever the model's scale.
+The scripts agree: `PLoonyPark` clears the track 3.5 ahead of the cart and 1
+below it, outside the rider; Maso's flame trace runs `0.2 + attackRange`
+along its arm, the reach its AI attacks from. The shotgun's muzzle flash,
+`(-4, -1.3, -1.4)` off `joint2` (local -X down the barrel, +Y up, +Z left),
+lands 5 ahead of the eye on nearly the barrel's own line of sight, a sprite a
+few degrees wide; scaled, it would sit at the muzzle and cover a quarter of
+the screen. The port's skeleton is in model units scaled by the entity, so
+the native takes the joint's origin and scales the turned offset back.
 
-- the shotgun's muzzle flash, `TransformPointByJoint(weapon, joint2, -4,
-  -1.3, -1.4)` and `-2.0`, lands at the two barrel tips scaled (the ASG is 11
-  model units long, 0.085 in the hand); read as world units it lands on the
-  floor beside the gun, 5.5 ahead;
-- the Giant (scale 5.2) throws its meteors from `(0, 1, 4)` off its jaw:
-  about 21 units in front of its face scaled, inside its head unscaled.
+A first reading of the shotgun took `joint2`'s axes from the BoltGun, which
+was the current weapon in that probe, put the world-unit flash on the floor,
+and had this rule reverted for a day.
 
-The binary chain read the other way and has a gap: `AnimatedMesh::
-LoadPreprocess` (`0x10008A50`) scales the vertices and hands the scale to
-`BindSkeleton::NormalizeJoints`, which multiplies every joint's bind matrix
-by `S(scale)` before `FUN_10002530`, and `Model::SetScale` is empty, so where
-the scale reaches the posed joints is not traced. A port of the joints from
-it put the coaster's blast 3.5 units ahead and the shotgun's flash on the
-floor, and was reverted.
+Points that are model geometry (hitbox hulls, a stake's offset taken by
+`ENTITY.ComputeChildMatrix`) still go through the scaled joint, which is
+where they live. Effects bound to a joint (`PARTICLE.SetParentOffset`) are
+placed by `ParticleEffect::Tick` through the same rigid transform and so take
+world units too; the port still scales them (Plan.md, "Open questions").
 
 ### Left open, deliberately
 

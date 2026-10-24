@@ -1012,27 +1012,26 @@ The port keeps the quaternion until the ride ends rather than for one frame,
 and `Camera::ViewProj` carries forward and up through it; the view-attached
 weapon is placed in the same rotated basis. A reflection camera drops it.
 
-**Open: the blast ahead.** Every tick the ride also explodes
+**The blast ahead.** Every tick the ride also explodes
 `WORLD.Explosion2(.., 2000, 2.2, nil, Rocket, 2000)` at
-`TransformPointByJoint(cart, joint, 3.5, -1, 0)` to clear the track. In model
-units ([`Animation.md`](Animation.md), "Joint offsets are model units") that
-is 1.05 ahead of the joint, and the port's rider, whose body centre is 1.1
-over the position the ride gives, is 1.05 from it and dies on the first tick
-(Plan.md, "Open questions"). What is established about the original's:
+`TransformPointByJoint(cart, joint, 3.5, -1, 0)` to clear the track. The
+offset is in world units ([`Animation.md`](Animation.md), "Joint offsets are
+world units"), so the blast runs 3.5 ahead of the cart's joint and the rider's
+body, 0.4 under it, is 3.8 away, outside the 2.2. Nothing else spares the
+rider, so scaled offsets kill it on the first tick:
 
 - the player's body is in the blast's reach. `EngineGame::CreatePlayer`
   creates it outside the world (`PhysicsWorld::CreatePhysicsObject`'s last
   argument skips the add and the explosion list at `+0xcc`), and
   `Game:SwitchPlayerToPhysics`'s `ENTITY.PO_Enable` puts it in both
-  (`PhysicsObject::Enable` `0x101907D0`);
-- the collector (`FUN_101B79F0`) measures the Havok body's own position
-  (`+0x70` of its core), not the entity's;
-- `ENTITY.SetPosition` reaches the body through `PhysicsObject::SetPosition`
-  (`0x1018BE10`), which moves it only when the body's flag bit 0 at `+0xc` is
-  clear or `+0x44` is null; the player's controller (`PhysicsObject+0x5c`)
-  is handed the position too, and its `+0x90` object through `FUN_1019FB00`.
-  Whether the rider's body follows the cart within the tick is the next
-  thing to read.
+  (`PhysicsObject::Enable` `0x101907D0`); `SetCollisionGroup` only re-filters
+  its pairs (`FUN_101FC4D0`);
+- the collector (`FUN_101B79F0`) measures the Havok body, which
+  `ENTITY.SetPosition` puts at the position minus the body's pivot: the
+  sizer (`FUN_101B3E20`) gives the player's `0.2 * -5.5 = -1.1`, so the body
+  centre is 1.1 over the position, as the port has it;
+- `WORLD.Explosion2` (`0x1011ECF0`) filters nothing, and `CPlayer:OnDamage`
+  has no ride guard.
 
 ## Ladders
 
