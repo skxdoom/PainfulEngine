@@ -114,6 +114,11 @@ MaterialState MaterialState::FromPass(const ShaderPass& pass, std::string* warni
 	readPair("tile[0]", out.tile0, 1.f, 1.f);
 	readPair("tile[1]", out.tile1, 1.f, 1.f);
 
+	const std::string a0 = pass.Get("texop[0].a");
+	if (a0 == "color") out.alpha0 = 2;
+	else if (a0.find("modulate") != std::string::npos && a0.find("color") != std::string::npos)
+		out.alpha0 = 1;
+
 	// The second stage, when the material names one. "disable" is the common
 	// case and leaves stage1Op at 0. A $variable map (palskinnedemissive's
 	// $emissivemap) has no name to load, so the stage stays off until whatever

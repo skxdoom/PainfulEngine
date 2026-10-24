@@ -70,14 +70,32 @@ adds the frost by it. The scripts drive the weight:
   it on a hit: `SetMaterial(effect)` with the alpha at 1, falling at
   `BlendOutSpeed` a second, `SetMaterial("")` at 0.
 
+## The death fade
+
+`Model::Tick` (`0x101E2630`) writes the blend alpha too. `ENTITY.SetTimeToDie`
+(`0x1012F7E0`) puts the time left in `Entity+0xb0` (-1, no timer, from the
+constructor), and `+0xb4` is 0.5 from the constructor with no native that
+changes it. While the time left is under it the model goes to render layer 4,
+`SetMaterial("blendpalskinned")` and the alpha `+0xb0 / +0xb4`.
+
+`blendpalskinned` (`skin.shader`) is `palskinned` with `blend translucent`, no
+depth write, `alphatest greater 0`, and `texop[0].a = texture modulate color`:
+the texture's alpha times the blend alpha.
+
+`CActor`'s burst death (`ExplodeBody`) gives the body
+`SetTimeToDie(deathBlendTime or 0.25)`, one template setting 2, so the body
+turns half see-through the moment the gibs fly and is gone a quarter second
+later.
+
 ## The port
 
 `MaterialState` keeps the second stage's op (`stage1Op`), and
 `shared_entity.sh` draws op 3 as `lit + blendAlpha * stage1`, the blend alpha
-passed per instance in `u_stage1.y`. The entity keeps the alpha and the
+passed per instance in `u_stage1.y`, and `MaterialState::alpha0` carries
+stage 0's alpha source (`u_stage1.z`), applied before the alpha test.
+`TickLifetimes` runs the death fade after the countdown. The entity keeps the alpha and the
 override name, the renderer instance gets both again when it is rebuilt, and
 the world save carries them (`WsModel`, `+0x700` and `+0x7bc`).
 
-`Model::Tick` (`0x101E2630`) also writes `+0x700`: while `+0xb0 < +0xb4` it
-sets `+0xb0 / +0xb4` with `blendpalskinned` and render layer 4, a fade. What
-starts it is not traced, and the port has no such fade.
+Render layer 4 is not modelled: the fading model draws translucent among the
+opaque ones, in bgfx's order.

@@ -41,6 +41,10 @@ struct MaterialState {
 	//   3 modulatealphaadd texop[1] = texture modulatealphaadd texture:
 	//                      previous + previous.a * texture
 	int stage1Op = 0; // 0 = no second stage
+	// Stage 0's alpha: 0 the texture's, 1 "texture modulate color" (times the
+	// constant colour's, the blend alpha), 2 "color" (the constant's alone).
+	// TextureStages.md
+	int alpha0 = 0;
 	std::string map1; // map[1], empty when it is a $variable
 	// The pass's programs by name, first word only ("palskin_water def ntu,
 	// 3C" is palskin_water): what picks a model water surface out.

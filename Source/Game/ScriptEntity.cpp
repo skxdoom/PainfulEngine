@@ -548,6 +548,22 @@ void ScriptEngine::TickLifetimes(float dt) {
 	for (auto& kv : entities_)
 		if (kv.second.timeToDie > 0.f)
 			kv.second.timeToDie = std::max(0.f, kv.second.timeToDie - dt);
+	// Model::Tick (0x101E2630): a model in the last Entity+0xb4 of its timer
+	// (0.5 from the constructor) draws through blendpalskinned at the time left
+	// over that - the body of a monster that burst into gibs. TextureStages.md
+	constexpr float kDeathFade = 0.5f;
+	for (auto& kv : entities_) {
+		Entity& e = kv.second;
+		if (e.type != kModel || e.timeToDie < 0.f || e.timeToDie >= kDeathFade) continue;
+		const bool haveInstance = renderer_ && e.rendererInstance >= 0;
+		if (e.materialName != "blendpalskinned") {
+			e.materialName = "blendpalskinned";
+			if (haveInstance && textures_)
+				renderer_->SetScriptMaterial(e.rendererInstance, e.materialName, *textures_);
+		}
+		e.blendAlpha = e.timeToDie / kDeathFade;
+		if (haveInstance) renderer_->SetScriptBlendAlpha(e.rendererInstance, e.blendAlpha);
+	}
 	ReapExpiredEntities();
 }
 

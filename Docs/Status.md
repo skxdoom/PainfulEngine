@@ -318,8 +318,9 @@ What the implemented natives buy:
   `obj:OnDamage` — the chain was already live once the trace resolved to the
   right handle.
 - **The freezer's frost fades.** A frozen monster frosts over and thaws by
-  `MDL.SetBlendAlpha`, and Thor's hammer and the Stone Golem flash it when hit
-  ([`TextureStages.md`](Reference/TextureStages.md)).
+  `MDL.SetBlendAlpha`, and Thor's hammer and the Stone Golem flash it when hit.
+  A model's last half second on a death timer fades it out, which is how a
+  burst monster's body goes ([`TextureStages.md`](Reference/TextureStages.md)).
 - **Contacts reach the scripts.** `COLLISION_WITH_OTHER_ENTITY` carries both
   body handles and the velocity each had *at the contact*, so
   `StdOnCollision` can compare impact speed against

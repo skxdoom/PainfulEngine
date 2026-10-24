@@ -65,7 +65,9 @@ vec3 Mode96Quantize(vec3 c, float levels) {
 	return floor(c * n + 0.5) / n;
 }
 uniform vec4 u_specOrigin; // xyz: the model's position, where its half-vectors are built
-uniform vec4 u_stage1; // x: op - 0 off, 1 modulate, 2 add, 3 modulatealphaadd; y: blend alpha
+// x: the second stage's op - 0 off, 1 modulate, 2 add, 3 modulatealphaadd;
+// y: the blend alpha; z: stage 0's alpha - 0 texture, 1 times y, 2 y alone.
+uniform vec4 u_stage1;
 
 void main()
 {
@@ -73,6 +75,10 @@ void main()
 	// Pf.Mode96: one mip level for every surface, whatever the distance.
 	vec4 base = u_mode96.z > 0.5 ? texture2DLod(s_diffuse, uv, u_mode96.x)
 			: texture2D(s_diffuse, uv);
+	// Stage 0's alpha, which the alpha test sees: blendpalskinned fades a
+	// dying model by the blend alpha. TextureStages.md
+	if (u_stage1.z > 1.5) base.a = u_stage1.y;
+	else if (u_stage1.z > 0.5) base.a *= u_stage1.y;
 	if (u_params.y >= 0.0 && base.a <= u_params.y) discard;
 
 	// NOT flipped for back faces. palskin has one normal per vertex and writes

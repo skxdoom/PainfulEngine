@@ -1534,7 +1534,8 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			bgfx::setUniform(uUv0_, identityUv);
 			bgfx::setUniform(uTile_, tile);
 			const float stage1[4] = {
-				bgfx::isValid(stage1Tex) ? float(mat.stage1Op) : 0.f, instance.blendAlpha, 0.f, 0.f};
+				bgfx::isValid(stage1Tex) ? float(mat.stage1Op) : 0.f, instance.blendAlpha,
+				float(mat.alpha0), 0.f};
 			bgfx::setUniform(uStage1_, stage1);
 			// c10: this mesh's specular colour, its power in w - the level's
 			// DynamicLighting on a pack or map mesh.
