@@ -134,9 +134,11 @@ int Input::VirtualKeyForEngName(const std::string& name) {
 }
 
 void Input::BeginFrame() {
-	// A consumed UI action comes back once its key is up again.
+	// A consumed action comes back once its key is up again.
 	for (const Bind& b : uiBinds_)
 		if (!IsDown(b.vk)) uiConsumed_ &= ~b.bit;
+	for (const Bind& b : actionBinds_)
+		if (!IsDown(b.vk)) actionConsumed_ &= ~b.bit;
 	std::memcpy(wasDown_, down_, sizeof(down_));
 	// A wheel notch lasts exactly one frame: it went down last frame, so it
 	// comes up now.
@@ -232,13 +234,14 @@ uint32_t Input::ActionMask() const {
 	uint32_t mask = 0;
 	for (const Bind& b : actionBinds_)
 		if (IsDown(b.vk)) mask |= b.bit;
-	return mask;
+	return mask & ~actionConsumed_;
 }
 
-// Held while the key is down; everything else is one press at a time. Which is
-// which is a stand-in read off the shipped scripts and play, not the engine's
-// own table - see Docs/Reference/PlayerMovement.md, "UI actions".
-constexpr uint32_t kUIHeld = UIAct::Scoreboard | UIAct::Zoom;
+// Held while the key is down; everything else is one press at a time:
+// DIInputSystem::Tick (0x10035220) clears the UI mask but 0x10 each tick,
+// BindUIKey sets a bit on the press and UnbindUIKey clears 0x10 on the
+// release. Docs/Reference/PlayerMovement.md, "UI actions".
+constexpr uint32_t kUIHeld = UIAct::Scoreboard;
 
 uint32_t Input::UIActionMask() const {
 	uint32_t mask = 0;

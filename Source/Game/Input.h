@@ -133,6 +133,10 @@ public:
 	// INP.RemoveUIAction: clear a bit early, so a held action does not fire a
 	// toggle again next frame. It comes back when the key is released.
 	void RemoveUIAction(uint32_t mask) { uiConsumed_ |= mask; }
+	// INP.RemoveAction (0x1011CA50) the same for a game action: the engine's
+	// mask (+0x3454) gains a bit on the key's press and loses it on release, so
+	// a removed bit stays off until the key goes down again.
+	void RemoveAction(uint32_t mask) { actionConsumed_ |= mask; }
 
 	// INP.IsFireSwitched(): primary and alternate fire swapped, either held
 	// (FireSwitch) or latched (FireSwitchToggle).
@@ -178,6 +182,7 @@ private:
 	std::vector<Bind> actionBinds_;
 	std::vector<Bind> uiBinds_;
 	uint32_t uiConsumed_ = 0; // RemoveUIAction, until the key comes up
+	uint32_t actionConsumed_ = 0; // RemoveAction, likewise
 	int fireSwitchKey_ = 0; // held swap
 	int fireSwitchToggleKey_ = 0; // latched swap
 	mutable bool fireSwitchLatch_ = false;

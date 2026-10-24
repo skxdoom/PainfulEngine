@@ -787,14 +787,23 @@ addressing form, so this is settled from the shipped scripts and from play:
   gives the action one press at a time; as a level it toggles the light and
   plays the click every frame the key is down.
 
+The engine's own rule (`DIInputSystem::Tick` `0x10035220`, `BindUIKey`
+`0x1002D8A0`, `UnbindUIKey` `0x1002DA40`): a key's press sets its UI bit in
+`+0x3458`, every tick clears the mask but `0x10`, and the release clears
+`0x10`. So Scoreboard alone is held and every other UI action, Zoom included,
+is one tick per press. The BoltGun's zoom (`BoltGunHeater.lua:249`) toggles
+on it behind a 0.3 s guard, which held would flip every 0.3 s.
+
 `INP.RemoveUIAction` clears a bit early, which the MP scoreboard needs
 (`GameMP.lua:471`, `487`): it reads a HELD action and must not re-fire the
 toggle on the next frame while Tab is still down. A consumed bit comes back
 when its key is released.
 
-STAND-IN: which actions are held is inferred from the above, not recovered —
-Scoreboard and Zoom are held, the rest are triggered. Finding the writer of
-`InputDevice+0x3458` would replace this with the engine's own table.
+Game actions are kept the same way in `+0x3454`: set on the press, cleared on
+the release, both from the key events. `INP.RemoveAction` (`0x1011CA50`)
+clears bits there, so a removed action stays off while its key is held and
+comes back with the next press. `Game:Tick` removes `UseCards` once it has
+started the golden cards; `EndOfMatch` the fire buttons.
 
 ## Reach is measured to the body's AXIS — `PLAYER.GetDistanceFromPoint`
 

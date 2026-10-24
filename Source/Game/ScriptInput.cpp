@@ -12,6 +12,7 @@ struct InputNatives : ScriptNativesBase {
 	static int L_INP_GetActionStatus(lua_State* L);
 	static int L_INP_Action(lua_State* L);
 	static int L_INP_RemoveUIAction(lua_State* L);
+	static int L_INP_RemoveAction(lua_State* L);
 	static int L_INP_UIAction(lua_State* L);
 	static int L_INP_Key(lua_State* L);
 	static int L_INP_IsFireSwitched(lua_State* L);
@@ -63,6 +64,14 @@ int InputNatives::L_INP_Action(lua_State* L) {
 int InputNatives::L_INP_RemoveUIAction(lua_State* L) {
 	ScriptEngine* self = From(L);
 	if (self->input_) self->input_->RemoveUIAction(uint32_t(luaL_optnumber(L, 1, 0)));
+	return 0;
+}
+
+// INP.RemoveAction(mask) - Game:Tick consumes UseCards when it starts the
+// golden cards, EndOfMatch the fire buttons. Docs/Reference/PlayerMovement.md
+int InputNatives::L_INP_RemoveAction(lua_State* L) {
+	ScriptEngine* self = From(L);
+	if (self->input_) self->input_->RemoveAction(uint32_t(luaL_optnumber(L, 1, 0)));
 	return 0;
 }
 
@@ -234,6 +243,7 @@ void BindInput(ScriptEngine& engine, LuaHost& host) {
 		{"INP", "Action", InputNatives::L_INP_Action},
 		{"INP", "UIAction", InputNatives::L_INP_UIAction},
 		{"INP", "RemoveUIAction", InputNatives::L_INP_RemoveUIAction},
+		{"INP", "RemoveAction", InputNatives::L_INP_RemoveAction},
 		{"INP", "Key", InputNatives::L_INP_Key},
 		{"INP", "IsFireSwitched", InputNatives::L_INP_IsFireSwitched},
 		{"INP", "LoadBindings", InputNatives::L_INP_LoadBindings},
