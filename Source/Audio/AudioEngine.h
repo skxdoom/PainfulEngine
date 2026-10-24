@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdint>
 #include "../Core/Vectors.h"
+#include "Reverb.h"
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -57,6 +58,13 @@ public:
 	// soundsDef files carry both per sound.
 	Voice Play3D(const std::string& name, const Vec3& pos, float dist1, float dist2,
 			bool noPitch);
+	// SOUND.SetRoomType(type, intensity, switchTime) - MilesEngine::SetRoom and
+	// SetRoomIntensity2D / 3D: the reverb preset at once, then every sound's
+	// wet level faded to its own intensity times the room's. Sound.md, "Reverb"
+	void SetRoomType(int type, float intensity, float switchSeconds);
+	// SOUND3D.SetIntensity (Sound3D_SetIntensity 0x101F3660): the sound's own
+	// share of the room, faded over `seconds`.
+	void SetIntensity(Voice v, float intensity, float seconds);
 	// SOUND.SetSoundSpeedRandomizer (MilesEngine 0x101F0360): a new sound plays
 	// at 1 + R * (2u - 1), u uniform in 0..1, |R| held under 0.99; 0 until the
 	// scripts set it. RandomSpeed draws one. Sound.md, "Pitch"
@@ -191,6 +199,7 @@ public:
 		float dist1 = 0.f, dist2 = 0.f;
 		bool obstructed = false; // flag 0x20
 		float obstruction = 0.f, obstructionTarget = 0.f; // +0x34, +0x30
+		float intensity = 1.f, wet = 1.f, wetTarget = 1.f; // +0x1c, +0x20, +0x24
 	};
 	std::vector<VoiceState> VoiceStates() const;
 	int NextId(bool positional) const;
@@ -262,6 +271,13 @@ private:
 		bool obstructed = false;
 		float obstruction = 0.f, obstructionTarget = 0.f;
 		uint32_t obstructionFrom = 0, obstructionUntil = 0;
+		// The reverb send: the sound's intensity (3D +0x1c, 2D +0x38) and the
+		// wet level fading toward intensity * the room's (3D +0x20 / +0x24,
+		// 2D +0x3c / +0x40), 1 from both constructors.
+		float intensity = 1.f;
+		float wet = 1.f, wetTarget = 1.f;
+		uint32_t wetFrom = 0, wetUntil = 0;
+		float wetBase = 1.f; // the send's level before the wet: volume and falloff
 	};
 
 	Playing* Resolve(Voice v);
@@ -288,6 +304,8 @@ private:
 	float ObstructionLevel(const Vec3& pos) const;
 	void SetObstructionTarget(Playing& p, float level, float seconds, uint32_t nowMs);
 	void AdvanceObstruction(Playing& p, uint32_t nowMs);
+	void SetWetTarget(Playing& p, float level, float seconds, uint32_t nowMs);
+	void AdvanceWet(Playing& p, uint32_t nowMs);
 	static void SDLCALLBACK(void* userdata, SDL_AudioStream* stream, int more, int total);
 
 	SDL_AudioStream* stream_ = nullptr;
@@ -350,6 +368,9 @@ private:
 	int defaultMaxInstances_ = 100;
 	int defaultIntervalMs_ = 0;
 	float speedRandomizer_ = 0.f; // MilesEngine+0x4c
+	Reverb reverb_; // mixer thread, under lock_
+	float roomIntensity3D_ = 1.f, roomIntensity2D_ = 1.f; // MilesEngine+0x1c / +0x20
+	std::vector<float> wetScratch_;
 	// MilesEngine +0x2d0..+0x2e8 as its constructor sets them; no script
 	// calls SetObstructionProperties.
 	struct Obstruction {

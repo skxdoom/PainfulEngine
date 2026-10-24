@@ -372,7 +372,8 @@ What the implemented natives buy:
   device stream, with the original's virtual-voice policy deciding what is
   audible: `SOUND.SetSoundProperties` caps instances per file and spaces
   their starts. Ambients flagged obstructed lose their direct path behind the
-  world mesh. Levels are the original's (master twice, Miles' rolloff),
+  world mesh, and the level's rooms and acoustic environments reverberate
+  through Miles' software reverb. Levels are the original's (master twice, Miles' rolloff),
   and the ambient/battle music streams play from the shipped `.mp3`s
   ([`Sound.md`](Reference/Sound.md)).
 - **Save and load.** The shipped `SaveGame.lua` runs as written: quick save
@@ -526,9 +527,7 @@ inventory.
 
 ### Everything else
 
-- Acoustic environments and sound occlusion: `WORLD.FindEnvironmentAtPoint`,
-  `SOUND.SetRoomType`, `SOUND3D.SetObstructed` / `SetIntensity`, and the
-  music streams' low-pass.
+- The sound low-pass: `SOUND.StreamSetLowPass` and `GlobalSetLowPass`.
 - Menus: the main menu, options, controls (with key capture), the campaign
   map and the save / load screens work, and a plain launch boots to the menu
   and starts a new game through it, with a runtime level switch. Still

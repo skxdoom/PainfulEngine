@@ -68,6 +68,9 @@ std::vector<AudioEngine::VoiceState> SavedVoices(const WsAudio& audio) {
 		s.obstructed = (r.flags & 0x20) != 0;
 		s.obstruction = r.obstruction;
 		s.obstructionTarget = r.obstructionTarget;
+		s.intensity = r.intensity;
+		s.wet = r.wet;
+		s.wetTarget = r.wetTarget;
 		out.push_back(s);
 	}
 	return out;

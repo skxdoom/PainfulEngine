@@ -381,7 +381,7 @@ is "Miles Fast 2D Positional Audio" (`Bin/Miles/msssoft.m3d`). Its
 sample, which hands it to `AIL_set_sample_reverb_levels` as the **dry level**;
 `mss32.dll`'s mixer multiplies each channel's gain by it (sample `+0x78`).
 There is no filter: obstruction only takes the direct path away, so a blocked
-ambient is silent but for its reverb send, and the port has no reverb. (The
+ambient is heard through its reverb send alone ("Reverb" below). (The
 provider's occlusion is the one that low-passes, through
 `AIL_set_sample_low_pass_cut_off`; the engine sets occlusion only from the
 low-pass.)
@@ -391,6 +391,92 @@ scales the direct gain by `1 - obstruction`. The trace is the game's, passed
 in from `ScriptEngine` with `RayCast(staticOnly)`. A save carries the bit in
 the 3D record's flags and the level and target as its `+0x34` / `+0x30` floats
 ([`Formats.md`](Formats.md), "The audio chunk").
+
+## Reverb
+
+**The room.** `SOUND.SetRoomType(type = 0, intensity = 1, switchTime = 2)`
+(`0x10125210`) hands the type to `AIL_set_digital_master_room_type` (mss32
+`0x21115AE0`) and the intensity, clamped to 0..1, to `SetRoomIntensity2D` /
+`3D`. `CLevel:Apply` sets the level's `Acoustics.Room`, and `CLevel:Update`,
+every frame, the `Room` of the acoustic environment the player stands in or
+the level's again; a room of type 0 always goes with intensity 0, and with
+`Cfg.EAXAcoustics` off (it is on by default) every call is `(0, 0, 0)`.
+Eighteen levels set a room of their own, fifteen of them 5 (Cathedral,
+Atrium, Catacombs, Prison, Colloseum and multiplayer maps) and three 13
+(Pentagon and the two mines); the rest leave it at 0, and their
+`CAcousticEnv` areas set rooms of their own.
+
+**The presets** are mss32's table at `0x21155A10`: the master wet level, the
+reverb time, the damping and the predelay. The numbering is EAX's environment
+list (the times are its decay times).
+
+| type | | wet | time (s) | damping | predelay (s) |
+|---|---|---|---|---|---|
+| 0 | generic | 0 | 1.493 | 0.5 | 0.011 |
+| 1 | padded cell | 0.25 | 0.1 | 0.1 | 0.002 |
+| 2 | room | 0.417 | 0.4 | 0.666 | 0.003 |
+| 3 | bathroom | 0.75 | 1.499 | 0.166 | 0.011 |
+| 4 | living room | 0.208 | 0.478 | 0.1 | 0.004 |
+| 5 | stone room | 0.3 | 2.309 | 0.68 | 0.017 |
+| 6 | auditorium | 0.403 | 4.279 | 0.5 | 0.03 |
+| 7 | concert hall | 0.5 | 3.961 | 0.5 | 0.029 |
+| 8 | cave | 0.5 | 2.886 | 1.304 | 0.022 |
+| 9 | arena | 0.361 | 7.284 | 0.332 | 0.03 |
+| 10 | hangar | 0.5 | 10 | 0.3 | 0.03 |
+| 11 | carpeted hallway | 0.153 | 0.259 | 0.55 | 0.03 |
+| 12 | hallway | 0.361 | 1.493 | 0.5 | 0.011 |
+| 13 | stone corridor | 0.444 | 2.697 | 0.638 | 0.02 |
+| 14 | alley | 0.25 | 1.752 | 0.776 | 0.011 |
+| 15 | forest | 0.111 | 3.145 | 0.472 | 0.088 |
+| 16 | city | 0.111 | 2.767 | 0.224 | 0.011 |
+| 17 | mountains | 0.2 | 0.8 | 0.2 | 0.3 |
+| 18 | quarry | 0.55 | 3 | 0.55 | 0.043 |
+| 19 | plain | 0.12 | 0.8 | 0.18 | 0.1 |
+| 20 | parking lot | 0.208 | 1.652 | 1.5 | 0.012 |
+| 21 | sewer pipe | 0.652 | 2.886 | 0.25 | 0.021 |
+| 22 | underwater | 1 | 1.499 | 0.1 | 0.011 |
+| 23 | drugged | 0.875 | 8.392 | 1.388 | 0.011 |
+| 24 | dizzy | 0.139 | 10 | 1.5 | 0.011 |
+| 25 | psychotic | 0.486 | 7.563 | 2.5 | 0.011 |
+
+So room 0 is no reverb at all: its wet level is 0.
+
+**Each sound's send.** A 3D sound keeps an intensity (`+0x1c`) and a send
+level (`+0x20`, its target `+0x24`) that goes to
+`AIL_set_3D_sample_effects_level`. `Sound3D_CreateEx` (`0x101F64C0`) stores
+intensity 1 and sets the send to `intensity * room intensity` at once;
+`SOUND3D.SetIntensity(voice, intensity = 0, seconds = 0)` (`0x10126380`)
+sets it again, and `CSound:Play` passes the ambient's `EnvironmentIntensity`,
+0.25 by default. A change of room intensity re-targets every sound over the
+`switchTime`. The setter (`FUN_101EE870`; `FUN_101ED140` for 2D, which lacks
+the first check) skips a target equal to the current one, clamps it to 0..1,
+applies a fade of 0 at once, and otherwise fades linearly on `GetTickCount`
+(`+0x2c` to `+0x28`). 2D sounds have the same pair and start at 1.
+
+**The reverb** is Miles' software one on the digital master
+(`FUN_2112AE10`, coefficients `FUN_2112AD00`). Every sound adds its signal,
+summed to mono, times its send, its falloff (not its obstruction: the send
+leaves before the dry level) and the room's wet level, into one buffer. That
+goes through the predelay; a two-pole Butterworth low-pass at
+`damping * 44100 / 8` Hz (the driver's rate); four combs in parallel, 29.7,
+37.1, 41.1 and 43.7 ms, each fed back at `0.001^(delay / time)` so it loses
+60 dB over the reverb time; then two allpasses in series, 5 and 1.7 ms, at
+fixed gains: 0.001 raised to the doubles at `0x2114BF40` / `BF38` (both about
+0.0516). The second
+allpass is entered at 0.25 of the first's output for the left channel and at
+0.15 for the right, and both are added to the dry mix.
+
+The port is `Audio/Reverb`, run on the mixer thread after the voices and
+before the bullet-time low-pass. The low-pass carries a denormal guard; the
+original's (2.38e-6) is on Miles' integer 16-bit scale, so the port uses the
+same share of its -1..1 range, ASSUMED from that scale. The fades run on the
+wall clock, as the original's do, so a headless run faster than real time
+ends with them unfinished. `PainfulTools selftest` checks the reverb's
+silence for room 0, its predelay and its 60 dB decay; with `PAINFUL_AUDIO=1`
+the `lua` report ends with the room, its intensity and the voices' mean send.
+A save carries a 3D sound's intensity, send and target
+([`Formats.md`](Formats.md), "The audio chunk"); a fade under way lands on its
+target.
 
 ## Music streams
 
@@ -416,8 +502,6 @@ pause token set ("Pausing" above).
 
 ## Not done
 
-- **`SOUND.SetRoomType`** - reverb zones. The scripts set them per level and
-  per area, and it is currently ignored.
 - **Stream low-pass** (`StreamSetLowPass`) is stored and not applied.
 - **Doppler**, if the original has it at all - not investigated.
 - **`SND.SetVelocityScaleFactor`** (6 call sites), the per-entity doppler scale.

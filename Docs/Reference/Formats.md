@@ -279,7 +279,9 @@ the tick, and the loader clamps it at 0.
   +0x54 the position, +0x60 and +0x6c the front and up `SetOrientation` sets, and
   +0x78, ASSUMED the velocity by elimination; tick +0x84, the start; the length
   (+0x88); the volume (+0x0c) and its target (+0x10); ticks +0x14 and +0x18;
-  floats +0x1c (`SetIntensity`) to +0x24; ticks +0x28 and +0x2c; the obstruction
+  the intensity (+0x1c), the reverb send (+0x20) and its target (+0x24); ticks
+  +0x28 and +0x2c, that fade's end and start ([`Sound.md`](Sound.md),
+  "Reverb"); the obstruction
   +0x34, then its target +0x30; ticks +0x38 and +0x3c, the obstruction fade's end
   and start; the cap (+0x94); the speed (+0x9c); the pause-set entry. A 3D
   record's flags add 0x20, obstructed ([`Sound.md`](Sound.md), "Obstruction").

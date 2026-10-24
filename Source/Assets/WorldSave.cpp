@@ -739,7 +739,9 @@ static void ArchiveSound3D(Archive& ar, WsSound3D& s) {
 	ar.F32(s.targetVolume);
 	ar.U32(s.sinceFadeEnd);
 	ar.U32(s.sinceFadeStart);
-	ar.F(s.f1c, 3);
+	ar.F32(s.intensity);
+	ar.F32(s.wet);
+	ar.F32(s.wetTarget);
 	ar.U32(s.since28);
 	ar.U32(s.since2c);
 	ar.F32(s.obstruction);

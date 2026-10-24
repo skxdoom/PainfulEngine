@@ -121,12 +121,10 @@ including how to test a reading properly).
 
 Ranked by calls per 900 combat frames:
 
-- **Acoustics** — `SOUND3D.SetIntensity` (136; by the save record the sound's `+0x1c`,
-  beside the effects level `Start3DSample` gives Miles' reverb, so likely
-  waiting on the room),
-  `SOUND.SetRoomType` (31), and the streams' low-pass
-  (`SOUND.GlobalSetLowPass`). The largest block of call volume left by a wide
-  margin.
+- **Acoustics** — the low-pass: `SOUND.StreamSetLowPass` is stored and not
+  applied, and `SOUND.GlobalSetLowPass` (the Banshee's) is a stub. The rooms
+  and the sends are done
+  ([`Sound.md`](Reference/Sound.md), "Reverb").
 - **Model and mesh materials** — `MESH.SetDetailMap` (210: entity pack meshes
   have no detail path at all yet), `MATERIAL.Replace` (44 sites, nearly all
   multiplayer; in the single game it swaps the weapons' gloss maps when

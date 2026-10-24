@@ -182,6 +182,9 @@ void ScriptEngine::BuildWorldSave(WorldSave& out) {
 				r.targetVolume = v.volume;
 				r.obstruction = v.obstruction;
 				r.obstructionTarget = v.obstructionTarget;
+				r.intensity = v.intensity;
+				r.wet = v.wet;
+				r.wetTarget = v.wetTarget;
 				r.maxInstances = maxInstances;
 				r.speed = v.speed;
 				r.pause = pause;

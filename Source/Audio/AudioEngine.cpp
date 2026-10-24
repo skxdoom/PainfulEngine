@@ -154,15 +154,18 @@ bool AudioEngine::Init(const std::string& soundsRoot) {
 				unsigned(dev), got.freq, got.channels, frames);
 	}
 	LogInfo("audio: mixing %d Hz stereo, up to %zu voices", rate_, kMaxVoices);
+	reverb_.Init(rate_);
 	return true;
 }
 
 void AudioEngine::Shutdown() {
+	const bool opened = stream_ != nullptr;
 	if (stream_) {
 		SDL_DestroyAudioStream(stream_);
 		stream_ = nullptr;
-		SDL_QuitSubSystem(SDL_INIT_AUDIO);
 	}
+	// The music converters go before the subsystem: SDL_QuitAudio destroys
+	// every stream still open, and their destructors would free them again.
 	{
 		std::lock_guard<std::mutex> guard(lock_);
 		voices_.clear();
@@ -171,6 +174,7 @@ void AudioEngine::Shutdown() {
 		streams_.clear();
 	}
 	cache_.clear();
+	if (opened) SDL_QuitSubSystem(SDL_INIT_AUDIO);
 }
 
 AudioEngine::Sample* AudioEngine::Load(const std::string& name) {
@@ -250,6 +254,7 @@ AudioEngine::Sample* AudioEngine::Load(const std::string& name) {
 void AudioEngine::ComputeGains(Playing& p) const {
 	if (!p.positional) {
 		p.gain[0] = p.gain[1] = p.volume;
+		p.wetBase = p.volume;
 		return;
 	}
 
@@ -268,6 +273,9 @@ void AudioEngine::ComputeGains(Playing& p) const {
 
 	// Obstruction is the Fast 2D provider's dry level, 1 - obstruction: the
 	// direct path only (msssoft.m3d, AIL_set_sample_reverb_levels).
+	// The reverb send carries the falloff but not the obstruction, which is
+	// the dry level only (mss32 FUN_2112A8A0 rebuilds +0x64 from the levels).
+	p.wetBase = p.volume * attenuation;
 	const float level = p.volume * attenuation * (1.f - p.obstruction);
 	if (dist < 1e-3f) {
 		p.gain[0] = p.gain[1] = level;
@@ -287,12 +295,18 @@ void AudioEngine::Mix(float* out, int frames) {
 	// One atomic load per buffer, not per sample: the sliders and the
 	// bullet-time rate change at most once a game frame.
 	const float sampleGain = sampleGain_.load(std::memory_order_relaxed);
+	// The wet bus: every sound's send, mono and unpanned, scaled by the room's
+	// wet level (the mixer's +0x104 * +0x74 * +0x64 * master).
+	const float roomWet = reverb_.masterWet();
+	if (roomWet > 0.f && wetScratch_.size() < size_t(frames)) wetScratch_.resize(size_t(frames));
+	if (roomWet > 0.f) std::fill(wetScratch_.begin(), wetScratch_.begin() + frames, 0.f);
 	for (Playing& p : voices_) {
 		if (!p.used || !p.playing || !p.real || p.paused || !p.sample) continue;
 
 		const Sample& s = *p.sample;
 		const double rate = Rate(p);
 		const size_t total = s.pcm.size() / size_t(s.channels);
+		const float send = roomWet * p.wetBase * p.wet * sampleGain;
 		for (int f = 0; f < frames; ++f) {
 			size_t idx = size_t(p.cursor);
 			if (idx >= total) {
@@ -311,9 +325,11 @@ void AudioEngine::Mix(float* out, int frames) {
 			const float r = s.channels > 1 ? src[1] : l;
 			out[f * kChannels + 0] += l * p.gain[0] * sampleGain;
 			out[f * kChannels + 1] += r * p.gain[1] * sampleGain;
+			if (send > 0.f) wetScratch_[size_t(f)] += (l + r) * 0.5f * send;
 			p.cursor += rate;
 		}
 	}
+	if (roomWet > 0.f) reverb_.Process(wetScratch_.data(), out, frames);
 
 	// The bullet-time low-pass, one pole per channel on the voice mix. The
 	// streams are left alone: the scripts pause them for the duration.
@@ -443,6 +459,8 @@ AudioEngine::Voice AudioEngine::Play3D(const std::string& name, const Vec3& pos,
 	p->dist1 = dist1;
 	p->dist2 = dist2;
 	p->speed = noPitch ? 1.0 : double(RandomSpeed());
+	// Sound3D_CreateEx: intensity 1, its wet level the room's at once.
+	p->wet = p->wetTarget = std::max(0.f, std::min(1.f, roomIntensity3D_));
 	ComputeGains(*p);
 	p->playing = true;
 	p->startedMs = NowMs();
@@ -767,6 +785,7 @@ void AudioEngine::Update() {
 			continue;
 		}
 		if (p.obstructed && p.obstruction != p.obstructionTarget) AdvanceObstruction(p, now);
+		if (p.wet != p.wetTarget) AdvanceWet(p, now);
 		if (p.playing && p.positional) ComputeGains(p);
 		if (!p.playing || p.paused || !p.sample) continue;
 		if (p.real) {
@@ -858,6 +877,52 @@ void AudioEngine::SetObstructionProperties(float riseSec, float fallSec, float s
 	o.farDist = std::max(farDist, o.nearDist + 0.01f);
 }
 
+// FUN_101EE870 (3D) / FUN_101ED140 (2D): the target clamped to 0..1, reached
+// linearly over `seconds`, at once for 0. The 3D one skips an unchanged target.
+void AudioEngine::SetWetTarget(Playing& p, float level, float seconds, uint32_t nowMs) {
+	if (p.positional && level == p.wetTarget) return;
+	level = std::max(0.f, std::min(1.f, level));
+	if (seconds == 0.f) p.wet = level;
+	p.wetTarget = level;
+	p.wetFrom = nowMs;
+	p.wetUntil = nowMs + uint32_t(std::floor(seconds * 1000.f));
+}
+
+// FUN_101EEBF0 / FUN_101ED380, the obstruction's fade over the other pair.
+void AudioEngine::AdvanceWet(Playing& p, uint32_t nowMs) {
+	if (nowMs < p.wetUntil) {
+		p.wet += float(nowMs - p.wetFrom) * (p.wetTarget - p.wet) / float(p.wetUntil - p.wetFrom);
+	} else {
+		p.wet = p.wetTarget;
+		p.wetUntil = nowMs;
+	}
+	p.wetFrom = nowMs;
+}
+
+void AudioEngine::SetRoomType(int type, float intensity, float switchSeconds) {
+	std::lock_guard<std::mutex> guard(lock_);
+	reverb_.SetRoom(type);
+	// SetRoomIntensity2D / 3D clamp the room's share and touch the sounds only
+	// when it changes.
+	const float room = std::max(0.f, std::min(1.f, intensity));
+	const uint32_t now = NowMs();
+	const bool to3D = room != roomIntensity3D_, to2D = room != roomIntensity2D_;
+	roomIntensity3D_ = roomIntensity2D_ = room;
+	for (Playing& p : voices_) {
+		if (!p.used) continue;
+		if (p.positional ? to3D : to2D)
+			SetWetTarget(p, p.intensity * room, switchSeconds, now);
+	}
+}
+
+void AudioEngine::SetIntensity(Voice v, float intensity, float seconds) {
+	std::lock_guard<std::mutex> guard(lock_);
+	Playing* p = Resolve(v);
+	if (!p || !p->positional) return;
+	p->intensity = intensity;
+	SetWetTarget(*p, intensity * roomIntensity3D_, seconds, NowMs());
+}
+
 void AudioEngine::SetObstructionTrace(LineBlocked trace) {
 	std::lock_guard<std::mutex> guard(lock_);
 	lineBlocked_ = std::move(trace);
@@ -886,6 +951,15 @@ void AudioEngine::LogRealVoices() const {
 	LogInfo("audio: %zu real voices of %zu slots, %zu obstructed, %zu of them blocked; "
 			"%zu samples, %zu missing", RealCount(), voices_.size(), obstructed, blocked,
 			cache_.size() - missing_, missing_);
+	float wetSum = 0.f;
+	size_t wetCount = 0;
+	for (const Playing& p : voices_) {
+		if (!p.used || !p.real) continue;
+		wetSum += p.wet;
+		++wetCount;
+	}
+	LogInfo("audio: room %d (wet %.3f), room intensity %.2f, mean voice wet %.2f", reverb_.room(),
+			reverb_.masterWet(), roomIntensity3D_, wetCount ? wetSum / float(wetCount) : 0.f);
 	for (size_t i = 0; i < streams_.size(); ++i) {
 		const MusicStream* ms = streams_[i].get();
 		if (!ms) continue;
@@ -1080,6 +1154,9 @@ std::vector<AudioEngine::VoiceState> AudioEngine::VoiceStates() const {
 		s.obstructed = p.obstructed;
 		s.obstruction = p.obstruction;
 		s.obstructionTarget = p.obstructionTarget;
+		s.intensity = p.intensity;
+		s.wet = p.wet;
+		s.wetTarget = p.wetTarget;
 		out.push_back(s);
 	}
 	std::sort(out.begin(), out.end(), [](const VoiceState& a, const VoiceState& b) {
@@ -1134,6 +1211,9 @@ void AudioEngine::RestoreVoices(const std::vector<VoiceState>& voices, int next2
 		p.obstructed = s.obstructed;
 		p.obstruction = s.obstruction;
 		p.obstructionTarget = s.obstructionTarget;
+		// The send's fade is not resumed: it lands on its target.
+		p.intensity = s.intensity;
+		p.wet = p.wetTarget = std::max(0.f, std::min(1.f, s.wetTarget));
 		ComputeGains(p);
 		slotOf_[key] = slot++;
 		int& n = next[s.positional ? 1 : 0];

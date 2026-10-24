@@ -31,6 +31,8 @@ struct SoundNatives : ScriptNativesBase {
 	static int L_SND_PlayAndForget(lua_State* L);
 	static int L_SOUND_PreloadFile(lua_State* L);
 	static int L_SOUND_SetSoundSpeedRandomizer(lua_State* L);
+	static int L_SOUND_SetRoomType(lua_State* L);
+	static int L_SND_SetIntensity(lua_State* L);
 	static int L_SND_SetObstructed(lua_State* L);
 	static int L_SOUND_SetObstructionProperties(lua_State* L);
 	static int L_SOUND_SaveGame_ResumeSounds(lua_State* L);
@@ -304,6 +306,27 @@ int SoundNatives::L_SOUND_PreloadFile(lua_State* L) {
 int SoundNatives::L_SOUND_SetSoundSpeedRandomizer(lua_State* L) {
 	ScriptEngine* self = From(L);
 	if (self->audio_) self->audio_->SetSpeedRandomizer(float(luaL_optnumber(L, 1, 0)));
+	return 0;
+}
+
+// SOUND.SetRoomType(type = 0, intensity = 1, switchTime = 2) - 0x10125210.
+// CLevel:Update passes the acoustic environment the player stands in, the
+// level's own Acoustics.Room outside them. Sound.md, "Reverb"
+int SoundNatives::L_SOUND_SetRoomType(lua_State* L) {
+	ScriptEngine* self = From(L);
+	if (self->audio_)
+		self->audio_->SetRoomType(int(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 1.0)),
+				float(luaL_optnumber(L, 3, 2.0)));
+	return 0;
+}
+
+// SOUND3D.SetIntensity(voice, intensity = 0, seconds = 0) - 0x10126380: the
+// sound's share of the room (CSound passes its EnvironmentIntensity).
+int SoundNatives::L_SND_SetIntensity(lua_State* L) {
+	ScriptEngine* self = From(L);
+	if (self->audio_)
+		self->audio_->SetIntensity(VoiceArg(L, 1, true), float(luaL_optnumber(L, 2, 0)),
+				float(luaL_optnumber(L, 3, 0)));
 	return 0;
 }
 
@@ -1037,6 +1060,8 @@ void BindSound(ScriptEngine& engine, LuaHost& host) {
 		{"SOUND", "SetSoundProperties", SoundNatives::L_SOUND_SetSoundProperties},
 		{"SOUND", "PreloadFile", SoundNatives::L_SOUND_PreloadFile},
 		{"SOUND", "SetSoundSpeedRandomizer", SoundNatives::L_SOUND_SetSoundSpeedRandomizer},
+		{"SOUND", "SetRoomType", SoundNatives::L_SOUND_SetRoomType},
+		{"SOUND3D", "SetIntensity", SoundNatives::L_SND_SetIntensity},
 		{"SOUND", "SetObstructionProperties", SoundNatives::L_SOUND_SetObstructionProperties},
 		{"SOUND", "SetPlayerPos", SoundNatives::L_SOUND_SetPlayerPos},
 		{"SOUND", "SetPlayerOrientation", SoundNatives::L_SOUND_SetPlayerOrientation},

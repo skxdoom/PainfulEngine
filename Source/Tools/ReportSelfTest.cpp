@@ -8,6 +8,7 @@
 
 #include "Commands.h"
 
+#include "../Audio/Reverb.h"
 #include "../Core/Matrix.h"
 #include "../Core/Vectors.h"
 #include "../Game/BossDial.h"
@@ -298,6 +299,43 @@ void TestBossDial() {
 	BossDialWipe(art.data(), 114, 113, 99);
 	Ok(art[(60) * 4 + 3] == 1 && art[(61) * 4 + 3] == 255, "dial: 99% on the shipped art reaches x 60 on the top row");
 }
+// The room reverb: silent for room 0, quiet until the predelay has passed,
+// finite, and 60 dB down by the preset's reverb time.
+void TestReverb() {
+	const int rate = 44100;
+	Reverb none;
+	none.Init(rate);
+	std::vector<float> in(size_t(rate), 0.f), out(size_t(rate) * 2, 0.f);
+	in[0] = 1.f;
+	none.Process(in.data(), out.data(), rate);
+	bool silent = true;
+	for (float s : out) silent = silent && s == 0.f;
+	Ok(silent && none.masterWet() == 0.f, "reverb: room 0 adds nothing");
+
+	// Room 5: time 2.309, predelay 0.017.
+	Reverb room;
+	room.Init(rate);
+	room.SetRoom(5);
+	const int frames = rate * 3;
+	in.assign(size_t(frames), 0.f);
+	out.assign(size_t(frames) * 2, 0.f);
+	in[0] = 1.f;
+	room.Process(in.data(), out.data(), frames);
+	auto peak = [&](float from, float to) {
+		float m = 0.f;
+		for (int f = int(from * rate); f < int(to * rate) && f < frames; ++f)
+			m = std::max(m, std::max(std::fabs(out[size_t(f) * 2]), std::fabs(out[size_t(f) * 2 + 1])));
+		return m;
+	};
+	bool finite = true;
+	for (float s : out) finite = finite && std::isfinite(s);
+	const float early = peak(0.f, 0.2f);
+	Ok(finite && early > 0.f, "reverb: room 5 rings and stays finite");
+	Ok(peak(0.f, 0.016f) < early * 1e-3f, "reverb: room 5 is quiet until its predelay");
+	Ok(peak(2.4f, 2.5f) < early * 1e-3f, "reverb: room 5 is 60 dB down by its reverb time");
+	Ok(peak(0.6f, 0.7f) > early * 1e-3f, "reverb: room 5 still rings well before it");
+	Ok(room.room() == 5 && Near(room.masterWet(), 0.3f), "reverb: room 5's wet level");
+}
 } // namespace
 
 int SelfTestCmd() {
@@ -311,6 +349,7 @@ int SelfTestCmd() {
 	TestQuat();
 	TestInputReset();
 	TestBossDial();
+	TestReverb();
 	if (g_failed == 0) {
 		LogInfo("selftest: %zu checks passed", g_ran);
 		return 0;
