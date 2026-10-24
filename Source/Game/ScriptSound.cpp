@@ -27,6 +27,7 @@ struct SoundNatives : ScriptNativesBase {
 	template <bool Positional> static int L_SND_SetSoundSpeed(lua_State* L);
 	template <bool Positional> static int L_SND_Delete(lua_State* L);
 	template <bool Positional> static int L_SND_Forget(lua_State* L);
+	static int L_SND_PlayAndForget(lua_State* L);
 	static int L_SOUND_SaveGame_ResumeSounds(lua_State* L);
 	static int L_SOUND_SetPlayerPos(lua_State* L);
 	static int L_SOUND_SetPlayerOrientation(lua_State* L);
@@ -270,6 +271,18 @@ template <bool Positional>
 int SoundNatives::L_SND_Forget(lua_State* L) {
 	ScriptEngine* self = From(L);
 	if (self->audio_) self->audio_->Release(VoiceArg(L, 1, Positional), true);
+	return 0;
+}
+
+// SOUND3D.PlayAndForget - Sound3D_PlayAndForget (0x101F3B80) sets the forget
+// flag and plays: CSound's interval ambients, which make a fresh handle for
+// every pass. The handle still answers Stop and Delete until it finishes.
+int SoundNatives::L_SND_PlayAndForget(lua_State* L) {
+	ScriptEngine* self = From(L);
+	if (!self->audio_) return 0;
+	const AudioEngine::Voice v = VoiceArg(L, 1, true);
+	self->audio_->Start(v);
+	self->audio_->Release(v, true);
 	return 0;
 }
 
@@ -984,6 +997,7 @@ void BindSound(ScriptEngine& engine, LuaHost& host) {
 		{"SOUND2D", "Forget", SoundNatives::L_SND_Forget<false>},
 		{"SOUND3D", "Create", SoundNatives::L_SND_Create3D},
 		{"SOUND3D", "Play", SoundNatives::L_SND_Play<true>},
+		{"SOUND3D", "PlayAndForget", SoundNatives::L_SND_PlayAndForget},
 		{"SOUND3D", "Stop", SoundNatives::L_SND_Stop<true>},
 		{"SOUND3D", "IsPlaying", SoundNatives::L_SND_IsPlaying<true>},
 		{"SOUND3D", "SetVolume", SoundNatives::L_SND_SetVolume<true>},

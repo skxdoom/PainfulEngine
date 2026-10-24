@@ -140,6 +140,14 @@ Handles are IDs that are never reused ("Handles are Miles IDs" below), so a
 kept handle whose sound has been freed answers "not playing" rather than
 answering about whatever took the slot.
 
+**`SOUND3D.PlayAndForget` is `Forget` and `Play` in one.**
+`Sound3D_PlayAndForget` (`0x101F3B80`) sets the sound's forget bit (1, the
+same one `Sound3D_Forget` `0x101F3340` sets) and starts it. Its one caller is
+`CSound` with an `Interval`: each pass makes a fresh handle (`LoadData` stops
+and deletes the last one first) and plays it this way. The bit only frees the
+sound once it ends, so until then the handle still answers that `Stop` and
+`Delete`.
+
 **The instantaneous voice count is a bad diagnostic** - a hundred one-shots can
 start and finish between two samples of it. Started and reaped, cumulative, are
 what show whether the system is alive. Cathedral over 1800 frames:
