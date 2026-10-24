@@ -530,8 +530,10 @@ is an **idle run**: nothing fires, nothing takes damage and no monster engages,
 so the weapon, explosion and pin natives are absent for lack of exercise rather
 than because they work. The `lua` command's fourth argument fixes that: an exec
 chunk that gives ammo and pulses `Actions.Fire` makes the same run fight, which
-is the only way those families appear at all. The command, the census it
-produced and the static sweep behind it are in [`Stubs.md`](Stubs.md).
+is the only way those families appear at all. `Tools/Suite.ps1` runs that and a
+fight against each boss ([Diagnostics.md](Reference/Diagnostics.md), "The
+suite"); the census and the static sweep behind it are in
+[`Stubs.md`](Stubs.md).
 
 ## Why it is built this way
 

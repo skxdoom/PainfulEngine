@@ -206,7 +206,10 @@ PainfulTools lua <DataRoot> [frames] [level] [exec]
 
 boots, calls `Game:Init()`, ticks N frames, and prints the report. It runs
 with 0 script errors from either the .pak archives or a loose tree; the
-current stub figures are in [`Stubs.md`](../Stubs.md).
+current stub figures are in [`Stubs.md`](../Stubs.md). Its `INP.GetTime` runs
+on the frames stepped rather than the wall clock, so a run is repeatable;
+`Tools/Suite.ps1` runs the set of them a change is judged by
+([Diagnostics.md](Diagnostics.md), "The suite").
 
 Two rules from the first natives: `LANG.ParseLangFile` reads the file
 natively while the parse rules stay Lua-side in `Languages_ParseLangLine`

@@ -1,8 +1,9 @@
-# Diagnostics — checks, logging, truncated files, switches, layering
+# Diagnostics — checks, logging, truncated files, switches, the suite, layering
 
 How the engine reports its own failures: which guards are checked, how a log
 line is written, what a parser does with a file that ends early, where the
-PAINFUL_* switches live, and how the layering is kept honest.
+PAINFUL_* switches live, the suite a change is judged by, and how the layering
+is kept honest.
 
 ## Checks
 
@@ -203,6 +204,52 @@ vertex, 1129 index.
 
 `M` cycles lit, wireframe, lighting only (`PAINFUL_WIRE=1`,
 `PAINFUL_LIGHTINGONLY=1` start there).
+
+## The suite
+
+`Tools/Suite.ps1` runs the headless reports a change is judged by, all of them
+in well under a minute:
+
+| run | what it is |
+|---|---|
+| `selftest` | `PainfulTools selftest` |
+| `idle-C1L1` | Cathedral, 400 frames, nobody playing |
+| `combat-C1L1` | Cathedral, 900 frames, `Tools/Suite/Combat.lua`: every weapon, the fire bits pulsed |
+| `boss-<name>` | the boss's level, 3600 frames, `Combat.lua` then `Tools/Suite/Boss.lua` |
+
+The bosses are Giant (`C1L5_Enclave`), Swamp (`C2L6_Swamp`), Thor
+(`C3L5_Ruins`), Alastor (`C4L4_Alastor`), Lucifer (`C5L4_Hell`) and
+Panzer_Spider (`C6L4_Pentagon`). `Boss.lua` turns god mode on and prints a
+`[boss]` line for every change of the boss's AI goal, sub-mode, state or
+animation, its position once a second, and every hit on the player. Every ten
+seconds it takes a fifth of the boss's starting health through `OnDamage`, the
+call a weapon makes, so health-gated phases are reached. A boss whose script
+ignores plain damage keeps its health, and the log shows that.
+
+Each run leaves its log and a line in `summary.txt`: exit code, script errors,
+distinct stubs, stub calls, failed checks. `-Baseline <dir>` compares with an
+earlier `-Out`: each run is either identical or reports how many lines differ
+and which stubs appeared or went. The suite exits 1 on a crash, a script error
+or a failed check.
+
+Exec chunks use single quotes only: PowerShell 5.1 strips double quotes from
+the arguments it passes to a native program.
+
+### Repeatable runs
+
+Two runs of the same command print the same bytes, so any difference against a
+baseline is the change being tested. Two things stood in the way:
+
+- **`INP.GetTime` read the wall clock.** It seeds `math.randomseed` in
+  `Game:Init` and times every weapon (`CWeapon.lua`), and a headless run
+  outpaces the wall clock, so each run drew different numbers. The `lua`
+  command now supplies the time it has stepped (`LuaHost::SetScriptClock`). The
+  windowed game keeps the wall clock, which is what `SystemDriver::GetTickCount`
+  is ([LuaHost.md](LuaHost.md), "The time multiplier").
+- **Contacts arrived in the order Jolt's job threads finished.** The scripts
+  hear each one as `COLLISION_WITH_OTHER_ENTITY` and draw random numbers in
+  response, so the arrival order changed the rest of the run. A step's
+  contacts are now drained sorted by body (`ScriptContactListener::Take`).
 
 - **Wireframe** is bgfx's `BGFX_DEBUG_WIREFRAME`, which reaches every draw
   of the frame, the fullscreen present included. With the scene in its target

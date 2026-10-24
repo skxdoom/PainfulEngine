@@ -140,3 +140,8 @@ PainfulTools lua <DataRoot> 60 <name>
 PainfulTools selftest                     # Vec3, Quat, Mat4 and the conventions
 PainfulTools traces                       # every PAINFUL_* switch, and what is set
 ```
+
+`Tools/Suite.ps1` runs the set a change is judged by: selftest, idle and combat
+on Cathedral, and a fight against each boss. The runs are repeatable, so
+`-Baseline` against a run from before the change shows exactly what it moved
+(Docs/Reference/Diagnostics.md, "The suite").

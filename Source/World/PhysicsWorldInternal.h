@@ -549,14 +549,28 @@ public:
 		float strength = 0.f;
 	};
 
+	// Drained in body order, not arrival order: the physics jobs add contacts
+	// in whatever order the threads finish, and the scripts that hear about
+	// them draw random numbers, so arrival order would make no run repeatable.
 	void Take(std::vector<Pending>& out) {
 		std::lock_guard<std::mutex> guard(lock_);
 		out.swap(pending_);
 		pending_.clear();
+		SortPending(out);
 	}
 	void Peek(std::vector<Pending>& out) {
 		std::lock_guard<std::mutex> guard(lock_);
 		out = pending_;
+		SortPending(out);
+	}
+	static void SortPending(std::vector<Pending>& v) {
+		std::sort(v.begin(), v.end(), [](const Pending& l, const Pending& r) {
+			if (l.a != r.a) return l.a < r.a;
+			if (l.b != r.b) return l.b < r.b;
+			for (int k = 0; k < 3; ++k)
+				if (l.point[k] != r.point[k]) return l.point[k] < r.point[k];
+			return false;
+		});
 	}
 	// A level switch drops the bodies these name, so nothing may outlive it.
 	void Clear() {
@@ -638,6 +652,12 @@ public:
 		std::lock_guard<std::mutex> guard(lock_);
 		out.swap(charContacts_);
 		charContacts_.clear();
+		std::sort(out.begin(), out.end(), [](const CharContact& l, const CharContact& r) {
+			if (l.body != r.body) return l.body < r.body;
+			for (int k = 0; k < 3; ++k)
+				if (l.blocked[k] != r.blocked[k]) return l.blocked[k] < r.blocked[k];
+			return false;
+		});
 	}
 	std::vector<CharContact> charContacts_;
 

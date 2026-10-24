@@ -493,8 +493,14 @@ int L_SOUND_GetCurrentProviderName(lua_State* L) {
 }
 
 // INP.GetTime(): seconds on the engine clock. Feeds math.randomseed and the
-// timing code, so it must be a real monotonic number.
+// timing code, so it must be a real monotonic number. A headless run supplies
+// its stepped time instead (LuaHost::SetScriptClock).
 int L_INP_GetTime(lua_State* L) {
+	const LuaHost* host = LuaHost::FromState(L);
+	if (host && host->scriptClock()) {
+		lua_pushnumber(L, *host->scriptClock());
+		return 1;
+	}
 	static const auto start = std::chrono::steady_clock::now();
 	const std::chrono::duration<double> t = std::chrono::steady_clock::now() - start;
 	lua_pushnumber(L, t.count());

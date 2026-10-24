@@ -613,6 +613,10 @@ Four things about this were easy to get wrong, and three of them were:
   for a body merely resting on another; the scripts' own `MinTime` gate
   (`EnableCollisions`) handles what chatter remains.
 
+A step's contacts reach the scripts sorted by body, not in the order the
+physics jobs reported them, which varies from run to run
+([Diagnostics.md](Diagnostics.md), "Repeatable runs").
+
 `ENTITY.EnableCollisions(e, on, minTime = 0.4, minStrength = 0.6)`
 (`0x10130420`) is what asks for any of this. For a destructible `CItem:Apply`
 passes `(true, 0.5, MinSpeedOnCollision * 0.2)` when the item has an impact

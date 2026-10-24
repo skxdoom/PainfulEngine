@@ -122,6 +122,12 @@ public:
 	void RequestQuit() { quit_ = true; }
 	bool quitRequested() const { return quit_; }
 
+	// INP.GetTime's clock. Unset it is the wall clock, as in the windowed game.
+	// A headless run points it at the time it has stepped, so the scripts'
+	// timers follow the frames and two runs of the same command agree.
+	void SetScriptClock(const double* seconds) { scriptClock_ = seconds; }
+	const double* scriptClock() const { return scriptClock_; }
+
 	// --- instrumentation ---
 	// Called by every unimplemented native stub; logs the first few calls
 	// with their arguments and counts the rest.
@@ -141,6 +147,7 @@ private:
 	// script paths like "config.ini" resolve.
 	std::string homeDir_;
 	bool quit_ = false;
+	const double* scriptClock_ = nullptr;
 
 	size_t filesLoaded_ = 0;
 	size_t filesMissing_ = 0;

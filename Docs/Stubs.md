@@ -63,27 +63,19 @@ wrong twice. Play-testing is the only instrument for that class.
 
 ## The instrument
 
-Idle — what the world does with nobody playing:
+`Tools/Suite.ps1` ([Diagnostics.md](Reference/Diagnostics.md), "The suite"):
+an idle and a combat run on Cathedral and a fight against each boss, each
+ending in the stub report. Idle is what the world does with nobody playing.
+Combat (`Tools/Suite/Combat.lua`) gives every weapon and pulses the fire bits:
+`_waitingForFirstFire` (`CPlayer.lua:515`) needs one frame with `Fire` clear
+before it will ever shoot, so holding the bit would never fire.
 
-```
-PainfulTools lua D:/Dev/PKRE/Data 400 C1L1_Cathedral
-```
-
-Combat — the same harness with the player firing. `_waitingForFirstFire`
-(`CPlayer.lua:515`) needs one frame with `Fire` clear before it will ever shoot,
-so the override must PULSE the bit, not hold it. As one line:
-
-```
-PainfulTools lua D:/Dev/PKRE/Data 900 C1L1_Cathedral "for k,v in Player.Ammo do Player.Ammo[k]=999 end for i=1,7 do Player:AddWeapon(i) end local f=0 INP.GetActionStatus=function(e) f=f+1 local a=0 if math.mod(f,20)<10 then a=a+Actions.Fire end if math.mod(f,240)<2 then a=a+Actions.NextWeapon end if math.mod(f,20)>=15 then a=a+Actions.AltFire end return a end"
-```
-
-Combat is the run that matters — it is the only one in which weapons, ragdolls,
-pinning and glass are exercised at all. It is not bit-identical between runs
-(the scripts use `math.random`, so a fight ends slightly differently and the
-rarer natives come and go); the volumes are stable. Static counts below are
-**live** call sites, comment lines excluded, and a native whose every site is
-commented out is not listed at all: `INP.GetTimeFromTimerReset` looks like 8
-sites and is none, `MDL.SetRagdollRestitution` likewise.
+Combat and the boss fights are the runs that matter — they are the only ones in
+which weapons, ragdolls, pinning and glass are exercised at all. All of them are
+repeatable to the byte. Static counts below are **live** call sites, comment
+lines excluded, and a native whose every site is commented out is not listed at
+all: `INP.GetTimeFromTimerReset` looks like 8 sites and is none,
+`MDL.SetRagdollRestitution` likewise.
 
 **The static census does not see every native.** `WORLD.GetFileName` and
 `R3D.ClearScreen` are called by the scripts and are not in `NativeList.inc` at
@@ -91,11 +83,25 @@ all, so they never appear as stubs in the table above — only in the runtime
 report, through the module tables' auto-stub `__index`. Trust the runtime
 report over the static one when they disagree.
 
+## Boss fights
+
+What the suite's boss runs show. The boss scripts themselves call almost no
+stubs; what goes wrong in a fight is mostly implemented natives behaving
+differently, which no counter shows, so each item here is read off the `[boss]`
+trace.
+
+| | What is wrong |
+|---|---|
+| `HUD.DrawBossHealth` | stub, called every frame of every fight: no boss health bar |
+| Giant (`C1L5_Enclave`) | walks in place. Its AI enters `WALKING` with the walk animation and the body does not move, before and after the chain breaks. Cause unknown |
+| Swamp (`C2L6_Swamp`) | `MDL.UpdateWaterImpact` every frame and `ENTITY.PO_GetType` (Tier 1 tail) |
+| Lucifer (`C5L4_Hell`) | not exercised: the level starts the player outside the arena, so the harness needs a start position for this fight |
+
 ## Tier 1 — gameplay leftovers
 
 | Native(s) | Live sites | What is missing |
 |---|---|---|
-| `ENTITY.PO_SetPlayerShocked` | 8 | the electrodriver stun. `PhysicsObject::SetPlayerShocked` (`0x1019 67D0`) writes **a float to the player controller at +0x3C** and nothing else, so it is a timer. Two things are still unknown: the duration (the native passes a literal the decompiler dropped — disassemble `0x101367B0` for the `fld`) and what reads `+0x3C` |
+| `ENTITY.PO_SetPlayerShocked` | 8 | called after `PO_Hit` lands on the player: the multiplayer weapons and C6L6's swinging traps. The native calls the no-argument overload `PhysicsObject::SetPlayerShocked()` (`0x10188E50`), not the timer ([PlayerMovement.md](Reference/PlayerMovement.md), "Being thrown"): it zeroes a word at `+0xB8` of the controller's `+0x90` object, or the dword at controller `+0x40` when there is none. What reads either is unrecovered |
 | `MDL.SetRagdollHardDeactivator` | 4 | `Ragdoll::SetHardDeactivator` (`0x1019CBE0`), no arguments: the corpse settles and stops. Hangman and the Wozek want hanging bodies that do not twitch. Needs sleep control on the ragdoll's Jolt bodies, which `PhysicsWorld` does not expose yet |
 | `MDL.SetRagdollBreakablesThreshold` | 2 | `Ragdoll::SetBreakablesThreshold` (`0x1019CB90`), default `1e7`; C5L3's cross passes 4000. Needs the breakables system — `Hke` already parses `IS_BREAKABLE` and its `strength` per joint and the port ignores both |
 | `MDL.CopyMatrixFromJointToJoint` | 1 | `PBindJointToJoint` |
@@ -205,4 +211,4 @@ Ranked by calls per 900 combat frames:
 - Where a native is called *from* — the editor and multiplayer splits — is by
   the file the site is in: `.editor` and `Editor/*.lua` for the first,
   `GameMP.lua` and `GMode ~= SingleGame` branches for the second.
-- Runtime: the two `PainfulTools lua` runs above.
+- Runtime: the suite's runs above.

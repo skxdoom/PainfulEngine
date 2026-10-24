@@ -638,6 +638,10 @@ int LuaCmd(const char* dataRoot, int frames, const char* level,
 	if (DebugFlag("PAINFUL_AUDIO") && audio.Init(std::string(dataRoot) + "/Sounds"))
 		engine.AttachAudio(&audio);
 	const bool realtime = DebugFlag("PAINFUL_REALTIME");
+	// INP.GetTime runs on the frames stepped, not the wall clock: it seeds
+	// math.randomseed and times every weapon, so this makes a run repeatable.
+	double scriptClock = 0.0;
+	host.SetScriptClock(&scriptClock);
 	const bool ok = host.Boot();
 	if (ok) {
 		host.CallGameInit();
@@ -662,6 +666,7 @@ int LuaCmd(const char* dataRoot, int frames, const char* level,
 			// The game tick runs on world-speed time, as in GameApp.
 			const float sim = (1.f / 60.f) * engine.timeMultiplier();
 			engine.SetFrameDelta(1.f / 60.f); // the mover keeps real time
+			scriptClock += 1.0 / 60.0; // so does the engine clock
 
 			engine.TickAnimations(sim);
 			engine.TickMonsters(sim);

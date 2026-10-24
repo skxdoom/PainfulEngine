@@ -36,7 +36,8 @@ is real work and it is at the bottom, because none of it changes what the game
 *does*. As of 2026-09-19 every shared gameplay family is in and the combat
 report is almost entirely presentation, so the order from here is:
 
-1. The gameplay leftovers ([`Stubs.md`](Stubs.md), Tier 1).
+1. The boss fights and the gameplay leftovers ([`Stubs.md`](Stubs.md), "Boss
+   fights" and Tier 1).
 2. The stand-ins below, as play-testing points at them.
 3. Feel (Tier 2), then presentation (Tier 3).
 4. Netcode. Last, and possibly never.
