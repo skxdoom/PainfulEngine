@@ -952,6 +952,9 @@ const ModuleImpl kModuleImpls[] = {
 	// MDL.SetHeadTrackRot (0x1011DBF0) returns 0 and touches nothing; the
 	// actors turn their heads through MDL.ApplyJointRotation.
 	{"MDL", "SetHeadTrackRot", L_NoOp},
+	// CAM.EnableInterpolation (0x101279A0) sets View+0x110, which only demo
+	// playback reads (DemoRecording2::UpdateView 0x100EA980).
+	{"CAM", "EnableInterpolation", L_NoOp},
 	// Same "missing" convention as SetAnim: joints resolve once skeletal
 	// animation lands, and the scripts handle -1 as "no such joint".
 	// 0 = "not animating", which skips the animation-event loop cleanly.

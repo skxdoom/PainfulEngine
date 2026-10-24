@@ -232,6 +232,7 @@ rather than as placeholders, so the report loses the noise and not the signal:
 | `ENTITY.EnableNetworkSynchronization(e, on = true, b = false, a4 = 0, a5 = 255, a6 = 0)` | `0x1012f880` → `Entity::SetSynchroState(flags, a4, a5, a6)` with `flags = on ? (b ? 8 : 0) + 1 : 0`, and `(0, 0, 255, 0)` when off | validates the handle and returns |
 | `ENTITY.SetSynchroString(e, s)` / `GetSynchroString(e)` | `0x1012f980` / `0x1012fa20`, `Entity+0x630`, `""` when unset | stored, and answered |
 | `ENTITY.PO_SetMissile(e, ...)` | `0x10136a60` acts only when `GEngine+0xdc`, the network device, exists ([Physics.md](Physics.md), "Projectiles") | nothing, the single game's answer |
+| `CAM.EnableInterpolation(on = true)` | `0x101279a0` sets `View+0x110`, read only by demo playback's camera smoothing (`DemoRecording2::UpdateView` `0x100ea980`) | nothing: there is no demo playback |
 | `MDL.SetHeadTrackRot(e, x, y, z)` | `0x1011dbf0` is `return 0`: the head track is gone from the engine, and `CActor` turns heads with `MDL.ApplyJointRotation` | nothing, as there |
 
 Two of them are not free no-ops:

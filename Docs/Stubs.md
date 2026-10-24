@@ -115,7 +115,7 @@ including how to test a reading properly).
 
 | Native(s) | Live sites | What is missing |
 |---|---|---|
-| `CAM.LookAt` (6), `SetAdditionalRotation` (2), `EnableInterpolation` (2), `UpdateViewport` (2), `SetTransform`, `SetAngRad` | 14 | scripted camera moves |
+| `CAM.LookAt` (6), `SetAdditionalRotation` (2), `UpdateViewport` (2), `SetTransform`, `SetAngRad` | 12 | scripted camera moves: the third-person view, `CameraMove` paths, the benchmark, the menu's model preview and Loony Park's coaster |
 
 ## Tier 3 — presentation (most of the call volume, none of the behaviour)
 
