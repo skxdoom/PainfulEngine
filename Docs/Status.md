@@ -364,7 +364,8 @@ What the implemented natives buy:
   dial"), and the `SOUND` / `SOUND2D` / `SOUND3D` families over one mixed
   device stream, with the original's virtual-voice policy deciding what is
   audible: `SOUND.SetSoundProperties` caps instances per file and spaces
-  their starts. Levels are the original's (master twice, Miles' rolloff),
+  their starts. Ambients flagged obstructed lose their direct path behind the
+  world mesh. Levels are the original's (master twice, Miles' rolloff),
   and the ambient/battle music streams play from the shipped `.mp3`s
   ([`Sound.md`](Reference/Sound.md)).
 - **Save and load.** The shipped `SaveGame.lua` runs as written: quick save

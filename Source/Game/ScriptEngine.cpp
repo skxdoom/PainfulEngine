@@ -50,6 +50,16 @@ void ScriptEngine::AttachRenderer(EntityRenderer* entities, TextureCache* textur
 	trailLib_.Init(dataRoot + "/Scripts");
 }
 
+void ScriptEngine::AttachAudio(AudioEngine* audio) {
+	audio_ = audio;
+	if (!audio_) return;
+	// MilesEngine's obstruction traces PhysicsWorld::LineTraceFixedGeom.
+	audio_->SetObstructionTrace([this](const Vec3& from, const Vec3& to) {
+		PhysicsWorld::RayHit hit;
+		return physics_ && physics_->RayCast(from, to, hit, true);
+	});
+}
+
 void ScriptEngine::AttachPhysics(PhysicsWorld* physics, const std::string& dataRoot) {
 	physics_ = physics;
 	dataRoot_ = dataRoot;

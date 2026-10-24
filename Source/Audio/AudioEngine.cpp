@@ -266,7 +266,9 @@ void AudioEngine::ComputeGains(Playing& p) const {
 	else if (p.dist1 > 0.f && dist > p.dist1)
 		attenuation = p.dist1 / (p.dist1 + rolloff_ * (dist - p.dist1));
 
-	const float level = p.volume * attenuation;
+	// Obstruction is the Fast 2D provider's dry level, 1 - obstruction: the
+	// direct path only (msssoft.m3d, AIL_set_sample_reverb_levels).
+	const float level = p.volume * attenuation * (1.f - p.obstruction);
 	if (dist < 1e-3f) {
 		p.gain[0] = p.gain[1] = level;
 		return;
@@ -563,6 +565,13 @@ void AudioEngine::TryToPlayReal(Playing& p, uint32_t nowMs) {
 	p.real = true;
 	p.cursor = cursor;
 	p.loopsLeft = loopsLeft;
+	// Start3DSample: an obstructed sound is traced as it becomes audible and
+	// takes that level at once; any other plays unobstructed.
+	if (p.positional) {
+		if (p.obstructed) SetObstructionTarget(p, ObstructionLevel(p.pos), 0.f, nowMs);
+		else p.obstruction = p.obstructionTarget = 0.f;
+		ComputeGains(p);
+	}
 	++file.real;
 	file.lastStartMs = nowMs;
 	file.everStarted = true;
@@ -701,6 +710,11 @@ void AudioEngine::SetWorldSpeed(float rate) {
 	lowPassCut_.store(cut);
 }
 
+void AudioEngine::SetObstructed(Voice v, bool on) {
+	PAINFUL_VOICE(v)
+	p.obstructed = on;
+}
+
 void AudioEngine::Release(Voice v, bool letFinish) {
 	PAINFUL_VOICE(v)
 	p.held = false;
@@ -746,6 +760,7 @@ void AudioEngine::Update() {
 			p = Playing{};
 			continue;
 		}
+		if (p.obstructed && p.obstruction != p.obstructionTarget) AdvanceObstruction(p, now);
 		if (p.playing && p.positional) ComputeGains(p);
 		if (!p.playing || p.paused || !p.sample) continue;
 		if (p.real) {
@@ -768,6 +783,78 @@ void AudioEngine::Update() {
 		}
 		TryToPlayReal(p, now);
 	}
+
+	// Tick re-traces one real 3D sound a frame, in turn (the counter at
+	// 0x14FEBE60), and fades toward the new level.
+	size_t real3D = 0;
+	for (const Playing& p : voices_)
+		if (p.used && p.real && p.positional) ++real3D;
+	if (real3D == 0) return;
+	if (++obstructionTurn_ >= real3D) obstructionTurn_ = 0;
+	size_t turn = 0;
+	for (Playing& p : voices_) {
+		if (!p.used || !p.real || !p.positional || turn++ != obstructionTurn_) continue;
+		if (p.obstructed && p.playing && !p.paused) {
+			const float level = ObstructionLevel(p.pos);
+			SetObstructionTarget(p, level,
+					level <= p.obstruction ? obstruction_.fallSec : obstruction_.riseSec, now);
+			ComputeGains(p);
+		}
+		break;
+	}
+}
+
+// What a blocked line costs (Start3DSample 0x101EED10, Tick 0x101F49C0): the
+// near level up to nearDist, the far one past farDist, linear between, over
+// the listener's distance to the sound rather than to the hit.
+float AudioEngine::ObstructionLevel(const Vec3& pos) const {
+	if (!lineBlocked_ || !lineBlocked_(listener_, pos)) return 0.f;
+	const Obstruction& o = obstruction_;
+	const float d = (pos - listener_).Length();
+	if (d < o.nearDist) return o.nearLevel;
+	if (d > o.farDist) return o.farLevel;
+	return o.nearLevel + (d - o.nearDist) * (o.farLevel - o.nearLevel) / (o.farDist - o.nearDist);
+}
+
+// FUN_101EE970: a new target, clamped, reached over `seconds` - at once for 0.
+void AudioEngine::SetObstructionTarget(Playing& p, float level, float seconds, uint32_t nowMs) {
+	if (level == p.obstructionTarget) return;
+	level = std::max(0.f, std::min(1.f, level));
+	if (seconds == 0.f) p.obstruction = level;
+	p.obstructionTarget = level;
+	p.obstructionFrom = nowMs;
+	p.obstructionUntil = nowMs + uint32_t(std::floor(seconds * 1000.f));
+}
+
+// FUN_101EEC80: linear toward the target, arriving at the fade's end.
+void AudioEngine::AdvanceObstruction(Playing& p, uint32_t nowMs) {
+	if (nowMs < p.obstructionUntil) {
+		p.obstruction += float(nowMs - p.obstructionFrom) * (p.obstructionTarget - p.obstruction) /
+				float(p.obstructionUntil - p.obstructionFrom);
+	} else {
+		p.obstruction = p.obstructionTarget;
+		p.obstructionUntil = nowMs;
+	}
+	p.obstructionFrom = nowMs;
+}
+
+void AudioEngine::SetObstructionProperties(float riseSec, float fallSec, float spare,
+		float nearLevel, float farLevel, float nearDist, float farDist) {
+	std::lock_guard<std::mutex> guard(lock_);
+	const auto unit = [](float v) { return std::max(0.f, std::min(1.f, v)); };
+	Obstruction& o = obstruction_;
+	o.riseSec = riseSec;
+	o.fallSec = fallSec;
+	o.spare = unit(spare);
+	o.nearLevel = unit(nearLevel);
+	o.farLevel = unit(farLevel);
+	o.nearDist = nearDist > 0.01f ? nearDist : 0.01f;
+	o.farDist = std::max(farDist, o.nearDist + 0.01f);
+}
+
+void AudioEngine::SetObstructionTrace(LineBlocked trace) {
+	std::lock_guard<std::mutex> guard(lock_);
+	lineBlocked_ = std::move(trace);
 }
 
 
@@ -784,7 +871,14 @@ void AudioEngine::LogRealVoices() const {
 					s.maxInstances >= 0 ? s.maxInstances : defaultMaxInstances_,
 					s.minIntervalMs >= 0 ? s.minIntervalMs : defaultIntervalMs_);
 	}
-	LogInfo("audio: %zu real voices of %zu slots", RealCount(), voices_.size());
+	size_t obstructed = 0, blocked = 0;
+	for (const Playing& p : voices_) {
+		if (!p.used || !p.real || !p.obstructed) continue;
+		++obstructed;
+		if (p.obstruction > 0.f) ++blocked;
+	}
+	LogInfo("audio: %zu real voices of %zu slots, %zu obstructed, %zu of them blocked", RealCount(),
+			voices_.size(), obstructed, blocked);
 	for (size_t i = 0; i < streams_.size(); ++i) {
 		const MusicStream* ms = streams_[i].get();
 		if (!ms) continue;
@@ -976,6 +1070,9 @@ std::vector<AudioEngine::VoiceState> AudioEngine::VoiceStates() const {
 		s.pos = p.pos;
 		s.dist1 = p.dist1;
 		s.dist2 = p.dist2;
+		s.obstructed = p.obstructed;
+		s.obstruction = p.obstruction;
+		s.obstructionTarget = p.obstructionTarget;
 		out.push_back(s);
 	}
 	std::sort(out.begin(), out.end(), [](const VoiceState& a, const VoiceState& b) {
@@ -1027,6 +1124,9 @@ void AudioEngine::RestoreVoices(const std::vector<VoiceState>& voices, int next2
 		p.pos = s.pos;
 		p.dist1 = s.dist1;
 		p.dist2 = s.dist2;
+		p.obstructed = s.obstructed;
+		p.obstruction = s.obstruction;
+		p.obstructionTarget = s.obstructionTarget;
 		ComputeGains(p);
 		slotOf_[key] = slot++;
 		int& n = next[s.positional ? 1 : 0];

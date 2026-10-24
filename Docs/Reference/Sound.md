@@ -309,6 +309,65 @@ assumption here: Miles' own documentation says the software providers stop
 mixing beyond the maximum distance, and `MilesEngine::Tick` drops those
 voices too, which is where the port's demotion came from.
 
+## Obstruction
+
+`SOUND3D.SetObstructed(voice, on)` (`0x101262E0` →
+`Sound3D_SetObstructed` `0x101F3770`) sets or clears bit `0x20` of the sound.
+Its one caller is `CSound:Play`, passing the ambient's `IsObstructed`; 515
+of the levels' ambients set it.
+
+**What decides the level.** `MilesEngine` traces
+`PhysicsWorld::LineTraceFixedGeom` from the listener to the sound, the world
+mesh alone:
+
+- when the sound becomes audible (`Start3DSample`, `FUN_101EED10`), and the
+  level is taken at once;
+- every frame for ONE real 3D sound, in turn (`Tick` `0x101F49C0`, the counter
+  at `0x14FEBE60`), and only if it is playing; that level is faded toward.
+
+A clear line is 0. A blocked one is a level by the listener's distance to the
+sound, not to the hit: `nearLevel` up to `nearDist`, `farLevel` past
+`farDist`, linear between. The fade (`FUN_101EE970` / `FUN_101EEC80`) clamps
+the target to 0..1 and reaches it linearly, over `riseSec` when the level goes
+up and `fallSec` when it goes down; a fade of 0 is instant.
+
+**The properties** are `MilesEngine +0x2d0`..`+0x2e8`. `SOUND.SetObstructionProperties`
+(`0x10125600`, `0x101F0160`) would set them, clamping both levels and `spare`
+to 0..1, `nearDist` to at least 0.01 and `farDist` to at least `nearDist +
+0.01`, but no script calls it, so the constructor's values (`0x101F7B40`) are
+the game's:
+
+| | field | constructor | native default |
+|---|---|---|---|
+| `riseSec` | `+0x2d0` | 0 | 4 |
+| `fallSec` | `+0x2d4` | 0 | 0.2 |
+| `spare` | `+0x2d8` | 0.5 | 0 |
+| `nearLevel` | `+0x2dc` | 1 | 0.4 |
+| `farLevel` | `+0x2e0` | 1 | 0.7 |
+| `nearDist` | `+0x2e4` | 14 | 14 |
+| `farDist` | `+0x2e8` | 100 | 30 |
+
+`spare` is saved and loaded and read by nothing else. With both levels at 1
+and no fade, a blocked obstructed sound is fully obstructed, the moment the
+trace says so.
+
+**What the level does** is the provider's business, and the default provider
+is "Miles Fast 2D Positional Audio" (`Bin/Miles/msssoft.m3d`). Its
+`M3D_set_3D_sample_obstruction` stores `1 - obstruction` and recomputes the
+sample, which hands it to `AIL_set_sample_reverb_levels` as the **dry level**;
+`mss32.dll`'s mixer multiplies each channel's gain by it (sample `+0x78`).
+There is no filter: obstruction only takes the direct path away, so a blocked
+ambient is silent but for its reverb send, and the port has no reverb. (The
+provider's occlusion is the one that low-passes, through
+`AIL_set_sample_low_pass_cut_off`; the engine sets occlusion only from the
+low-pass.)
+
+The port keeps the bit, the level, its target and the fade on the voice and
+scales the direct gain by `1 - obstruction`. The trace is the game's, passed
+in from `ScriptEngine` with `RayCast(staticOnly)`. A save carries the bit in
+the 3D record's flags and the level and target as its `+0x34` / `+0x30` floats
+([`Formats.md`](Formats.md), "The audio chunk").
+
 ## Music streams
 
 Music is entirely script-driven; the engine only offers slots. `CLevel`

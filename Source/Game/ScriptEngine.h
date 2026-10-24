@@ -550,8 +550,9 @@ public:
 	void AttachBillboards(BillboardRenderer* billboards);
 
 	// The sound system. Without it every SOUND native is a silent no-op,
-	// which is what a headless run wants.
-	void AttachAudio(AudioEngine* audio) { audio_ = audio; }
+	// which is what a headless run wants. It gets the world-mesh trace its
+	// obstruction asks for; the engine must outlive it.
+	void AttachAudio(AudioEngine* audio);
 
 	// The 2D layer. Without it every HUD.* and MATERIAL.* native draws
 	// nothing, which is what the original does too: each of them opens with a

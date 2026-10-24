@@ -173,13 +173,15 @@ void ScriptEngine::BuildWorldSave(WorldSave& out) {
 				r.id = uint32_t(v.id);
 				r.position = v.offset;
 				r.file = file;
-				r.flags = flags;
+				r.flags = uint8_t(flags | (v.obstructed ? 0x20 : 0));
 				r.loopCount = uint32_t(v.loopCount);
 				r.minDistance = v.dist1;
 				r.maxDistance = v.dist2;
 				r.pos = v.pos;
 				r.volume = v.volume;
 				r.targetVolume = v.volume;
+				r.obstruction = v.obstruction;
+				r.obstructionTarget = v.obstructionTarget;
 				r.maxInstances = maxInstances;
 				r.speed = v.speed;
 				r.pause = pause;

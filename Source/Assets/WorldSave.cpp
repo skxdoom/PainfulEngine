@@ -742,8 +742,8 @@ static void ArchiveSound3D(Archive& ar, WsSound3D& s) {
 	ar.F(s.f1c, 3);
 	ar.U32(s.since28);
 	ar.U32(s.since2c);
-	ar.U32(s.u34);
-	ar.U32(s.u30);
+	ar.F32(s.obstruction);
+	ar.F32(s.obstructionTarget);
 	ar.U32(s.since38);
 	ar.U32(s.since3c);
 	ar.U32(s.maxInstances);

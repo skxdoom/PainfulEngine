@@ -28,6 +28,8 @@ struct SoundNatives : ScriptNativesBase {
 	template <bool Positional> static int L_SND_Delete(lua_State* L);
 	template <bool Positional> static int L_SND_Forget(lua_State* L);
 	static int L_SND_PlayAndForget(lua_State* L);
+	static int L_SND_SetObstructed(lua_State* L);
+	static int L_SOUND_SetObstructionProperties(lua_State* L);
 	static int L_SOUND_SaveGame_ResumeSounds(lua_State* L);
 	static int L_SOUND_SetPlayerPos(lua_State* L);
 	static int L_SOUND_SetPlayerOrientation(lua_State* L);
@@ -283,6 +285,26 @@ int SoundNatives::L_SND_PlayAndForget(lua_State* L) {
 	const AudioEngine::Voice v = VoiceArg(L, 1, true);
 	self->audio_->Start(v);
 	self->audio_->Release(v, true);
+	return 0;
+}
+
+// SOUND3D.SetObstructed(voice, on) - 0x101262E0. CSound passes its
+// IsObstructed before each Play.
+int SoundNatives::L_SND_SetObstructed(lua_State* L) {
+	ScriptEngine* self = From(L);
+	if (self->audio_) self->audio_->SetObstructed(VoiceArg(L, 1, true), lua_toboolean(L, 2) != 0);
+	return 0;
+}
+
+// SOUND.SetObstructionProperties(rise, fall, spare, near, far, nearDist,
+// farDist) - 0x10125600, with its own defaults. No script calls it.
+int SoundNatives::L_SOUND_SetObstructionProperties(lua_State* L) {
+	ScriptEngine* self = From(L);
+	if (self->audio_)
+		self->audio_->SetObstructionProperties(float(luaL_optnumber(L, 1, 4.0)),
+				float(luaL_optnumber(L, 2, 0.2)), float(luaL_optnumber(L, 3, 0.0)),
+				float(luaL_optnumber(L, 4, 0.4)), float(luaL_optnumber(L, 5, 0.7)),
+				float(luaL_optnumber(L, 6, 14.0)), float(luaL_optnumber(L, 7, 30.0)));
 	return 0;
 }
 
@@ -982,6 +1004,7 @@ void BindSound(ScriptEngine& engine, LuaHost& host) {
 		{"SOUND", "Play2D", SoundNatives::L_SOUND_Play2D},
 		{"SOUND", "Play3D", SoundNatives::L_SOUND_Play3D},
 		{"SOUND", "SetSoundProperties", SoundNatives::L_SOUND_SetSoundProperties},
+		{"SOUND", "SetObstructionProperties", SoundNatives::L_SOUND_SetObstructionProperties},
 		{"SOUND", "SetPlayerPos", SoundNatives::L_SOUND_SetPlayerPos},
 		{"SOUND", "SetPlayerOrientation", SoundNatives::L_SOUND_SetPlayerOrientation},
 		{"SOUND", "SaveGame_ResumeSounds", SoundNatives::L_SOUND_SaveGame_ResumeSounds},
@@ -998,6 +1021,7 @@ void BindSound(ScriptEngine& engine, LuaHost& host) {
 		{"SOUND3D", "Create", SoundNatives::L_SND_Create3D},
 		{"SOUND3D", "Play", SoundNatives::L_SND_Play<true>},
 		{"SOUND3D", "PlayAndForget", SoundNatives::L_SND_PlayAndForget},
+		{"SOUND3D", "SetObstructed", SoundNatives::L_SND_SetObstructed},
 		{"SOUND3D", "Stop", SoundNatives::L_SND_Stop<true>},
 		{"SOUND3D", "IsPlaying", SoundNatives::L_SND_IsPlaying<true>},
 		{"SOUND3D", "SetVolume", SoundNatives::L_SND_SetVolume<true>},

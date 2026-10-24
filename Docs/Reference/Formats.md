@@ -279,9 +279,10 @@ the tick, and the loader clamps it at 0.
   +0x54 the position, +0x60 and +0x6c the front and up `SetOrientation` sets, and
   +0x78, ASSUMED the velocity by elimination; tick +0x84, the start; the length
   (+0x88); the volume (+0x0c) and its target (+0x10); ticks +0x14 and +0x18;
-  floats +0x1c (`SetIntensity`) to +0x24; ticks +0x28 and +0x2c; +0x34, then
-  +0x30; ticks +0x38 and +0x3c; the cap (+0x94); the speed (+0x9c); the pause-set
-  entry.
+  floats +0x1c (`SetIntensity`) to +0x24; ticks +0x28 and +0x2c; the obstruction
+  +0x34, then its target +0x30; ticks +0x38 and +0x3c, the obstruction fade's end
+  and start; the cap (+0x94); the speed (+0x9c); the pause-set entry. A 3D
+  record's flags add 0x20, obstructed ([`Sound.md`](Sound.md), "Obstruction").
 - The pause-set entry is a present byte, then the set's index and the forget bit
   `PauseCurrentlyPlayingSounds` took off the sound. The loader files the sound in
   that set again. The set's own list holds only stream slots, so this is how a

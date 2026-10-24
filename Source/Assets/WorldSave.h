@@ -431,7 +431,7 @@ struct WsSound3D {
 	uint32_t sinceFadeEnd = 0, sinceFadeStart = 0; // +0x14, +0x18
 	float f1c[3] = {1.f, 1.f, 1.f}; // +0x1c SetIntensity, +0x20, +0x24
 	uint32_t since28 = 0, since2c = 0; // +0x28, +0x2c
-	uint32_t u34 = 0, u30 = 0; // +0x34, then +0x30
+	float obstruction = 0.f, obstructionTarget = 0.f; // +0x34, then +0x30
 	uint32_t since38 = 0, since3c = 0; // +0x38, +0x3c
 	uint32_t maxInstances = 100; // +0x94
 	float speed = 1.f; // +0x9c

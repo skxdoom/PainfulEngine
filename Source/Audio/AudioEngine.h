@@ -2,6 +2,7 @@
 #include <atomic>
 #include <cstdint>
 #include "../Core/Vectors.h"
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -80,6 +81,18 @@ public:
 	// this rate, and the mix is low-passed at sqrt(rate) of Nyquist (0.2..1).
 	// MilesEngine::SetSpeed / SetLowPass, 0x101F2090 / 0x101F13C0. Sound.md
 	void SetWorldSpeed(float rate);
+
+	// SOUND3D.SetObstructed: bit 0x20 of the sound (Sound3D_SetObstructed
+	// 0x101F3770). An obstructed sound with the world mesh between it and the
+	// listener loses its direct path in proportion. Sound.md, "Obstruction"
+	void SetObstructed(Voice v, bool on);
+	// SOUND.SetObstructionProperties (MilesEngine 0x101F0160), with its clamps.
+	void SetObstructionProperties(float riseSec, float fallSec, float spare,
+			float nearLevel, float farLevel, float nearDist, float farDist);
+	// Whether the world mesh blocks a line: PhysicsWorld::LineTraceFixedGeom,
+	// which this layer cannot reach. Without one nothing is obstructed.
+	using LineBlocked = std::function<bool(const Vec3& from, const Vec3& to)>;
+	void SetObstructionTrace(LineBlocked trace);
 
 	// Release the handle. The voice keeps playing to its end if `letFinish`,
 	// which is what SOUND*.Forget means - fire it and stop caring.
@@ -165,6 +178,8 @@ public:
 		float speed = 1.f;
 		Vec3 pos;
 		float dist1 = 0.f, dist2 = 0.f;
+		bool obstructed = false; // flag 0x20
+		float obstruction = 0.f, obstructionTarget = 0.f; // +0x34, +0x30
 	};
 	std::vector<VoiceState> VoiceStates() const;
 	int NextId(bool positional) const;
@@ -231,6 +246,11 @@ private:
 		// to nothing rather than to whatever took the slot.
 		Voice key = kNoVoice;
 		bool dontSave = false;
+		// Sound3D_SetObstructed's bit, and the obstruction fading toward its
+		// target: Miles3DSound +0x34 / +0x30, the fade's ticks +0x3c / +0x38.
+		bool obstructed = false;
+		float obstruction = 0.f, obstructionTarget = 0.f;
+		uint32_t obstructionFrom = 0, obstructionUntil = 0;
 	};
 
 	Playing* Resolve(Voice v);
@@ -254,6 +274,9 @@ private:
 	Sample* Load(const std::string& name);
 	void Mix(float* out, int frames);
 	void ComputeGains(Playing& p) const;
+	float ObstructionLevel(const Vec3& pos) const;
+	void SetObstructionTarget(Playing& p, float level, float seconds, uint32_t nowMs);
+	void AdvanceObstruction(Playing& p, uint32_t nowMs);
 	static void SDLCALLBACK(void* userdata, SDL_AudioStream* stream, int more, int total);
 
 	SDL_AudioStream* stream_ = nullptr;
@@ -315,6 +338,19 @@ private:
 	std::unordered_map<std::string, std::pair<int, int>> pendingProps_;
 	int defaultMaxInstances_ = 100;
 	int defaultIntervalMs_ = 0;
+	// MilesEngine +0x2d0..+0x2e8 as its constructor sets them; no script
+	// calls SetObstructionProperties.
+	struct Obstruction {
+		float riseSec = 0.f; // +0x2d0, the fade toward more obstruction
+		float fallSec = 0.f; // +0x2d4, toward less
+		float spare = 0.5f; // +0x2d8, stored and saved, read by nothing
+		float nearLevel = 1.f; // +0x2dc, at nearDist and closer
+		float farLevel = 1.f; // +0x2e0, at farDist and beyond
+		float nearDist = 14.f; // +0x2e4
+		float farDist = 100.f; // +0x2e8
+	} obstruction_;
+	LineBlocked lineBlocked_;
+	size_t obstructionTurn_ = 0; // Tick's round-robin over the real 3D sounds
 	double clockMs_ = 0.0;
 	uint32_t NowMs() const { return uint32_t(clockMs_); }
 	size_t started_ = 0;

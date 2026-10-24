@@ -125,7 +125,9 @@ including how to test a reading properly).
 Ranked by calls per 900 combat frames:
 
 - **Acoustics** — `WORLD.FindEnvironmentAtPoint` (450), `SOUND.PreloadFile`
-  (214), `SOUND3D.SetObstructed` / `SetIntensity` (136 each),
+  (214), `SOUND3D.SetIntensity` (136; by the save record the sound's `+0x1c`,
+  beside the effects level `Start3DSample` gives Miles' reverb, so likely
+  waiting on the room),
   `SOUND.SetRoomType` (31), and the streams' low-pass
   (`SOUND.GlobalSetLowPass`). The largest block of call volume left by a wide
   margin.
