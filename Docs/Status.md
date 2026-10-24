@@ -202,7 +202,8 @@ Rebuilt to match `World::BuildZones` (`Engine.dll` 0x1005c1c0).
 Layered animated domes, composited per the engine's own rules: alpha-weighted
 layer blending, mask value read as colour × alpha, mask and lightmap on the
 second UV set, layer rotation only where the data asks for it. Verified across
-all 56 levels.
+all 56 levels. C3L5's and C6L4's lightning flashes the first layer through its
+frame sequence ([`Sky.md`](Reference/Sky.md)).
 
 ### Particles
 

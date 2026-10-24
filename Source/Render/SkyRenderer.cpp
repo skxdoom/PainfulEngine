@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <string>
@@ -85,6 +86,9 @@ void SkyRenderer::Unload() {
 		if (bgfx::isValid(p.ibo)) bgfx::destroy(p.ibo);
 	}
 	parts_.clear();
+	frames_.clear();
+	frame_ = 0;
+	flashEnd_ = -1.f;
 	layered_ = false;
 	layerCount_ = 0;
 	angle_ = 0.f; // only a low-quality sky sets it; a layered dome draws as authored
@@ -181,6 +185,7 @@ bool SkyRenderer::Load(const std::string& mapsRoot, const LevelInfo& info,
 			++layerCount_;
 		}
 	}
+	if (layerCount_ > 0) LoadFrames(layers_[0].anim1.name, textures);
 	if (layerCount_ == 0) {
 		// LowQuality path: one opaque layer showing a single texture. Only
 		// this path takes the authored rotation - the engine passes Angle to
@@ -196,6 +201,40 @@ bool SkyRenderer::Load(const std::string& mapsRoot, const LevelInfo& info,
 		layered_ = false;
 	}
 	return true;
+}
+
+// A name ending "_00" is frame 0 of a sequence: "_01", "_02"... up to "_31",
+// for as long as they exist (MaterialSystem::CreateTexture 0x10099CB0).
+void SkyRenderer::LoadFrames(const std::string& name, TextureCache& textures) {
+	frames_.clear();
+	frame_ = 0;
+	flashEnd_ = -1.f;
+	if (name.size() < 3 || name.compare(name.size() - 3, 3, "_00") != 0) return;
+	const std::string base = name.substr(0, name.size() - 3);
+	for (int i = 0; i < 32; ++i) {
+		char suffix[8];
+		std::snprintf(suffix, sizeof(suffix), "_%02d", i);
+		if (textures.Resolve(base + suffix, "").empty()) break;
+		frames_.push_back(textures.Get(base + suffix, ""));
+	}
+}
+
+void SkyRenderer::FlashTexture(float seconds, int frame) {
+	if (parts_.empty() || frames_.empty()) return;
+	if (frame >= 0 && frame < int(frames_.size())) {
+		flashEnd_ = seconds + clock_;
+		frame_ = frame;
+		return;
+	}
+	flashEnd_ = -1.f;
+}
+
+void SkyRenderer::Tick(float dt) {
+	clock_ += dt;
+	if (flashEnd_ != -1.f && flashEnd_ < clock_) {
+		frame_ = 0;
+		flashEnd_ = -1.f;
+	}
 }
 
 void SkyRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int height,
@@ -244,7 +283,9 @@ void SkyRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, int h
 			bgfx::setTransform(world.m);
 			bgfx::setVertexBuffer(0, p.vbo);
 			bgfx::setIndexBuffer(p.ibo, 0, p.indexCount);
-			bgfx::setTexture(0, sTex1_, layer.tex1, FilteredSampler(0));
+			const bgfx::TextureHandle tex1 =
+					i == 0 && !frames_.empty() ? frames_[size_t(frame_)] : layer.tex1;
+			bgfx::setTexture(0, sTex1_, tex1, FilteredSampler(0));
 			bgfx::setTexture(1, sTex2_, layer.tex2, FilteredSampler(0));
 			bgfx::setTexture(2, sMask_, layer.mask, FilteredSampler(0));
 			bgfx::setTexture(3, sLmap_, layer.lmap, FilteredSampler(0));

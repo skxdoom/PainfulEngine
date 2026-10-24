@@ -480,6 +480,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	unsigned appliedSettings = 0;
 	// Declared before applySettings, which hands it the mode 96 mip level.
 	SkyRenderer sky;
+	engine.AttachSky(&sky);
 	auto applySettings = [&]() {
 		appliedSettings = Settings().generation();
 		const EngineConfig& cfg = Settings();
@@ -1161,6 +1162,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			// any earlier and every effect trails its owner by a frame.
 			engine.UpdateAttached();
 			engine.TickTrails(sim);
+			sky.Tick(sim);
 			engine.TickSounds(sim);
 			engine.TickCollisions(sim);
 			// Last, once the camera has settled: a view-attached weapon is

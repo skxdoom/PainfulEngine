@@ -116,7 +116,7 @@ including how to test a reading properly).
 | Native(s) | Live sites | What is missing |
 |---|---|---|
 | `CAM.LookAt` (6), `SetAdditionalRotation` (2), `EnableInterpolation` (2), `UpdateViewport` (2), `SetTransform`, `SetAngRad` | 14 | scripted camera moves |
-| `WORLD.EnableGhostsFX` (5), `FlashSkyTexture` (4), `MDL.SetBlendAlpha` (5) | 14 | level set pieces: C5L4's ghosts, C3L5 and C6L4's lightning, the Stone Golem and Thor's hammer fading in |
+| `WORLD.EnableGhostsFX` (5), `MDL.SetBlendAlpha` (5) | 10 | level set pieces: C5L4's ghosts, the Stone Golem and Thor's hammer fading in |
 | `INP.RemoveAction` | 5 | consuming a game action so it does not repeat while the key is held — the UI twin is in |
 | `MDL.SetHeadTrackRot`, `GetAnim` | 2 | small model queries |
 

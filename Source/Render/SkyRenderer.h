@@ -40,6 +40,14 @@ public:
 
 	void Draw(bgfx::ViewId view, const Camera& camera, int width, int height, float timeSeconds);
 
+	// WORLD.FlashSkyTexture - Sky::FlashTexture (0x100AF950): the first layer's
+	// Tex1 shows frame `frame` of its "_00" sequence for `seconds` of the sky's
+	// clock; a frame past the sequence only cancels the timer. Sky.md
+	void FlashTexture(float seconds, int frame);
+	// Sky::Tick (0x100AF6E0), on World::Tick's delta: back to frame 0 once the
+	// flash is over.
+	void Tick(float dt);
+
 	bool loaded() const { return !parts_.empty(); }
 	int layerCount() const { return layerCount_; }
 	bool layered() const { return layered_; }
@@ -65,12 +73,19 @@ private:
 	};
 
 	bool LoadDome(const std::string& path);
+	void LoadFrames(const std::string& name, TextureCache& textures);
 
 	std::vector<Part> parts_;
 	GpuLayer layers_[4];
 	int layerCount_ = 0;
 	bool layered_ = false;
 	float angle_ = 0.f;
+	// The first layer's Tex1 frames (MaterialSystem::CreateTexture's "_00"
+	// sequence), the one showing, the sky's clock and the flash's end on it.
+	std::vector<bgfx::TextureHandle> frames_;
+	int frame_ = 0;
+	float clock_ = 0.f;
+	float flashEnd_ = -1.f;
 
 	bgfx::VertexLayout layout_;
 	bgfx::ProgramHandle program_ = BGFX_INVALID_HANDLE;

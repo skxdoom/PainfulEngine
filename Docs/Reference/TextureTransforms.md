@@ -127,6 +127,13 @@ frame = round(fps * elapsedSeconds) % frameCount
 That is the formula the particle emitters' `TexAnimFPS` needs too — see the
 open item in [`Particles.md`](Particles.md).
 
+The frames come from the name. `MaterialSystem::CreateTexture` (`0x10099CB0`)
+takes a name ending `_00` as frame 0 of a sequence and loads `_00`, `_01`...
+up to `_31` for as long as each exists (Texture `+0x24` on, count `+0x20`,
+the current one `+0x1c`). An fps written into the name after a marker
+string makes it play; without one it stays on frame 0 unless something sets
+another, as the sky's flash does ([`Sky.md`](Sky.md)).
+
 ## Where the port stands
 
 **Confirmed:** `pan[N]` in units per second, and detail UV as

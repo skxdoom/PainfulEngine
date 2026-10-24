@@ -3,6 +3,7 @@
 #include "ScriptEngineInternal.h"
 #include "../Core/Check.h"
 #include "../Core/Vectors.h"
+#include "../Render/SkyRenderer.h"
 #include <algorithm>
 #include <cstdlib>
 #include <cctype>
@@ -48,6 +49,7 @@ struct WorldNatives : ScriptNativesBase {
 	static int L_WORLD_LoadSky(lua_State* L);
 	static int L_WORLD_LoadLowQualitySky(lua_State* L);
 	static int L_WORLD_SetupSkyLayer(lua_State* L);
+	static int L_WORLD_FlashSkyTexture(lua_State* L);
 	static int L_MESH_SetDefaultDetailMaps(lua_State* L);
 	static int L_MESH_SetDefaultMaterial(lua_State* L);
 	static int L_WORLD_SetupWater(lua_State* L);
@@ -986,6 +988,14 @@ int WorldNatives::L_WORLD_SetupSkyLayer(lua_State* L) {
 	return 0;
 }
 
+// WORLD.FlashSkyTexture(seconds, frame) - 0x101202F0: C3L5's and C6L4's
+// lightning, a frame of the sky's own sequence while the flash lasts.
+int WorldNatives::L_WORLD_FlashSkyTexture(lua_State* L) {
+	ScriptEngine* self = From(L);
+	if (self->sky_) self->sky_->FlashTexture(float(luaL_optnumber(L, 1, 0)), int(luaL_optnumber(L, 2, 0)));
+	return 0;
+}
+
 int WorldNatives::L_MESH_SetDefaultDetailMaps(lua_State* L) {
 	ScriptEngine* self = From(L);
 	self->world_.detailTex = luaL_optstring(L, 1, "");
@@ -1150,6 +1160,7 @@ void BindWorld(ScriptEngine& engine, LuaHost& host) {
 		{"MESH", "GetRandomPoint", WorldNatives::L_MESH_GetRandomPoint},
 		{"PHYSICS", "GetHavokBodyActiveGroup", WorldNatives::L_PHYSICS_GetHavokBodyActiveGroup},
 		{"WORLD", "LoadSky", WorldNatives::L_WORLD_LoadSky},
+		{"WORLD", "FlashSkyTexture", WorldNatives::L_WORLD_FlashSkyTexture},
 		{"WORLD", "LoadLowQualitySky", WorldNatives::L_WORLD_LoadLowQualitySky},
 		{"WORLD", "SetupSkyLayer", WorldNatives::L_WORLD_SetupSkyLayer},
 		{"MESH", "SetDefaultDetailMaps", WorldNatives::L_MESH_SetDefaultDetailMaps},

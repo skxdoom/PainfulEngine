@@ -33,6 +33,7 @@ class BillboardRenderer;
 class EmitterLibrary;
 class EntityRenderer;
 class ParticleRenderer;
+class SkyRenderer;
 class PlayerPawn;
 class TextureCache;
 class AudioEngine;
@@ -548,6 +549,8 @@ public:
 	// become real.
 	void AttachParticles(ParticleRenderer* particles, EmitterLibrary* library);
 	void AttachBillboards(BillboardRenderer* billboards);
+	// The dome: WORLD.FlashSkyTexture becomes real.
+	void AttachSky(SkyRenderer* sky) { sky_ = sky; }
 
 	// The sound system. Without it every SOUND native is a silent no-op,
 	// which is what a headless run wants. It gets the world-mesh trace its
@@ -1070,6 +1073,7 @@ private:
 	ParticleRenderer* particles_ = nullptr;
 	EmitterLibrary* emitterLib_ = nullptr;
 	BillboardRenderer* billboards_ = nullptr;
+	SkyRenderer* sky_ = nullptr;
 	// R3D.Spr_* and VARRAY.*: script scratch objects behind numbered handles,
 	// alive from Create to Render or Delete within one script call.
 	struct SpriteLine {
