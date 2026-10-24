@@ -251,6 +251,15 @@ public:
 		bool bodyPinned = false;
 		bool bodyNonColliding = false;
 		int bodyGravity = -1; // PO_EnableGravity: 0/1, -1 never called
+		// MDL.SetWaterImpact's four ripple slots (Model+0x704, 0x20 apiece),
+		// with the defaults Model's constructor writes. `time` runs on the
+		// game clock, as Model::Tick advances it.
+		struct WaterImpact {
+			Vec3 pos{0.f, 60.f, 0.f};
+			float amp = 0.f, period = 1.f, range = 20.f, speed = 6.f, time = 0.f;
+		};
+		std::array<WaterImpact, 4> waterImpacts;
+		bool waterImpacted = false; // a script has set one, so they tick
 		// ENTITY.PO_EnableGravity. A projectile is not in the solver, so the
 		// body's gravity factor is a value nothing reads - TickProjectiles has
 		// to integrate this itself, or Stake:Tick's arc never happens.
@@ -572,6 +581,8 @@ public:
 	bool shadowsEnabled() const { return shadowsEnabled_; }
 	// The Cfg values ApplyVideoSettings and SetResolution read, once at boot too.
 	void ReadVideoCfg(lua_State* L);
+	// An entity's water impacts, packed the way vs_entity_water reads them.
+	void PushWaterImpacts(const Entity& e);
 	// Developer mode: the two switches the shipped scripts gate their own debug
 	// tooling on. IsFinalBuild answers false while this is set, and the game
 	// loop sets the global debugMarek alongside it.

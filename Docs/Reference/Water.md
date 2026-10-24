@@ -408,5 +408,47 @@ the side faces, +Z / -Z up on the poles, the Z slots swapped) and
 `fs_entity_water` sampling `(x, y, -z)`. `EntityRenderer` draws every part
 whose material's vertex program is `palskin_water` with `fs_entity_water`:
 the two cube looks, the fresnel lerp, the tints and the dirty variant's colour
-map, from `MDL.SetMaterialRefractFresnel`. Still missing: the `waterImp*`
-ripples, and the cube renders only sky and world, not the models.
+map, from `MDL.SetMaterialRefractFresnel`, and with the impact ripples below.
+Still missing: the cube renders only sky and world, not the models.
+
+### Impact ripples
+
+`MDL.SetWaterImpact` / `UpdateWaterImpact(e, x, y, z, amp = 1, period = 1,
+range = 20, speed = 6, slot = 0)` (natives `0x1012E5E0` / `0x1012E770`, Models
+only) fill one of four slots on the model (`Model+0x704`, `0x20` apiece: the
+centre, amplitude, period, range, speed, then a clock). `Model::SetWaterImpact`
+(`0x101DE8E0`) zeroes the slot's clock and `UpdateWaterImpact` (`0x101DD5A0`)
+does not; `Model::Tick` (`0x101E2630`) advances all four clocks by the game
+delta. The constructor leaves each slot at amplitude 0, period 1, range 20,
+speed 6, centre `(0, 60, 0)`.
+
+`RenderDefault` (`0x100041D0`) uploads them for a `palskin_water` mesh, and
+`palskin_water.vso` adds, to the skinned world position `p` along the skinned
+normal `n`:
+
+```
+c12 = time * speed    c13 = 1 / period    c14 = 1 / range    c16 = amp
+c17..c20 = the four centres
+d = |p - centre|
+a = frac((d * c13 - c12) / 2pi + 0.5) * 2pi - pi           (expp's fraction)
+w = (C(a) + S(a)) * max(1 - d * c14, 0) * c16
+p += (w0 + w1 + w2 + w3) * n
+```
+
+`C` and `S` are the program's own series, c6 = `(1, -1/2, 1/24, -1/720)` and
+c5 = `(1, -1/6, 1/120, -1/5040)` in even and odd powers: near +-pi they drift
+from cos and sin, and that drift is part of the shape. `n` is not
+renormalised: the palette matrix that skins it carries the model's scale, so
+the wave scales with the model.
+
+The Swamp's stones are the only users (`StoneX.CItem`): each sets a slot on the
+`water` model, then ramps its amplitude up and back down every tick through
+`UpdateWaterImpact`. `vs_entity_water` is the program; `ScriptEngine` keeps
+the slots per entity, ticks them in `TickAnimations`, and hands the eight
+vectors to `EntityRenderer` (`SetScriptWaterImpacts`). A slot at amplitude 0
+sends no reciprocals, so a period of 0 never reaches the GPU as an infinity.
+
+Not yet seen on screen: from the player's start the `dirtywater` plane sits
+under the shore and is alpha-tested away outside its lily pads, so a
+screenshot taken there shows no difference. A view over open water mid-fight
+would confirm it.

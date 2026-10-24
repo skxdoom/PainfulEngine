@@ -699,6 +699,11 @@ void ScriptEngine::TickAnimations(float dt) {
 	if (dt <= 0.f) return;
 	for (auto& kv : entities_) {
 		Entity& e = kv.second;
+		// Model::Tick runs every impact clock on the game delta.
+		if (e.waterImpacted) {
+			for (Entity::WaterImpact& w : e.waterImpacts) w.time += dt;
+			PushWaterImpacts(e);
+		}
 		if (e.animIndex < 0 || e.animScale <= 0.f) continue; // none, or paused
 		const float length = e.animSlots[size_t(e.animIndex)].length;
 		e.animTime += dt * e.animScale;

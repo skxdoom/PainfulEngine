@@ -41,7 +41,7 @@ endif()
 
 set(SHADER_NAMES
 		vs_world fs_world
-		vs_entity fs_entity vs_entity_nm fs_entity_nm
+		vs_entity fs_entity vs_entity_nm fs_entity_nm vs_entity_water
 		vs_shadow fs_shadow
 		fs_sky
 		vs_particle fs_particle vs_particle_warp fs_particle_warp

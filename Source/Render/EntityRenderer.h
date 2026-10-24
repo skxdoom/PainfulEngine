@@ -156,6 +156,9 @@ public:
 	// MDL.SetMaterialRefractFresnel: one mesh's water look on one instance.
 	void SetScriptMeshWater(int slot, const std::string& mesh, float refract, float fresnel,
 			const Vec3& reflTint, const Vec3& refrTint);
+	// MDL.SetWaterImpact's four ripples, as vs_entity_water reads them: the
+	// centres, then time * speed, 1 / period, 1 / range and amplitude per slot.
+	void SetScriptWaterImpacts(int slot, const float impacts[8][4]);
 	// $envcubemap: the level's cube map, or the live one a RTCubeMap level
 	// renders each frame (invalid = back to the level's).
 	void SetLevelCubeMap(const std::string& name, TextureCache& textures);
@@ -326,6 +329,8 @@ private:
 			Vec3 reflTint{1.f, 1.f, 1.f}, refrTint{1.f, 1.f, 1.f};
 		};
 		std::vector<MeshWater> water;
+		// SetScriptWaterImpacts; all four still until a script starts one.
+		float waterImp[8][4] = {};
 		bool materialOverride = false;
 		MaterialState material;
 		bgfx::TextureHandle stage1 = BGFX_INVALID_HANDLE;
@@ -483,6 +488,7 @@ private:
 	bgfx::UniformHandle uEntWater_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uEntWaterRefl_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uEntWaterRefr_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uWaterImp_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle sEnvCube_ = BGFX_INVALID_HANDLE;
 	bgfx::TextureHandle envCube_ = BGFX_INVALID_HANDLE; // the live one, when there is one
 	bgfx::TextureHandle levelCube_ = BGFX_INVALID_HANDLE; // o.CubeMap.Tex

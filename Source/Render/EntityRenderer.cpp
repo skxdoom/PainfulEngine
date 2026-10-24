@@ -112,13 +112,14 @@ bool EntityRenderer::Init(const std::string& shaderDir) {
 		}
 	}
 	uDemonFresnel_ = bgfx::createUniform("u_demonFresnel", bgfx::UniformType::Vec4);
-	// The model water program shares the vertex shader; the fragment side
-	// is fs_entity_water. Missing is not fatal: water draws as skin.
+	// The model water program: vs_entity_water, which adds the impact ripples,
+	// and fs_entity_water. Missing is not fatal: water draws as skin.
 	bgfx::ShaderHandle fsw = LoadShader(shaderDir, "fs_entity_water");
-	if (bgfx::isValid(fsw)) {
-		waterProgram_ = bgfx::createProgram(vs, fsw, false);
-		bgfx::destroy(fsw);
-	}
+	bgfx::ShaderHandle vsw = LoadShader(shaderDir, "vs_entity_water");
+	if (bgfx::isValid(fsw) && bgfx::isValid(vsw)) waterProgram_ = bgfx::createProgram(vsw, fsw, false);
+	if (bgfx::isValid(fsw)) bgfx::destroy(fsw);
+	if (bgfx::isValid(vsw)) bgfx::destroy(vsw);
+	uWaterImp_ = bgfx::createUniform("u_waterImp", bgfx::UniformType::Vec4, 8);
 	program_ = bgfx::createProgram(vs, fsh, true);
 	if (!bgfx::isValid(program_)) return false;
 	// The normal-mapped models. Missing is not fatal: they draw vertex-normal lit.
@@ -184,6 +185,7 @@ void EntityRenderer::Shutdown() {
 	if (bgfx::isValid(sNormalMap_)) { bgfx::destroy(sNormalMap_); sNormalMap_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(waterProgram_)) { bgfx::destroy(waterProgram_); waterProgram_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uEntWater_)) { bgfx::destroy(uEntWater_); uEntWater_ = BGFX_INVALID_HANDLE; }
+	if (bgfx::isValid(uWaterImp_)) { bgfx::destroy(uWaterImp_); uWaterImp_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uEntWaterRefl_)) { bgfx::destroy(uEntWaterRefl_); uEntWaterRefl_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(uEntWaterRefr_)) { bgfx::destroy(uEntWaterRefr_); uEntWaterRefr_ = BGFX_INVALID_HANDLE; }
 	if (bgfx::isValid(sEnvCube_)) { bgfx::destroy(sEnvCube_); sEnvCube_ = BGFX_INVALID_HANDLE; }
@@ -811,6 +813,13 @@ void EntityRenderer::SetScriptMeshWater(int slot, const std::string& mesh, float
 	w->fresnel = fresnel;
 	w->reflTint = reflTint;
 	w->refrTint = refrTint;
+}
+
+void EntityRenderer::SetScriptWaterImpacts(int slot, const float impacts[8][4]) {
+	if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
+			"EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
+		return;
+	std::memcpy(instances_[size_t(slot)].waterImp, impacts, sizeof(instances_[size_t(slot)].waterImp));
 }
 
 void EntityRenderer::SetLevelCubeMap(const std::string& name, TextureCache& textures) {
@@ -1586,6 +1595,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 				bgfx::setUniform(uEntWater_, entWater);
 				bgfx::setUniform(uEntWaterRefl_, reflTint);
 				bgfx::setUniform(uEntWaterRefr_, refrTint);
+				bgfx::setUniform(uWaterImp_, instance.waterImp, 8);
 				bgfx::setTexture(1, sEnvCube_, cubeTex);
 				bgfx::setState(state);
 				bgfx::submit(view, waterProgram_);

@@ -90,9 +90,9 @@ stubs; what goes wrong in a fight is mostly implemented natives behaving
 differently, which no counter shows, so each item here is read off the `[boss]`
 trace.
 
-| | What is wrong |
-|---|---|
-| Swamp (`C2L6_Swamp`) | `MDL.SetWaterImpact` / `UpdateWaterImpact`, every frame of the fight (Tier 2) |
+Nothing open that a trace shows: every boss runs its phases and none calls a
+stub of its own. What the traces cannot judge is listed for play-testing in
+[`Plan.md`](Plan.md), "Open questions".
 
 ## Tier 1 — gameplay leftovers
 
@@ -120,7 +120,7 @@ including how to test a reading properly).
 | `CAM.LookAt` (6), `SetAdditionalRotation` (2), `EnableInterpolation` (2), `UpdateViewport` (2), `SetTransform`, `SetAngRad` | 14 | scripted camera moves |
 | `WORLD.EnableGhostsFX` (5), `FlashSkyTexture` (4), `MDL.SetBlendAlpha` (5) | 14 | level set pieces: C5L4's ghosts, C3L5 and C6L4's lightning, the Stone Golem and Thor's hammer fading in |
 | `INP.RemoveAction` | 5 | consuming a game action so it does not repeat while the key is held — the UI twin is in |
-| `MDL.SetHeadTrackRot`, `SetWaterImpact`, `UpdateWaterImpact`, `GetAnim` | 4 | small model queries |
+| `MDL.SetHeadTrackRot`, `GetAnim` | 2 | small model queries |
 
 ### The trail system, scoped
 

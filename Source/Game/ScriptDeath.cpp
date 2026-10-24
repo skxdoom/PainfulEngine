@@ -22,6 +22,9 @@ struct DeathNatives : ScriptNativesBase {
 	static int L_MDL_SetRagdollAngularDamping(lua_State* L);
 	static int L_MDL_SetRagdollFriction(lua_State* L);
 	static int L_MDL_SetMaterialRefractFresnel(lua_State* L);
+	static int L_MDL_SetWaterImpact(lua_State* L);
+	static int L_MDL_UpdateWaterImpact(lua_State* L);
+	static int WaterImpact(lua_State* L, bool restart);
 	static int L_MDL_JointsLinked(lua_State* L);
 	static int L_MDL_EnableJoint(lua_State* L);
 	static int L_PHYSICS_RemoveHavokBodyFromIS(lua_State* L);
@@ -663,6 +666,50 @@ int DeathNatives::L_MDL_SetMaterialRefractFresnel(lua_State* L) {
 	self->renderer_->SetScriptMeshWater(e->rendererInstance, luaL_optstring(L, 2, ""),
 			float(luaL_optnumber(L, 3, 1)), float(luaL_optnumber(L, 4, 1)), refl, refr);
 	return 0;
+}
+
+// MDL.SetWaterImpact / UpdateWaterImpact(entity, x, y, z, amp = 1,
+// period = 1, range = 20, speed = 6, slot = 0): a ripple on a model's water,
+// thrown by the Swamp's stones (StoneX). Models only, slots 0..3. Set restarts
+// the slot's clock (Model::SetWaterImpact, 0x101DE8E0); Update moves it on
+// without (0x101DD5A0). Docs/Reference/Water.md, "Impact ripples".
+int DeathNatives::WaterImpact(lua_State* L, bool restart) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || e->type != kModel) return 0;
+	const int slot = int(luaL_optnumber(L, 9, 0));
+	if (slot < 0 || slot >= 4) return 0;
+	Entity::WaterImpact& w = e->waterImpacts[size_t(slot)];
+	if (restart) w.time = 0.f;
+	w.pos = Vec3(float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)),
+			float(luaL_optnumber(L, 4, 0)));
+	w.amp = float(luaL_optnumber(L, 5, 1));
+	w.period = float(luaL_optnumber(L, 6, 1));
+	w.range = float(luaL_optnumber(L, 7, 20));
+	w.speed = float(luaL_optnumber(L, 8, 6));
+	e->waterImpacted = true;
+	self->PushWaterImpacts(*e);
+	return 0;
+}
+
+int DeathNatives::L_MDL_SetWaterImpact(lua_State* L) { return WaterImpact(L, true); }
+int DeathNatives::L_MDL_UpdateWaterImpact(lua_State* L) { return WaterImpact(L, false); }
+
+void ScriptEngine::PushWaterImpacts(const Entity& e) {
+	if (!renderer_ || e.rendererInstance < 0) return;
+	float u[8][4] = {};
+	for (int i = 0; i < 4; ++i) {
+		const Entity::WaterImpact& w = e.waterImpacts[size_t(i)];
+		for (int c = 0; c < 3; ++c) u[i][c] = w.pos[c];
+		// A still slot sends no reciprocals, so its zero amplitude never meets
+		// an infinity on the GPU.
+		const bool live = w.amp != 0.f;
+		u[4][i] = w.time * w.speed;
+		u[5][i] = live && w.period != 0.f ? 1.f / w.period : 0.f;
+		u[6][i] = live && w.range != 0.f ? 1.f / w.range : 0.f;
+		u[7][i] = w.amp;
+	}
+	renderer_->SetScriptWaterImpacts(e.rendererInstance, u);
 }
 
 int DeathNatives::L_MDL_SetRagdollFriction(lua_State* L) {
@@ -1317,6 +1364,8 @@ void BindDeath(ScriptEngine& engine, LuaHost& host) {
 		{"MDL", "SetRagdollAngularDamping", DeathNatives::L_MDL_SetRagdollAngularDamping},
 		{"MDL", "SetRagdollFriction", DeathNatives::L_MDL_SetRagdollFriction},
 		{"MDL", "SetMaterialRefractFresnel", DeathNatives::L_MDL_SetMaterialRefractFresnel},
+		{"MDL", "SetWaterImpact", DeathNatives::L_MDL_SetWaterImpact},
+		{"MDL", "UpdateWaterImpact", DeathNatives::L_MDL_UpdateWaterImpact},
 		{"MDL", "MakeGib", DeathNatives::L_MDL_MakeGib},
 		{"MDL", "SetRagdollMovedByExplosions", DeathNatives::L_MDL_SetRagdollMovedByExplosions},
 		{"MDL", "RagdollSelfExplosion", DeathNatives::L_MDL_RagdollSelfExplosion},

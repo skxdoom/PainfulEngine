@@ -83,6 +83,15 @@ feel is off.
 
 ## Open questions
 
+- **Boss fights, to look at in play.** The suite's traces show every boss
+  running its phases; these are what a trace cannot judge:
+  - The Giant's death: it turns to the arena centre and strides `zamiera`'s
+    root motion out, crossing the arena. The distance is the animation's.
+  - The Swamp's water ripples (`MDL.SetWaterImpact`) have not been seen on
+    screen ([`Water.md`](Reference/Water.md), "Impact ripples").
+  - The Swamp and Lucifer ignore plain damage in the harness, which reads as
+    their own mechanics (stones, the Demon Morph) but has not been played.
+
 - The ~11 small unidentified `luaL_reg` tables (1–8 functions each) in
   `PainfulEngineHelpers/Engine_LuaAPI.md` — worth naming to complete the module map.
 - About 100 module natives in the generated surface are never referenced by the
