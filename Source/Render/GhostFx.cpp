@@ -35,13 +35,14 @@ bool GhostFx::Init(const std::string& shaderDir) {
 	const char* names[3] = {"s_tex0", "s_tex1", "s_tex2"};
 	for (int i = 0; i < 3; ++i) sTex_[i] = bgfx::createUniform(names[i], bgfx::UniformType::Sampler);
 	uWeights_ = bgfx::createUniform("u_composeWeights", bgfx::UniformType::Vec4);
+	uShift_ = bgfx::createUniform("u_composeShift", bgfx::UniformType::Vec4, 2);
 	sScene_ = bgfx::createUniform("s_scene", bgfx::UniformType::Sampler);
 	return true;
 }
 
 void GhostFx::Shutdown() {
 	ReleaseTargets();
-	for (bgfx::UniformHandle* u : {&sTex_[0], &sTex_[1], &sTex_[2], &uWeights_, &sScene_}) {
+	for (bgfx::UniformHandle* u : {&sTex_[0], &sTex_[1], &sTex_[2], &uWeights_, &uShift_, &sScene_}) {
 		if (bgfx::isValid(*u)) bgfx::destroy(*u);
 		*u = BGFX_INVALID_HANDLE;
 	}
@@ -125,6 +126,8 @@ void GhostFx::Draw(bgfx::ViewId trailView, bgfx::ViewId addView, float dt) {
 	bgfx::setTexture(1, sTex_[1], ping_[prev]);
 	bgfx::setTexture(2, sTex_[2], ping_[prev]);
 	bgfx::setUniform(uWeights_, weights);
+	const float noShift[8] = {};
+	bgfx::setUniform(uShift_, noShift, 2);
 	FullScreenTriangle(trailView, layout_, halfW_, halfH_);
 	bgfx::submit(trailView, compose_);
 

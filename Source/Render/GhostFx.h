@@ -36,6 +36,7 @@ private:
 	bgfx::ProgramHandle copy_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle sTex_[3] = {BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE};
 	bgfx::UniformHandle uWeights_ = BGFX_INVALID_HANDLE;
+	bgfx::UniformHandle uShift_ = BGFX_INVALID_HANDLE; // fs_compose's offsets, kept at 0
 	bgfx::UniformHandle sScene_ = BGFX_INVALID_HANDLE;
 
 	bgfx::FrameBufferHandle ghostFb_ = BGFX_INVALID_HANDLE;

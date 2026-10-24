@@ -20,6 +20,7 @@ bool FrameCompose::Init(const std::string& shaderDir) {
 	for (int i = 0; i < kTextures; ++i)
 		sTex_[i] = bgfx::createUniform(names[i], bgfx::UniformType::Sampler);
 	uWeights_ = bgfx::createUniform("u_composeWeights", bgfx::UniformType::Vec4);
+	uShift_ = bgfx::createUniform("u_composeShift", bgfx::UniformType::Vec4, 2);
 	return ready();
 }
 
@@ -29,8 +30,10 @@ void FrameCompose::Shutdown() {
 		if (bgfx::isValid(u)) bgfx::destroy(u);
 		u = BGFX_INVALID_HANDLE;
 	}
-	if (bgfx::isValid(uWeights_)) bgfx::destroy(uWeights_);
-	uWeights_ = BGFX_INVALID_HANDLE;
+	for (bgfx::UniformHandle* u : {&uWeights_, &uShift_}) {
+		if (bgfx::isValid(*u)) bgfx::destroy(*u);
+		*u = BGFX_INVALID_HANDLE;
+	}
 	if (bgfx::isValid(program_)) bgfx::destroy(program_);
 	program_ = BGFX_INVALID_HANDLE;
 }
@@ -64,8 +67,31 @@ bool FrameCompose::BuildTargets(const SceneTargets& scene) {
 }
 
 bool FrameCompose::Draw(const SceneTargets& scene, int target, const int* textures,
-		const float* weights, int count, bgfx::ViewId copyView, bgfx::ViewId composeView) {
+		const float* weights, int count, const float (*shift)[2], bgfx::ViewId copyView,
+		bgfx::ViewId composeView) {
 	if (!ready() || !scene.active() || target < 1 || target > kTextures) return false;
+
+	// Shifted: every stage is this frame, clamped at the edge it is moved off.
+	if (shift) {
+		float w[4] = {0.f, 0.f, 0.f, 0.f};
+		float s[8] = {};
+		const uint32_t clamp = BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
+		for (int i = 0; i < kTextures; ++i) {
+			if (i < count && textures[i] >= 1 && textures[i] <= kTextures) {
+				w[i] = weights[i];
+				s[i * 2 + 0] = shift[textures[i] - 1][0];
+				s[i * 2 + 1] = shift[textures[i] - 1][1];
+			}
+			bgfx::setTexture(uint8_t(i), sTex_[i], scene.half(), clamp);
+		}
+		bgfx::setUniform(uWeights_, w);
+		bgfx::setUniform(uShift_, s, 2);
+		bgfx::setViewFrameBuffer(composeView, BGFX_INVALID_HANDLE);
+		FullScreenTriangle(composeView, scene.layout(), scene.width(), scene.height());
+		bgfx::submit(composeView, program_);
+		return true;
+	}
+
 	if ((scene.halfWidth() != width_ || scene.halfHeight() != height_) && !BuildTargets(scene))
 		return false;
 
@@ -89,6 +115,8 @@ bool FrameCompose::Draw(const SceneTargets& scene, int target, const int* textur
 		bgfx::setTexture(uint8_t(i), sTex_[i], tex_[k]);
 	}
 	bgfx::setUniform(uWeights_, w);
+	const float noShift[8] = {};
+	bgfx::setUniform(uShift_, noShift, 2);
 	bgfx::setViewFrameBuffer(composeView, BGFX_INVALID_HANDLE);
 	FullScreenTriangle(composeView, scene.layout(), scene.width(), scene.height());
 	bgfx::submit(composeView, program_);

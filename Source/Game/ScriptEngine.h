@@ -818,7 +818,11 @@ public:
 	// Takes the pose the scripts last pushed through CAM.SetPos/SetAng, if
 	// any, so the game loop can adopt it. Returns false when they have not
 	// moved the camera since the last call.
-	bool TakeCameraPose(Vec3& pos, float& yaw, float& pitch);
+	// `turnShake` false leaves CAM.SetRotationDisplacement's elevation and turn
+	// out: the hit blur draws them as shifted layers instead.
+	bool TakeCameraPose(Vec3& pos, float& yaw, float& pitch, bool turnShake = true);
+	// CAM.SetRotationDisplacement in radians: elevation, turn, roll.
+	const Vec3& cameraRotDisplacement() const { return camRotDisplacement_; }
 	// CAM.SetRotationDisplacement's third axis, which TakeCameraPose has no
 	// slot for: the camera carries roll separately.
 	float cameraRoll() const { return camRotDisplacement_[2]; }

@@ -190,6 +190,10 @@ To read a real cost, set `PAINFUL_VSYNC=0` and read Frame.
 `PAINFUL_GPUVIEWS=1` logs bgfx's per-view GPU and CPU times at the `--shot`
 frame; idle time shows there as a large figure in a view with few draws.
 
+`PAINFUL_SHOT_COUNT=n` takes `n` frames in a row from `PAINFUL_SHOT_FRAME`,
+each saved as `<shot>_<frame>`: for what a still cannot show, such as how a
+picture moves from one frame to the next (FrameCompose.md, "The port").
+
 The HUD row's draw count is the previous frame's, since batches are counted at
 the flush and the overlay is laid out before it.
 

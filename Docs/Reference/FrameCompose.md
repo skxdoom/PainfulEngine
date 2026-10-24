@@ -71,12 +71,37 @@ has been drawn. The camera's rotation displacement swings between the
 `-1, 0, 1` phases of the same counter, fading with `(1 - t) cos(t pi / 2)`,
 which is what the frames echo. The end, or `Delete`, sets the target to 0.
 
+So each texture holds one phase of the shake: texture 1 the view turned by
+`-d`, texture 2 by `+d`, texture 3 the centre. The screen is meant to be the
+centre view with a ghost on either side, fading out over the second.
+
+**What goes wrong.** Each texture is drawn on one tick in three and read on
+all of them, so each of the three layers moves at a third of the tick rate.
+While the view turns, the picture cross-fades between stale snapshots
+instead of moving: the hit reads as a drop to 20 or 30 frames a second.
+
 ## The port
 
 `FrameCompose` keeps three half-size textures, like Demon Morph's trail and
-for the same reason ([`DemonFx.md`](DemonFx.md), "Deviations"): after the
-scene's downsample it copies the half-size frame into the target, then sums
-the weighted stages straight onto the backbuffer, which is the original's
-two steps without the intermediate texture. Demon Morph takes precedence, and
-bloom is skipped on those frames. A texture not drawn since the targets were
-built stands in as the current frame. `PAINFUL_COMPOSE=0` turns it off.
+for the same reason ([`DemonFx.md`](DemonFx.md), "Deviations"). Demon Morph
+takes precedence, and bloom is skipped on those frames, as in the original.
+
+**By default it does not reproduce the stutter.** The rotation displacement
+is left out of the camera while the blend is on (`TakeCameraPose`), and the
+displacement in force on the frame each texture is the target is kept as that
+texture's turn. Every stage then samples this frame's half-size image, moved
+by its texture's turn: a turn of `a` moves the picture `tan(a) / tan(fov /
+2)` half-screens, which for a few degrees is the rotated view less a
+perspective term too small to see. That is `blur.vso`'s per-stage uv offset,
+which the original sets to 0. The weights, the phases and the fade are the
+script's. The view model is in the frame, so it echoes with the world.
+
+Measured on Cathedral, the view turned steadily through a hit, consecutive
+frames line up at a steady 37 to 40 half-size pixels in this mode; with the
+original's textures no shift lines them up at all, and one step in three
+barely changes.
+
+`PAINFUL_COMPOSE`: 0 off, 1 the shifted frame (the default), 2 the
+original's three textures - this frame copied into the target, the stages
+read from the textures, a texture not drawn since the targets were built
+standing in as the current frame.

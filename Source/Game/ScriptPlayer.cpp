@@ -484,14 +484,15 @@ int PlayerNatives::L_CAM_SetAng(lua_State* L) {
 	return 0;
 }
 
-bool ScriptEngine::TakeCameraPose(Vec3& pos, float& yaw, float& pitch) {
+bool ScriptEngine::TakeCameraPose(Vec3& pos, float& yaw, float& pitch, bool turnShake) {
 	if (!camPoseDirty_) return false;
 	camPoseDirty_ = false;
 	for (int i = 0; i < 3; ++i) pos[i] = camPos_[i] + camDisplacement_[i];
 	// The rotation displacement rides on top, in our own sense: elevation is
 	// the engine's and runs the other way from pitch, turn matches yaw.
-	yaw = camYaw_ + camRotDisplacement_[1];
-	pitch = camPitch_ - camRotDisplacement_[0];
+	const float k = turnShake ? 1.f : 0.f;
+	yaw = camYaw_ + k * camRotDisplacement_[1];
+	pitch = camPitch_ - k * camRotDisplacement_[0];
 	return true;
 }
 

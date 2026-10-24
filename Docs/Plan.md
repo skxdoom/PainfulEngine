@@ -60,6 +60,7 @@ feel is off.
 | The scripted movers are a servo reconstructed from argument lists | [`Physics.md`](Reference/Physics.md), "The scripted movers" |
 | Active meshes: autodelete timers, the activation lottery, `physdest` damping, hulls for concave bodies | [`Physics.md`](Reference/Physics.md) |
 | The Demon Morph fresnel scale, set by eye | [`DemonFx.md`](Reference/DemonFx.md) |
+| The hit blur's layers are this frame shifted, not three frames in turn: a fix of the original's stutter, `PAINFUL_COMPOSE=2` for the original | [`FrameCompose.md`](Reference/FrameCompose.md) |
 
 ## Housekeeping
 

@@ -476,6 +476,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	FrameCompose compose;
 	const bool composeInit = sceneInit && compose.Init(shaderDir);
 	bool composeThisFrame = false;
+	// The hit blur's turn shake, per texture 1..3: what the scripts' rotation
+	// displacement was when that texture was the target (turn, elevation).
+	float hitSlotRot[FrameCompose::kTextures][2] = {};
 	// WORLD.EnableGhostsFX's demonic models: the branch after Demon Morph's,
 	// before the render target's and in place of bloom. PAINFUL_GHOSTFX=0 off.
 	GhostFx ghostFx;
@@ -1149,7 +1152,11 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			// rides PO_GetPawnHeadPos less PLAYER.GetCameraFix, at the angles
 			// the scripts accumulated from MOUSE.GetDelta.
 			if (scriptView) {
-				engine.TakeCameraPose(camera.pos, camera.yaw, camera.pitch);
+				// The hit blur draws the turn shake as shifted layers instead.
+				const ScriptEngine::WorldState& hws = engine.world();
+				const bool hitShift = composeInit && hws.renderTarget > 0 && !hws.demonFx &&
+						!hws.ghostsFx && DebugInt("PAINFUL_COMPOSE", 1) == 1;
+				engine.TakeCameraPose(camera.pos, camera.yaw, camera.pitch, !hitShift);
 				camera.roll = engine.cameraRoll();
 				camera.extraRot = engine.cameraExtraRotation();
 			}
@@ -1641,11 +1648,31 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 					Renderer::kBloomBlurVView, Renderer::kCompositeView);
 		else
 			bloom.Skip();
-		// Or WORLD.SetRenderTarget's weighted frames.
+		// Or WORLD.SetRenderTarget's weighted frames: by default this frame for
+		// every stage, each moved by its texture's turn shake. A turn of a moves
+		// the picture by tan(a) / tan(fov / 2) half-screens. FrameCompose.md
 		const ScriptEngine::WorldState& cws = engine.world();
+		if (cws.renderTarget <= 0) {
+			for (auto& r : hitSlotRot) r[0] = r[1] = 0.f;
+		} else if (composeThisFrame) {
+			const Vec3& rd = engine.cameraRotDisplacement();
+			hitSlotRot[cws.renderTarget - 1][0] = rd[1];
+			hitSlotRot[cws.renderTarget - 1][1] = rd[0];
+		}
+		float hitShift[FrameCompose::kTextures][2] = {};
+		{
+			const float d2r = 3.14159265f / 180.f;
+			const float tanX = std::tan(std::max(engine.cameraFov(), 1.f) * 0.5f * d2r);
+			const float tanY = std::tan(std::max(camera.fovDegrees, 1.f) * 0.5f * d2r);
+			for (int i = 0; i < FrameCompose::kTextures; ++i) {
+				hitShift[i][0] = 0.5f * std::tan(hitSlotRot[i][0]) / tanX;
+				hitShift[i][1] = 0.5f * std::tan(hitSlotRot[i][1]) / tanY;
+			}
+		}
+		const bool slots = DebugInt("PAINFUL_COMPOSE", 1) == 2;
 		const bool composed = composeThisFrame && compose.Draw(sceneTargets, cws.renderTarget,
-				cws.composeTex, cws.composeWeight, cws.composeCount, Renderer::kComposeCopyView,
-				Renderer::kComposeView);
+				cws.composeTex, cws.composeWeight, cws.composeCount, slots ? nullptr : hitShift,
+				Renderer::kComposeCopyView, Renderer::kComposeView);
 		// Targets on for the warp alone: the scene still has to reach the backbuffer.
 		if (sceneTargets.active() && !bloomThisFrame && !demonFx.active() && !composed)
 			sceneTargets.Present(Renderer::kCompositeView);
@@ -1816,8 +1843,20 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		if (!shotPath.empty()) {
 			++frame;
 			const int shotFrame = DebugInt("PAINFUL_SHOT_FRAME", 30);
+			// PAINFUL_SHOT_COUNT: that many frames in a row, each named
+			// <shot>_<frame>, for what one still cannot show.
+			const int shotCount = std::max(1, DebugInt("PAINFUL_SHOT_COUNT", 1));
+			const auto shotName = [&](int f) {
+				if (shotCount <= 1) return shotPath;
+				const size_t dot = shotPath.find_last_of('.');
+				const std::string tag = "_" + std::to_string(f);
+				return dot == std::string::npos ? shotPath + tag
+						: shotPath.substr(0, dot) + tag + shotPath.substr(dot);
+			};
+			if (frame > shotFrame && frame < shotFrame + shotCount)
+				renderer.RequestScreenshot(shotName(frame));
 			if (frame == shotFrame) {
-				renderer.RequestScreenshot(shotPath);
+				renderer.RequestScreenshot(shotName(frame));
 				if (DebugFlag("PAINFUL_GPUVIEWS")) renderer.LogViewCosts();
 				// The numbers behind the picture, so a shot can be judged
 				// without opening it.
@@ -1882,7 +1921,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 						walking ? (pawn.onGround() ? "on the ground" : "airborne")
 						: "flying");
 			}
-			if (frame >= shotFrame + 4) break;
+			if (frame >= shotFrame + shotCount + 3) break;
 		}
 	}
 	LogInfo("game loop ended: %s", host.quitRequested() ? "scripts called Exit()"
