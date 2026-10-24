@@ -216,7 +216,7 @@ light when its Overwrite is set, else the level's (`World+0xdf4`, ambient
 
 **The level's light is the scripts'.** `WORLD.AmbientColor` and
 `WORLD.SetDirLight(dx, dy, dz, color, intensity)` (`0x1011F160`: the direction
-into the light at `World+0xdf4`, the packed `0xRRGGBB` at `+0x678` of it, the
+the light travels, into the light at `World+0xdf4`, the packed `0xRRGGBB` at `+0x678` of it, the
 intensity `+0x67c`) are set by `CLevel:Apply` at load and again in play: the
 lightning on C3L5 and C6L4 throws the ambient to 40-60 grey and the
 directional to 200-255 at intensity 3 for each flash, and puts both back. The
