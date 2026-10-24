@@ -93,7 +93,6 @@ trace.
 | | What is wrong |
 |---|---|
 | Swamp (`C2L6_Swamp`) | `MDL.UpdateWaterImpact` every frame and `ENTITY.PO_GetType` (Tier 1 tail) |
-| Lucifer (`C5L4_Hell`) | not exercised: the level starts the player outside the arena, so the harness needs a start position for this fight |
 
 ## Tier 1 — gameplay leftovers
 

@@ -33,9 +33,13 @@ $runs = @(
 	@("idle-C1L1", "C1L1_Cathedral", 400, ""),
 	@("combat-C1L1", "C1L1_Cathedral", 900, $combat)
 )
-foreach ($b in @(@("Giant", "C1L5_Enclave"), @("Swamp", "C2L6_Swamp"), @("Thor", "C3L5_Ruins"),
-		@("Alastor", "C4L4_Alastor"), @("Lucifer", "C5L4_Hell"), @("Panzer_Spider", "C6L4_Pentagon"))) {
-	$chunk = "BOSS='" + $b[0] + "'`n" + $combat + "`n" + $boss
+# boss template, level, and what starts the fight when the level does not on
+# its own: Hell holds Lucifer back until 66 kills, then calls ToLucifer.
+foreach ($b in @(@("Giant", "C1L5_Enclave", ""), @("Swamp", "C2L6_Swamp", ""), @("Thor", "C3L5_Ruins", ""),
+		@("Alastor", "C4L4_Alastor", ""),
+		@("Lucifer", "C5L4_Hell", "Lev._kills = Game.BodyCountTotal Lev:ToLucifer()"),
+		@("Panzer_Spider", "C6L4_Pentagon", ""))) {
+	$chunk = "BOSS='" + $b[0] + "'`n" + $combat + "`n" + $b[2] + "`n" + $boss
 	$runs += , @(("boss-" + $b[0]), $b[1], 3600, $chunk)
 }
 

@@ -219,7 +219,9 @@ in well under a minute:
 
 The bosses are Giant (`C1L5_Enclave`), Swamp (`C2L6_Swamp`), Thor
 (`C3L5_Ruins`), Alastor (`C4L4_Alastor`), Lucifer (`C5L4_Hell`) and
-Panzer_Spider (`C6L4_Pentagon`). `Boss.lua` turns god mode on and prints a
+Panzer_Spider (`C6L4_Pentagon`). A boss whose level holds the fight back gets a
+setup chunk in `Suite.ps1`: Hell keeps Lucifer disabled until 66 kills, so its
+run calls `Lev:ToLucifer()` itself. `Boss.lua` turns god mode on and prints a
 `[boss]` line for every change of the boss's AI goal, sub-mode, state or
 animation, its position once a second, and every hit on the player. Every ten
 seconds it takes a fifth of the boss's starting health through `OnDamage`, the
