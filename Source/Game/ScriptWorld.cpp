@@ -39,6 +39,7 @@ struct WorldNatives : ScriptNativesBase {
 	static int L_WORLD_SetFarClipDist(lua_State* L);
 	static int L_WORLD_AmbientColor(lua_State* L);
 	static int L_WORLD_SetDirLight(lua_State* L);
+	static int L_WORLD_FindEnvironmentAtPoint(lua_State* L);
 	static int L_WORLD_GetAmbientColor(lua_State* L);
 	static int L_WORLD_RemoveEntity(lua_State* L);
 	static int L_WORLD_AdvanceFrameCounter(lua_State* L);
@@ -833,6 +834,43 @@ int WorldNatives::L_WORLD_SetDirLight(lua_State* L) {
 	return 0;
 }
 
+// WORLD.FindEnvironmentAtPoint(x, y, z) -> the environment entity or nil
+// (0x101372D0): the first of the world's boxes, in SortEnvironmentByNames
+// order, whose Environment::PointTest holds the point - its box with the
+// entity's rotation. CLevel:Update asks it for C6L4's garages, which keep the
+// storm's light out. Lighting.md, "Environment boxes"
+int WorldNatives::L_WORLD_FindEnvironmentAtPoint(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const Vec3 p(float(luaL_optnumber(L, 1, 0)), float(luaL_optnumber(L, 2, 0)),
+			float(luaL_optnumber(L, 3, 0)));
+	const auto lower = [](std::string s) {
+		for (char& c : s) c = char(std::tolower(static_cast<unsigned char>(c)));
+		return s;
+	};
+	int found = 0;
+	std::string foundName;
+	for (const auto& kv : self->entities_) {
+		const Entity& e = kv.second;
+		if (e.type != kEnvironment || !e.inWorld || !e.hasLocalBox) continue;
+		const Vec3 local = e.rot.Conjugate().Rotate(p - e.pos);
+		bool inside = true;
+		for (int c = 0; c < 3; ++c)
+			inside = inside && local[c] >= e.localBoxMin[c] && local[c] <= e.localBoxMax[c];
+		if (!inside) continue;
+		// Unnamed first, then case-insensitive name order; handles stand in
+		// for the creation order the sort keeps.
+		const std::string name = lower(e.name);
+		const bool better = !found || (name.empty() != foundName.empty() ? name.empty() :
+				name != foundName ? name < foundName : kv.first < found);
+		if (!better) continue;
+		found = kv.first;
+		foundName = name;
+	}
+	if (found) lua_pushnumber(L, found);
+	else lua_pushnil(L);
+	return 1;
+}
+
 // WORLD.GetAmbientColor() -> r, g, b, gun multiplier (0x1011FC80). PainMenu
 // stores the four, overrides them to light the character preview, and puts
 // them back.
@@ -1177,6 +1215,7 @@ void BindWorld(ScriptEngine& engine, LuaHost& host) {
 		{"WORLD", "BloomFXParams", WorldNatives::L_WORLD_BloomFXParams},
 		{"WORLD", "EnableDemonFX", WorldNatives::L_WORLD_EnableDemonFX},
 		{"WORLD", "SetDirLight", WorldNatives::L_WORLD_SetDirLight},
+		{"WORLD", "FindEnvironmentAtPoint", WorldNatives::L_WORLD_FindEnvironmentAtPoint},
 		{"WORLD", "SetRenderTarget", WorldNatives::L_WORLD_SetRenderTarget},
 		{"WORLD", "EnableSuperDemonFX", WorldNatives::L_WORLD_EnableSuperDemonFX},
 		{"WORLD", "DemonFXParams", WorldNatives::L_WORLD_DemonFXParams},

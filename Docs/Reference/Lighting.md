@@ -202,6 +202,15 @@ order), and `World::UpdateEntity` (`0x10058f60`) takes the FIRST box whose
 `PointTest` holds the entity. Where boxes overlap, the name decides - not the
 size.
 
+**The scripts ask too.** `WORLD.FindEnvironmentAtPoint(x, y, z)`
+(`0x101372D0`) walks the same sorted list and returns the first box whose
+`Environment::PointTest` (`0x101D35E0`) holds the point, or nil: the box's
+world bounds, then, when the box is turned (`+0xfb0`), its planes - a point in
+the box as the entity's rotation turns it. `CLevel:Update` asks it at the
+player every frame, and C6L4's four garages answer with `DisableStormLighting`,
+which keeps the lightning's directional out of them. The port tests the
+script's `CEnvironment` entities, their `SetLocalBBox` under their rotation.
+
 **The fade is in time, per entity.** Entering a box, `Environment::AddEntity`
 sets the entity's fade length to that box's FadeTime and its progress and step to
 0 (`Entity+0xe0/+0xe4/+0xe8`); leaving into no box, `RemoveEntity` does the same
