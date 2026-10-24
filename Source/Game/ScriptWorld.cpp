@@ -33,6 +33,7 @@ struct WorldNatives : ScriptNativesBase {
 	static int L_WORLD_BloomFXParams(lua_State* L);
 	static int L_WORLD_EnableDemonFX(lua_State* L);
 	static int L_WORLD_SetRenderTarget(lua_State* L);
+	static int L_WORLD_EnableGhostsFX(lua_State* L);
 	static int L_WORLD_EnableSuperDemonFX(lua_State* L);
 	static int L_WORLD_DemonFXParams(lua_State* L);
 	static int L_WORLD_DemonFXWarp(lua_State* L);
@@ -773,6 +774,13 @@ int WorldNatives::L_WORLD_SetRenderTarget(lua_State* L) {
 	return 0;
 }
 
+// WORLD.EnableGhostsFX(on) - 0x101206A0, World+0x6bb: C5L4 turns it on for
+// its demonic spawns and off for Lucifer's realm. GhostFx.md
+int WorldNatives::L_WORLD_EnableGhostsFX(lua_State* L) {
+	From(L)->world_.ghostsFx = luaL_optnumber(L, 1, 0) != 0;
+	return 0;
+}
+
 // Demon Morph. WORLD.EnableDemonFX(on) is World+0x6dc (0x10120720), the
 // gate of View::RenderDemonFXWorld; EnableSuperDemonFX(on) is +0x6dd
 // (0x101207A0), which no shipped script sets. DemonFx.md.
@@ -1217,6 +1225,7 @@ void BindWorld(ScriptEngine& engine, LuaHost& host) {
 		{"WORLD", "SetDirLight", WorldNatives::L_WORLD_SetDirLight},
 		{"WORLD", "FindEnvironmentAtPoint", WorldNatives::L_WORLD_FindEnvironmentAtPoint},
 		{"WORLD", "SetRenderTarget", WorldNatives::L_WORLD_SetRenderTarget},
+		{"WORLD", "EnableGhostsFX", WorldNatives::L_WORLD_EnableGhostsFX},
 		{"WORLD", "EnableSuperDemonFX", WorldNatives::L_WORLD_EnableSuperDemonFX},
 		{"WORLD", "DemonFXParams", WorldNatives::L_WORLD_DemonFXParams},
 		{"WORLD", "DemonFXWarp", WorldNatives::L_WORLD_DemonFXWarp},

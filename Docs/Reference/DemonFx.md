@@ -29,7 +29,7 @@ The natives (all `GEngine+0xe8` = the World):
 | `WORLD.EnableSuperDemonFX(on)` | `0x101207A0` | `+0x6dd` - never set by a shipped script |
 | `WORLD.DemonFXParams(a, b, c, d)` | `0x10120820` | `+0x6e0`, `+0x6e4`, `+0x6ec`, `+0x6f0`; defaults 1, 0, 0.3, 0.7 |
 | `WORLD.DemonFXWarp(w)` | `0x101209E0` | `+0x6e8` |
-| `ENTITY.EnableDemonic(e, on, alsoChildren)` | | the model's demonic flag, read by `RenderWorld` mode 1 |
+| `ENTITY.EnableDemonic(e, on, alsoChildren)` | `0x10136480` | `Entity+0x28`, read by `RenderWorld` mode 1; a demonic model draws in no ordinary pass ([`GhostFx.md`](GhostFx.md), "The demonic flag") |
 
 Ten levels set their own `DemonFX.Scale` (3 to 4.15) and `Bias` (-2.4 to -3.1).
 

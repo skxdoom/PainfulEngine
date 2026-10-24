@@ -47,6 +47,7 @@ Row g_rows[] = {
 	{"PAINFUL_BLOOM", Kind::kInt, "0 turns the bloom post-process off (Render/Bloom.h)"},
 	{"PAINFUL_MSAA", Kind::kInt, "multisample count instead of Cfg.Multisample: 0 off, 2, 4, 8, 16"},
 	{"PAINFUL_DEMONFX", Kind::kInt, "0 turns the Demon Morph render path off (Render/DemonFx.h)"},
+	{"PAINFUL_GHOSTFX", Kind::kInt, "0 turns the ghost pass off (Render/GhostFx.h)"},
 	{"PAINFUL_COMPOSE", Kind::kInt, "0 turns WORLD.SetRenderTarget's frame blend off (Render/FrameCompose.h)"},
 	{"PAINFUL_GLOSSVIEW", Kind::kFlag, "the world's gloss term alone, over black"},
 	{"PAINFUL_SKYLAYER", Kind::kInt, "draw only this sky layer"},

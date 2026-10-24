@@ -66,7 +66,8 @@ vec3 Mode96Quantize(vec3 c, float levels) {
 }
 uniform vec4 u_specOrigin; // xyz: the model's position, where its half-vectors are built
 // x: the second stage's op - 0 off, 1 modulate, 2 add, 3 modulatealphaadd;
-// y: the blend alpha; z: stage 0's alpha - 0 texture, 1 times y, 2 y alone.
+// y: the blend alpha; z: stage 0's alpha - 0 texture, 1 times y, 2 y alone;
+// w: the ghost pass's grey.
 uniform vec4 u_stage1;
 
 void main()
@@ -149,6 +150,14 @@ void main()
 	bool greyAlbedo = u_params.w > 0.5;
 	vec3 color = Mode96Quantize(greyAlbedo ? vec3_splat(0.8) : base.rgb, u_mode96.y) *
 			diffuse + specular;
+
+	// The ghost pass (bw.pso): the lit colour's luminance, no fog, no second
+	// stage. GhostFx.md
+	if (u_stage1.w > 0.5)
+	{
+		gl_FragColor = vec4(vec3_splat(dot(color, vec3(0.3, 0.59, 0.11))), base.a);
+		return;
+	}
 
 	// The second stage combines with what is already there ("previous"), which
 	// is why it sits after the lighting rather than being mixed into the

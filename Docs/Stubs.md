@@ -20,7 +20,7 @@ not counted.
 | ...still stubs | 195 |
 | ...stubs after removing `NET` / `MPSTATS` / `GAMESPY` / `PMENU` | **119** |
 
-A combat run now hits **37 distinct / 1,670 calls** in 900 frames (the first
+A combat run now hits **29 distinct / 670 calls** in 900 frames (the first
 census read 72 / 9,977), and almost all of what is left is presentation.
 
 **Of those 119, a third are not game code at all.** Sorting the remainder by
@@ -116,7 +116,6 @@ including how to test a reading properly).
 | Native(s) | Live sites | What is missing |
 |---|---|---|
 | `CAM.LookAt` (6), `SetAdditionalRotation` (2), `EnableInterpolation` (2), `UpdateViewport` (2), `SetTransform`, `SetAngRad` | 14 | scripted camera moves |
-| `WORLD.EnableGhostsFX` (5) | 5 | C5L4's ghosts. The flag, `World+0x6bb`, sends `View::Render` to `RenderGhostFXWorld` (`0x100B5960`): one class of render objects into `World+0x18b4`, `ComposeTextures` with last frame's, the world, then `hud_add` over it. Its 150 KB stack frame defeats the decompiler, so which objects and which weights need the disassembly |
 | `INP.RemoveAction` | 5 | consuming a game action so it does not repeat while the key is held — the UI twin is in |
 | `MDL.SetHeadTrackRot`, `GetAnim` | 2 | small model queries |
 

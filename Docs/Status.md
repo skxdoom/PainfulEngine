@@ -511,6 +511,8 @@ inventory.
   black-and-white world, the red fresnel monsters, the strike warp and the
   trail, at screen resolution. The fresnel scale is the one constant set by
   eye; `SuperDemonFX` is recorded and not drawn (nothing sets it).
+- C5L4's demonic monsters are ghosts: grey, trailed, added over the frame and
+  through its walls ([`GhostFx.md`](Reference/GhostFx.md)).
 - Particle texture animation uses frame 0 only
   ([`Particles.md`](Reference/Particles.md)).
 - Antiportal occlusion is parsed but unused, portal frustum clipping is

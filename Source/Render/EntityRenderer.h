@@ -171,6 +171,10 @@ public:
 	// (Render/DemonFx.h supplies all three). DemonFx.md, "The monsters".
 	void SetDemonPass(bool on, bgfx::ViewId view, bgfx::TextureHandle detail,
 			bgfx::TextureHandle ramp, float fresnelScale);
+	// WORLD.EnableGhostsFX: while `on` (and no Demon Morph), demonic instances
+	// leave the main pass and draw in grey into `view` (Render/GhostFx.h).
+	// With neither pass on they draw nothing. GhostFx.md
+	void SetGhostPass(bool on, bgfx::ViewId view) { ghostOn_ = on; ghostView_ = view; }
 
 	// --- the view model's shadows ---
 	void SetViewModelShadows(const ViewModelShadows* vm) { viewModelShadows_ = vm; }
@@ -245,6 +249,8 @@ public:
 	size_t packed() const { return packed_; }
 	size_t hidden() const { return hidden_; }
 	size_t drawCalls() const { return drawCalls_; }
+	// The ghost pass's draws this frame (SetGhostPass).
+	size_t ghostDraws() const { return ghostDraws_; }
 	// Instances that were CPU-skinned this frame (visible, animated, skinned).
 	size_t posedInstances() const { return posedInstances_; }
 	// Which models those were - the check that actors animate, not just the
@@ -435,6 +441,8 @@ private:
 	bgfx::ProgramHandle demonProgram_ = BGFX_INVALID_HANDLE;
 	bgfx::UniformHandle uDemonFresnel_ = BGFX_INVALID_HANDLE;
 	bool demonOn_ = false;
+	bool ghostOn_ = false;
+	bgfx::ViewId ghostView_ = 0;
 	DrawSet drawSet_ = kAll;
 	bool specularEnabled_ = true; // Pf.Mode96 clears it
 	bool lightingOnly_ = false;
@@ -505,6 +513,7 @@ private:
 	EntityLightFade cameraFade_;
 	bgfx::TextureHandle white_ = BGFX_INVALID_HANDLE;
 	size_t unresolved_ = 0, packed_ = 0, hidden_ = 0, drawCalls_ = 0, posedInstances_ = 0;
+	size_t ghostDraws_ = 0;
 	std::set<std::string> posedModels_;
 	// Models wind the opposite way to world meshes: .pkmdl comes from the Maya
 	// exporter, .mpk from ase2mpk. Verified visually - CCW turns models inside out.

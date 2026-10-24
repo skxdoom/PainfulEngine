@@ -1283,6 +1283,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 	// The view model pass is the frame's second Draw: it adds to the scene's counts.
 	if (drawSet_ != kViewModelOnly) {
 		drawCalls_ = 0;
+		ghostDraws_ = 0;
 		shadowDrawCalls_ = 0;
 		posedInstances_ = 0;
 		posedModels_.clear();
@@ -1295,6 +1296,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 	const Frustum frustum = Frustum::FromViewProj(viewMtx, projMtx);
 	// The demon pass draws into its own view, from the same camera.
 	if (demonOn_) bgfx::setViewTransform(demonView_, viewMtx, projMtx);
+	if (ghostOn_) bgfx::setViewTransform(ghostView_, viewMtx, projMtx);
 
 	const float fogValue[4] = {info.fogColor[0] / 255.f, info.fogColor[1] / 255.f,
 			info.fogColor[2] / 255.f, 1.f};
@@ -1489,6 +1491,11 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			if (partIndex < instance.hiddenParts.size() &&
 					instance.hiddenParts[partIndex])
 				continue;
+			// A demonic model draws only in the demon or the ghost pass:
+			// AnimatedMesh::Render (0x10002BB0) does nothing for Entity+0x28
+			// without one of their flags. GhostFx.md
+			const bool ghostDraw = ghostOn_ && !demonOn_ && instance.demonic;
+			if (instance.demonic && !demonOn_ && !ghostDraw) continue;
 			// Material is per part: one model can mix an ordinary skinned mesh
 			// with a scrolling water surface.
 			// MDL.SetMaterial overrides the whole model, parts included: the
@@ -1516,7 +1523,9 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			static const bool kNoATest = DebugFlag("PAINFUL_NOATEST");
 			// w: the lighting-only view's grey albedo, blended materials excepted.
 			const bool greyAlbedo = lightingOnly_ && !(mat.state & BGFX_STATE_BLEND_MASK);
-			const float params[4] = {0.f, kNoATest ? -1.f : mat.alphaRef, 0.f, greyAlbedo ? 1.f : 0.f};
+			// ghostfx (skin.shader) turns the alpha test off.
+			const float params[4] = {0.f, kNoATest || ghostDraw ? -1.f : mat.alphaRef, 0.f,
+					greyAlbedo ? 1.f : 0.f};
 			// Animated materials pan their diffuse UVs; no detail maps here.
 			const float uvAnim[4] = {mat.pan0[0] * timeSeconds, mat.pan0[1] * timeSeconds,
 					mat.pan1[0] * timeSeconds, mat.pan1[1] * timeSeconds};
@@ -1533,9 +1542,10 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			bgfx::setUniform(uMode96_, rv); }
 			bgfx::setUniform(uUv0_, identityUv);
 			bgfx::setUniform(uTile_, tile);
+			// w: the ghost pass's grey (bw.pso).
 			const float stage1[4] = {
-				bgfx::isValid(stage1Tex) ? float(mat.stage1Op) : 0.f, instance.blendAlpha,
-				float(mat.alpha0), 0.f};
+				bgfx::isValid(stage1Tex) && !ghostDraw ? float(mat.stage1Op) : 0.f,
+				instance.blendAlpha, float(mat.alpha0), ghostDraw ? 1.f : 0.f};
 			bgfx::setUniform(uStage1_, stage1);
 			// c10: this mesh's specular colour, its power in w - the level's
 			// DynamicLighting on a pack or map mesh.
@@ -1598,7 +1608,8 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			// The model water look (palskin_water): its own program, the cube
 			// map at stage 1, MDL.SetMaterialRefractFresnel's numbers per mesh.
 			const bgfx::TextureHandle cubeTex = bgfx::isValid(envCube_) ? envCube_ : levelCube_;
-			if (part.water && !demonDraw && bgfx::isValid(waterProgram_) && bgfx::isValid(cubeTex)) {
+			if (part.water && !demonDraw && !ghostDraw && bgfx::isValid(waterProgram_) &&
+					bgfx::isValid(cubeTex)) {
 				Instance::MeshWater mw;
 				for (const Instance::MeshWater& w : instance.water)
 					if (w.mesh == part.name) { mw = w; break; }
@@ -1622,7 +1633,8 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			const Part& ownerPart = model.parts[owner < model.parts.size() ? owner : partIndex];
 			const bool posedRot = usePosed && owner < instance.posedRot.size() &&
 					bgfx::isValid(instance.posedRot[owner]);
-			const bool bump = specularEnabled_ && !demonDraw && instance.normalMaps && bgfx::isValid(programNm_) &&
+			const bool bump = specularEnabled_ && !demonDraw && !ghostDraw && instance.normalMaps &&
+					bgfx::isValid(programNm_) &&
 					bgfx::isValid(part.normalMap) && (posedRot || bgfx::isValid(ownerPart.bindRot));
 			if (bump) {
 				if (posedRot) bgfx::setVertexBuffer(1, instance.posedRot[owner]);
@@ -1631,6 +1643,12 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 				bgfx::submit(view, programNm_);
 			} else if (demonDraw) {
 				bgfx::submit(demonView_, demonProgram_);
+			} else if (ghostDraw) {
+				// ghostfx: opaque, its own depth, no blend.
+				bgfx::setState((state & ~BGFX_STATE_BLEND_MASK) | BGFX_STATE_WRITE_Z |
+						BGFX_STATE_DEPTH_TEST_LESS | BGFX_STATE_WRITE_A);
+				bgfx::submit(ghostView_, program_);
+				++ghostDraws_;
 			} else {
 				bgfx::submit(view, program_);
 			}

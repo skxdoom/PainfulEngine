@@ -30,6 +30,7 @@
 #include "Render/DebugLines.h"
 #include "Render/DemonFx.h"
 #include "Render/FrameCompose.h"
+#include "Render/GhostFx.h"
 #include "Render/SceneTargets.h"
 #include "Render/WaterReflection.h"
 #include "Render/EnvCubeMap.h"
@@ -475,6 +476,10 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 	FrameCompose compose;
 	const bool composeInit = sceneInit && compose.Init(shaderDir);
 	bool composeThisFrame = false;
+	// WORLD.EnableGhostsFX's demonic models: the branch after Demon Morph's,
+	// before the render target's and in place of bloom. PAINFUL_GHOSTFX=0 off.
+	GhostFx ghostFx;
+	const bool ghostInit = ghostFx.Init(shaderDir);
 
 	// painful_config.ini, applied: at boot, and again on the frame after the
 	// console's `pf` changed a value. Maps are rebuilt only when their size
@@ -787,6 +792,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		sceneTargets.BeginFrame(window.width(), window.height(), false, Renderer::kSkyView,
 				Renderer::kWorldView);
 		demonFx.BeginFrame(sceneTargets, false, Renderer::kDemonEntityView);
+		ghostFx.BeginFrame(window.width(), window.height(), false, Renderer::kGhostEntityView);
 		bloom.Skip();
 		hud.Begin(Renderer::kHudView, window.width(), window.height());
 		// The art covers the window; the sketch and the name are laid out on
@@ -1389,9 +1395,11 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			// bloom one. Docs/Reference/DemonFx.md.
 			const bool demonOn = demonInit && worldReady && ws.demonFx &&
 					DebugInt("PAINFUL_DEMONFX", 1) > 0;
-			composeThisFrame = composeInit && worldReady && !demonOn && ws.renderTarget > 0 &&
-					DebugInt("PAINFUL_COMPOSE", 1) > 0;
-			const bool bloomOn = !mode96 && !demonOn && !composeThisFrame && bloomInit &&
+			const bool ghostOn = ghostInit && worldReady && !demonOn && ws.ghostsFx &&
+					DebugInt("PAINFUL_GHOSTFX", 1) > 0;
+			composeThisFrame = composeInit && worldReady && !demonOn && !ghostOn &&
+					ws.renderTarget > 0 && DebugInt("PAINFUL_COMPOSE", 1) > 0;
+			const bool bloomOn = !mode96 && !demonOn && !ghostOn && !composeThisFrame && bloomInit &&
 					worldReady && ws.bloom && ws.bloomMultiplier > 0.f && (ws.bloomOverlay & 0xffffff) != 0 &&
 					DebugInt("PAINFUL_BLOOM", 1) > 0;
 			// The scene goes to its target whenever either pass wants it.
@@ -1414,6 +1422,9 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			demonFx.BeginFrame(sceneTargets, demonOn, Renderer::kDemonEntityView);
 			entities.SetDemonPass(demonFx.active(), Renderer::kDemonEntityView, demonFx.detail(),
 					demonFx.ramp(), DemonFx::kFresnelScale);
+			ghostFx.BeginFrame(window.width(), window.height(), ghostOn && !wireframe,
+					Renderer::kGhostEntityView);
+			entities.SetGhostPass(ghostFx.active(), Renderer::kGhostEntityView);
 		}
 		// The water's planar reflection first, into its own half-size target:
 		// the scene mirrored about the surface, or a cleared target when the
@@ -1637,6 +1648,8 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		// Targets on for the warp alone: the scene still has to reach the backbuffer.
 		if (sceneTargets.active() && !bloomThisFrame && !demonFx.active() && !composed)
 			sceneTargets.Present(Renderer::kCompositeView);
+		// The ghosts' trail added over the frame (hud_add), under the HUD.
+		ghostFx.Draw(Renderer::kGhostTrailView, Renderer::kGhostAddView, dt);
 		// Or, in Demon Morph: black and white, the glow, the warp, the trail.
 		demonFx.Draw(sceneTargets, Renderer::kDemonGrayView, Renderer::kDemonWarpView,
 				Renderer::kDemonCopyView, dt);
@@ -1825,10 +1838,12 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 				unsigned vbCount = 0, ibCount = 0;
 				renderer.BufferCounts(vbCount, ibCount);
 				LogInfo("  gpu buffers: %u vertex, %u index", vbCount, ibCount);
-				LogInfo("  bloom: %s, %dx%d buffers, %d taps, threshold %.2f, multiplier %.2f; msaa x%d; demon fx %s",
+				LogInfo("  bloom: %s, %dx%d buffers, %d taps, threshold %.2f, multiplier %.2f; msaa x%d; demon fx %s; "
+						"ghost fx %s, %zu draws",
 						bloom.active() ? "on" : "off", bloom.bufferWidth(), bloom.bufferHeight(),
 						bloom.taps(), bloom.threshold(), bloom.multiplier(), renderer.msaaSamples(),
-						demonFx.active() ? "on" : "off");
+						demonFx.active() ? "on" : "off", ghostFx.active() ? "on" : "off",
+						entities.ghostDraws());
 				LogInfo("  shadow maps: flashlight %s, characters %s (%zu of %zu cast), %zu lights "
 						"(%zu baked chunk slots), view model %s + %d lights; %zu world draws, "
 						"%zu entity draws in all",

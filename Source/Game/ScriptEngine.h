@@ -524,6 +524,9 @@ public:
 		// none) and the weighted list the screen shows (View+0xa864..).
 		// Docs/Reference/FrameCompose.md.
 		int renderTarget = 0;
+		// WORLD.EnableGhostsFX, World+0x6bb: View::Render's ghost pass.
+		// Docs/Reference/GhostFx.md.
+		bool ghostsFx = false;
 		int composeCount = 0;
 		int composeTex[3] = {0, 0, 0};
 		float composeWeight[3] = {0.f, 0.f, 0.f};
