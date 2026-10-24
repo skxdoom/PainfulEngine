@@ -235,6 +235,10 @@ public:
 	// from the shader scripts; "" puts the meshes' own back. Unknown names are
 	// left alone and reported.
 	void SetScriptMaterial(int slot, const std::string& name, TextureCache& textures);
+	// MDL.SetTexture(entity, old, new): every part drawn with `old` takes `new`
+	// on this instance (Model::SetTexture 0x101E0470).
+	void SetScriptTexture(int slot, const std::string& oldName, const std::string& newName,
+			TextureCache& textures);
 	// MDL.SetBlendAlpha: the alpha of the constant colour every pass of the
 	// instance draws with. TextureStages.md, "The constant colour"
 	void SetScriptBlendAlpha(int slot, float alpha);
@@ -288,6 +292,7 @@ private:
 		// Docs/Reference/Physics.md, "Active meshes".
 		bgfx::IndexBufferHandle ibo = BGFX_INVALID_HANDLE;
 		bgfx::TextureHandle diffuse = BGFX_INVALID_HANDLE;
+		std::string diffuseName; // the .pkmdl's texture, which MDL.SetTexture names
 		bool water = false; // palskin_water: the model water look (Water.md, "Swamp")
 		// The material's stage-1 texture, when it has one (blood, freeze).
 		bgfx::TextureHandle stage1 = BGFX_INVALID_HANDLE;
@@ -387,6 +392,8 @@ private:
 		// Per instance, not per model - the viewmodel hides its blades while
 		// another copy of the same model keeps them. Empty means all shown.
 		std::vector<uint8_t> hiddenParts;
+		// MDL.SetTexture per part; invalid = the part's own.
+		std::vector<bgfx::TextureHandle> partDiffuse;
 		// MDL.SetMaterialSpecular per part: rgb, power. Empty = the load default.
 		std::vector<std::array<float, 4>> partSpecular;
 		// MESH.SetLighting(false): the whole instance unlit, white. MDL.SetMeshLighting:

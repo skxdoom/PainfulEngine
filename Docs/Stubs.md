@@ -127,8 +127,11 @@ Ranked by calls per 900 combat frames:
   `SOUND.SetRoomType` (31), and the streams' low-pass
   (`SOUND.GlobalSetLowPass`). The largest block of call volume left by a wide
   margin.
-- **Model and mesh materials** — `MESH.SetDetailMap` (210), `MATERIAL.Replace`
-  (44 sites), `MDL.SetTexture` (32 sites), and the `MESH.Get*` readers.
+- **Model and mesh materials** — `MESH.SetDetailMap` (210: entity pack meshes
+  have no detail path at all yet), `MATERIAL.Replace` (44 sites, nearly all
+  multiplayer; in the single game it swaps the weapons' gloss maps when
+  `Cfg.WeaponSpecular` is off, `MaterialSystem::ReplaceTexture` `0x100996E0`
+  reloading a texture's pixels in place), and the `MESH.Get*` readers.
 - **The environment setters** — `ENVIRONMENT.SetAmbient` / `SetDirLight` /
   `SetFog` / `SetWater` / `ResetReflectList` (50 each).
   The boxes themselves already light and fog

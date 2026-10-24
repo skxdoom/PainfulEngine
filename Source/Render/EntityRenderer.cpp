@@ -301,6 +301,7 @@ bool EntityRenderer::GetModel(const std::string& modelName, TextureCache& textur
 			part.diffuse = s < mesh.materials.size()
 					? textures.Get(mesh.materials[s].texture, "")
 					: textures.White();
+			if (s < mesh.materials.size()) part.diffuseName = mesh.materials[s].texture;
 			// The override key is the mesh name, matching how the world path keys
 			// off each object's name. Swamp_dirtywater.pkmdl holds a mesh called
 			// "dirtywater", which is the skin.shader entry that makes the swamp
@@ -974,7 +975,9 @@ void EntityRenderer::DrawCaster(bgfx::ViewId view, bgfx::ProgramHandle program,
 		if (usePosed) bgfx::setVertexBuffer(0, instance.posed[owner]);
 		else bgfx::setVertexBuffer(0, part.vbo);
 		bgfx::setIndexBuffer(part.ibo, part.firstIndex, part.indexCount);
-		bgfx::setTexture(0, sDiffuse_, part.diffuse, mat.sampler[0]);
+		const bgfx::TextureHandle diffuse = partIndex < instance.partDiffuse.size() &&
+				bgfx::isValid(instance.partDiffuse[partIndex]) ? instance.partDiffuse[partIndex] : part.diffuse;
+		bgfx::setTexture(0, sDiffuse_, diffuse, mat.sampler[0]);
 		bgfx::setState(ShadowMap::kState);
 		bgfx::submit(view, program);
 		++shadowDrawCalls_;
@@ -1123,6 +1126,37 @@ void EntityRenderer::SetScriptMaterial(int slot, const std::string& name,
 	if (!inst.material.map1.empty()) tex = textures.Get(inst.material.map1, "");
 	inst.stage1 = tex;
 	inst.materialOverride = true;
+}
+
+void EntityRenderer::SetScriptTexture(int slot, const std::string& oldName,
+		const std::string& newName, TextureCache& textures) {
+	if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
+			"EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
+		return;
+	Instance& inst = instances_[slot];
+	const GpuModel& model = models_[inst.model];
+	// Model::SetTexture stricmp's the bare name the script passes against the
+	// mesh's; ours carry the folder and extension, so compare the stems, and
+	// load the new one from the old one's folder (AnimatedMesh::CreateTexture).
+	const auto stem = [](const std::string& path) {
+		size_t from = path.find_last_of("/\\");
+		from = from == std::string::npos ? 0 : from + 1;
+		const size_t dot = path.rfind('.');
+		const size_t len = dot != std::string::npos && dot > from ? dot - from : std::string::npos;
+		std::string s = path.substr(from, len);
+		for (char& c : s) c = char(std::tolower(static_cast<unsigned char>(c)));
+		return s;
+	};
+	const std::string want = stem(oldName);
+	for (size_t i = 0; i < model.parts.size(); ++i) {
+		const std::string& have = model.parts[i].diffuseName;
+		if (stem(have) != want) continue;
+		const size_t slash = have.find_last_of("/\\");
+		const std::string dir = slash == std::string::npos ? std::string() : have.substr(0, slash + 1);
+		if (inst.partDiffuse.size() < model.parts.size())
+			inst.partDiffuse.resize(model.parts.size(), BGFX_INVALID_HANDLE);
+		inst.partDiffuse[i] = textures.Get(dir + newName, "");
+	}
 }
 
 void EntityRenderer::SetScriptBlendAlpha(int slot, float alpha) {
@@ -1584,7 +1618,10 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 				bgfx::setTexture(0, sDiffuse_, demonDetail_);
 				bgfx::setTexture(1, sStage1_, demonRamp_, BGFX_SAMPLER_UVW_CLAMP);
 			} else {
-				bgfx::setTexture(0, sDiffuse_, part.diffuse, FilteredSampler(mat.sampler[0]));
+				const bgfx::TextureHandle diffuse = partIndex < instance.partDiffuse.size() &&
+						bgfx::isValid(instance.partDiffuse[partIndex])
+						? instance.partDiffuse[partIndex] : part.diffuse;
+				bgfx::setTexture(0, sDiffuse_, diffuse, FilteredSampler(mat.sampler[0]));
 				// Stage 1 when the material has one; white through the off path
 				// so the sampler is always bound.
 				bgfx::setTexture(1, sStage1_,

@@ -57,6 +57,21 @@ sets that material's constant (`Material+0x5dc`, the texture factor) to
 (`+0x7bc`) and otherwise points every part at `FindMaterial(name)`, which for
 `""` is nothing: the meshes' own materials are back.
 
+## A model's own textures
+
+`MDL.SetTexture(e, old, new)` (`0x1013C9F0`, models only, →
+`Model::SetTexture` `0x101E0470`) gives this model, not its type, `new`
+wherever a mesh or one of its material slots is drawn with `old`: the
+comparison is `stricmp` against the mesh's own texture name, and the new one is
+loaded through `AnimatedMesh::CreateTexture`, from the model's folder.
+`CActor` applies a template's `xchgTextures` this way when the actor is
+created or restored: the base `Sado` swaps `SADOtexture1/2` for the v2 skin,
+and `Sado_1gun` sets the table to nil to keep the old one.
+
+The port's parts carry the folder and the extension, so it compares the
+stems and loads `new` from the old texture's folder; the entity keeps its swaps
+and the renderer instance gets them again when it is rebuilt.
+
 ## The frost
 
 `palskinned_freeze` (`skin.shader`) is the one material that reads it:

@@ -189,6 +189,8 @@ public:
 		std::string materialName;
 		// MDL.SetBlendAlpha, Model+0x700 (1 from the constructor).
 		float blendAlpha = 1.f;
+		// MDL.SetTexture's swaps in order, replayed on a rebuilt instance.
+		std::vector<std::pair<std::string, std::string>> textureSwaps;
 		// MDL.SetMaterialSpecular since the last reset: mesh -> rgb, power.
 		std::map<std::string, std::array<float, 4>> materialSpecular;
 		// MESH.SetLighting(e, false): a pack mesh drawn unlit, at full albedo.

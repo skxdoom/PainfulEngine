@@ -28,6 +28,7 @@ struct AnimNatives : ScriptNativesBase {
 	static int L_MDL_SetMeshVisibility(lua_State* L);
 	static int L_MDL_SetMaterial(lua_State* L);
 	static int L_MDL_SetBlendAlpha(lua_State* L);
+	static int L_MDL_SetTexture(lua_State* L);
 };
 
 namespace {
@@ -813,12 +814,27 @@ int AnimNatives::L_MDL_SetBlendAlpha(lua_State* L) {
 	return 0;
 }
 
+// MDL.SetTexture(entity, old, new) - 0x1013C9F0, models only: the parts drawn
+// with `old` take `new` on this one (Model::SetTexture 0x101E0470). CActor
+// applies a template's xchgTextures this way: Sado_1gun's v2 skin.
+int AnimNatives::L_MDL_SetTexture(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || e->type != kModel || !lua_isstring(L, 2) || !lua_isstring(L, 3)) return 0;
+	e->textureSwaps.emplace_back(lua_tostring(L, 2), lua_tostring(L, 3));
+	if (self->renderer_ && self->textures_ && e->rendererInstance >= 0)
+		self->renderer_->SetScriptTexture(e->rendererInstance, e->textureSwaps.back().first,
+				e->textureSwaps.back().second, *self->textures_);
+	return 0;
+}
+
 void BindAnim(ScriptEngine& engine, LuaHost& host) {
 	const ScriptNative natives[] = {
 		{"MDL", "SetAnim", AnimNatives::L_MDL_SetAnim},
 		{"MDL", "SetMeshVisibility", AnimNatives::L_MDL_SetMeshVisibility},
 		{"MDL", "SetMaterial", AnimNatives::L_MDL_SetMaterial},
 		{"MDL", "SetBlendAlpha", AnimNatives::L_MDL_SetBlendAlpha},
+		{"MDL", "SetTexture", AnimNatives::L_MDL_SetTexture},
 		{"MDL", "GetAnimLength", AnimNatives::L_MDL_GetAnimLength},
 		{"MDL", "GetAnimTime", AnimNatives::L_MDL_GetAnimTime},
 		{"MDL", "SetAnimTime", AnimNatives::L_MDL_SetAnimTime},
