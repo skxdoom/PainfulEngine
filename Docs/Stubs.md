@@ -115,45 +115,10 @@ including how to test a reading properly).
 
 | Native(s) | Live sites | What is missing |
 |---|---|---|
-| `ENTITY.AttachTrailToBones` | 26 | motion trails: every dart, nail, shuriken and grenade, plus the monsters' weapons. The biggest single item left, and scoped — see below |
 | `CAM.LookAt` (6), `SetAdditionalRotation` (2), `EnableInterpolation` (2), `UpdateViewport` (2), `SetTransform`, `SetAngRad` | 14 | scripted camera moves |
 | `WORLD.EnableGhostsFX` (5), `FlashSkyTexture` (4), `MDL.SetBlendAlpha` (5) | 14 | level set pieces: C5L4's ghosts, C3L5 and C6L4's lightning, the Stone Golem and Thor's hammer fading in |
 | `INP.RemoveAction` | 5 | consuming a game action so it does not repeat while the key is held — the UI twin is in |
 | `MDL.SetHeadTrackRot`, `GetAnim` | 2 | small model queries |
-
-### The trail system, scoped
-
-The definitions are trivial — 18 files in `Scripts/Trails/`, four or five keys:
-
-```
-[General]
-Texture = trailkolek.tga
-BlendMode = alpha
-LifeTime = 0.5
-Width = 0.15
-ConstLen = 5      -- only trail_ghost
-```
-
-The script side is always the same three calls (`BindTrailToEntity`,
-`CActor`'s `Trails` table, and each projectile's `OnCreateEntity`):
-
-```lua
-local e = ENTITY.Create(ETypes.Trail, "trail_kolek", "trailName")
-ENTITY.AttachTrailToBones(owner, e [, joint names...])
-WORLD.AddEntity(e)
-```
-
-`Trail::AttachToBones` (`0x101EA930`) is recovered: it registers the trail as a
-child of the owner (joint −1, dies with the parent), then `Init(2000, n)` where
-`n` is the joint count, floored at 2 — and **0 for a non-model owner**, which is
-the common case, every projectile being a mesh. So a bladed monster gets a
-ribbon strung between two named bones and a dart gets one built from its own
-transform.
-
-**What is not recovered:** the per-frame update — how the rails are sampled,
-what the two rails are when there are no joints, and how `LifeTime` fades the
-tail. `Trail::Tick` is not in `PainfulEngineHelpers/Decompiled`, so this needs a
-Ghidra pass before any of it is written.
 
 ## Tier 3 — presentation (most of the call volume, none of the behaviour)
 

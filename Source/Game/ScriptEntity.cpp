@@ -154,6 +154,7 @@ void ScriptEngine::ReleaseEntity(int handle) {
 		audio_->Release(it->second.soundVoice, false);
 	if (renderer_ && it->second.rendererInstance >= 0)
 		renderer_->ReleaseScript(it->second.rendererInstance);
+	trails_.erase(handle);
 	if (physics_ && it->second.physicsBody >= 0) {
 		physics_->RemoveScriptBody(it->second.physicsBody);
 		bodyToEntity_.erase(it->second.physicsBody);

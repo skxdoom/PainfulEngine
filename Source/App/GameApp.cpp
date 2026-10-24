@@ -1160,6 +1160,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			// finished moving and their joints are posed for the frame. Placed
 			// any earlier and every effect trails its owner by a frame.
 			engine.UpdateAttached();
+			engine.TickTrails(sim);
 			engine.TickSounds(sim);
 			engine.TickCollisions(sim);
 			// Last, once the camera has settled: a view-attached weapon is
@@ -1533,6 +1534,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 		}
 		if (particlesReady) {
 			particles.Tick(simDt);
+			particles.SetTrails(engine.TrailRibbons(), textures);
 			particles.Draw(lateView, camera, window.width(), window.height());
 		}
 		if (billboardsReady) {

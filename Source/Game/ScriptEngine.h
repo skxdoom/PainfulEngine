@@ -19,6 +19,8 @@
 #include "../Assets/Hke.h"
 #include "../Script/LuaHost.h"
 #include "../World/Decals.h"
+#include "../World/Trails.h"
+#include <memory>
 #include "../World/Level.h"
 #include "../World/Lighting.h"
 #include "../World/PhysicsWorld.h"
@@ -724,6 +726,11 @@ public:
 	// The reaping half of TickLifetimes, without the countdown: what
 	// WORLD.DeleteDyingEntities asks for out of turn.
 	void ReapExpiredEntities();
+	// The trail ribbons: sampled from their owners and aged. Call after
+	// UpdateAttached, which places a projectile's trail. Trails.md.
+	void TickTrails(float dt);
+	// What ParticleRenderer::SetTrails draws this frame.
+	std::vector<const TrailRibbon*> TrailRibbons() const;
 	// The geometry a Mesh entity was built from, or nullptr: the named object
 	// inside its .dat pack, or the map object a world mesh stands for. Loads
 	// the pack on demand and remembers the last one, which is all the callers
@@ -847,6 +854,7 @@ public:
 	friend struct SaveNatives;
 	friend struct WaterNatives;
 	friend struct DecalNatives;
+	friend struct TrailNatives;
 	friend struct LightNatives;
 
 private:
@@ -1109,6 +1117,14 @@ private:
 	MapMesh map_;
 	bool mapLoaded_ = false;
 	DecalLibrary decalLib_;
+	// ENTITY.AttachTrailToBones' ribbons, by trail entity handle, with the
+	// owner's joint indices they are strung between.
+	TrailLibrary trailLib_;
+	struct TrailState {
+		std::unique_ptr<TrailRibbon> ribbon;
+		std::vector<int> joints;
+	};
+	std::map<int, TrailState> trails_;
 	DecalSystem decals_;
 	std::unordered_map<int, int> bodyToEntity_; // body slot -> entity handle
 	// The debris ExplodeItem made, per item that blew up. CItem:DestroyItemFX

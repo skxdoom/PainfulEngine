@@ -16,6 +16,8 @@ add_library(World STATIC
 		PhysicsRagdolls.cpp
 		PhysicsWorldInternal.h
 		Decals.cpp Decals.h
+		EffectIni.cpp EffectIni.h
+		Trails.cpp Trails.h
 		)
 target_link_libraries(World PUBLIC Assets Jolt)
 # PUBLIC: Lighting.h sizes kMaxDynamicLights from this, and Render and Game

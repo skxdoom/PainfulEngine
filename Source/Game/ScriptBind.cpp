@@ -51,6 +51,7 @@ void ScriptEngine::Bind(LuaHost& host) {
 	BindWater(*this, host);
 	BindSave(*this, host);
 	BindLight(*this, host);
+	BindTrail(*this, host);
 }
 
 } // namespace painful

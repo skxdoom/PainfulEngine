@@ -42,6 +42,7 @@ add_library(Game STATIC
 		ScriptWorldSaveWrite.cpp
 		ScriptDecal.cpp
 		ScriptLight.cpp
+		ScriptTrail.cpp
 		)
 target_link_libraries(Game PUBLIC Script Render Audio)
 painful_layer(Game)

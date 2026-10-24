@@ -702,6 +702,7 @@ int LuaCmd(const char* dataRoot, int frames, const char* level,
 			// they hang off, and contacts are never reported - so a destructible
 			// could not break here even though the physics under it is real.
 			engine.UpdateAttached();
+			engine.TickTrails(sim);
 			engine.TickSounds(sim);
 			engine.TickCollisions(sim);
 			// The view model follows the camera here too, as in GameApp.

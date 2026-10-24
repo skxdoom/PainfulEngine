@@ -671,6 +671,7 @@ void ScriptEngine::ResetLevelState() {
 		if (kv.second.worldObject || kv.second.decalSlot >= 0) engineOwned.push_back(kv.first);
 	for (int handle : engineOwned) ReleaseEntity(handle);
 	decals_.Clear();
+	trails_.clear();
 	water_.clear();
 	deathZones_.clear();
 	glass_.clear();

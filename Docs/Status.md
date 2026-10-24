@@ -60,6 +60,8 @@ Source/
             PhysicsWorld    Jolt: the static world, the placed props, queries;
                             +ScriptBodies (script bodies, characters) and
                             +Ragdolls, one class across three TUs
+            Trails          trail definitions and the ribbon each one grows
+            EffectIni       the effect .ini reader and blend-mode names
   Render/   Window          SDL3
             Renderer        bgfx device
             Camera          the camera, and the free camera's collision radius
@@ -76,7 +78,7 @@ Source/
                             ScriptPlayer, ScriptInput, ScriptTrace, ScriptAnim,
                             ScriptWorld, ScriptHud, ScriptMenu, ScriptDeath,
                             ScriptLimbs, ScriptCollision, ScriptExplosion,
-                            ScriptDecal, ScriptLight, ScriptWater,
+                            ScriptDecal, ScriptLight, ScriptWater, ScriptTrail,
                             ScriptConsole, ScriptSave, ScriptWorldSave -
                             each declaring its own natives and
                             its own binding table, so adding one recompiles
@@ -443,7 +445,10 @@ inventory.
 - Decals are in: `ENTITY.SpawnDecal` / `SpawnOrientedDecal` / `SpawnStaticDecal`
   / `UpdateDecal`, `R3D.KeepDecals` and `Cfg.DecalsStayTime`, cut against the
   map object under the hit ([`Decals.md`](Reference/Decals.md)). Not on models
-  or pack meshes. Trails (`AttachTrailToBones`) are still stubs.
+  or pack meshes.
+- Trails are in: `ENTITY.AttachTrailToBones` grows a camera-facing ribbon
+  behind a projectile, or a strip between a monster's blade joints, that fades
+  out after its owner is gone ([`Trails.md`](Reference/Trails.md)).
 - Specular is the original's on both sides: models take their meshes' colour
   and power and the per-model half-vectors, the world its gloss maps under the
   `.EMesh` fake-specular lights and the point lights, with Dynamic Lights at 2;

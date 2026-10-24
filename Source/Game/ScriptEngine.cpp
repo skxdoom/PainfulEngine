@@ -47,6 +47,7 @@ void ScriptEngine::AttachRenderer(EntityRenderer* entities, TextureCache* textur
 	animations_.SetRoot(dataRoot + "/Models");
 	skeletons_.SetRoot(dataRoot + "/Models");
 	decalLib_.Init(dataRoot + "/Scripts");
+	trailLib_.Init(dataRoot + "/Scripts");
 }
 
 void ScriptEngine::AttachPhysics(PhysicsWorld* physics, const std::string& dataRoot) {
@@ -55,6 +56,7 @@ void ScriptEngine::AttachPhysics(PhysicsWorld* physics, const std::string& dataR
 	animations_.SetRoot(dataRoot + "/Models");
 	skeletons_.SetRoot(dataRoot + "/Models");
 	decalLib_.Init(dataRoot + "/Scripts");
+	trailLib_.Init(dataRoot + "/Scripts");
 }
 
 void ScriptEngine::AttachParticles(ParticleRenderer* particles, EmitterLibrary* library) {

@@ -565,6 +565,78 @@ void ParticleRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, 
 	(void)height;
 	drawCalls_ = 0;
 	DrawEmitters(view, camera, false, BGFX_INVALID_HANDLE);
+	DrawTrails(view, camera);
+}
+
+void ParticleRenderer::SetTrails(std::vector<const TrailRibbon*> trails, TextureCache& textures) {
+	trails_.clear();
+	trails_.reserve(trails.size());
+	for (const TrailRibbon* t : trails) {
+		if (!t || t->nodeCount() < 2) continue;
+		TrailDraw d;
+		d.ribbon = t;
+		d.texture = textures.Get(t->def().texture, "", true, true);
+		trails_.push_back(d);
+	}
+}
+
+// Trail::Draw: one strip per ribbon, u the node's age over LifeTime (the
+// texture carries the fade), v across. One point a node is faced to the
+// camera, half the width either side of the line; more are strung between
+// neighbouring joints. Docs/Reference/Trails.md.
+void ParticleRenderer::DrawTrails(bgfx::ViewId view, const Camera& camera) {
+	if (!bgfx::isValid(program_)) return;
+	const Vec3 eye = AsVec3(camera.pos);
+	const uint32_t m96 = Mode96Sampler();
+	const uint32_t sampler = (m96 == UINT32_MAX ? 0u : m96) | BGFX_SAMPLER_U_CLAMP |
+			BGFX_SAMPLER_V_CLAMP;
+	for (const TrailDraw& d : trails_) {
+		const TrailRibbon& t = *d.ribbon;
+		const int n = t.nodeCount();
+		if (n < 2) continue;
+		const int strips = t.rails() < 2 ? 1 : t.rails() - 1;
+		for (int s = 0; s < strips; ++s) {
+			const uint32_t vertexCount = uint32_t(n) * 2;
+			if (bgfx::getAvailTransientVertexBuffer(vertexCount, layout_) < vertexCount) return;
+			bgfx::TransientVertexBuffer tvb;
+			bgfx::allocTransientVertexBuffer(&tvb, vertexCount, layout_);
+			ParticleVertex* vtx = reinterpret_cast<ParticleVertex*>(tvb.data);
+			for (int i = 0; i < n; ++i) {
+				const Vec3* node = t.node(i);
+				const float u = t.age(i);
+				Vec3 a, b;
+				float va = 0.f, vb = 1.f;
+				if (t.rails() < 2) {
+					Vec3 side = Cross(node[0] - eye, node[1]);
+					const float len = side.Length();
+					side = len > 0.f ? side * (t.scale() / len * t.def().width * 0.5f) : Vec3();
+					a = node[0] + side;
+					b = node[0] - side;
+				} else {
+					a = node[s];
+					b = node[s + 1];
+					va = float(s) / float(t.rails() - 1);
+					vb = float(s + 1) / float(t.rails() - 1);
+				}
+				vtx[i * 2] = {a[0], a[1], a[2], 0xffffffffu, u, va};
+				vtx[i * 2 + 1] = {b[0], b[1], b[2], 0xffffffffu, u, vb};
+			}
+			uint64_t state = BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_MSAA |
+					BGFX_STATE_DEPTH_TEST_LESS | BGFX_STATE_PT_TRISTRIP |
+					BlendModeState(t.def().blendMode);
+			bgfx::setState(state);
+			bgfx::setVertexBuffer(0, &tvb, 0, vertexCount);
+			float fogColor[4];
+			FogColorForBlend(t.def().blendMode, fogColor_, fogColor);
+			bgfx::setUniform(uFog_, fog_);
+			bgfx::setUniform(uFogColor_, fogColor);
+			{ const float rv[4] = {mode96Mip_, mode96_ ? mode96Colors_ : 0.f, mode96_ ? 1.f : 0.f, 0.f};
+				bgfx::setUniform(uMode96_, rv); }
+			bgfx::setTexture(0, sDiffuse_, d.texture, sampler);
+			bgfx::submit(view, program_);
+			++drawCalls_;
+		}
+	}
 }
 
 bool ParticleRenderer::HasWarp() const {

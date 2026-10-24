@@ -3,6 +3,7 @@
 #include "../Core/Vectors.h"
 #include "../World/Level.h"
 #include "../World/Templates.h"
+#include "../World/Trails.h"
 #include "Camera.h"
 #include "TextureCache.h"
 #include <bgfx/bgfx.h>
@@ -82,6 +83,10 @@ public:
 	void RemoveScriptEmitter(int slot);
 
 	void Draw(bgfx::ViewId view, const Camera& camera, int width, int height);
+
+	// The trail ribbons Draw adds after the emitters (Trail::Draw 0x101e9430),
+	// handed over each frame; the pointers must outlive the next Draw.
+	void SetTrails(std::vector<const TrailRibbon*> trails, TextureCache& textures);
 
 	// Multiplies emitter positions and sizes, like EntityRenderer's - the level
 	// o.Scale that the world mesh is drawn at.
@@ -215,7 +220,14 @@ private:
 	bgfx::UniformHandle sWarp_ = BGFX_INVALID_HANDLE;
 	void DrawEmitters(bgfx::ViewId view, const Camera& camera, bool warp,
 			bgfx::TextureHandle scene);
+	void DrawTrails(bgfx::ViewId view, const Camera& camera);
 	bgfx::UniformHandle sDiffuse_ = BGFX_INVALID_HANDLE;
+
+	struct TrailDraw {
+		const TrailRibbon* ribbon = nullptr;
+		bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
+	};
+	std::vector<TrailDraw> trails_;
 };
 
 } // namespace painful
