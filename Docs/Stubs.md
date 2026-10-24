@@ -134,7 +134,7 @@ Ranked by calls per 900 combat frames:
 - **Model and mesh materials** — `MESH.SetDetailMap` (210), `MATERIAL.Replace`
   (44 sites), `MDL.SetTexture` (32 sites), and the `MESH.Get*` readers.
 - **The environment setters** — `ENVIRONMENT.SetAmbient` / `SetDirLight` /
-  `SetFog` / `SetWater` / `ResetReflectList` (50 each), `WORLD.SetDirLight`.
+  `SetFog` / `SetWater` / `ResetReflectList` (50 each).
   The boxes themselves already light and fog
   ([`Lighting.md`](Reference/Lighting.md), "Environment boxes"); these are the
   script-side writes to them.

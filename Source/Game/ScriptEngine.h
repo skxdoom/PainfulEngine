@@ -490,6 +490,12 @@ public:
 		// (World+0x17CC). Stored so GetAmbientColor round-trips; the view
 		// model does not read it yet.
 		float gunAmbient = 1.f;
+		// WORLD.SetDirLight: the level's directional (World+0xdf4: direction,
+		// colour 0-255 at +0x678, intensity +0x67c), once a script has set it.
+		bool dirLightSet = false;
+		Vec3 dirLightDir{-0.7f, -0.7f, -0.7f};
+		Vec3 dirLightColor{100, 100, 100};
+		float dirLightIntensity = 1.f;
 		// WORLD.MakeUnderwater. No shipped level sets it.
 		bool underwater = false;
 		// Cfg.Bloom (R3D.EnableBloom / ApplyVideoSettings, render flag 8) and

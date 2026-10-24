@@ -151,6 +151,8 @@ public:
 	void SetLevelAmbient(const Vec3& rgb255) {
 		for (int i = 0; i < 3; ++i) levelAmbient_[i] = rgb255[i] / 255.f;
 	}
+	// WORLD.SetDirLight: `dir` the way the light travels, colour 0-255.
+	void SetLevelDirLight(const Vec3& dir, const Vec3& rgb255, float intensity);
 
 	// Picks the lighting for a model at pos, `radius` being its bounding
 	// sphere - a light that touches any part of it has to win a slot, or the

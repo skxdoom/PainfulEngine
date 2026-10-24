@@ -50,6 +50,9 @@ public:
 	void BuildLighting(const Level& level, TemplateCache& templates,
 			bool lightsFromScripts = false);
 	void SetLevelAmbient(const Vec3& rgb255) { lighting_.SetLevelAmbient(rgb255); }
+	void SetLevelDirLight(const Vec3& dir, const Vec3& rgb255, float intensity) {
+		lighting_.SetLevelDirLight(dir, rgb255, intensity);
+	}
 	// The lights the scripts made this frame - torches, flashes, the
 	// flashlight. Handed over whole because they all move.
 	void SetDynamicLights(std::vector<LightSource> lights) {

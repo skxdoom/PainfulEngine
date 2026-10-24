@@ -1169,6 +1169,14 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			engine.UpdateAttached();
 			engine.TickTrails(sim);
 			sky.Tick(sim);
+			// WORLD.AmbientColor and SetDirLight as the scripts left them: the
+			// level's light changes in play (C3L5's and C6L4's lightning).
+			{
+				const ScriptEngine::WorldState& lws = engine.world();
+				entities.SetLevelAmbient(lws.ambient);
+				if (lws.dirLightSet)
+					entities.SetLevelDirLight(lws.dirLightDir, lws.dirLightColor, lws.dirLightIntensity);
+			}
 			engine.TickSounds(sim);
 			engine.TickCollisions(sim);
 			// Last, once the camera has settled: a view-attached weapon is

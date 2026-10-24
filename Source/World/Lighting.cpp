@@ -130,6 +130,13 @@ void EntityLighting::Clear() {
 	environments_.clear();
 }
 
+void EntityLighting::SetLevelDirLight(const Vec3& dir, const Vec3& rgb255, float intensity) {
+	levelDirColor_ = rgb255 / 255.f;
+	levelDirDir_ = -dir; // direction TO the light, as Build keeps it
+	Normalize(levelDirDir_);
+	levelDirIntensity_ = intensity;
+}
+
 void EntityLighting::Build(const Level& level, TemplateCache& templates,
 		bool lightsFromScripts) {
 	Clear();

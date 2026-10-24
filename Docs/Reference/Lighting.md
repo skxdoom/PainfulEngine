@@ -214,6 +214,15 @@ progress reaches 1. An entity's first update snaps. The target is the box's
 light when its Overwrite is set, else the level's (`World+0xdf4`, ambient
 `World+0x1604`). By that arithmetic a FadeTime of 0 would never move at all.
 
+**The level's light is the scripts'.** `WORLD.AmbientColor` and
+`WORLD.SetDirLight(dx, dy, dz, color, intensity)` (`0x1011F160`: the direction
+into the light at `World+0xdf4`, the packed `0xRRGGBB` at `+0x678` of it, the
+intensity `+0x67c`) are set by `CLevel:Apply` at load and again in play: the
+lightning on C3L5 and C6L4 throws the ambient to 40-60 grey and the
+directional to 200-255 at intensity 3 for each flash, and puts both back. The
+port pushes both into the entity lighting every tick, so a model outside a box
+follows them at once.
+
 The port keeps that state in `EntityLightFade` (`EntityLighting::UpdateFade`),
 one per model instance, advanced once per frame whether the model is in view or
 not. A character's shadow takes its direction from its own fade block, so the
@@ -921,8 +930,6 @@ dynamic ones, had nothing at all to draw. See
   whether the entity a light hangs off is lit by it.
 - `ENTITY.AddLight`, which names a light for one entity regardless of the slot
   competition, is still a stub. `PainMenu` is its only caller.
-- `WORLD.SetDirLight` is still a stub, so the level's directional comes from the
-  file rather than from the script that sets it.
 - The original's per-actor blobs (`WorldMesh::RenderShadowPass`,
   `MDL.CreateShadowMap`) - replaced by the flashlight's shadow map and the
   model shadows above. A dynamic light outside the atlas budget

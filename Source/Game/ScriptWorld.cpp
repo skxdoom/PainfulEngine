@@ -38,6 +38,7 @@ struct WorldNatives : ScriptNativesBase {
 	static int L_WORLD_DemonFXWarp(lua_State* L);
 	static int L_WORLD_SetFarClipDist(lua_State* L);
 	static int L_WORLD_AmbientColor(lua_State* L);
+	static int L_WORLD_SetDirLight(lua_State* L);
 	static int L_WORLD_GetAmbientColor(lua_State* L);
 	static int L_WORLD_RemoveEntity(lua_State* L);
 	static int L_WORLD_AdvanceFrameCounter(lua_State* L);
@@ -819,6 +820,19 @@ int WorldNatives::L_WORLD_AmbientColor(lua_State* L) {
 	return 0;
 }
 
+// WORLD.SetDirLight(dx, dy, dz, color, intensity) - 0x1011F160, the level's
+// directional: CLevel:Apply at load, and C3L5's and C6L4's lightning, which
+// flash it with the ambient. Lighting.md, "Environment boxes"
+int WorldNatives::L_WORLD_SetDirLight(lua_State* L) {
+	ScriptEngine::WorldState& ws = From(L)->world_;
+	for (int i = 0; i < 3; ++i) ws.dirLightDir[i] = float(luaL_optnumber(L, 1 + i, 0));
+	const uint32_t rgb = uint32_t(int64_t(luaL_optnumber(L, 4, 0)));
+	ws.dirLightColor = Vec3(float((rgb >> 16) & 0xff), float((rgb >> 8) & 0xff), float(rgb & 0xff));
+	ws.dirLightIntensity = float(luaL_optnumber(L, 5, 0));
+	ws.dirLightSet = true;
+	return 0;
+}
+
 // WORLD.GetAmbientColor() -> r, g, b, gun multiplier (0x1011FC80). PainMenu
 // stores the four, overrides them to light the character preview, and puts
 // them back.
@@ -1162,6 +1176,7 @@ void BindWorld(ScriptEngine& engine, LuaHost& host) {
 		{"WORLD", "SetupFog", WorldNatives::L_WORLD_SetupFog},
 		{"WORLD", "BloomFXParams", WorldNatives::L_WORLD_BloomFXParams},
 		{"WORLD", "EnableDemonFX", WorldNatives::L_WORLD_EnableDemonFX},
+		{"WORLD", "SetDirLight", WorldNatives::L_WORLD_SetDirLight},
 		{"WORLD", "SetRenderTarget", WorldNatives::L_WORLD_SetRenderTarget},
 		{"WORLD", "EnableSuperDemonFX", WorldNatives::L_WORLD_EnableSuperDemonFX},
 		{"WORLD", "DemonFXParams", WorldNatives::L_WORLD_DemonFXParams},
