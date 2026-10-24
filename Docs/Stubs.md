@@ -116,7 +116,6 @@ including how to test a reading properly).
 | Native(s) | Live sites | What is missing |
 |---|---|---|
 | `CAM.LookAt` (6), `SetAdditionalRotation` (2), `EnableInterpolation` (2), `UpdateViewport` (2), `SetTransform`, `SetAngRad` | 14 | scripted camera moves |
-| `MDL.SetHeadTrackRot`, `GetAnim` | 2 | small model queries |
 
 ## Tier 3 — presentation (most of the call volume, none of the behaviour)
 

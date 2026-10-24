@@ -949,6 +949,9 @@ const ModuleImpl kModuleImpls[] = {
 	// ENTITY.PO_SetMissile (0x10136a60) acts only with a network device, which
 	// a single game never has: here it does what the original does there.
 	{"ENTITY", "PO_SetMissile", L_NoOp},
+	// MDL.SetHeadTrackRot (0x1011DBF0) returns 0 and touches nothing; the
+	// actors turn their heads through MDL.ApplyJointRotation.
+	{"MDL", "SetHeadTrackRot", L_NoOp},
 	// Same "missing" convention as SetAnim: joints resolve once skeletal
 	// animation lands, and the scripts handle -1 as "no such joint".
 	// 0 = "not animating", which skips the animation-event loop cleanly.
