@@ -38,6 +38,7 @@ struct PlayerNatives : ScriptNativesBase {
 	static int L_MOUSE_SetSensitivity(lua_State* L);
 	static int L_CAM_SetPositionDisplacement(lua_State* L);
 	static int L_CAM_SetRotationDisplacement(lua_State* L);
+	static int L_CAM_SetAdditionalRotation(lua_State* L);
 	static int L_PLAYER_GetPitch(lua_State* L);
 	static int L_PLAYER_SetMPByte(lua_State* L);
 	static int L_PLAYER_GetMPByte(lua_State* L);
@@ -571,6 +572,18 @@ int PlayerNatives::L_CAM_SetPositionDisplacement(lua_State* L) {
 // `cameraRotAmountX`/`...Y` and build every other engine Euler as
 // (elevation, turn, roll). A symmetrical shake cannot tell it apart; a melee
 // hit that kicks sideways more than up would mean this is reversed.
+// CAM.SetAdditionalRotation(w = 1, x, y, z) - 0x10141170 rebuilds the view as
+// T(-eye) * Qt * RY(turn) * RZ(roll) * RX(elevation) * S(1, 1, -1): the look
+// inside the quaternion's frame. PLoonyPark passes the cart's joint every
+// frame and identity when the ride ends; here it is kept until then.
+// Docs/Reference/PlayerMovement.md, "The coaster"
+int PlayerNatives::L_CAM_SetAdditionalRotation(lua_State* L) {
+	ScriptEngine* self = From(L);
+	self->camExtraRot_ = Quat(float(luaL_optnumber(L, 1, 1)), float(luaL_optnumber(L, 2, 0)),
+			float(luaL_optnumber(L, 3, 0)), float(luaL_optnumber(L, 4, 0)));
+	return 0;
+}
+
 int PlayerNatives::L_CAM_SetRotationDisplacement(lua_State* L) {
 	ScriptEngine* self = From(L);
 	const float k = kPi / 180.f;
@@ -641,6 +654,7 @@ void BindPlayer(ScriptEngine& engine, LuaHost& host) {
 		{"MOUSE", "SetSensitivity", PlayerNatives::L_MOUSE_SetSensitivity},
 		{"CAM", "SetPositionDisplacement", PlayerNatives::L_CAM_SetPositionDisplacement},
 		{"CAM", "SetRotationDisplacement", PlayerNatives::L_CAM_SetRotationDisplacement},
+		{"CAM", "SetAdditionalRotation", PlayerNatives::L_CAM_SetAdditionalRotation},
 		{"PLAYER", "GetPitch", PlayerNatives::L_PLAYER_GetPitch},
 		{"PLAYER", "GetCameraFix", PlayerNatives::L_PLAYER_GetCameraFix},
 		{nullptr, "CreatePlayer", PlayerNatives::L_CreatePlayer},

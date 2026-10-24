@@ -340,7 +340,9 @@ What the implemented natives buy:
   clock natives (`GetAnimTime` / `GetAnimLength` / `GetAnimTimeScale` /
   `SetAnimTimeScale` / `ResetFrame`) answer truthfully, and `EntityRenderer`
   poses skinned models on the CPU. That also opens `CActor`'s animation-event
-  loop, which is how melee damage, footsteps and attack sounds fire.
+  loop, which is how melee damage, footsteps and attack sounds fire. The
+  coaster and mine carts run, the view turning with the cart
+  ([`PlayerMovement.md`](Reference/PlayerMovement.md), "The coaster").
 - **Monsters move as the original moves them.** A monster is a dynamic body
   whose velocity `PhysicsWorld::StepCharacters` re-commands every tick from
   the recovered `PhysicsObject::Tick`: the AI's `PO_Move` vector plus half of

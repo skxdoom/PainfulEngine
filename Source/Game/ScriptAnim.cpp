@@ -29,6 +29,8 @@ struct AnimNatives : ScriptNativesBase {
 	static int L_MDL_SetMaterial(lua_State* L);
 	static int L_MDL_SetBlendAlpha(lua_State* L);
 	static int L_MDL_SetTexture(lua_State* L);
+	static int L_ENTITY_EnableTick(lua_State* L);
+	static int L_ENTITY_Tick(lua_State* L);
 };
 
 namespace {
@@ -250,10 +252,14 @@ int AnimNatives::L_MDL_SetAnimTimeScale(lua_State* L) {
 	return 0;
 }
 
-// MDL.ResetFrame(e) - back to the first frame without changing which
-// animation is playing.
+// MDL.ResetFrame(e) - 0x1012B090 sets Model+0x678 to -1, the frame the joint
+// matrices were last built for, so a joint query after ENTITY.Tick sees the
+// new pose. It does not rewind: PLoonyPark calls it every frame, and a rewind
+// held the coaster's cart at its start.
 int AnimNatives::L_MDL_ResetFrame(lua_State* L) {
-	if (Entity* e = From(L)->Find(HandleArg(L, 1))) e->animTime = 0.f;
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (e && e->type == kModel) e->pose.time = -1.f;
 	return 0;
 }
 
@@ -699,60 +705,86 @@ int AnimNatives::L_MDL_GetJointRotation(lua_State* L) {
 
 void ScriptEngine::TickAnimations(float dt) {
 	if (dt <= 0.f) return;
-	for (auto& kv : entities_) {
-		Entity& e = kv.second;
-		// Model::Tick runs every impact clock on the game delta.
-		if (e.waterImpacted) {
-			for (Entity::WaterImpact& w : e.waterImpacts) w.time += dt;
-			PushWaterImpacts(e);
-		}
-		if (e.animIndex < 0 || e.animScale <= 0.f) continue; // none, or paused
-		const float length = e.animSlots[size_t(e.animIndex)].length;
-		e.animTime += dt * e.animScale;
-		if (length <= 0.f) {
-			e.animTime = 0.f;
-		} else if (e.animLoop) {
-			while (e.animTime >= length) e.animTime -= length;
-		} else if (e.animTime > length) {
-			// A one-shot holds on its last frame. It must not wrap: the event
-			// loop walks forward through the declared times and would fire
-			// the whole list again on every pass.
-			e.animTime = length;
-		}
+	for (auto& kv : entities_)
+		if (!kv.second.tickOff) TickAnimation(kv.second, dt);
+}
 
-		// Run the cross-fade down. It is spent in real seconds, not animation
-		// time, so a blend lasts as long as the template says whatever speed
-		// the outgoing animation was playing at.
-		if (e.blendLeft > 0.f) {
-			e.blendLeft -= dt;
-			if (e.blendLeft <= 0.f) {
-				e.blendLeft = 0.f;
-				e.blendFrom = nullptr;
-				e.blendFromTracks.clear();
-				e.blendFromLocal.clear();
-			}
-		}
+void ScriptEngine::TickAnimation(Entity& e, float dt) {
+	// Model::Tick runs every impact clock on the game delta.
+	if (e.waterImpacted) {
+		for (Entity::WaterImpact& w : e.waterImpacts) w.time += dt;
+		PushWaterImpacts(e);
+	}
+	if (e.animIndex < 0 || e.animScale <= 0.f) return; // none, or paused
+	const float length = e.animSlots[size_t(e.animIndex)].length;
+	e.animTime += dt * e.animScale;
+	if (length <= 0.f) {
+		e.animTime = 0.f;
+	} else if (e.animLoop) {
+		while (e.animTime >= length) e.animTime -= length;
+	} else if (e.animTime > length) {
+		// A one-shot holds on its last frame. It must not wrap: the event
+		// loop walks forward through the declared times and would fire
+		// the whole list again on every pass.
+		e.animTime = length;
+	}
 
-		// Hand the pose to the renderer. Headless runs have none attached,
-		// which is why the clock is useful on its own.
-		//
-		// The bones are posed here rather than in the renderer so that a joint
-		// query and the drawn mesh cannot disagree. It costs one pass over the
-		// skeleton per animated entity - about forty of them in a level, sixty
-		// bones each - while the expensive half, deforming the vertices, stays
-		// behind the renderer's frustum test where an actor across the map
-		// still costs nothing.
-		if (renderer_ && e.rendererInstance >= 0) {
-			const std::vector<Mat4>* boneWorld = PosedBones(e);
-			const SkeletonCache::Entry* skel =
-				boneWorld ? skeletons_.Get(e.source) : nullptr;
-			if (skel) {
-				BoneWorldToSkinning(skel->inverseBind, *boneWorld, skinScratch_);
-				renderer_->SetScriptSkinning(e.rendererInstance, skinScratch_.data(),
-						skinScratch_.size());
-			}
+	// Run the cross-fade down. It is spent in real seconds, not animation
+	// time, so a blend lasts as long as the template says whatever speed
+	// the outgoing animation was playing at.
+	if (e.blendLeft > 0.f) {
+		e.blendLeft -= dt;
+		if (e.blendLeft <= 0.f) {
+			e.blendLeft = 0.f;
+			e.blendFrom = nullptr;
+			e.blendFromTracks.clear();
+			e.blendFromLocal.clear();
 		}
 	}
+
+	// Hand the pose to the renderer. Headless runs have none attached,
+	// which is why the clock is useful on its own.
+	//
+	// The bones are posed here rather than in the renderer so that a joint
+	// query and the drawn mesh cannot disagree. It costs one pass over the
+	// skeleton per animated entity - about forty of them in a level, sixty
+	// bones each - while the expensive half, deforming the vertices, stays
+	// behind the renderer's frustum test where an actor across the map
+	// still costs nothing.
+	if (renderer_ && e.rendererInstance >= 0) {
+		const std::vector<Mat4>* boneWorld = PosedBones(e);
+		const SkeletonCache::Entry* skel =
+			boneWorld ? skeletons_.Get(e.source) : nullptr;
+		if (skel) {
+			BoneWorldToSkinning(skel->inverseBind, *boneWorld, skinScratch_);
+			renderer_->SetScriptSkinning(e.rendererInstance, skinScratch_.data(),
+					skinScratch_.size());
+		}
+	}
+}
+
+// ENTITY.EnableTick(e, on = false, alsoChildren = false) - 0x10136360: flag 8
+// of Entity+0x18, set to switch the engine's tick off. ENTITY.Tick(e, dt =
+// 0.001) - 0x10134580: the entity's own Tick. PLoonyPark steps the coaster's
+// cart this way, then reads its joint for the player and the camera.
+int AnimNatives::L_ENTITY_EnableTick(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e) return 0;
+	const bool on = lua_toboolean(L, 2) != 0;
+	e->tickOff = !on;
+	if (lua_toboolean(L, 3))
+		for (int child : e->children)
+			if (Entity* c = self->Find(child)) c->tickOff = !on;
+	return 0;
+}
+
+int AnimNatives::L_ENTITY_Tick(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	const float dt = float(luaL_optnumber(L, 2, 0.001));
+	if (e && dt > 0.f) self->TickAnimation(*e, dt);
+	return 0;
 }
 
 
@@ -835,6 +867,8 @@ void BindAnim(ScriptEngine& engine, LuaHost& host) {
 		{"MDL", "SetMaterial", AnimNatives::L_MDL_SetMaterial},
 		{"MDL", "SetBlendAlpha", AnimNatives::L_MDL_SetBlendAlpha},
 		{"MDL", "SetTexture", AnimNatives::L_MDL_SetTexture},
+		{"ENTITY", "EnableTick", AnimNatives::L_ENTITY_EnableTick},
+		{"ENTITY", "Tick", AnimNatives::L_ENTITY_Tick},
 		{"MDL", "GetAnimLength", AnimNatives::L_MDL_GetAnimLength},
 		{"MDL", "GetAnimTime", AnimNatives::L_MDL_GetAnimTime},
 		{"MDL", "SetAnimTime", AnimNatives::L_MDL_SetAnimTime},

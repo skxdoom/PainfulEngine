@@ -92,6 +92,19 @@ feel is off.
   - The Swamp and Lucifer ignore plain damage in the harness, which reads as
     their own mechanics (stones, the Demon Morph) but has not been played.
 
+- **The coaster kills its rider.** `PLoonyPark` explodes
+  `WORLD.Explosion2(.., 2000, 2.2, nil, Rocket, 2000)` at
+  `TransformPointByJoint(cart, joint, 3.5, -1, 0)` every tick. With the cart at
+  0.3 scale that is about 1.1 units ahead of the joint, and the rider sits at
+  the joint plus `LoonyOffset (0, -1.5, 0)`, inside the 2.2 range: the port's
+  rider dies on the first tick. What spares the original's is not found. Its
+  collector (`FUN_101B79F0`) gates a body only on its Havok world pointer,
+  posts every reached entity, and filters no group; `SetCollisionGroup` and
+  `EnableGravity` leave the body in the world; `CPlayer:OnDamage` has no ride
+  guard. Next to check: whether the player's body is in the collector's list
+  (`PhysicsWorld+0xcc`) at all, and the joint's scale in the original.
+  [`PlayerMovement.md`](Reference/PlayerMovement.md), "The coaster".
+
 - The ~11 small unidentified `luaL_reg` tables (1–8 functions each) in
   `PainfulEngineHelpers/Engine_LuaAPI.md` — worth naming to complete the module map.
 - About 100 module natives in the generated surface are never referenced by the

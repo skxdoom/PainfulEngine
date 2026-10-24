@@ -525,7 +525,7 @@ void ScriptEngine::PlaceViewAttached(Entity& entity) {
 	const float vYaw = camYaw_ + camRotDisplacement_[1];
 	const float cp = std::cos(vPitch), sp = std::sin(vPitch);
 	const float cy = std::cos(vYaw), sy = std::sin(vYaw);
-	const Vec3 fwd{cy * cp, sp, sy * cp};
+	Vec3 fwd{cy * cp, sp, sy * cp};
 	Vec3 right{-sy, 0.f, cy};
 	// up = right x forward, which tilts with the pitch as the view does.
 	Vec3 up{right[1] * fwd[2] - right[2] * fwd[1],
@@ -542,6 +542,11 @@ void ScriptEngine::PlaceViewAttached(Entity& entity) {
 			up[i] = u0[i] * c + r0[i] * s;
 		}
 	}
+	// CAM.SetAdditionalRotation turns the whole basis, as Camera::ViewProj
+	// does: the weapon rides in the coaster's frame with the view.
+	fwd = camExtraRot_.Rotate(fwd);
+	right = camExtraRot_.Rotate(right);
+	up = camExtraRot_.Rotate(up);
 	// Anchored to the displaced eye, which is the one actually rendered:
 	// TakeCameraPose hands the renderer camPos_ + camDisplacement_, and
 	// CPlayer drives the head bob through CAM.SetPositionDisplacement. Hung off

@@ -102,7 +102,7 @@ stub of its own. What the traces cannot judge is listed for play-testing in
 | `MDL.SetRagdollHardDeactivator` | 4 | `Ragdoll::SetHardDeactivator` (`0x1019CBE0`), no arguments: the corpse settles and stops. Hangman and the Wozek want hanging bodies that do not twitch. Needs sleep control on the ragdoll's Jolt bodies, which `PhysicsWorld` does not expose yet |
 | `MDL.SetRagdollBreakablesThreshold` | 2 | `Ragdoll::SetBreakablesThreshold` (`0x1019CB90`), default `1e7`; C5L3's cross passes 4000. Needs the breakables system — `Hke` already parses `IS_BREAKABLE` and its `strength` per joint and the port ignores both |
 | `MDL.CopyMatrixFromJointToJoint` | 1 | `PBindJointToJoint` |
-| `ENTITY.Tick`, `EnableTick`, `SetAmbient`, `AddLight`, `ResetLights` | 8 | the menu's character preview, which ticks and lights one model by hand outside any world |
+| `ENTITY.SetAmbient`, `AddLight`, `ResetLights` | 6 | the menu's character preview, which lights one model by hand outside any world |
 | `ENTITY.PO_SetEntitySteered`, `PO_SetHardDeactivator`, `EnableCollisionsToMesh`, `UpdatePart`, `UnregisterChild` | 6 | the tail of the body API, one site each |
 | `WORLD.GetFileName` | 2 | the loaded map's name, which `CLevel:Apply` compares against `self.Map` to skip a reload. Not in the generated surface. **Open first:** implementing it takes `WORLD.Release(false)` on a level restart, and whether `World::ReleaseWithoutMap` (`0x1005DC80`) also resets broken glass and spent destructibles is unrecovered — if it does not, a restart would inherit the last run's damage |
 
@@ -115,7 +115,7 @@ including how to test a reading properly).
 
 | Native(s) | Live sites | What is missing |
 |---|---|---|
-| `CAM.LookAt` (6), `SetAdditionalRotation` (2), `UpdateViewport` (2), `SetTransform`, `SetAngRad` | 12 | scripted camera moves: the third-person view, `CameraMove` paths, the benchmark, the menu's model preview and Loony Park's coaster |
+| `CAM.LookAt` (6), `UpdateViewport` (2), `SetTransform`, `SetAngRad` | 10 | scripted camera moves: the third-person view, `CameraMove` paths, the benchmark and the menu's model preview |
 
 ## Tier 3 — presentation (most of the call volume, none of the behaviour)
 

@@ -1151,6 +1151,7 @@ int GameCmd(const char* dataRoot, const char* levelName, const char* exePath,
 			if (scriptView) {
 				engine.TakeCameraPose(camera.pos, camera.yaw, camera.pitch);
 				camera.roll = engine.cameraRoll();
+				camera.extraRot = engine.cameraExtraRotation();
 			}
 			t0 = CostClock::now();
 			host.CallGlobal("Game_Tick3", d, 1);

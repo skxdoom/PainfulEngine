@@ -13,6 +13,9 @@ struct Camera {
 	// CAM.SetRotationDisplacement's roll: the up hint spun about the view
 	// axis. Zero except while something is shaking the view.
 	float roll = 0.f;
+	// CAM.SetAdditionalRotation: the look happens inside this frame - forward
+	// and up are carried into the world by it (the coaster's cart).
+	Quat extraRot;
 	float fovDegrees = 70.f;
 	// Has to clear the closest the eye can ever get to a surface, or standing
 	// against a wall cuts a hole in it. The pawn's collision sphere is 0.40
@@ -57,6 +60,9 @@ struct Camera {
 		m.clipped = true;
 		m.keepAbove = true;
 		m.mirrorY = planeY;
+		// Mirroring is done on the angles; a rotated basis would need it on the
+		// vectors, and nothing rides a coaster over water.
+		m.extraRot = Quat();
 		return m;
 	}
 	// The same camera clipping at y = planeY: the

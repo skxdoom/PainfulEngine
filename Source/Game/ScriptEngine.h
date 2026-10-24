@@ -73,6 +73,9 @@ public:
 		// MDL.EnableNormalMaps: the weapons' palskinnedperpixel look.
 		bool normalMaps = false;
 		bool inWorld = false; // WORLD.AddEntity was called
+		// ENTITY.EnableTick(false), Entity+0x18 flag 8: the engine leaves its
+		// animation alone and the script steps it with ENTITY.Tick.
+		bool tickOff = false;
 		bool worldObject = false; // WORLD.FindEntityByName pseudo-entity
 		// ENTITY.Create's 5th argument for a pack mesh: WorldMesh::CenterGeometry
 		// (0x101D6F80) moves the vertices so the bounding-box centre is the origin,
@@ -799,6 +802,8 @@ public:
 	// Advances every entity's animation clock. Call once per frame before
 	// the tick chain: CActor:Tick reads the time the same frame.
 	void TickAnimations(float dt);
+	// One entity's share of TickAnimations: Model::Tick's clocks and pose.
+	void TickAnimation(Entity& e, float dt);
 
 	// MOUSE.Lock(true), which the engine itself does at the play transition
 	// (right after seating the camera from Lev.Pos/Lev.Ang). It is not a
@@ -817,6 +822,8 @@ public:
 	// CAM.SetRotationDisplacement's third axis, which TakeCameraPose has no
 	// slot for: the camera carries roll separately.
 	float cameraRoll() const { return camRotDisplacement_[2]; }
+	// CAM.SetAdditionalRotation's quaternion, identity when none.
+	const Quat& cameraExtraRotation() const { return camExtraRot_; }
 
 	// The camera the CAM.* reads report (position, yaw and pitch in
 	// radians). The game loop feeds it every frame; headless runs keep the
@@ -1135,6 +1142,7 @@ private:
 	// apart from camYaw_/camPitch_ so the angles the scripts read back stay the
 	// ones they set.
 	Vec3 camRotDisplacement_;
+	Quat camExtraRot_;
 	float playerSpeedOverride_ = -1.f;
 	float jumpStrengthOverride_ = -1.f;
 	std::string dataRoot_;

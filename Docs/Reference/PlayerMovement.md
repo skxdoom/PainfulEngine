@@ -974,6 +974,48 @@ The sites that DO arm the timer name the player explicitly:
 engaged on TestFloor within 25 seconds of spawning, so that pairing has not been
 caught in a real fight — only in the synthetic A/B above.
 
+## The coaster
+
+`PLoonyPark.CProcess` is the ride: Loony Park's roller coaster
+(`wagonik`, started by the `RollerCoaster:wagonik,0.9,10` touch action), and
+C6L8's mine carts and two lifts by the same action. It takes the camera
+(`Game.CameraFromPlayer = false`), makes the player `Noncolliding` with no
+gravity, and every `Tick2`:
+
+- `ENTITY.Tick(cart, delta)` steps the cart by hand, its own tick switched off
+  with `ENTITY.EnableTick(cart, false)`. `EnableTick(e, on = false,
+  alsoChildren = false)` (`0x10136360`) sets flag 8 of `Entity+0x18` when
+  off; `ENTITY.Tick(e, dt = 0.001)` (`0x10134580`) calls the entity's own
+  `Tick`. The speed is the animation's time scale.
+- `MDL.ResetFrame(cart)` (`0x1012B090`) sets `Model+0x678` to -1: the frame the
+  joint matrices were last built for, so the joint read next sees the pose the
+  manual tick made. It does not rewind the animation.
+- the player is put at the cart's `LoonyJoint` plus `LoonyOffset`, and
+  `CAM.SetAdditionalRotation(MDL.GetJointRotation(cart, joint))` turns the
+  view with the cart; `Delete` passes identity.
+
+`CAM.SetAdditionalRotation(w = 1, x, y, z)` (`0x10141170`) rebuilds the main
+view's matrices there and then, row vectors:
+
+```
+view = T(-eye) * Qt * RY(turn) * RZ(roll) * RX(elevation) * S(1, 1, -1)
+```
+
+with `Qt` the transposed matrix of the quaternion (`FUN_1000BB90` then
+`FUN_1000BA30`), the angles the camera's own plus their displacements, and
+`S` the engine's handedness flip; the inverse goes to `+0xd0`. So the player's
+look happens inside the cart's frame: a direction `d` in the look's frame is
+`q.Rotate(d)` in the world. The next frame's camera update overwrites the
+matrices, which is why the ride calls it every tick.
+
+The port keeps the quaternion until the ride ends rather than for one frame,
+and `Camera::ViewProj` carries forward and up through it; the view-attached
+weapon is placed in the same rotated basis. A reflection camera drops it.
+
+**Open:** the ride also explodes `WORLD.Explosion2` at
+`TransformPointByJoint(cart, joint, 3.5, -1, 0)` each tick to clear the track,
+and in the port that blast kills the rider (Plan.md, "Open questions").
+
 ## Ladders
 
 Sources: `World::LoadMeshPak` (the zone sort), `World::NearLadder`
