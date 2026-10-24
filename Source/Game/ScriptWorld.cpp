@@ -432,6 +432,7 @@ void ScriptEngine::CreateActiveMeshes() {
 		e.meshGroup = o.activeGroup();
 		e.physicsBody = slot;
 		e.collisionGroup = 3; // AddMesh creates every one in group 3
+		e.bodyType = o.nameHas("concave") ? 8 : 7; // and as FromMeshNotCentered, 8 if concave
 		for (int c = 0; c < 3; ++c) e.pos[c] = e.activeOrigin[c] = origin[c];
 		// A piece waits for its twin's release: out of the simulation and
 		// unseen (AddMesh's physdest branch ends in World::RemoveEntity).

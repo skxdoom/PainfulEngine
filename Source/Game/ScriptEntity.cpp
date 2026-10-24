@@ -41,6 +41,7 @@ struct EntityNatives : ScriptNativesBase {
 	static int L_SetVelocity(lua_State* L);
 	static int L_SetAngularVelocity(lua_State* L);
 	static int L_PO_Remove(lua_State* L);
+	static int L_PO_GetType(lua_State* L);
 	static int L_PO_GetCollisionGroup(lua_State* L);
 	static int L_PO_SetCollisionGroup(lua_State* L);
 	static int L_PO_IsFixed(lua_State* L);
@@ -943,6 +944,22 @@ constexpr int kCollisionFixed = 1;
 // Removing the body is not enough on its own: a projectile is moved by
 // TickProjectiles from the entity's own velocity, not by the solver, so that
 // has to stop too.
+// ENTITY.PO_GetType(e) -> the BodyTypes value the body was made with: the
+// native (0x10133350) reads PhysicsObject+0x1C, which CreatePhysicsObject
+// fills from its type argument. 100 for the player, whose body the engine
+// makes; -1 for no entity or no body. The scripts ask it to put a sound at
+// the player's head rather than at the feet.
+int EntityNatives::L_PO_GetType(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const int handle = HandleArg(L, 1);
+	const Entity* e = self->Find(handle);
+	int type = -1;
+	if (e && handle == self->playerHandle_) type = 100;
+	else if (e && e->physicsBody >= 0) type = e->bodyType;
+	lua_pushnumber(L, type);
+	return 1;
+}
+
 int EntityNatives::L_PO_Remove(lua_State* L) {
 	ScriptEngine* self = From(L);
 	Entity* e = self->Find(HandleArg(L, 1));
@@ -1779,6 +1796,7 @@ void BindEntity(ScriptEngine& engine, LuaHost& host) {
 		{"ENTITY", "EnableDraw", EntityNatives::L_EnableDraw},
 		{"ENTITY", "EnableDemonic", EntityNatives::L_EnableDemonic},
 		{"ENTITY", "PO_Remove", EntityNatives::L_PO_Remove},
+		{"ENTITY", "PO_GetType", EntityNatives::L_PO_GetType},
 		{"ENTITY", "PO_GetCollisionGroup", EntityNatives::L_PO_GetCollisionGroup},
 		{"ENTITY", "PO_IsFixed", EntityNatives::L_PO_IsFixed},
 		{"R3D", "DistToLine", EntityNatives::L_R3D_DistToLine},

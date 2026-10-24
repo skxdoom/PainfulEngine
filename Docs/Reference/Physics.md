@@ -851,6 +851,7 @@ world-mesh object bound by name — so this one rests on the play test.
 | `ENTITY.PO_Impulse(e, px,py,pz, ix,iy,iz)` | `0x10133AA0` → `PhysicsObject::Impulse` at a point | dropped unless the impulse LENGTH is in **(0.01, 10000)** — the two DOUBLES at `0x102C02D0` and `0x102C5688` (the float column there is garbage) |
 | `ENTITY.EnableGunPass(e, children = false)` | `0x10136550` | writes collision group **7** (Noncolliding) to `Entity+0x24`, and to every child when asked |
 | `ENTITY.SetLocalBBox(e, min, max)` | `0x10131DC0` | held on the entity; nothing reads it here yet |
+| `ENTITY.PO_GetType(e)` | `0x10133350` → `PhysicsObject::GetType`, `+0x1C` | the `BodyTypes` value `PhysicsWorld::CreatePhysicsObject` (`0x101999F0`) was given; 100 for the player, 15 for a body from a ragdoll, 7 for an active mesh and 8 for a `concave` one (`AddMesh`); **-1** with no entity or no body. `BindSoundToEntity` and `CObject:PlaySound` ask it to put a sound at the player's head |
 
 `ENTITY.EnableCollisionsToAll(on = true, minTime = 0.5, minStrength = 1,
 minMass = 0.1, maxMass = 10, percent = 10, group = -1)` → `PhysicsWorld::

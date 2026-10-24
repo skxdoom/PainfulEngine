@@ -92,7 +92,7 @@ trace.
 
 | | What is wrong |
 |---|---|
-| Swamp (`C2L6_Swamp`) | `MDL.UpdateWaterImpact` every frame and `ENTITY.PO_GetType` (Tier 1 tail) |
+| Swamp (`C2L6_Swamp`) | `MDL.SetWaterImpact` / `UpdateWaterImpact`, every frame of the fight (Tier 2) |
 
 ## Tier 1 — gameplay leftovers
 
@@ -104,7 +104,7 @@ trace.
 | `MDL.CopyMatrixFromJointToJoint` | 1 | `PBindJointToJoint` |
 | `ENTITY.PO_SetMissile` | 10 sites, 23 calls | **check first**: [`Physics.md`](Reference/Physics.md) records it as netcode-only |
 | `ENTITY.Tick`, `EnableTick`, `SetAmbient`, `AddLight`, `ResetLights` | 8 | the menu's character preview, which ticks and lights one model by hand outside any world |
-| `ENTITY.PO_GetType`, `PO_IsOnLadder`, `PO_SetEntitySteered`, `PO_SetHardDeactivator`, `EnableCollisionsToMesh`, `UpdatePart`, `UnregisterChild` | 9 | the tail of the body API, one site each |
+| `ENTITY.PO_IsOnLadder`, `PO_SetEntitySteered`, `PO_SetHardDeactivator`, `EnableCollisionsToMesh`, `UpdatePart`, `UnregisterChild` | 7 | the tail of the body API, one site each |
 | `WORLD.GetFileName` | 2 | the loaded map's name, which `CLevel:Apply` compares against `self.Map` to skip a reload. Not in the generated surface. **Open first:** implementing it takes `WORLD.Release(false)` on a level restart, and whether `World::ReleaseWithoutMap` (`0x1005DC80`) also resets broken glass and spent destructibles is unrecovered — if it does not, a restart would inherit the last run's damage |
 
 Not a stub but the same queue: **what a corpse's collision group means** — the
