@@ -182,6 +182,9 @@ bool ScriptEngine::LoadWorldSave(const std::vector<uint8_t>& buf, const std::str
 			e.pos = m.pos;
 			e.rot = FileQuat(m.rot);
 			e.characterShadow = m.shadow != 0;
+			// Model::SetMaterial's name (+0x7bc) and SetBlendAlpha's alpha (+0x700).
+			e.materialName = WsText(m.material);
+			e.blendAlpha = m.blendAlpha;
 			// Assumed: the visibility bytes follow the .pkmdl's mesh order; the counts agree.
 			if (const std::vector<std::string>* names = meshesOf(e.source))
 				for (size_t i = 0; i < m.meshVisible.size() && i < names->size(); ++i)

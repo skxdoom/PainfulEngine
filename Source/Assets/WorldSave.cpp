@@ -323,7 +323,7 @@ void EntityBase(Archive& ar, WsEntityBase& e) {
 void ModelBody(Archive& ar, WsModel& m, const std::string& model) {
 	ar.V(m.pos);
 	ar.F(m.rot, 4);
-	ar.F32(m.f700);
+	ar.F32(m.blendAlpha);
 	ar.Str(m.material);
 	ar.U8(m.shadow);
 	if (!ar.ok()) return;

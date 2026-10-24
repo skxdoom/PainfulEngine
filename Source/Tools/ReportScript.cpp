@@ -136,10 +136,7 @@ void CensusEntity(Census& c, const WsEntity& e) {
 	switch (e.type) {
 	case kWsModel: {
 		const WsModel& m = e.model;
-		float scale = 0.f;
-		std::memcpy(&scale, &e.headerValue, 4);
-		const float ratio = scale != 0.f ? m.f700 / scale : m.f700;
-		c.F(t + ".f700/scale", &ratio);
+		c.F(t + ".blendAlpha", &m.blendAlpha);
 		c.S(t + ".material", m.material);
 		c.U(t + ".shadow", m.shadow);
 		uint32_t hidden = 0;
@@ -404,8 +401,8 @@ int WorldSaveCmd(const char* path, const char* dataRoot, const char* option) {
 						c.time, c.weight, c.speed, c.loop, c.e, c.blend, c.blendLeft);
 				ch += t;
 			}
-			LogInfo("      model: rot %.3f %.3f %.3f %.3f f700 %.3f mat '%s' shadow %u meshes %s slots %u%s",
-					m.rot[0], m.rot[1], m.rot[2], m.rot[3], m.f700, WsText(m.material).c_str(), m.shadow,
+			LogInfo("      model: rot %.3f %.3f %.3f %.3f alpha %.3f mat '%s' shadow %u meshes %s slots %u%s",
+					m.rot[0], m.rot[1], m.rot[2], m.rot[3], m.blendAlpha, WsText(m.material).c_str(), m.shadow,
 					vis.c_str(), m.slotCount, slots.c_str());
 			LogInfo("      anims:%s", ch.c_str());
 			if (m.hasBody) {

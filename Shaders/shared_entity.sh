@@ -65,7 +65,7 @@ vec3 Mode96Quantize(vec3 c, float levels) {
 	return floor(c * n + 0.5) / n;
 }
 uniform vec4 u_specOrigin; // xyz: the model's position, where its half-vectors are built
-uniform vec4 u_stage1; // x: op - 0 off, 1 modulate, 2 add, 3 modulatealphaadd
+uniform vec4 u_stage1; // x: op - 0 off, 1 modulate, 2 add, 3 modulatealphaadd; y: blend alpha
 
 void main()
 {
@@ -152,7 +152,10 @@ void main()
 		vec4 s1 = texture2D(s_stage1, v_texcoord0);
 		if (u_stage1.x < 1.5) color *= s1.rgb; // modulate
 		else if (u_stage1.x < 2.5) color += s1.rgb; // add
-		else color = s1.rgb + s1.a * color; // modulatealphaadd
+		// modulatealphaadd: D3DTOP_MODULATEALPHA_ADDCOLOR with ARG1 = current,
+		// whose alpha on its one material is the constant colour's, the blend
+		// alpha. TextureStages.md
+		else color += u_stage1.y * s1.rgb;
 	}
 
 	float fog = 1.0;

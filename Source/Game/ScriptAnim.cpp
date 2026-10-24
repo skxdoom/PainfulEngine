@@ -27,6 +27,7 @@ struct AnimNatives : ScriptNativesBase {
 	static int L_MDL_GetJointRotation(lua_State* L);
 	static int L_MDL_SetMeshVisibility(lua_State* L);
 	static int L_MDL_SetMaterial(lua_State* L);
+	static int L_MDL_SetBlendAlpha(lua_State* L);
 };
 
 namespace {
@@ -788,7 +789,9 @@ int AnimNatives::L_MDL_SetMaterial(lua_State* L) {
 	Entity* e = self->Find(HandleArg(L, 1));
 	if (!e) return 0;
 	const char* name = luaL_optstring(L, 2, "");
-	if (!name || !*name) return 0;
+	// Model::SetMaterial (0x101DF4F0): the name it already has is a no-op, and
+	// "" puts the meshes' own materials back - the end of a freeze.
+	if (!name || e->materialName == name) return 0;
 	// Kept on the entity as well: a rebuilt renderer instance would otherwise
 	// fall back to the plain skin, the way hiddenMeshes would.
 	e->materialName = name;
@@ -797,11 +800,25 @@ int AnimNatives::L_MDL_SetMaterial(lua_State* L) {
 	return 0;
 }
 
+// MDL.SetBlendAlpha(entity, alpha = 0) - 0x1012E450, models only: Model+0x700,
+// the alpha of the constant colour RenderDefault draws with. On
+// palskinned_freeze it weighs the frost. TextureStages.md
+int AnimNatives::L_MDL_SetBlendAlpha(lua_State* L) {
+	ScriptEngine* self = From(L);
+	Entity* e = self->Find(HandleArg(L, 1));
+	if (!e || e->type != kModel) return 0;
+	e->blendAlpha = float(luaL_optnumber(L, 2, 0));
+	if (self->renderer_ && e->rendererInstance >= 0)
+		self->renderer_->SetScriptBlendAlpha(e->rendererInstance, e->blendAlpha);
+	return 0;
+}
+
 void BindAnim(ScriptEngine& engine, LuaHost& host) {
 	const ScriptNative natives[] = {
 		{"MDL", "SetAnim", AnimNatives::L_MDL_SetAnim},
 		{"MDL", "SetMeshVisibility", AnimNatives::L_MDL_SetMeshVisibility},
 		{"MDL", "SetMaterial", AnimNatives::L_MDL_SetMaterial},
+		{"MDL", "SetBlendAlpha", AnimNatives::L_MDL_SetBlendAlpha},
 		{"MDL", "GetAnimLength", AnimNatives::L_MDL_GetAnimLength},
 		{"MDL", "GetAnimTime", AnimNatives::L_MDL_GetAnimTime},
 		{"MDL", "SetAnimTime", AnimNatives::L_MDL_SetAnimTime},

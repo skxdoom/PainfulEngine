@@ -38,7 +38,8 @@ struct MaterialState {
 	// lit result: palskinned_bloody, _freeze, palskinnedemissive.
 	//   1 modulate         texop[1] = texture modulate previous
 	//   2 add              texop[1] = texture add previous
-	//   3 modulatealphaadd texop[1] = texture modulatealphaadd texture
+	//   3 modulatealphaadd texop[1] = texture modulatealphaadd texture:
+	//                      previous + previous.a * texture
 	int stage1Op = 0; // 0 = no second stage
 	std::string map1; // map[1], empty when it is a $variable
 	// The pass's programs by name, first word only ("palskin_water def ntu,

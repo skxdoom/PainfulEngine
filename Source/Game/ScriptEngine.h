@@ -187,6 +187,8 @@ public:
 		std::map<std::string, bool> hiddenMeshes;
 		// MDL.SetMaterial, kept for the same reason as hiddenMeshes.
 		std::string materialName;
+		// MDL.SetBlendAlpha, Model+0x700 (1 from the constructor).
+		float blendAlpha = 1.f;
 		// MDL.SetMaterialSpecular since the last reset: mesh -> rgb, power.
 		std::map<std::string, std::array<float, 4>> materialSpecular;
 		// MESH.SetLighting(e, false): a pack mesh drawn unlit, at full albedo.

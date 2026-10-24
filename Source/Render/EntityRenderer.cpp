@@ -1106,8 +1106,14 @@ void EntityRenderer::SetScriptMaterial(int slot, const std::string& name,
 	if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
 			"EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
 		return;
-	if (name.empty()) return;
 	Instance& inst = instances_[slot];
+	// Model::SetMaterial: FindMaterial("") is nothing, so the parts draw with
+	// their own materials again.
+	if (name.empty()) {
+		inst.materialOverride = false;
+		inst.stage1 = BGFX_INVALID_HANDLE;
+		return;
+	}
 	if (!shaders_ || !shaders_->Find(name)) {
 		LogWarn("MDL.SetMaterial: no material %s", name.c_str());
 		return;
@@ -1117,6 +1123,13 @@ void EntityRenderer::SetScriptMaterial(int slot, const std::string& name,
 	if (!inst.material.map1.empty()) tex = textures.Get(inst.material.map1, "");
 	inst.stage1 = tex;
 	inst.materialOverride = true;
+}
+
+void EntityRenderer::SetScriptBlendAlpha(int slot, float alpha) {
+	if (!PAINFUL_CHECK(slot >= 0 && size_t(slot) < instances_.size(),
+			"EntityRenderer: instance slot %d of %zu", slot, instances_.size()))
+		return;
+	instances_[slot].blendAlpha = alpha;
 }
 
 void EntityRenderer::SetScriptMeshVisibility(int slot, const std::string& meshName,
@@ -1521,7 +1534,7 @@ void EntityRenderer::Draw(bgfx::ViewId view, const Camera& camera, int width, in
 			bgfx::setUniform(uUv0_, identityUv);
 			bgfx::setUniform(uTile_, tile);
 			const float stage1[4] = {
-				bgfx::isValid(stage1Tex) ? float(mat.stage1Op) : 0.f, 0.f, 0.f, 0.f};
+				bgfx::isValid(stage1Tex) ? float(mat.stage1Op) : 0.f, instance.blendAlpha, 0.f, 0.f};
 			bgfx::setUniform(uStage1_, stage1);
 			// c10: this mesh's specular colour, its power in w - the level's
 			// DynamicLighting on a pack or map mesh.

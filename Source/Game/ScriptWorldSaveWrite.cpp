@@ -411,7 +411,7 @@ void ScriptEngine::BuildWorldSave(WorldSave& out) {
 			m.pos = e.pos;
 			if (player && pawn_) pawn_->FloorPos(m.pos);
 			FileRot(e.rot, m.rot);
-			m.f700 = 1.f;
+			m.blendAlpha = e.blendAlpha;
 			m.material = Z(e.materialName);
 			m.shadow = e.characterShadow ? 1 : 0;
 			for (const std::string& mesh : meshesOf(e.source)) {

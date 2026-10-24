@@ -200,6 +200,9 @@ void ScriptEngine::CreateRendererInstance(Entity& e) {
 		for (const auto& kv : e.materialSpecular)
 			renderer_->SetScriptMaterialSpecular(e.rendererInstance, kv.first, kv.second.data());
 		renderer_->SetScriptLighting(e.rendererInstance, !e.unlit);
+		if (!e.materialName.empty() && textures_)
+			renderer_->SetScriptMaterial(e.rendererInstance, e.materialName, *textures_);
+		renderer_->SetScriptBlendAlpha(e.rendererInstance, e.blendAlpha);
 		for (const auto& kv : e.meshLighting)
 			renderer_->SetScriptMeshLighting(e.rendererInstance, kv.first, kv.second, e.meshLightColor);
 	}

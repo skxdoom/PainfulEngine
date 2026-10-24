@@ -135,8 +135,8 @@ struct WsEntityBase {
 struct WsModel {
 	Vec3 pos;
 	float rot[4] = {};
-	float f700 = 0.f;
-	std::string material;
+	float blendAlpha = 1.f; // +0x700, MDL.SetBlendAlpha
+	std::string material; // +0x7bc, MDL.SetMaterial
 	uint8_t shadow = 0;
 	std::vector<uint8_t> meshVisible; // one per .pkmdl mesh, in file order
 	uint32_t slotCount = 0; // slot 0 is the model's own and not written

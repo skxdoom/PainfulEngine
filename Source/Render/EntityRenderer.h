@@ -225,8 +225,12 @@ public:
 	// while its head is away; monsters hide gib parts the same way.
 	void SetScriptMeshVisibility(int slot, const std::string& meshName, bool visible);
 	// MDL.SetMaterial(entity, name) - swaps this instance to another material
-	// from the shader scripts. Unknown names are left alone and reported.
+	// from the shader scripts; "" puts the meshes' own back. Unknown names are
+	// left alone and reported.
 	void SetScriptMaterial(int slot, const std::string& name, TextureCache& textures);
+	// MDL.SetBlendAlpha: the alpha of the constant colour every pass of the
+	// instance draws with. TextureStages.md, "The constant colour"
+	void SetScriptBlendAlpha(int slot, float alpha);
 	void ReleaseScript(int slot);
 	// World-space size of the instance's model (bind-pose bounds times its
 	// scale) - what ENTITY.GetDimensions reports.
@@ -332,6 +336,8 @@ private:
 		// SetScriptWaterImpacts; all four still until a script starts one.
 		float waterImp[8][4] = {};
 		bool materialOverride = false;
+		// MDL.SetBlendAlpha, Model+0x700: the constant colour's alpha.
+		float blendAlpha = 1.f;
 		MaterialState material;
 		bgfx::TextureHandle stage1 = BGFX_INVALID_HANDLE;
 		Mat4 transform;
