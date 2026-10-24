@@ -115,6 +115,45 @@ void ScriptEngine::TickDeathZones() {
 	}
 }
 
+// ---------------------------------------------------------------- ladders
+
+// World::LoadMeshPak sorts the zone objects by name: "death", "ice", "ladder"
+// (each also in capitals), the rest are visibility zones. A ladder zone is a
+// box, kept as the outward planes of its faces so a turned one is exact.
+void ScriptEngine::BuildLadderZones() {
+	ladderZones_.clear();
+	if (!mapLoaded_) return;
+	const float scale = world_.scale > 0.f ? world_.scale : 1.f;
+	for (const MapObject& o : map_.objects) {
+		if (!o.nameHas("zone") || !o.nameHas("ladder") || o.nameHas("death") || o.nameHas("ice"))
+			continue;
+		std::vector<Vec3> v(o.vertexCount());
+		Vec3 centroid;
+		for (size_t i = 0; i < v.size(); ++i) {
+			Vec3 p;
+			o.position(i, p);
+			v[i] = o.transform.TransformPoint(p) * scale;
+			centroid += v[i];
+		}
+		if (v.empty()) continue;
+		centroid *= 1.f / float(v.size());
+		PlayerPawn::LadderZone z;
+		for (size_t t = 0; t + 2 < o.indices.size(); t += 3) {
+			const uint32_t a = o.indices[t], b = o.indices[t + 1], c = o.indices[t + 2];
+			if (a >= v.size() || b >= v.size() || c >= v.size()) continue;
+			Vec3 n = Cross(v[b] - v[a], v[c] - v[a]);
+			const float len = n.Length();
+			if (len < 1e-6f) continue;
+			n *= 1.f / len;
+			float d = Dot(n, v[a]);
+			if (Dot(n, centroid) - d > 0.f) { n = -n; d = -d; }
+			z.planes.push_back({n[0], n[1], n[2], d});
+		}
+		if (!z.planes.empty()) ladderZones_.push_back(std::move(z));
+	}
+	if (!ladderZones_.empty()) LogInfo("ladder zones: %zu", ladderZones_.size());
+}
+
 // ------------------------------------------------------------------ glass
 
 // One static body per pane, kept out of the static mesh by the same rule that
@@ -614,6 +653,7 @@ int WorldNatives::L_WORLD_LoadMap(lua_State* L) {
 			// named `noclip` - so it is registered separately here.
 			self->BuildWaterSurfaces();
 			self->BuildDeathZones();
+			self->BuildLadderZones();
 			self->BuildGlass();
 		} else {
 			LogWarn("WORLD.LoadMap: %s failed: %s", path.c_str(),

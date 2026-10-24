@@ -53,7 +53,7 @@ int PlayerPawn::StepCheck(const PhysicsWorld& physics, const Vec3& centre,
 }
 
 void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
-		uint32_t action, const Vec3& right, float dt, float simDt) {
+		uint32_t action, const Vec3& forward, const Vec3& right, float dt, float simDt) {
 	if (dt <= 0.f) return;
 	jumpedThisMove_ = false;
 	dt = std::min(dt, 0.05f); // a hitch must not become a teleport
@@ -85,6 +85,8 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
 	const float slowdown = tw("SlowdownDuringJump", mp_ ? 9999.0 : 20.0);
 	const float strongAir = tw("StrongAirControl", 0.2);
 	const float weakAir = tw("WeakAirControl", 0.002);
+	const float stairsUp = tw("StairsUpSpeed", 1.0);
+	const float stairsDown = tw("StairsDownSpeed", 1.0);
 	const float gravity = physics.settings().gravity;
 
 	if (speed_ <= 0.f) speed_ = playerSpeed;
@@ -125,6 +127,15 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
 	Vec3 centre{head_[0], head_[1] - kEyeAboveCentre, head_[2]};
 	const float startX = centre[0], startY = centre[1], startZ = centre[2];
 
+	// PlayerAction tests the feet, then the head, against the ladder zones.
+	// Inside one with jump up, PlayerActionLadder moves the body instead of
+	// the walk; with jump held the frame counts as grounded, so the jump
+	// leaves the ladder. PlayerMovement.md, "Ladders".
+	const Vec3 feet{centre[0], centre[1] - kFloorBelowCentre, centre[2]};
+	const Vec3 eye{centre[0], centre[1] + kEyeAboveCentre, centre[2]};
+	const bool nearLadder = NearLadder(feet) || NearLadder(eye);
+	onLadder_ = nearLadder && !jump;
+
 	// The step response, PlayerAction's switch on StepCheck, and it runs
 	// in every branch - cases 1..3 never test the grounded flag, so shins
 	// meeting a ledge in flight get the same kick. Half the gap to 0.3 of
@@ -160,9 +171,36 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
 	// is the velocity that is spent. Stripping the input alone was not enough -
 	// the grounded walk closes the gap to a wish of zero, which stopped the
 	// throw dead before it left the floor.
-	if (shocked_ > 0.f) {
+	if (onLadder_) {
+		// PlayerActionLadder (0x10191910): no gravity, and the wish is the
+		// camera's forward with its pitch plus the strafe axis. The climb is
+		// StairsUpSpeed / StairsDownSpeed once the wish leans past 0.3 up or
+		// down (0x102af83c, 0x102c864c). A fifth of the gap to wish *
+		// PlayerSpeed per frame; with nothing asked the body keeps 0.7 of its
+		// velocity per frame (the -0.3 at 0x102c8640).
+		float w[3] = {0.f, 0.f, 0.f};
+		for (int c = 0; c < 3; ++c) {
+			if (action & Act::Forward) w[c] += forward[c];
+			if (action & Act::Backward) w[c] -= forward[c];
+			if (action & Act::Right) w[c] += right[c];
+			if (action & Act::Left) w[c] -= right[c];
+		}
+		const float climb = w[1] > 0.3f ? stairsUp : w[1] < -0.3f ? -stairsDown : 0.f;
+		if (w[0] * w[0] + climb * climb + w[2] * w[2] <= 0.f) {
+			const float keep = std::pow(0.7f, dt * 60.f);
+			velX_ *= keep;
+			velY_ *= keep;
+			velZ_ *= keep;
+		} else {
+			const float b = blend(0.2f);
+			velX_ += b * (w[0] * playerSpeed - velX_);
+			velY_ += b * (climb * playerSpeed - velY_);
+			velZ_ += b * (w[2] * playerSpeed - velZ_);
+		}
 		stepping_ = false;
-	} else if (onGround_ && !sliding) {
+	} else if (shocked_ > 0.f) {
+		stepping_ = false;
+	} else if ((onGround_ || nearLadder) && !sliding) {
 		groundedTime_ += dt;
 		// While grounded, PlayerAction stores both the travel direction and
 		// the movement bits on the physics object, every frame - including
@@ -298,7 +336,9 @@ void PlayerPawn::Move(PhysicsWorld& physics, const Tweaks& tweaks,
 
 	// Gravity. Resting on the floor holds the body at its hover instead of
 	// integrating it into the mesh a little every frame.
-	if (resting_ && velY_ <= 0.f) velY_ = 0.f;
+	if (onLadder_) {
+		// PlayerActionLadder sets the body's gravity to zero.
+	} else if (resting_ && velY_ <= 0.f) velY_ = 0.f;
 	else velY_ -= gravity * dt;
 	velY_ = std::max(velY_, -60.f);
 

@@ -3,7 +3,9 @@
 #include "../Core/Vectors.h"
 #include "Input.h"
 
+#include <array>
 #include <cmath>
+#include <vector>
 
 namespace painful {
 
@@ -60,8 +62,24 @@ public:
 	// and simDt the world's, for what it borrows from the simulation (a
 	// platform's carry). PlayerMovement.md, "Slow motion".
 	// Not const: a blocked pawn shoves the character in its way.
+	// `forward` is read on a ladder only, where its pitch decides the climb.
 	void Move(PhysicsWorld& physics, const Tweaks& tweaks, uint32_t action,
-			const Vec3& right, float dt, float simDt);
+			const Vec3& forward, const Vec3& right, float dt, float simDt);
+
+	// A ladder zone: a convex volume as the planes of its faces, n.p - d <= 0
+	// inside (World::NearLadder 0x10059590, the plane test at 0x10054a40).
+	struct LadderZone {
+		std::vector<std::array<float, 4>> planes;
+		bool Contains(const Vec3& p) const {
+			for (const std::array<float, 4>& pl : planes)
+				if (pl[0] * p[0] + pl[1] * p[1] + pl[2] * p[2] - pl[3] > 0.f) return false;
+			return true;
+		}
+	};
+	// The level's ladder zones, owned by the caller; null or empty is none.
+	void SetLadders(const std::vector<LadderZone>* ladders) { ladders_ = ladders; }
+	// PhysicsObject+0x72: the last Move climbed (ENTITY.PO_IsOnLadder).
+	bool onLadder() const { return onLadder_; }
 
 	const float* headPos() const { return head_; }
 	void SetHeadPos(const Vec3& p);
@@ -222,6 +240,14 @@ private:
 	// stored position (PhysicsObject helper +0x54). A teleport clears it.
 	Vec3 lastCentre_;
 	bool haveLast_ = false;
+	const std::vector<LadderZone>* ladders_ = nullptr;
+	bool onLadder_ = false;
+	bool NearLadder(const Vec3& p) const {
+		if (!ladders_) return false;
+		for (const LadderZone& z : *ladders_)
+			if (z.Contains(p)) return true;
+		return false;
+	}
 };
 
 } // namespace painful

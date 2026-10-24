@@ -68,6 +68,7 @@ void ScriptEngine::AttachBillboards(BillboardRenderer* billboards) {
 
 void ScriptEngine::AttachPlayer(PlayerPawn* pawn) {
 	pawn_ = pawn;
+	if (pawn_) pawn_->SetLadders(&ladderZones_);
 }
 
 void ScriptEngine::AttachInput(Input* input) {

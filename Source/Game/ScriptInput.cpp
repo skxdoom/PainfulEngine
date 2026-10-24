@@ -24,6 +24,7 @@ struct InputNatives : ScriptNativesBase {
 	static int L_PO_IsActionState(lua_State* L);
 	static int L_PO_JumpedInLastAction(lua_State* L);
 	static int L_PLAYER_ExecAction(lua_State* L);
+	static int L_PO_IsOnLadder(lua_State* L);
 	static int L_PLAYER_FloorCheck(lua_State* L);
 	static int L_MOUSE_Lock(lua_State* L);
 	static int L_MOUSE_IsLocked(lua_State* L);
@@ -184,14 +185,25 @@ int InputNatives::L_PLAYER_ExecAction(lua_State* L) {
 		return 0;
 	if (!self->physics_) return 0;
 
-	const Vec3 right{float(luaL_optnumber(L, 6, 0)),
-							float(luaL_optnumber(L, 7, 0)),
-							float(luaL_optnumber(L, 8, 0))};
-	self->pawn_->Move(*self->physics_, self->physics_->tweaks(), e->action, right,
+	const Vec3 forward{float(luaL_optnumber(L, 3, 0)), float(luaL_optnumber(L, 4, 0)),
+			float(luaL_optnumber(L, 5, 0))};
+	const Vec3 right{float(luaL_optnumber(L, 6, 0)), float(luaL_optnumber(L, 7, 0)),
+			float(luaL_optnumber(L, 8, 0))};
+	self->pawn_->Move(*self->physics_, self->physics_->tweaks(), e->action, forward, right,
 			self->frameDelta_, self->frameDelta_ * self->timeMultiplier_);
 	e->jumpedLastAction = self->pawn_->jumpedLastMove();
 	self->SyncPlayerFromPawn();
 	return 0;
+}
+
+// ENTITY.PO_IsOnLadder(e) -> PhysicsObject+0x72 (0x10136850), set by a
+// PlayerAction that climbed. CPlayer picks the climbing footsteps by it.
+int InputNatives::L_PO_IsOnLadder(lua_State* L) {
+	ScriptEngine* self = From(L);
+	const int handle = HandleArg(L, 1);
+	lua_pushboolean(L, self->pawn_ && handle == self->playerHandle_ && self->Find(handle) &&
+			self->pawn_->onLadder());
+	return 1;
 }
 
 // PLAYER.FloorCheck(e) - is the player standing on something. CPlayer gates
@@ -233,6 +245,7 @@ void BindInput(ScriptEngine& engine, LuaHost& host) {
 		{"ENTITY", "PO_IsActionState", InputNatives::L_PO_IsActionState},
 		{"ENTITY", "PO_JumpedInLastAction", InputNatives::L_PO_JumpedInLastAction},
 		{"PLAYER", "ExecAction", InputNatives::L_PLAYER_ExecAction},
+		{"ENTITY", "PO_IsOnLadder", InputNatives::L_PO_IsOnLadder},
 		{"PLAYER", "FloorCheck", InputNatives::L_PLAYER_FloorCheck},
 	};
 	RegisterFamily(engine, host, natives);

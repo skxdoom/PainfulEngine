@@ -296,8 +296,8 @@ What the implemented natives buy:
   that reaches the mover through `ENTITY.PO_SetAction` and
   `PLAYER.ExecAction`. Measured against `Tweak.PlayerMove`: walking settles at
   7.9999 m/s against `PlayerSpeed` 8.0, and a jump rises 0.753 m. Air control,
-  the step ladder and what the player collides with all come from the binary —
-  see [`PlayerMovement.md`](Reference/PlayerMovement.md).
+  the step ladder, climbing ladders and what the player collides with all come
+  from the binary — see [`PlayerMovement.md`](Reference/PlayerMovement.md).
 - **The scripts own the camera.** `Game:Tick2` reads `MOUSE.GetDelta`,
   accumulates onto `CAM.GetRawRotation` and writes back through `CAM.SetPos` /
   `SetAng`; the C++ loop feeds the mouse in and adopts the result. The free
@@ -434,7 +434,7 @@ inventory.
   loader's clock, and `PARTICLE.SetImmortal` / `Restart` keep a reusable effect
   alive ([`LuaHost.md`](Reference/LuaHost.md), "Entity lifetime").
   `PHYSICS.SetGravity` is multiplayer-only and stays a stub.
-- No buoyancy, ladders or ice. See [`Physics.md`](Reference/Physics.md).
+- No buoyancy or ice. See [`Physics.md`](Reference/Physics.md).
 - `PLAYER.GetCameraFix` answers a literal 0, so there is no view bob or crouch
   offset on the camera.
 

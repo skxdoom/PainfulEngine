@@ -244,7 +244,7 @@ steers nor slows. A 180° mouse turn keeps the full 8.00 and flips the travel
   (0x102c8690) queues **`PLAYER_HIT_GROUND`** into `Game_GetMsg` — fall
   damage is script-side.
 - Ladders divert to `PlayerActionLadder` when either the head or the floor
-  position is near one - not ported. Moving platforms subtract the mesh-under
+  position is near one ("Ladders" below). Moving platforms subtract the mesh-under
   velocity (`MeshUnder` probed 0.1·h below); here the pawn is carried by the
   body under its resting probe (`PhysicsWorld::CarriedBy`), a stand-in for it.
 
@@ -965,9 +965,66 @@ The sites that DO arm the timer name the player explicitly:
 engaged on TestFloor within 25 seconds of spawning, so that pairing has not been
 caught in a real fight — only in the synthetic A/B above.
 
+## Ladders
+
+Sources: `World::LoadMeshPak` (the zone sort), `World::NearLadder`
+(`0x10059550` box, `0x10059590` point), the plane test `0x10054a40`,
+`PhysicsObject::PlayerAction` (`0x10192260`) and `PlayerActionLadder`
+(`0x10191910`), the native `ENTITY.PO_IsOnLadder` (`0x10136850`).
+
+**What a ladder is.** Not the rungs: a zone. `World::LoadMeshPak` sorts the
+map's zone objects by name - `death`, `ice`, `ladder` (each also in capitals),
+in that order, and the rest are visibility zones - and keeps the ladder ones
+in a list at `World+0x28`. 26 maps ship them, every one a 24-vertex box named
+some mix of `ladder` and `zone` (`ladderzone4shape`, `zone_ladder_drabka101shape`,
+`ladder_zoneshape1`), standing a little proud of the ladder's front so the
+player's body, stopped by the rungs, still has its feet or head inside.
+
+`NearLadder(point)` is true when the point is inside any of them: a zone
+flagged as a box tests its AABB, any other its face planes, inside when
+`n.p - d <= 0` for every one. The port keeps every ladder zone as its planes,
+which is the same answer for a box and exact for a turned one.
+
+**When it applies.** `PlayerAction` clears `PhysicsObject+0x72`, tests the
+floor point (`GetPawnFloorPos`) and then the head (`GetPawnHeadPos`), and on
+either:
+
+- jump **up**: sets `+0x72`, calls `PlayerActionLadder(forward, right)`,
+  clears the action bits and returns - none of the walk, the floor rays or the
+  air rule run that frame;
+- jump **held**: carries on as a normal frame, but the grounded flag treats
+  "near a ladder" as standing, so the jump is taken and leaves the ladder.
+
+`ENTITY.PO_IsOnLadder(e)` answers `+0x72`, which `CPlayer:Tick` reads to pick
+the climbing footsteps.
+
+**`PlayerActionLadder`.** Gravity off. The wish is built from the action bits
+on the camera basis PLAYER.ExecAction passes - forward **with its pitch**, and
+the right vector - unnormalised:
+
+| | |
+|---|---|
+| wish | `+forward` (Forward), `-forward` (Backward), `+right` (Right), `-right` (Left) |
+| climb | `StairsUpSpeed` when `wish.y > 0.3`, `-StairsDownSpeed` when `wish.y < -0.3`, else 0 (`0x102af83c`, `0x102c864c`) |
+| target | `(wish.x, climb, wish.z) * PlayerSpeed` |
+| impulse | `(target - v) * 0.2 * mass` (`0x102b3b80`), over the world speed |
+| nothing asked | `v * -0.3 * mass` (`0x102c8640`, a double): the body keeps 0.7 of its velocity per frame |
+
+So pressing Forward while looking up climbs and looking down descends;
+looking level walks into the rungs and goes nowhere. With the stock tweaks
+(`PlayerSpeed` 8, both stairs speeds 1) a climb settles at 8 units a second.
+A jump branch in the function (`JumpStrength * 0.7` straight up) is
+unreachable from `PlayerAction`, which never calls it with jump held.
+
+The port runs this as a branch of `PlayerPawn::Move` ahead of the walk, the
+factors spent per 60 Hz frame as everywhere else, and the sweep and the floor
+rays after it as for any frame. Measured on Bridge's first ladder, walking in
+from its open side and looking up: on the ladder from the first frames, 14
+units up in 150 frames; from behind, never on it.
+
 ## Not yet ported
 
-Ice, ladders, underwater (`UnderwaterSpeed` family),
+Ice, underwater (`UnderwaterSpeed` family),
 double-jump (`AbsoluteVerticalVelocityBelowWhichDoubleJumpHappens`), and the
 rest of `MultiPlayerAction` (its air rule and tweak block are in, behind `-mp`;
 the walk acceleration and deceleration are not).

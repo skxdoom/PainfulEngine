@@ -23,6 +23,7 @@
 #include "../World/Lighting.h"
 #include "../World/PhysicsWorld.h"
 #include "Input.h"
+#include "PlayerPawn.h"
 
 namespace painful {
 
@@ -740,6 +741,8 @@ public:
 	// flagged entity inside an enabled one gets one IN_DEATH_ZONE message.
 	void BuildDeathZones();
 	void TickDeathZones();
+	// The map's ladder zones, handed to the pawn. PlayerMovement.md, "Ladders".
+	void BuildLadderZones();
 	// The glass panes, built with the active meshes because they need physics.
 	// BreakGlassAt answers WORLD.CheckStartGlass: true when the point is in a
 	// pane, which also takes that pane out of the world.
@@ -1264,6 +1267,7 @@ private:
 		bool enabled = true;
 	};
 	std::vector<DeathZone> deathZones_;
+	std::vector<PlayerPawn::LadderZone> ladderZones_;
 	// The level's breakable panes, one static body each so a broken one can be
 	// taken out of the world. Physics.md, "Glass".
 	struct GlassPane {

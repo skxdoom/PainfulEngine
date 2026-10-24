@@ -2275,10 +2275,11 @@ as its pose is the animation's.
 
 ## What is missing
 
-- **No water buoyancy, no ladders, no ice.** Each is a named piece of the
-  original: `EnableUnderwaterWorld` and `Tweak.Underwater`,
-  `World::NearLadder`, `World::OnIce`. Glass breaks but does not shatter
-  (Glass above).
+- **No water buoyancy, no ice.** Each is a named piece of the original:
+  `EnableUnderwaterWorld` and `Tweak.Underwater`, `World::OnIce` (the `ice`
+  zones, sorted beside the ladder ones). Ladders are in
+  ([PlayerMovement.md](PlayerMovement.md), "Ladders"). Glass breaks but does
+  not shatter (Glass above).
 - **Explosions land, with one part missing**: the closest-point pass over
   world meshes. Listed under Explosions above.
 - **Monsters are Havok bodies stood in for by Jolt ones.** The tick rule is
