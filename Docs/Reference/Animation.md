@@ -159,6 +159,33 @@ joint rotation moves:
   apply it in the parent's frame and move bone 5 too, swinging the head off
   the neck.
 
+### Joint offsets are world units
+
+A model's scale never reaches its world matrix. `ENTITY.Create(Model, name,
+tag, scale)` (`0x1011DC00`) hands the scale to `World::CreateEntity`, which
+passes it to `Model::Load` (`0x101E1BA0`) and on to the mesh cache, keyed by
+name and scale (`FUN_1001B450`); `AnimatedMesh::LoadPreprocess`
+(`0x10008A50`) multiplies every vertex by it and hands it to
+`BindSkeleton::NormalizeJoints`. The joints are then built from each key's
+quaternion (`FUN_1000BB90`) and translation, composed down from the model's
+own matrix (`FUN_10047FF0`), so a joint's transform is rigid: a rotation and
+a position already at the model's size.
+
+So `MDL.TransformPointByJoint(e, j, x, y, z)` (`0x1012CA40`:
+`Model::GetJointTransform`, then the point through it) takes the point in the
+joint's frame in **world units**: the joint's position plus its rotation of
+`(x, y, z)`, whatever the model's scale. The scripts write them that way:
+`PLoonyPark` clears the track 3.5 ahead of the cart and 1 below it, Maso's
+reach runs `0.2 + attackRange` along its arm, the Military Base gun fires
+from 5.6 down its barrel, and the Panzer Spider's shots leave from
+`pos1Offset` / `pos2Offset`. The port's skeleton is in model units scaled
+by the entity, so the native takes the joint's origin and scales the turned
+offset back to world units.
+
+Points that are model geometry (hitbox hulls, a stake's offset taken by
+`ENTITY.ComputeChildMatrix`) still go through the scaled joint, which is
+where they live.
+
 ### Left open, deliberately
 
 `ApplyJointRotation` SETS a bone's rotation rather than accumulating. Every

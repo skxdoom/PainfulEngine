@@ -564,9 +564,10 @@ int AnimNatives::L_MDL_GetJointName(lua_State* L) {
 // plus that bone's rotation: x,y,z,rw,rx,ry,rz. It is how a muzzle flash sits
 // at the barrel and how anything else rides a skeleton.
 //
-// The point arrives in the bone's own space, which is why the scripts treat
-// TransformPointByJoint(e, j, 0,0,0) and GetJointPos(e, j) as the same
-// question - and they say so, in a comment at CActor's own call site.
+// The point is in the bone's frame and in WORLD units (0x1012CA40 through
+// Model::GetJointTransform): a model's scale is baked into its mesh and
+// skeleton at load (AnimatedMesh::LoadPreprocess 0x10008A50), so its joint
+// transforms are rigid. Animation.md, "Joint offsets are world units"
 //
 // It has to return all seven values whatever happens. Returning nothing is
 // what the stub did, and once the animation clock let weapons reach this at
@@ -579,9 +580,14 @@ int AnimNatives::L_MDL_TransformPointByJoint(lua_State* L) {
 	const Vec3 local{float(lua_tonumber(L, 3)), float(lua_tonumber(L, 4)),
 							float(lua_tonumber(L, 5))};
 
-	Vec3 world;
-	if (!e || !self->JointToWorld(*e, joint, local, world))
+	Vec3 world, origin;
+	if (e && self->JointToWorld(*e, joint, Vec3(), origin) && self->JointToWorld(*e, joint, local, world)) {
+		// JointToWorld carries a model-space point, so the offset comes back
+		// scaled by the entity: undo that and keep the bone's turn alone.
+		if (e->scale > 1e-6f) world = origin + (world - origin) * (1.f / e->scale);
+	} else {
 		for (int c = 0; c < 3; ++c) world[c] = e ? e->pos[c] : 0.f;
+	}
 	for (int c = 0; c < 3; ++c) lua_pushnumber(L, world[c]);
 
 	// The bone's orientation, composed with the entity's own so the result is

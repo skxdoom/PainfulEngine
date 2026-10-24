@@ -1012,9 +1012,16 @@ The port keeps the quaternion until the ride ends rather than for one frame,
 and `Camera::ViewProj` carries forward and up through it; the view-attached
 weapon is placed in the same rotated basis. A reflection camera drops it.
 
-**Open:** the ride also explodes `WORLD.Explosion2` at
-`TransformPointByJoint(cart, joint, 3.5, -1, 0)` each tick to clear the track,
-and in the port that blast kills the rider (Plan.md, "Open questions").
+**The blast ahead.** Every tick the ride also explodes `WORLD.Explosion2(..,
+2000, 2.2, nil, Rocket, 2000)` at `TransformPointByJoint(cart, joint, 3.5,
+-1, 0)` to clear the track. The offset is in world units
+([`Animation.md`](Animation.md), "Joint offsets are world units"), so the
+blast runs 3.5 ahead of the cart, well clear of the rider's body. The player's
+body is in the blast's reach like any other: `EngineGame::CreatePlayer`
+creates it outside the world (`PhysicsWorld::CreatePhysicsObject`'s last
+argument skips the add and the explosion list at `+0xcc`), and
+`Game:SwitchPlayerToPhysics`'s `ENTITY.PO_Enable` puts it in both
+(`PhysicsObject::Enable` `0x101907D0`).
 
 ## Ladders
 
