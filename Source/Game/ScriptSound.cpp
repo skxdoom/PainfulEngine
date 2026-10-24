@@ -30,6 +30,7 @@ struct SoundNatives : ScriptNativesBase {
 	template <bool Positional> static int L_SND_Forget(lua_State* L);
 	static int L_SND_PlayAndForget(lua_State* L);
 	static int L_SOUND_PreloadFile(lua_State* L);
+	static int L_SOUND_SetSoundSpeedRandomizer(lua_State* L);
 	static int L_SND_SetObstructed(lua_State* L);
 	static int L_SOUND_SetObstructionProperties(lua_State* L);
 	static int L_SOUND_SaveGame_ResumeSounds(lua_State* L);
@@ -151,8 +152,9 @@ int SoundNatives::L_SND_Create2D(lua_State* L) {
 	ScriptEngine* self = From(L);
 	if (!self->audio_) return 0;
 	const AudioEngine::Voice v = self->audio_->Create(SoundName(L, 1), false);
-	// Argument 3 fixes the speed at 1, which a created voice here already has.
+	// Argument 3, noRandomize, keeps the speed at 1 (Sound2D_CreateEx).
 	if (v >= 0) {
+		if (!lua_toboolean(L, 3)) self->audio_->SetSpeed(v, self->audio_->RandomSpeed());
 		self->audio_->SetSameSpeed(v, lua_toboolean(L, 2) != 0);
 		if (lua_toboolean(L, 4)) self->audio_->SetDontSave(v);
 	}
@@ -163,7 +165,10 @@ int SoundNatives::L_SND_Create2D(lua_State* L) {
 int SoundNatives::L_SND_Create3D(lua_State* L) {
 	ScriptEngine* self = From(L);
 	if (!self->audio_) return 0;
-	lua_pushnumber(L, AudioEngine::IdOf(self->audio_->Create(SoundName(L, 1), true)));
+	// Sound3D_Create (0x101F6260) takes the spread every time.
+	const AudioEngine::Voice v = self->audio_->Create(SoundName(L, 1), true);
+	if (v >= 0) self->audio_->SetSpeed(v, self->audio_->RandomSpeed());
+	lua_pushnumber(L, AudioEngine::IdOf(v));
 	return 1;
 }
 
@@ -291,6 +296,14 @@ int SoundNatives::L_SOUND_PreloadFile(lua_State* L) {
 	if (name.size() > 4 && lower.compare(lower.size() - 4, 4, ".wav") == 0)
 		name.erase(name.size() - 4);
 	self->audio_->Preload(name);
+	return 0;
+}
+
+// SOUND.SetSoundSpeedRandomizer(r) - 0x10125310; Game:Init passes
+// Cfg.DisturbSound3DFreq. Sound.md, "Pitch"
+int SoundNatives::L_SOUND_SetSoundSpeedRandomizer(lua_State* L) {
+	ScriptEngine* self = From(L);
+	if (self->audio_) self->audio_->SetSpeedRandomizer(float(luaL_optnumber(L, 1, 0)));
 	return 0;
 }
 
@@ -1023,6 +1036,7 @@ void BindSound(ScriptEngine& engine, LuaHost& host) {
 		{"SOUND", "Play3D", SoundNatives::L_SOUND_Play3D},
 		{"SOUND", "SetSoundProperties", SoundNatives::L_SOUND_SetSoundProperties},
 		{"SOUND", "PreloadFile", SoundNatives::L_SOUND_PreloadFile},
+		{"SOUND", "SetSoundSpeedRandomizer", SoundNatives::L_SOUND_SetSoundSpeedRandomizer},
 		{"SOUND", "SetObstructionProperties", SoundNatives::L_SOUND_SetObstructionProperties},
 		{"SOUND", "SetPlayerPos", SoundNatives::L_SOUND_SetPlayerPos},
 		{"SOUND", "SetPlayerOrientation", SoundNatives::L_SOUND_SetPlayerOrientation},

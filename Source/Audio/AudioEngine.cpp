@@ -395,6 +395,12 @@ AudioEngine::Voice AudioEngine::Open(const std::string& name, bool positional, b
 	return p.key;
 }
 
+// FUN_101EF950 / FUN_101EDCA0: (rand() / 32767 * 2 - 1) * MilesEngine+0x4c + 1.
+float AudioEngine::RandomSpeed() const {
+	const float u = float(SDL_rand(32768)) / 32767.f;
+	return 1.f + (u * 2.f - 1.f) * speedRandomizer_;
+}
+
 AudioEngine::Voice AudioEngine::Create(const std::string& name, bool positional) {
 	return Open(name, positional, true);
 }
@@ -417,9 +423,9 @@ AudioEngine::Voice AudioEngine::Play2D(const std::string& name, float volume,
 	p->gain[0] = p->gain[1] = p->volume;
 	// Never loops. A held 2D loop is SOUND2D.Create + Play, not this call.
 	p->loopsLeft = 0;
-	// A touch of pitch variation stops a repeated footfall sounding like a
-	// machine; the soundsDef sets disablePitch where that would be wrong.
-	p->speed = noPitch ? 1.0 : 0.95 + 0.1 * (double(SDL_rand(1000)) / 1000.0);
+	// The engine's pitch spread (Sound2D_CreateEx's constructor); the soundsDef
+	// sets disablePitch where that would be wrong.
+	p->speed = noPitch ? 1.0 : double(RandomSpeed());
 	p->playing = true;
 	p->startedMs = NowMs();
 	TryToPlayReal(*p, p->startedMs);
@@ -436,7 +442,7 @@ AudioEngine::Voice AudioEngine::Play3D(const std::string& name, const Vec3& pos,
 	for (int c = 0; c < 3; ++c) p->pos[c] = pos[c];
 	p->dist1 = dist1;
 	p->dist2 = dist2;
-	p->speed = noPitch ? 1.0 : 0.95 + 0.1 * (double(SDL_rand(1000)) / 1000.0);
+	p->speed = noPitch ? 1.0 : double(RandomSpeed());
 	ComputeGains(*p);
 	p->playing = true;
 	p->startedMs = NowMs();

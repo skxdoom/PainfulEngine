@@ -1,5 +1,6 @@
 #pragma once
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include "../Core/Vectors.h"
 #include <functional>
@@ -56,6 +57,13 @@ public:
 	// soundsDef files carry both per sound.
 	Voice Play3D(const std::string& name, const Vec3& pos, float dist1, float dist2,
 			bool noPitch);
+	// SOUND.SetSoundSpeedRandomizer (MilesEngine 0x101F0360): a new sound plays
+	// at 1 + R * (2u - 1), u uniform in 0..1, |R| held under 0.99; 0 until the
+	// scripts set it. RandomSpeed draws one. Sound.md, "Pitch"
+	void SetSpeedRandomizer(float r) {
+		speedRandomizer_ = std::fabs(r) >= 0.99f ? 0.99f : std::fabs(r);
+	}
+	float RandomSpeed() const;
 	// SOUND.PreloadFile (MilesEngine::PreloadFile 0x101F5DE0): decoded now, at
 	// level load, rather than on its first play; nothing holds it.
 	void Preload(const std::string& name) { Load(name); }
@@ -341,6 +349,7 @@ private:
 	std::unordered_map<std::string, std::pair<int, int>> pendingProps_;
 	int defaultMaxInstances_ = 100;
 	int defaultIntervalMs_ = 0;
+	float speedRandomizer_ = 0.f; // MilesEngine+0x4c
 	// MilesEngine +0x2d0..+0x2e8 as its constructor sets them; no script
 	// calls SetObstructionProperties.
 	struct Obstruction {

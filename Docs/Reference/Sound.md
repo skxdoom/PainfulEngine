@@ -309,6 +309,21 @@ assumption here: Miles' own documentation says the software providers stop
 mixing beyond the maximum distance, and `MilesEngine::Tick` drops those
 voices too, which is where the port's demotion came from.
 
+## Pitch
+
+Every sound the engine makes gets a playback speed of its own when it is
+created: `(rand() / 32767 * 2 - 1) * R + 1`, uniform in `1 ± R`
+(`FUN_101EF950` for 3D, `FUN_101EDCA0` for 2D). `R` is `MilesEngine+0x4c`,
+0 from the constructor; `SOUND.SetSoundSpeedRandomizer(r)` (`0x10125310` →
+`0x101F0360`) sets `|r|`, held under 0.99, and `Game:Init` passes
+`Cfg.DisturbSound3DFreq`, 0.1 by default: a tenth either way.
+
+What keeps the speed at 1: `Play2D` / `Play3D`'s `noRandomize` (the
+soundsDef's `disablePitch`), `SOUND2D.Create`'s third argument, and the
+3D creator's own flag, which `SOUND3D.Create` (`Sound3D_Create` `0x101F6260`)
+never sets, so the ambients vary too. The port drew a spread of its own before
+this was read, a twentieth either way.
+
 ## Preloading
 
 `SOUND.PreloadFile(path)` (`0x10125430` → `MilesEngine::PreloadFile`
